@@ -1,0 +1,1457 @@
+import { parsePortfolioJson } from "./core/importers.mjs";
+import { portfolioValue } from "./core/portfolio.mjs";
+import { DEFAULT_SCENARIO, runHistoricalBacktests, runMonteCarlo, simulatePlan } from "./core/simulation.mjs";
+import { round } from "./core/utils.mjs";
+import { defaultOneOffExpenses, sampleAssets } from "./data/sample.mjs";
+import {
+  assetClassesInPortfolio,
+  historicalCoverageForAssetClasses,
+  HISTORICAL_RETURN_DATA_VERSION,
+  makeHistoricalSequences
+} from "./data/historicalReturns.mjs";
+import { buildAcaConfig, buildTaxProfile, STATE_OPTIONS } from "./data/taxData.mjs";
+
+const moneyFormatter = new Intl.NumberFormat("en-US", {
+  style: "currency",
+  currency: "USD",
+  maximumFractionDigits: 0
+});
+const numberFormatter = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
+const unitFormatter = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
+const percentFormatter = new Intl.NumberFormat("en-US", {
+  style: "percent",
+  maximumFractionDigits: 1
+});
+
+const STORAGE_KEY = "portfolio-success-lab:v3";
+const CONTROL_IDS = [
+  "viewMode",
+  "planYears",
+  "runs",
+  "seed",
+  "targetSpend",
+  "backtestMode",
+  "historicalStartYear",
+  "historicalEndYear",
+  "historicalChunkYears",
+  "taxYear",
+  "filingStatus",
+  "stateSelect",
+  "householdSize",
+  "marketplaceMembers",
+  "currentAge",
+  "retirementPenaltyAge",
+  "rothBasis",
+  "expectedOopPercent",
+  "includeTaxes",
+  "includeMedical",
+  "acaEnabled",
+  "medicalBase",
+  "oopMaxOverride",
+  "acaPremium",
+  "acaFpl",
+  "qualifyingChildren",
+  "additionalFederalDeduction",
+  "additionalFederalCredits",
+  "stateTaxRate",
+  "separateStateGains",
+  "stateCapitalRate",
+  "taxLossHarvesting",
+  "tlhMax",
+  "taxGainHarvesting",
+  "tghMax",
+  "rothConversion",
+  "rothAmount",
+  "rothTargetRate",
+  "oneOffName",
+  "oneOffStart",
+  "oneOffEnd",
+  "oneOffAmount",
+  "oneOffInflation",
+  "flowMode",
+  "yearRange",
+  "sheetUrl"
+];
+
+const els = {
+  status: document.querySelector("#status"),
+  planTab: document.querySelector("#planTab"),
+  setupTab: document.querySelector("#setupTab"),
+  runModel: document.querySelector("#runModel"),
+  viewMode: document.querySelector("#viewMode"),
+  assetTable: document.querySelector("#assetTable"),
+  assetJson: document.querySelector("#assetJson"),
+  loadJson: document.querySelector("#loadJson"),
+  downloadJson: document.querySelector("#downloadJson"),
+  jsonFile: document.querySelector("#jsonFile"),
+  sheetUrl: document.querySelector("#sheetUrl"),
+  loadSheet: document.querySelector("#loadSheet"),
+  addAsset: document.querySelector("#addAsset"),
+  planYears: document.querySelector("#planYears"),
+  runs: document.querySelector("#runs"),
+  seed: document.querySelector("#seed"),
+  targetSpend: document.querySelector("#targetSpend"),
+  backtestMode: document.querySelector("#backtestMode"),
+  historicalStartYear: document.querySelector("#historicalStartYear"),
+  historicalEndYear: document.querySelector("#historicalEndYear"),
+  historicalChunkYears: document.querySelector("#historicalChunkYears"),
+  taxYear: document.querySelector("#taxYear"),
+  filingStatus: document.querySelector("#filingStatus"),
+  stateSelect: document.querySelector("#stateSelect"),
+  householdSize: document.querySelector("#householdSize"),
+  marketplaceMembers: document.querySelector("#marketplaceMembers"),
+  currentAge: document.querySelector("#currentAge"),
+  retirementPenaltyAge: document.querySelector("#retirementPenaltyAge"),
+  rothBasis: document.querySelector("#rothBasis"),
+  expectedOopPercent: document.querySelector("#expectedOopPercent"),
+  includeTaxes: document.querySelector("#includeTaxes"),
+  includeMedical: document.querySelector("#includeMedical"),
+  acaEnabled: document.querySelector("#acaEnabled"),
+  medicalBase: document.querySelector("#medicalBase"),
+  oopMaxOverride: document.querySelector("#oopMaxOverride"),
+  acaPremium: document.querySelector("#acaPremium"),
+  acaFpl: document.querySelector("#acaFpl"),
+  qualifyingChildren: document.querySelector("#qualifyingChildren"),
+  additionalFederalDeduction: document.querySelector("#additionalFederalDeduction"),
+  additionalFederalCredits: document.querySelector("#additionalFederalCredits"),
+  stateTaxRate: document.querySelector("#stateTaxRate"),
+  separateStateGains: document.querySelector("#separateStateGains"),
+  stateCapitalRate: document.querySelector("#stateCapitalRate"),
+  taxLossHarvesting: document.querySelector("#taxLossHarvesting"),
+  tlhMax: document.querySelector("#tlhMax"),
+  taxGainHarvesting: document.querySelector("#taxGainHarvesting"),
+  tghMax: document.querySelector("#tghMax"),
+  rothConversion: document.querySelector("#rothConversion"),
+  rothAmount: document.querySelector("#rothAmount"),
+  rothTargetRate: document.querySelector("#rothTargetRate"),
+  oneOffName: document.querySelector("#oneOffName"),
+  oneOffStart: document.querySelector("#oneOffStart"),
+  oneOffEnd: document.querySelector("#oneOffEnd"),
+  oneOffAmount: document.querySelector("#oneOffAmount"),
+  oneOffInflation: document.querySelector("#oneOffInflation"),
+  addOneOff: document.querySelector("#addOneOff"),
+  oneOffList: document.querySelector("#oneOffList"),
+  kpis: document.querySelector("#kpis"),
+  flowMode: document.querySelector("#flowMode"),
+  yearRange: document.querySelector("#yearRange"),
+  yearLabel: document.querySelector("#yearLabel"),
+  sankeySvg: document.querySelector("#sankeySvg"),
+  timelineSvg: document.querySelector("#timelineSvg"),
+  distributionSvg: document.querySelector("#distributionSvg"),
+  yearTable: document.querySelector("#yearTable"),
+  scenarioTable: document.querySelector("#scenarioTable"),
+  backtestTable: document.querySelector("#backtestTable"),
+  actionPlan: document.querySelector("#actionPlan"),
+  actionPlanNote: document.querySelector("#actionPlanNote"),
+  assetBreakdownTable: document.querySelector("#assetBreakdownTable")
+};
+
+let assets = sampleAssets.map((asset) => ({ ...asset }));
+let oneOffExpenses = defaultOneOffExpenses.map((expense) => ({ ...expense }));
+let selectedYearIndex = 0;
+let selectedScenarioId = null;
+let selectedBacktestIndex = null;
+let latest = null;
+let activeScreen = "plan";
+
+initialize();
+
+function initialize() {
+  renderStateOptions();
+  loadStoredState();
+  syncJsonFromAssets();
+  renderAssetTable();
+  renderOneOffs();
+  bindEvents();
+  setActiveScreen(activeScreen);
+  runModels();
+}
+
+function bindEvents() {
+  els.planTab.addEventListener("click", () => setActiveScreen("plan"));
+  els.setupTab.addEventListener("click", () => setActiveScreen("setup"));
+  els.runModel.addEventListener("click", runModels);
+  els.viewMode.addEventListener("change", renderLatest);
+  els.flowMode.addEventListener("change", renderFlowAndSales);
+  CONTROL_IDS.forEach((id) => {
+    const input = document.querySelector(`#${id}`);
+    if (!input) return;
+    input.addEventListener("change", saveStoredState);
+    input.addEventListener("input", saveStoredState);
+  });
+  els.yearRange.addEventListener("input", () => {
+    selectedYearIndex = Number(els.yearRange.value) - 1;
+    clampSelectedYearToVisible();
+    renderFlowAndSales();
+    renderYearLabel();
+    renderKpis();
+    renderYearTable();
+    renderAssetBreakdown();
+  });
+
+  els.addAsset.addEventListener("click", () => {
+    assets.push({
+      id: `asset-${assets.length + 1}`,
+      name: "New Asset",
+      accountType: "taxable",
+      assetClass: "stock",
+      holdingPeriod: "long",
+      units: 100,
+      price: 100,
+      costBasisPerUnit: 100,
+      dividendYield: 0,
+      qualifiedDividendShare: 1
+    });
+    renderAssetTable();
+    syncJsonFromAssets();
+    saveStoredState();
+  });
+
+  els.loadJson.addEventListener("click", () => {
+    try {
+      assets = parsePortfolioJson(els.assetJson.value);
+      renderAssetTable();
+      saveStoredState();
+      setStatus(`Loaded ${assets.length} assets from JSON.`);
+    } catch (error) {
+      setStatus(error.message, true);
+    }
+  });
+
+  els.downloadJson.addEventListener("click", () => {
+    syncJsonFromAssets();
+    const blob = new Blob([els.assetJson.value], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "portfolio-assets.json";
+    link.click();
+    URL.revokeObjectURL(url);
+  });
+
+  els.jsonFile.addEventListener("change", async () => {
+    const file = els.jsonFile.files?.[0];
+    if (!file) return;
+    els.assetJson.value = await file.text();
+    els.loadJson.click();
+  });
+
+  els.loadSheet.addEventListener("click", async () => {
+    const url = toGoogleCsvUrl(els.sheetUrl.value.trim());
+    if (!url) return setStatus("Enter a Google Sheets CSV URL.", true);
+    try {
+      setStatus("Importing sheet...");
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`Sheet request failed: ${response.status}`);
+      const rows = parseCsv(await response.text());
+      assets = parsePortfolioJson(JSON.stringify({ assets: rows }));
+      renderAssetTable();
+      syncJsonFromAssets();
+      saveStoredState();
+      setStatus(`Imported ${assets.length} assets from sheet.`);
+    } catch (error) {
+      setStatus(error.message, true);
+    }
+  });
+
+  els.addOneOff.addEventListener("click", () => {
+    oneOffExpenses.push({
+      name: els.oneOffName.value || "One-off expense",
+      startYear: Number(els.oneOffStart.value),
+      endYear: Number(els.oneOffEnd.value),
+      amount: Number(els.oneOffAmount.value),
+      inflationAdjusted: els.oneOffInflation.checked
+    });
+    renderOneOffs();
+    saveStoredState();
+  });
+}
+
+function renderStateOptions() {
+  els.stateSelect.innerHTML = STATE_OPTIONS.map((state) => (
+    `<option value="${escapeAttr(state)}" ${state === "Florida" ? "selected" : ""}>${escapeHtml(state)}</option>`
+  )).join("");
+}
+
+function setActiveScreen(screen) {
+  const isSetup = screen === "setup";
+  activeScreen = isSetup ? "setup" : "plan";
+  document.body.dataset.screen = isSetup ? "setup" : "plan";
+  els.setupTab.classList.toggle("active", isSetup);
+  els.planTab.classList.toggle("active", !isSetup);
+  saveStoredState();
+}
+
+function loadStoredState() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
+    if (!stored || typeof stored !== "object") return;
+
+    if (Array.isArray(stored.assets)) assets = stored.assets.map((asset) => ({ ...asset }));
+    if (Array.isArray(stored.oneOffExpenses)) {
+      oneOffExpenses = stored.oneOffExpenses.map((expense) => ({ ...expense }));
+    }
+    activeScreen = stored.activeScreen === "setup" ? "setup" : "plan";
+
+    for (const [id, value] of Object.entries(stored.controls ?? {})) {
+      const input = document.querySelector(`#${id}`);
+      if (!input || input.type === "file") continue;
+      if (input.type === "checkbox") {
+        input.checked = Boolean(value);
+      } else {
+        input.value = value ?? "";
+      }
+    }
+  } catch (error) {
+    console.warn("Saved state could not be loaded.", error);
+  }
+}
+
+function saveStoredState() {
+  try {
+    const controls = {};
+    for (const id of CONTROL_IDS) {
+      const input = document.querySelector(`#${id}`);
+      if (!input || input.type === "file") continue;
+      controls[id] = input.type === "checkbox" ? input.checked : input.value;
+    }
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      activeScreen,
+      controls,
+      assets,
+      oneOffExpenses
+    }));
+  } catch (error) {
+    console.warn("Saved state could not be written.", error);
+  }
+}
+
+function runModels() {
+  try {
+    const started = performance.now();
+    saveStoredState();
+    const scenario = readScenario();
+    const taxProfile = readTaxProfile();
+    const runs = clampInteger(Number(els.runs.value), 10, 2000);
+    const seed = Number(els.seed.value) || 42;
+    const historicalAssetClasses = assetClassesInPortfolio(assets);
+    const historicalCoverage = historicalCoverageForAssetClasses(historicalAssetClasses);
+    const historicalSequences = makeHistoricalSequences({
+      planYears: scenario.planYears,
+      mode: els.backtestMode.value,
+      startYear: Number(els.historicalStartYear.value) || historicalCoverage?.startYear,
+      endYear: Number(els.historicalEndYear.value) || historicalCoverage?.endYear,
+      chunkYears: Number(els.historicalChunkYears.value) || 10,
+      requiredAssetClasses: historicalAssetClasses
+    });
+
+    setStatus("Running projections...");
+    latest = {
+      scenario,
+      taxProfile,
+      historicalCoverage,
+      historicalAssetClasses,
+      plan: simulatePlan({ assets, scenario, taxProfile }),
+      monteCarlo: runMonteCarlo({ assets, scenario, taxProfile, runs, seed }),
+      backtests: runHistoricalBacktests({
+        assets,
+        scenario,
+        taxProfile,
+        sequences: historicalSequences
+      })
+    };
+
+    selectedYearIndex = Math.min(selectedYearIndex, scenario.planYears - 1);
+    els.yearRange.max = String(scenario.planYears);
+    els.yearRange.value = String(selectedYearIndex + 1);
+    selectedScenarioId = latest.monteCarlo.scenarios[0]?.id ?? null;
+    selectedBacktestIndex = null;
+    renderLatest();
+    setStatus(`Completed ${runs} Monte Carlo runs and ${latest.backtests.length} historical backtests in ${Math.round(performance.now() - started)} ms.`);
+  } catch (error) {
+    console.error(error);
+    setStatus(error.message, true);
+  }
+}
+
+function renderLatest() {
+  if (!latest) return;
+  clampSelectedYearToVisible();
+  renderKpis();
+  renderFlowAndSales();
+  drawTimeline();
+  drawDistribution();
+  renderYearTable();
+  renderAssetBreakdown();
+  renderScenarioTable();
+  renderBacktests();
+}
+
+function renderKpis() {
+  const years = activeVisibleYears();
+  const currentYear = years[selectedYearIndex] ?? years[0];
+  const finalYear = years.at(-1);
+  const summary = latest.monteCarlo.summary;
+  const adjustedMedian = adjustAmount(summary.medianEndingValue, finalYear);
+  const adjustedP10 = adjustAmount(summary.p10EndingValue, finalYear);
+  const adjustedHeir = adjustAmount(summary.medianHeirValue, finalYear);
+  const kpis = [
+    ["Success rate", percentFormatter.format(summary.successRate)],
+    ["Median ending", moneyFormatter.format(adjustedMedian)],
+    ["P10 ending", moneyFormatter.format(adjustedP10)],
+    ["Median heir value", moneyFormatter.format(adjustedHeir)],
+    ["Selected year tax", moneyFormatter.format(adjustAmount(currentYear.taxes.totalTax, currentYear))]
+  ];
+
+  els.kpis.innerHTML = kpis.map(([label, value]) => `
+    <div class="kpi">
+      <span>${escapeHtml(label)}</span>
+      <strong>${escapeHtml(value)}</strong>
+    </div>
+  `).join("");
+}
+
+function renderFlowAndSales() {
+  if (!latest) return;
+  clampSelectedYearToVisible();
+  const years = activeVisibleYears();
+  const year = years[selectedYearIndex];
+  renderYearLabel();
+  const flows = els.flowMode.value === "total"
+    ? portfolioFlowsForYear(year)
+    : flowsForYear(year);
+  els.sankeySvg.setAttribute(
+    "aria-label",
+    els.flowMode.value === "total"
+      ? "Yearly portfolio flow diagram"
+      : "Yearly cash flow diagram"
+  );
+  drawSankey(els.sankeySvg, flows);
+  renderActionPlan();
+}
+
+function renderYearLabel() {
+  const year = activeVisibleYears()[selectedYearIndex];
+  els.yearLabel.textContent = year ? `${year.year}` : `Year ${selectedYearIndex + 1}`;
+}
+
+function renderYearTable() {
+  const years = activeVisibleYears();
+  const rows = years.map((year) => [
+    year.year,
+    returnPercent(year, "stock"),
+    returnPercent(year, "bond"),
+    returnPercent(year, "realEstate"),
+    returnPercent(year, "tips"),
+    returnPercent(year, "crypto"),
+    returnPercent(year, "inflation"),
+    money(year.beginningPortfolioValue, year),
+    money(year.endingPortfolioValue, year),
+    money(year.cashRaised, year),
+    money(year.taxableDividendsCash ?? 0, year),
+    money(year.cashAvailable ?? ((year.cashRaised ?? 0) + (year.taxableDividendsCash ?? 0)), year),
+    money(year.totalCashRequired ?? ((year.plannedSpending ?? 0) + (year.medicalCost ?? 0) + (year.taxes?.totalTax ?? 0)), year),
+    money(year.taxes.totalTax, year),
+    money(year.taxes.federalIncomeTax ?? year.taxes.incomeTax ?? 0, year),
+    money(year.taxes.federalPreferentialTax ?? 0, year),
+    money(year.taxes.niitTax ?? 0, year),
+    money(year.taxes.federalCreditsUsed ?? 0, year),
+    money(year.taxes.stateTax ?? 0, year),
+    money(year.magi, year),
+    money(year.aca.subsidy, year),
+    money(year.plannedSpending, year),
+    money(year.medicalCost, year),
+    money(year.taxGainHarvested, year),
+    money(year.rothConversionAmount, year),
+    money(year.penaltyTax, year),
+    money(year.lossCarryforward, year)
+  ]);
+
+  els.yearTable.innerHTML = tableHtml(
+    ["Year", "Stock", "Bond", "Real estate", "TIPS", "Crypto", "Inflation", "Start value", "End value", "Sales / withdrawals", "Dividends", "Total cash", "Total need", "Tax", "Fed income tax", "CG/QD tax", "NIIT", "Credits", "State tax", "MAGI", "ACA subsidy", "Spend", "Medical", "Tax gain harvest", "Roth conv.", "Penalty", "Loss carry"],
+    rows,
+    (index) => `data-year-index="${index}" class="${index === selectedYearIndex ? "selected-row" : ""}"`
+  );
+  els.yearTable.querySelectorAll("[data-year-index]").forEach((row) => {
+    row.addEventListener("click", () => {
+      selectedYearIndex = Number(row.dataset.yearIndex);
+      els.yearRange.value = String(selectedYearIndex + 1);
+      renderKpis();
+      renderFlowAndSales();
+      renderYearTable();
+      renderAssetBreakdown();
+    });
+  });
+  addStickyHorizontalScrollbar(els.yearTable);
+}
+
+function renderAssetBreakdown() {
+  const years = activeVisibleYears();
+  const year = years[selectedYearIndex] ?? years[0];
+  if (!year) {
+    els.assetBreakdownTable.innerHTML = `<p class="empty-state">No asset snapshot available.</p>`;
+    return;
+  }
+
+  const current = aggregateAssetSnapshot(year.assets);
+  const previous = aggregateAssetSnapshot(selectedYearIndex > 0
+    ? years[selectedYearIndex - 1]?.assets
+    : year.beginningAssets);
+  const keys = new Set([...current.keys(), ...previous.keys()]);
+  const rows = [...keys]
+    .map((key) => {
+      const currentAsset = current.get(key) ?? emptyAssetFromKey(key);
+      const previousAsset = previous.get(key) ?? emptyAssetFromKey(key);
+      const change = currentAsset.value - previousAsset.value;
+      const changePercent = previousAsset.value > 0 ? change / previousAsset.value : null;
+      return { currentAsset, change, changePercent };
+    })
+    .sort((a, b) => Math.abs(b.currentAsset.value) - Math.abs(a.currentAsset.value))
+    .map(({ currentAsset, change, changePercent }) => [
+      escapeHtml(currentAsset.name),
+      escapeHtml(currentAsset.accountType),
+      escapeHtml(currentAsset.assetClass),
+      unitFormatter.format(currentAsset.units),
+      money(currentAsset.price, year),
+      money(currentAsset.value, year),
+      signedMoney(change, year),
+      changePercent == null ? "n/a" : signedPercent(changePercent),
+      money(currentAsset.costBasis, year),
+      signedMoney(currentAsset.unrealizedGain, year)
+    ]);
+
+  els.assetBreakdownTable.innerHTML = tableHtml(
+    ["Asset", "Account", "Class", "Units", "Price", "Ending value", "Change", "Change %", "Basis", "Unrealized"],
+    rows
+  );
+  addStickyHorizontalScrollbar(els.assetBreakdownTable);
+}
+
+function renderScenarioTable() {
+  const rows = latest.monteCarlo.scenarios.map((scenarioResult) => [
+    scenarioResult.id,
+    scenarioResult.success ? `<span class="positive">Yes</span>` : `<span class="negative">No</span>`,
+    money(scenarioResult.endingValue, scenarioResult.years.at(-1)),
+    money(scenarioResult.heirValue, scenarioResult.years.at(-1)),
+    scenarioResult.depletionYear ?? ""
+  ]);
+
+  els.scenarioTable.innerHTML = tableHtml(
+    ["Run", "Success", "Ending", "Heirs", "Failure year"],
+    rows,
+    (index) => {
+      const id = latest.monteCarlo.scenarios[index].id;
+      return `data-scenario="${id}" class="${selectedBacktestIndex == null && id === selectedScenarioId ? "selected-row" : ""}"`;
+    }
+  );
+
+  els.scenarioTable.querySelectorAll("[data-scenario]").forEach((row) => {
+    row.addEventListener("click", () => {
+      selectedScenarioId = Number(row.dataset.scenario);
+      selectedBacktestIndex = null;
+      clampSelectedYearToVisible();
+      renderScenarioTable();
+      renderBacktests();
+      drawTimeline();
+      renderKpis();
+      renderFlowAndSales();
+      renderYearTable();
+      renderAssetBreakdown();
+    });
+  });
+}
+
+function renderBacktests() {
+  if (!latest.backtests.length) {
+    els.backtestTable.innerHTML = `<p class="empty-state">No historical backtests are available for the selected assets and date range.</p>`;
+    return;
+  }
+
+  const successes = latest.backtests.filter((backtest) => backtest.success).length;
+  const successRate = successes / latest.backtests.length;
+  const coverage = latest.historicalCoverage;
+  const note = coverage
+    ? `Historical success ${percentFormatter.format(successRate)} across ${latest.backtests.length} paths. Data version ${HISTORICAL_RETURN_DATA_VERSION}; ${coverage.startYear}-${coverage.endYear} available for this asset mix.`
+    : `Historical success ${percentFormatter.format(successRate)} across ${latest.backtests.length} paths.`;
+  const rows = latest.backtests.map((backtest) => [
+    escapeHtml(backtest.id),
+    backtest.success ? `<span class="positive">Yes</span>` : `<span class="negative">No</span>`,
+    money(backtest.endingValue, backtest.years.at(-1)),
+    money(backtest.heirValue, backtest.years.at(-1)),
+    backtest.depletionYear ?? firstFailureYear(backtest.years) ?? ""
+  ]);
+
+  els.backtestTable.innerHTML = `
+    <p class="table-note">${escapeHtml(note)}</p>
+    ${tableHtml(
+      ["Path", "Success", "Ending", "Heirs", "Failure year"],
+      rows,
+      (index) => `data-backtest-index="${index}" class="${index === selectedBacktestIndex ? "selected-row" : ""}"`
+    )}
+  `;
+
+  els.backtestTable.querySelectorAll("[data-backtest-index]").forEach((row) => {
+    row.addEventListener("click", () => {
+      selectedBacktestIndex = Number(row.dataset.backtestIndex);
+      selectedScenarioId = null;
+      clampSelectedYearToVisible();
+      renderScenarioTable();
+      renderBacktests();
+      drawTimeline();
+      renderKpis();
+      renderFlowAndSales();
+      renderYearTable();
+      renderAssetBreakdown();
+    });
+  });
+}
+
+function renderActionPlan() {
+  const year = activeVisibleYears()[selectedYearIndex];
+  if (!year) {
+    els.actionPlan.innerHTML = `<p class="empty-state">Run a model to generate an action plan.</p>`;
+    els.actionPlanNote.textContent = "";
+    return;
+  }
+
+  els.actionPlanNote.textContent = `${year.year} selected`;
+  const rows = [];
+  const magiTarget = year.acaMagiCeiling;
+  if (Number.isFinite(magiTarget) && year.aca?.enabled !== false) {
+    rows.push([
+      "Manage MAGI",
+      money(magiTarget, year),
+      "ACA threshold",
+      `${money(year.magi, year)} projected MAGI; ${money(year.aca.subsidy, year)} subsidy`,
+      `Keep discretionary gains and conversions under about ${percentFormatter.format((year.acaMagiCeilingFplPercent ?? 0) / 100)} FPL.`
+    ]);
+  }
+
+  if ((year.rothConversionAmount ?? 0) > 0) {
+    rows.push([
+      "Convert traditional to Roth",
+      money(year.rothConversionAmount, year),
+      "Traditional accounts",
+      `${money(taxAttributionFor(year, "Roth conversion"), year)} estimated tax share`,
+      "Fills low ordinary brackets without crossing the selected ACA MAGI target."
+    ]);
+  }
+
+  if ((year.taxGainHarvested ?? 0) > 0) {
+    rows.push([
+      "Harvest taxable gains",
+      money(year.taxGainHarvested, year),
+      "Taxable lots",
+      `${money(taxAttributionFor(year, "Tax gain harvesting"), year)} estimated tax share`,
+      "Steps up basis while staying inside the federal and ACA room the model found."
+    ]);
+  }
+
+  if ((year.realizedCapitalLosses ?? 0) > 0) {
+    rows.push([
+      "Harvest taxable losses",
+      money(year.realizedCapitalLosses, year),
+      "Taxable lots",
+      `${money(year.lossCarryforward, year)} loss carryforward after this year`,
+      "Offsets gains first, then up to the allowed ordinary-income offset."
+    ]);
+  }
+
+  for (const sale of year.sales ?? []) {
+    rows.push([
+      sale.accountType === "traditional" || sale.accountType === "roth" ? "Withdraw" : "Sell",
+      money(sale.proceeds, year),
+      escapeHtml(sale.name),
+      `${money(sale.gain, year)} gain; ${money(sale.penaltyTax ?? 0, year)} penalty`,
+      `${escapeHtml(sale.accountType)} account, ${escapeHtml(sale.taxType)} treatment.`
+    ]);
+  }
+
+  if ((year.taxes?.totalTax ?? 0) > 0) {
+    rows.push([
+      "Reserve for taxes",
+      money(year.taxes.totalTax, year),
+      "Spending reserve",
+      `${money(year.taxes.federalIncomeTax ?? 0, year)} federal; ${money(year.taxes.stateTax ?? 0, year)} state; ${money(year.taxes.niitTax ?? 0, year)} NIIT`,
+      "Includes estimated income taxes and any early-withdrawal penalties."
+    ]);
+  }
+
+  if ((year.medicalCost ?? 0) > 0) {
+    rows.push([
+      "Reserve for medical",
+      money(year.medicalCost, year),
+      "Spending reserve",
+      `${money(year.aca?.netPremium ?? 0, year)} net ACA premium`,
+      "Uses the selected expected OOP max percentage and ACA subsidy estimate."
+    ]);
+  }
+
+  if ((year.unfunded ?? 0) > 1) {
+    rows.push([
+      "Close funding gap",
+      money(year.unfunded, year),
+      "Portfolio",
+      "Plan failure in selected year",
+      "Reduce spending, add cash, or change withdrawal order before relying on this path."
+    ]);
+  }
+
+  els.actionPlan.innerHTML = rows.length
+    ? tableHtml(["Move", "Amount", "Source", "Tax / cash impact", "Why"], rows)
+    : `<p class="empty-state">No portfolio moves are needed in ${year.year}.</p>`;
+  addStickyHorizontalScrollbar(els.actionPlan);
+}
+
+function taxAttributionFor(year, source) {
+  return (year.taxAttribution ?? [])
+    .filter((item) => item.source === source)
+    .reduce((total, item) => total + (item.amount ?? 0), 0);
+}
+
+function activeYears() {
+  if (!latest) return [];
+  if (selectedBacktestIndex != null) {
+    return latest.backtests[selectedBacktestIndex]?.years ?? latest.plan.years;
+  }
+  const selectedScenario = latest.monteCarlo.scenarios.find((scenario) => scenario.id === selectedScenarioId);
+  return selectedScenario?.years ?? latest.plan.years;
+}
+
+function activeVisibleYears() {
+  return visibleYearsThroughFailure(activeYears());
+}
+
+function clampSelectedYearToVisible() {
+  const years = activeVisibleYears();
+  selectedYearIndex = Math.min(Math.max(0, selectedYearIndex), Math.max(0, years.length - 1));
+  if (els.yearRange) {
+    els.yearRange.max = String(Math.max(1, years.length));
+    els.yearRange.value = String(selectedYearIndex + 1);
+  }
+}
+
+function visibleYearsThroughFailure(years) {
+  const failureIndex = years.findIndex(isFailureYear);
+  return failureIndex === -1 ? years : years.slice(0, failureIndex + 1);
+}
+
+function firstFailureYear(years) {
+  return years.find(isFailureYear)?.year ?? null;
+}
+
+function isFailureYear(year) {
+  return year.unfunded > 1 || year.endingPortfolioValue <= 1;
+}
+
+function addStickyHorizontalScrollbar(container) {
+  container._stickyCleanup?.();
+  const table = container.querySelector("table");
+  if (!table) return;
+  const scrollbar = document.createElement("div");
+  scrollbar.className = "sticky-x-scroll";
+  const spacer = document.createElement("div");
+  spacer.className = "sticky-x-scroll-spacer";
+  scrollbar.append(spacer);
+  container.append(scrollbar);
+
+  const updateWidth = () => {
+    spacer.style.width = `${table.scrollWidth}px`;
+    scrollbar.classList.toggle("is-needed", table.scrollWidth > container.clientWidth + 1);
+    updateFixedState();
+  };
+
+  let syncing = false;
+  container.addEventListener("scroll", () => {
+    if (syncing) return;
+    syncing = true;
+    scrollbar.scrollLeft = container.scrollLeft;
+    syncing = false;
+  });
+  scrollbar.addEventListener("scroll", () => {
+    if (syncing) return;
+    syncing = true;
+    container.scrollLeft = scrollbar.scrollLeft;
+    syncing = false;
+  });
+
+  const updateFixedState = () => {
+    const rect = container.getBoundingClientRect();
+    const shouldFix = table.scrollWidth > container.clientWidth + 1
+      && rect.top < window.innerHeight - 40
+      && rect.bottom > window.innerHeight + 34;
+    scrollbar.classList.toggle("is-fixed", shouldFix);
+    if (shouldFix) {
+      scrollbar.style.left = `${Math.max(0, rect.left)}px`;
+      scrollbar.style.width = `${Math.min(rect.width, window.innerWidth - Math.max(0, rect.left))}px`;
+    } else {
+      scrollbar.style.left = "";
+      scrollbar.style.width = "";
+    }
+  };
+  const onViewportChange = () => {
+    updateWidth();
+    updateFixedState();
+  };
+
+  window.addEventListener("scroll", onViewportChange, { passive: true });
+  window.addEventListener("resize", onViewportChange);
+  container._stickyCleanup = () => {
+    window.removeEventListener("scroll", onViewportChange);
+    window.removeEventListener("resize", onViewportChange);
+  };
+
+  updateWidth();
+  requestAnimationFrame(updateWidth);
+}
+
+function renderAssetTable() {
+  const accountOptions = ["taxable", "traditional", "roth", "hsa"];
+  const assetClassOptions = ["stock", "bond", "cash", "realEstate", "tips", "crypto"];
+  const holdingOptions = ["long", "short"];
+  const rows = assets.map((asset, index) => `
+    <tr>
+      <td><input data-index="${index}" data-field="name" value="${escapeAttr(asset.name)}"></td>
+      <td>${selectHtml(index, "accountType", accountOptions, asset.accountType)}</td>
+      <td>${selectHtml(index, "assetClass", assetClassOptions, asset.assetClass)}</td>
+      <td><input data-index="${index}" data-field="units" type="number" step="0.0001" value="${asset.units}"></td>
+      <td><input data-index="${index}" data-field="price" type="number" step="0.01" value="${asset.price}"></td>
+      <td><input data-index="${index}" data-field="costBasisPerUnit" type="number" step="0.01" value="${asset.costBasisPerUnit}"></td>
+      <td><input data-index="${index}" data-field="dividendYield" type="number" step="0.001" value="${asset.dividendYield ?? 0}"></td>
+      <td><input data-index="${index}" data-field="qualifiedDividendShare" type="number" step="0.05" min="0" max="1" value="${asset.qualifiedDividendShare ?? 0}"></td>
+      <td>${selectHtml(index, "holdingPeriod", holdingOptions, asset.holdingPeriod ?? "long")}</td>
+      <td><button type="button" data-remove="${index}">Remove</button></td>
+    </tr>
+  `).join("");
+
+  els.assetTable.innerHTML = `
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th><th>Account</th><th>Class</th><th>Units</th><th>Price</th><th>Basis</th><th>Yield</th><th>Qualified</th><th>Term</th><th></th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <p class="asset-total">Total assets: ${moneyFormatter.format(portfolioValue(assets))}</p>
+  `;
+
+  els.assetTable.querySelectorAll("input, select").forEach((input) => {
+    input.addEventListener("change", () => {
+      const index = Number(input.dataset.index);
+      const field = input.dataset.field;
+      assets[index][field] = numericAssetFields.has(field) ? Number(input.value) : input.value;
+      syncJsonFromAssets();
+      saveStoredState();
+    });
+  });
+
+  els.assetTable.querySelectorAll("[data-remove]").forEach((button) => {
+    button.addEventListener("click", () => {
+      assets.splice(Number(button.dataset.remove), 1);
+      renderAssetTable();
+      syncJsonFromAssets();
+      saveStoredState();
+    });
+  });
+}
+
+function renderOneOffs() {
+  if (!oneOffExpenses.length) {
+    els.oneOffList.innerHTML = `<p class="empty-state">No one-off expenses.</p>`;
+    return;
+  }
+
+  els.oneOffList.innerHTML = oneOffExpenses.map((expense, index) => `
+    <div class="one-off-item">
+      <div>
+        <strong>${escapeHtml(expense.name)}</strong>
+        <span>Years ${expense.startYear}-${expense.endYear}, ${moneyFormatter.format(expense.amount)}, ${expense.inflationAdjusted ? "inflation adjusted" : "fixed"}</span>
+      </div>
+      <button type="button" data-remove-one-off="${index}">Remove</button>
+    </div>
+  `).join("");
+
+  els.oneOffList.querySelectorAll("[data-remove-one-off]").forEach((button) => {
+    button.addEventListener("click", () => {
+      oneOffExpenses.splice(Number(button.dataset.removeOneOff), 1);
+      renderOneOffs();
+      saveStoredState();
+    });
+  });
+}
+
+function drawTimeline() {
+  const years = activeYears();
+  const svg = els.timelineSvg;
+  clearSvg(svg, 860, 320);
+  const width = 860;
+  const height = 320;
+  const margin = { top: 28, right: 28, bottom: 42, left: 78 };
+  const values = years.map((year) => adjustAmount(year.endingPortfolioValue, year));
+  const taxes = years.map((year) => adjustAmount(year.taxes.totalTax, year));
+  const maxValue = Math.max(...values, ...taxes, 1);
+  const minValue = Math.min(...values, 0);
+  const x = (index) => margin.left + (index / Math.max(1, years.length - 1)) * (width - margin.left - margin.right);
+  const y = (value) => height - margin.bottom - ((value - minValue) / (maxValue - minValue || 1)) * (height - margin.top - margin.bottom);
+
+  drawGrid(svg, width, height, margin, maxValue);
+  svg.append(pathElement(values.map((value, index) => [x(index), y(value)]), "#0f766e", 3));
+  svg.append(pathElement(taxes.map((value, index) => [x(index), y(value)]), "#c84f43", 2));
+  svg.append(svgEl("text", { x: margin.left, y: 20, class: "chart-label" }, activePathLabel()));
+  svg.append(svgEl("circle", { cx: width - 208, cy: 18, r: 5, fill: "#0f766e" }));
+  svg.append(svgEl("text", { x: width - 196, y: 22, class: "chart-label" }, "End value"));
+  svg.append(svgEl("circle", { cx: width - 108, cy: 18, r: 5, fill: "#c84f43" }));
+  svg.append(svgEl("text", { x: width - 96, y: 22, class: "chart-label" }, "Tax"));
+}
+
+function activePathLabel() {
+  if (selectedBacktestIndex != null) {
+    const backtest = latest.backtests[selectedBacktestIndex];
+    return backtest ? `Backtest ${backtest.id}` : "Historical backtest";
+  }
+  const selectedScenario = latest.monteCarlo.scenarios.find((scenario) => scenario.id === selectedScenarioId);
+  return selectedScenario ? `Monte Carlo run ${selectedScenario.id}` : "Baseline mean path";
+}
+
+function drawDistribution() {
+  const svg = els.distributionSvg;
+  clearSvg(svg, 860, 320);
+  const width = 860;
+  const height = 320;
+  const margin = { top: 28, right: 28, bottom: 42, left: 60 };
+  const values = latest.monteCarlo.scenarios.map((scenario) => adjustAmount(scenario.endingValue, scenario.years.at(-1)));
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const binCount = 16;
+  const bins = Array.from({ length: binCount }, () => 0);
+  for (const value of values) {
+    const index = Math.min(binCount - 1, Math.floor(((value - min) / (max - min || 1)) * binCount));
+    bins[index] += 1;
+  }
+  const maxBin = Math.max(...bins, 1);
+  const plotWidth = width - margin.left - margin.right;
+  const plotHeight = height - margin.top - margin.bottom;
+
+  bins.forEach((count, index) => {
+    const barWidth = plotWidth / binCount - 4;
+    const barHeight = (count / maxBin) * plotHeight;
+    const x = margin.left + index * (plotWidth / binCount) + 2;
+    const y = height - margin.bottom - barHeight;
+    svg.append(svgEl("rect", {
+      x,
+      y,
+      width: barWidth,
+      height: barHeight,
+      rx: 4,
+      fill: index < 3 ? "#c84f43" : index > 11 ? "#0f766e" : "#2f5f98",
+      opacity: 0.82
+    }));
+  });
+
+  svg.append(svgEl("text", { x: margin.left, y: 20, class: "chart-label" }, `${latest.monteCarlo.summary.runs} scenarios`));
+  svg.append(svgEl("text", { x: margin.left, y: height - 12, class: "axis-label" }, moneyFormatter.format(min)));
+  svg.append(svgEl("text", { x: width - margin.right - 120, y: height - 12, class: "axis-label" }, moneyFormatter.format(max)));
+}
+
+function drawSankey(svg, rawFlows) {
+  clearSvg(svg, 1280, 680);
+  const width = 1280;
+  const height = 680;
+  const margin = { top: 54, right: 58, bottom: 48, left: 58 };
+  const flows = rawFlows.filter((flow) => flow.amount > 1);
+  svg.append(svgEl("rect", {
+    x: 0,
+    y: 0,
+    width,
+    height,
+    rx: 18,
+    class: "sankey-bg"
+  }));
+  if (!flows.length) {
+    svg.append(svgEl("text", { x: margin.left, y: margin.top, class: "chart-label" }, "No cash flows for this view."));
+    return;
+  }
+
+  const nodes = new Map();
+  for (const flow of flows) {
+    if (!nodes.has(flow.from)) nodes.set(flow.from, { id: flow.from, in: 0, out: 0, sources: [] });
+    if (!nodes.has(flow.to)) nodes.set(flow.to, { id: flow.to, in: 0, out: 0, sources: [] });
+    nodes.get(flow.from).out += flow.amount;
+    nodes.get(flow.to).in += flow.amount;
+    nodes.get(flow.to).sources.push(flow.from);
+  }
+
+  const depthCache = new Map();
+  const depthOf = (nodeId, seen = new Set()) => {
+    if (depthCache.has(nodeId)) return depthCache.get(nodeId);
+    const node = nodes.get(nodeId);
+    if (!node || !node.sources.length || seen.has(nodeId)) return 0;
+    const nextSeen = new Set(seen);
+    nextSeen.add(nodeId);
+    const depth = 1 + Math.max(...node.sources.map((source) => depthOf(source, nextSeen)));
+    depthCache.set(nodeId, depth);
+    return depth;
+  };
+
+  for (const node of nodes.values()) node.depth = depthOf(node.id);
+  const maxDepth = Math.max(...[...nodes.values()].map((node) => node.depth), 1);
+  const columns = new Map();
+  for (const node of nodes.values()) {
+    const column = columns.get(node.depth) ?? [];
+    column.push(node);
+    columns.set(node.depth, column);
+  }
+
+  const nodeWidth = 22;
+  const plotHeight = height - margin.top - margin.bottom;
+  const plotWidth = width - margin.left - margin.right - nodeWidth;
+  for (const [depth, column] of columns.entries()) {
+    const columnTotal = column.reduce((total, node) => total + Math.max(node.in, node.out), 0) || 1;
+    const gap = Math.max(22, 54 - column.length * 2);
+    const available = plotHeight - gap * Math.max(0, column.length - 1);
+    let cursor = margin.top;
+    for (const node of column.sort((a, b) => Math.max(b.in, b.out) - Math.max(a.in, a.out))) {
+      const nodeTotal = Math.max(node.in, node.out);
+      node.x = margin.left + (depth / maxDepth) * plotWidth;
+      node.h = Math.max(34, (nodeTotal / columnTotal) * available);
+      node.y = cursor;
+      node.linkScale = node.h / Math.max(1, nodeTotal);
+      node.sourceOffset = 0;
+      node.targetOffset = 0;
+      cursor += node.h + gap;
+    }
+  }
+
+  const orderedFlows = [...flows].sort((a, b) => {
+    const sourceDiff = nodes.get(a.from).y - nodes.get(b.from).y;
+    if (Math.abs(sourceDiff) > 1) return sourceDiff;
+    return nodes.get(a.to).y - nodes.get(b.to).y;
+  });
+
+  for (const flow of orderedFlows) {
+    const source = nodes.get(flow.from);
+    const target = nodes.get(flow.to);
+    const sx = source.x + nodeWidth;
+    const sourceWidth = Math.max(4, flow.amount * source.linkScale);
+    const targetWidth = Math.max(4, flow.amount * target.linkScale);
+    const strokeWidth = Math.max(6, Math.min(52, (sourceWidth + targetWidth) / 2));
+    const sy = source.y + source.sourceOffset + sourceWidth / 2;
+    const tx = target.x;
+    const ty = target.y + target.targetOffset + targetWidth / 2;
+    source.sourceOffset += sourceWidth;
+    target.targetOffset += targetWidth;
+    const bend = Math.max(45, (tx - sx) * 0.5);
+    const path = svgEl("path", {
+      d: `M ${sx} ${sy} C ${sx + bend} ${sy}, ${tx - bend} ${ty}, ${tx} ${ty}`,
+      class: "sankey-link",
+      stroke: flowColor(flow.type),
+      "stroke-width": strokeWidth,
+      "data-flow-type": flow.type
+    });
+    path.append(svgEl("title", {}, `${flow.from} to ${flow.to}: ${moneyFormatter.format(flow.amount)}`));
+    svg.append(path);
+  }
+
+  for (const node of nodes.values()) {
+    svg.append(svgEl("rect", {
+      x: node.x,
+      y: node.y,
+      width: nodeWidth,
+      height: node.h,
+      rx: 4,
+      class: "sankey-node"
+    }));
+    const labelX = node.depth >= maxDepth ? node.x - 8 : node.x + nodeWidth + 8;
+    const anchor = node.depth >= maxDepth ? "end" : "start";
+    appendHaloText(svg, {
+      x: labelX,
+      y: node.y + node.h / 2 - 2,
+      "text-anchor": anchor,
+      class: "node-label"
+    }, node.id);
+    appendHaloText(svg, {
+      x: labelX,
+      y: node.y + node.h / 2 + 20,
+      "text-anchor": anchor,
+      class: "axis-label"
+    }, moneyFormatter.format(Math.max(node.in, node.out)));
+  }
+}
+
+function flowsForYear(year) {
+  if (!year) return [];
+  return year.flows.map((flow) => ({
+    ...flow,
+    amount: adjustAmount(flow.amount, year)
+  }));
+}
+
+function portfolioFlowsForYear(year) {
+  if (!year) return [];
+  const beginning = adjustAmount(year.beginningPortfolioValue ?? 0, year);
+  const ending = adjustAmount(year.endingPortfolioValue ?? 0, year);
+  const withdrawals = adjustAmount(year.cashRaised ?? 0, year);
+  const dividends = adjustAmount(year.taxableDividendsCash ?? 0, year);
+  const spending = adjustAmount(year.plannedSpending ?? 0, year);
+  const medical = adjustAmount(year.medicalCost ?? 0, year);
+  const penalties = adjustAmount(year.penaltyTax ?? 0, year);
+  const taxes = adjustAmount(Math.max(0, (year.taxes?.totalTax ?? 0) - (year.penaltyTax ?? 0)), year);
+  const totalReturn = ending + withdrawals + dividends - beginning;
+  const marketGains = Math.max(0, totalReturn);
+  const marketLosses = Math.max(0, -totalReturn);
+  const reserveInflow = withdrawals + dividends;
+  const reserveOutflow = spending + medical + taxes + penalties;
+  const flows = [
+    { from: "Starting balance", to: "Invested portfolio", amount: beginning, type: "balance" }
+  ];
+
+  if (marketGains > 0) flows.push({ from: "Market gains", to: "Invested portfolio", amount: marketGains, type: "income" });
+  if (marketLosses > 0) flows.push({ from: "Invested portfolio", to: "Market losses", amount: marketLosses, type: "loss" });
+  if (dividends > 0) flows.push({ from: "Invested portfolio", to: "Taxable dividends", amount: dividends, type: "income" });
+  if (withdrawals > 0) flows.push({ from: "Invested portfolio", to: "Spending reserve", amount: withdrawals, type: "withdrawal" });
+  if (dividends > 0) flows.push({ from: "Taxable dividends", to: "Spending reserve", amount: dividends, type: "income" });
+  flows.push({ from: "Invested portfolio", to: "Ending balance", amount: ending, type: "balance" });
+  if (spending > 0) flows.push({ from: "Spending reserve", to: "Lifestyle and one-off spending", amount: spending, type: "spending" });
+  if (medical > 0) flows.push({ from: "Spending reserve", to: "Medical", amount: medical, type: "medical" });
+  if (taxes > 0) flows.push({ from: "Spending reserve", to: "Tax payments", amount: taxes, type: "tax" });
+  if (penalties > 0) {
+    flows.push({ from: "Spending reserve", to: "Early withdrawal penalties", amount: penalties, type: "penalty" });
+  }
+  if (reserveInflow > reserveOutflow + 1) {
+    flows.push({ from: "Spending reserve", to: "Cash left unspent", amount: reserveInflow - reserveOutflow, type: "balance" });
+  } else if (reserveOutflow > reserveInflow + 1) {
+    flows.push({ from: "Unfunded cash need", to: "Spending reserve", amount: reserveOutflow - reserveInflow, type: "loss" });
+  }
+
+  return flows;
+}
+
+function readScenario() {
+  const taxYear = Number(els.taxYear.value) || 2026;
+  const state = els.stateSelect.value || "Florida";
+  const householdSize = clampInteger(Number(els.householdSize.value), 1, 12);
+  const marketplaceMembers = clampInteger(Number(els.marketplaceMembers.value), 1, 12);
+  const currentAge = Number(els.currentAge.value) || DEFAULT_SCENARIO.currentAge;
+  const aca = buildAcaConfig({
+    enabled: els.acaEnabled.checked,
+    taxYear,
+    state,
+    householdSize,
+    marketplaceMembers,
+    currentAge,
+    benchmarkPremiumOverride: numberOrNull(els.acaPremium.value),
+    fplOverride: numberOrNull(els.acaFpl.value)
+  });
+
+  return {
+    ...DEFAULT_SCENARIO,
+    taxYear,
+    state,
+    filingStatus: els.filingStatus.value,
+    householdSize,
+    marketplaceMembers,
+    currentAge,
+    retirementPenaltyAge: Number(els.retirementPenaltyAge.value) || DEFAULT_SCENARIO.retirementPenaltyAge,
+    rothBasis: Number(els.rothBasis.value) || 0,
+    planYears: clampInteger(Number(els.planYears.value), 1, 80),
+    targetSpend: Number(els.targetSpend.value) || 0,
+    targetSpendIncludesTaxes: els.includeTaxes.checked,
+    targetSpendIncludesMedical: els.includeMedical.checked,
+    medicalExpensesBase: Number(els.medicalBase.value) || 0,
+    expectedOopMaxUsePercent: Math.max(0, Math.min(1, (Number(els.expectedOopPercent.value) || 0) / 100)),
+    oopMaxOverride: numberOrNull(els.oopMaxOverride.value),
+    oneOffExpenses,
+    taxLossHarvesting: {
+      enabled: els.taxLossHarvesting.checked,
+      mode: numberOrNull(els.tlhMax.value) == null ? "auto" : "manual",
+      overrideMaxLoss: numberOrNull(els.tlhMax.value)
+    },
+    taxGainHarvesting: {
+      enabled: els.taxGainHarvesting.checked,
+      mode: numberOrNull(els.tghMax.value) == null ? "auto" : "manual",
+      overrideMaxGain: numberOrNull(els.tghMax.value)
+    },
+    rothConversion: {
+      enabled: els.rothConversion.checked,
+      mode: numberOrNull(els.rothAmount.value) == null ? "auto" : "manual",
+      overrideAmount: numberOrNull(els.rothAmount.value),
+      targetMarginalRate: Math.max(0, (Number(els.rothTargetRate.value) || 12) / 100),
+      maxAcaFplPercent: 400
+    },
+    aca
+  };
+}
+
+function readTaxProfile() {
+  const householdSize = clampInteger(Number(els.householdSize.value), 1, 12);
+  const dependentCount = Math.max(0, householdSize - 2);
+  const childOverride = numberOrNull(els.qualifyingChildren.value);
+  return buildTaxProfile({
+    taxYear: Number(els.taxYear.value) || 2026,
+    filingStatus: els.filingStatus.value,
+    state: els.stateSelect.value || "Florida",
+    dependentCount,
+    qualifyingChildren: childOverride == null ? dependentCount : clampInteger(childOverride, 0, 12),
+    additionalDeduction: Number(els.additionalFederalDeduction.value) || 0,
+    additionalCredits: Number(els.additionalFederalCredits.value) || 0,
+    overrideRate: percentOrNull(els.stateTaxRate.value),
+    overrideCapitalGainsRate: percentOrNull(els.stateCapitalRate.value),
+    separateCapitalGains: els.separateStateGains.checked
+  });
+}
+
+function syncJsonFromAssets() {
+  els.assetJson.value = JSON.stringify({ assets }, null, 2);
+}
+
+function tableHtml(headers, rows, rowAttrs = () => "") {
+  return `
+    <table>
+      <thead><tr>${headers.map((header) => `<th>${escapeHtml(header)}</th>`).join("")}</tr></thead>
+      <tbody>
+        ${rows.map((row, index) => `<tr ${rowAttrs(index)}>${row.map((cell) => `<td>${cell}</td>`).join("")}</tr>`).join("")}
+      </tbody>
+    </table>
+  `;
+}
+
+function aggregateAssetSnapshot(snapshot = []) {
+  const assetsByKey = new Map();
+  for (const asset of snapshot ?? []) {
+    const key = assetGroupKey(asset);
+    const existing = assetsByKey.get(key) ?? {
+      name: asset.name ?? asset.id,
+      accountType: asset.accountType,
+      assetClass: asset.assetClass,
+      units: 0,
+      value: 0,
+      costBasis: 0,
+      unrealizedGain: 0,
+      price: 0
+    };
+    existing.units += Number(asset.units) || 0;
+    existing.value += Number(asset.value) || 0;
+    existing.costBasis += Number(asset.costBasis) || 0;
+    existing.unrealizedGain += Number(asset.unrealizedGain) || 0;
+    existing.price = existing.units > 0 ? existing.value / existing.units : 0;
+    assetsByKey.set(key, existing);
+  }
+  return assetsByKey;
+}
+
+function assetGroupKey(asset) {
+  return [asset.name ?? asset.id, asset.accountType, asset.assetClass].join("::");
+}
+
+function emptyAssetFromKey(key) {
+  const [name = "", accountType = "", assetClass = ""] = key.split("::");
+  return {
+    name,
+    accountType,
+    assetClass,
+    units: 0,
+    value: 0,
+    costBasis: 0,
+    unrealizedGain: 0,
+    price: 0
+  };
+}
+
+function selectHtml(index, field, options, value) {
+  return `
+    <select data-index="${index}" data-field="${field}">
+      ${options.map((option) => `<option value="${option}" ${option === value ? "selected" : ""}>${option}</option>`).join("")}
+    </select>
+  `;
+}
+
+function money(value, year) {
+  return moneyFormatter.format(adjustAmount(value, year));
+}
+
+function signedMoney(value, year) {
+  const adjusted = adjustAmount(value, year);
+  return `${adjusted > 0 ? "+" : ""}${moneyFormatter.format(adjusted)}`;
+}
+
+function signedPercent(value) {
+  return `${value > 0 ? "+" : ""}${percentFormatter.format(value)}`;
+}
+
+function returnPercent(year, assetClass) {
+  const value = year.assetClassReturns?.[assetClass];
+  return typeof value === "number" && Number.isFinite(value) ? signedPercent(value) : "n/a";
+}
+
+function adjustAmount(value, year) {
+  if (!Number.isFinite(Number(value))) return 0;
+  if (els.viewMode.value !== "real") return Number(value);
+  return Number(value) / Math.max(1, year?.inflationIndex ?? 1);
+}
+
+function drawGrid(svg, width, height, margin, maxValue) {
+  const gridLines = 4;
+  for (let index = 0; index <= gridLines; index += 1) {
+    const y = margin.top + (index / gridLines) * (height - margin.top - margin.bottom);
+    const value = maxValue * (1 - index / gridLines);
+    svg.append(svgEl("line", {
+      x1: margin.left,
+      x2: width - margin.right,
+      y1: y,
+      y2: y,
+      stroke: "#d7ddd7",
+      "stroke-width": 1
+    }));
+    svg.append(svgEl("text", { x: 10, y: y + 4, class: "axis-label" }, compactMoney(value)));
+  }
+}
+
+function pathElement(points, color, width) {
+  const d = points.map(([x, y], index) => `${index === 0 ? "M" : "L"} ${x} ${y}`).join(" ");
+  return svgEl("path", {
+    d,
+    fill: "none",
+    stroke: color,
+    "stroke-width": width,
+    "stroke-linejoin": "round",
+    "stroke-linecap": "round"
+  });
+}
+
+function clearSvg(svg, width, height) {
+  svg.replaceChildren();
+  svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+}
+
+function svgEl(name, attributes = {}, text = "") {
+  const el = document.createElementNS("http://www.w3.org/2000/svg", name);
+  for (const [key, value] of Object.entries(attributes)) el.setAttribute(key, value);
+  if (text) el.textContent = text;
+  return el;
+}
+
+function appendHaloText(svg, attributes, text) {
+  svg.append(svgEl("text", { ...attributes, class: `${attributes.class} text-halo` }, text));
+  svg.append(svgEl("text", attributes, text));
+}
+
+function flowColor(type) {
+  return {
+    balance: "#355f8d",
+    income: "#2f5f98",
+    withdrawal: "#0f766e",
+    tax: "#c84f43",
+    "tax-source": "#d96d5f",
+    medical: "#b87516",
+    spending: "#4e5b56",
+    conversion: "#6a6f2a",
+    penalty: "#9b2d25",
+    loss: "#6b7280"
+  }[type] ?? "#61706b";
+}
+
+function compactMoney(value) {
+  const abs = Math.abs(value);
+  if (abs >= 1_000_000) return `$${round(value / 1_000_000, 1)}M`;
+  if (abs >= 1_000) return `$${round(value / 1_000, 0)}K`;
+  return moneyFormatter.format(value);
+}
+
+function setStatus(message, isError = false) {
+  els.status.textContent = message;
+  els.status.style.borderColor = isError ? "#d59b94" : "#b7cfc9";
+  els.status.style.background = isError ? "#fff1ef" : "#eaf6f3";
+  els.status.style.color = isError ? "#9b2d25" : "#124f4b";
+}
+
+function parseCsv(text) {
+  const rows = parseCsvRows(text).filter((row) => row.some((cell) => cell.trim() !== ""));
+  if (rows.length < 2) return [];
+  const headers = rows[0].map((header) => header.trim());
+  return rows.slice(1).map((row) => Object.fromEntries(headers.map((header, index) => [header, coerceCsvValue(row[index])])));
+}
+
+function parseCsvRows(text) {
+  const rows = [];
+  let row = [];
+  let cell = "";
+  let inQuotes = false;
+
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    const next = text[index + 1];
+    if (char === '"' && inQuotes && next === '"') {
+      cell += '"';
+      index += 1;
+    } else if (char === '"') {
+      inQuotes = !inQuotes;
+    } else if (char === "," && !inQuotes) {
+      row.push(cell);
+      cell = "";
+    } else if ((char === "\n" || char === "\r") && !inQuotes) {
+      if (char === "\r" && next === "\n") index += 1;
+      row.push(cell);
+      rows.push(row);
+      row = [];
+      cell = "";
+    } else {
+      cell += char;
+    }
+  }
+  row.push(cell);
+  rows.push(row);
+  return rows;
+}
+
+function coerceCsvValue(value = "") {
+  const trimmed = value.trim();
+  if (trimmed === "") return "";
+  const numeric = Number(trimmed);
+  return Number.isFinite(numeric) ? numeric : trimmed;
+}
+
+function toGoogleCsvUrl(url) {
+  if (!url) return "";
+  if (!url.includes("docs.google.com/spreadsheets")) return url;
+  const id = url.match(/\/d\/([^/]+)/)?.[1];
+  const gid = url.match(/[?&]gid=([^&]+)/)?.[1];
+  if (!id) return url;
+  return `https://docs.google.com/spreadsheets/d/${id}/export?format=csv${gid ? `&gid=${gid}` : ""}`;
+}
+
+function clampInteger(value, min, max) {
+  return Math.min(max, Math.max(min, Math.trunc(Number.isFinite(value) ? value : min)));
+}
+
+function numberOrNull(value) {
+  if (String(value ?? "").trim() === "") return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function percentOrNull(value) {
+  const number = numberOrNull(value);
+  return number == null ? null : number / 100;
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function escapeAttr(value) {
+  return escapeHtml(value).replaceAll("`", "&#096;");
+}
+
+const numericAssetFields = new Set([
+  "units",
+  "price",
+  "costBasisPerUnit",
+  "dividendYield",
+  "qualifiedDividendShare"
+]);

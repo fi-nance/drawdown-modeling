@@ -1,0 +1,373 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Portfolio Success Lab</title>
+    <link rel="stylesheet" href="./src/styles.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">Tax-aware retirement forecasting</p>
+        <h1>Portfolio Success Lab</h1>
+      </div>
+      <div class="topbar-actions">
+        <div class="screen-tabs" role="tablist" aria-label="Workspace view">
+          <button id="planTab" class="tab-button active" type="button">Plan</button>
+          <button id="setupTab" class="tab-button" type="button">Setup</button>
+        </div>
+        <label class="segmented">
+          <span>View</span>
+          <select id="viewMode">
+            <option value="nominal">Nominal dollars</option>
+            <option value="real">Inflation adjusted</option>
+          </select>
+        </label>
+        <button id="runModel" class="primary-button" type="button">Run model</button>
+      </div>
+    </header>
+
+    <main class="workspace">
+      <aside class="sidebar">
+        <section class="panel setup-panel">
+          <div class="panel-heading">
+            <h2>Asset Input</h2>
+            <button id="addAsset" class="ghost-button" type="button">Add</button>
+          </div>
+          <div id="assetTable" class="asset-table"></div>
+        </section>
+
+        <section class="panel setup-panel">
+          <div class="panel-heading">
+            <h2>Import</h2>
+          </div>
+          <textarea id="assetJson" spellcheck="false"></textarea>
+          <div class="button-row">
+            <button id="loadJson" type="button">Load JSON</button>
+            <button id="downloadJson" type="button">Export</button>
+          </div>
+          <label class="file-control">
+            <span>JSON file</span>
+            <input id="jsonFile" type="file" accept="application/json,.json">
+          </label>
+          <label>
+            <span>Google Sheets CSV</span>
+            <input id="sheetUrl" type="url" placeholder="https://docs.google.com/spreadsheets/...">
+          </label>
+          <div class="button-row">
+            <button id="loadSheet" type="button">Import sheet</button>
+            <a class="button-link" href="./sample-portfolio-import.csv" download>Sample CSV</a>
+          </div>
+        </section>
+
+        <section class="panel plan-panel">
+          <div class="panel-heading">
+            <h2>Scenario</h2>
+          </div>
+          <div class="control-grid">
+            <label>
+              <span>Years</span>
+              <input id="planYears" type="number" min="1" max="80" value="35">
+            </label>
+            <label>
+              <span>Monte Carlo runs</span>
+              <input id="runs" type="number" min="10" max="2000" value="250">
+            </label>
+            <label>
+              <span>Random seed</span>
+              <input id="seed" type="number" value="42">
+              <small>Same value repeats the same Monte Carlo paths.</small>
+            </label>
+            <label>
+              <span>Target spend</span>
+              <input id="targetSpend" type="number" min="0" step="1000" value="90000">
+            </label>
+            <label>
+              <span>Tax year</span>
+              <select id="taxYear">
+                <option value="2026">2026</option>
+              </select>
+            </label>
+            <label>
+              <span>Filing status</span>
+              <select id="filingStatus">
+                <option value="marriedFilingJointly">Married filing jointly</option>
+                <option value="single">Single</option>
+                <option value="headOfHousehold">Head of household</option>
+                <option value="marriedFilingSeparately">Married filing separately</option>
+              </select>
+            </label>
+            <label>
+              <span>State</span>
+              <select id="stateSelect"></select>
+            </label>
+            <label>
+              <span>Household size</span>
+              <input id="householdSize" type="number" min="1" max="12" value="2">
+            </label>
+            <label>
+              <span>Marketplace members</span>
+              <input id="marketplaceMembers" type="number" min="1" max="12" value="2">
+            </label>
+            <label>
+              <span>Current age</span>
+              <input id="currentAge" type="number" min="0" max="120" step="0.5" value="55">
+            </label>
+            <label>
+              <span>Penalty-free age</span>
+              <input id="retirementPenaltyAge" type="number" min="0" max="120" step="0.5" value="59.5">
+            </label>
+            <label>
+              <span>Roth contribution basis</span>
+              <input id="rothBasis" type="number" min="0" step="1000" value="60000">
+            </label>
+            <label>
+              <span>Expected OOP max used %</span>
+              <input id="expectedOopPercent" type="number" min="0" max="100" step="5" value="25">
+            </label>
+          </div>
+          <label class="check-row">
+            <input id="includeTaxes" type="checkbox">
+            <span>Target includes taxes</span>
+          </label>
+          <label class="check-row">
+            <input id="includeMedical" type="checkbox">
+            <span>Target includes medical</span>
+          </label>
+          <label class="check-row">
+            <input id="acaEnabled" type="checkbox" checked>
+            <span>ACA marketplace coverage</span>
+          </label>
+          <details class="advanced">
+            <summary>Advanced overrides</summary>
+            <div class="control-grid">
+              <label>
+                <span>Additional medical costs</span>
+                <input id="medicalBase" type="number" min="0" step="500" value="0">
+              </label>
+              <label>
+                <span>OOP max override</span>
+                <input id="oopMaxOverride" type="number" min="0" step="500" placeholder="Auto">
+              </label>
+              <label>
+                <span>ACA benchmark override</span>
+                <input id="acaPremium" type="number" min="0" step="500" placeholder="Auto">
+              </label>
+              <label>
+                <span>FPL override</span>
+                <input id="acaFpl" type="number" min="1" step="100" placeholder="Auto">
+              </label>
+              <label>
+                <span>Qualifying children</span>
+                <input id="qualifyingChildren" type="number" min="0" max="12" placeholder="Auto">
+                <small>Blank uses household size minus two adults.</small>
+              </label>
+              <label>
+                <span>Additional federal deductions</span>
+                <input id="additionalFederalDeduction" type="number" min="0" step="500" value="0">
+              </label>
+              <label>
+                <span>Additional federal credits</span>
+                <input id="additionalFederalCredits" type="number" min="0" step="500" value="0">
+              </label>
+              <label>
+                <span>State tax % override</span>
+                <input id="stateTaxRate" type="number" min="0" max="20" step="0.1" placeholder="Auto">
+              </label>
+              <label class="check-row">
+                <input id="separateStateGains" type="checkbox">
+                <span>Separate state capital gains</span>
+              </label>
+              <label>
+                <span>State capital gains %</span>
+                <input id="stateCapitalRate" type="number" min="0" max="20" step="0.1" placeholder="Auto">
+              </label>
+            </div>
+          </details>
+        </section>
+
+        <section class="panel plan-panel">
+          <div class="panel-heading">
+            <h2>Backtesting</h2>
+          </div>
+          <div class="control-grid">
+            <label>
+              <span>Historical mode</span>
+              <select id="backtestMode">
+                <option value="all">Rolling all years</option>
+                <option value="specific">Specific start year</option>
+                <option value="chunks">Chunked windows</option>
+              </select>
+            </label>
+            <label>
+              <span>Historical start year</span>
+              <input id="historicalStartYear" type="number" min="1928" max="2025" value="1928">
+            </label>
+            <label>
+              <span>Historical end year</span>
+              <input id="historicalEndYear" type="number" min="1928" max="2025" value="2025">
+            </label>
+            <label>
+              <span>Chunk size years</span>
+              <input id="historicalChunkYears" type="number" min="1" max="50" value="10">
+            </label>
+          </div>
+          <p class="data-note">Historical datasets run through 2025 where source history exists.</p>
+        </section>
+
+        <section class="panel plan-panel">
+          <div class="panel-heading">
+            <h2>Strategies</h2>
+          </div>
+          <label class="check-row">
+            <input id="taxLossHarvesting" type="checkbox" checked>
+            <span>Tax loss harvesting</span>
+          </label>
+          <label class="check-row">
+            <input id="taxGainHarvesting" type="checkbox" checked>
+            <span>Tax gain harvesting</span>
+          </label>
+          <label class="check-row">
+            <input id="rothConversion" type="checkbox" checked>
+            <span>Roth conversions</span>
+          </label>
+          <div class="strategy-summary">
+            <span>Harvesting and conversions resolve automatically against the 2026 federal, state, and ACA thresholds.</span>
+          </div>
+          <details class="advanced">
+            <summary>Strategy overrides</summary>
+            <div class="control-grid">
+              <label>
+                <span>Max annual loss override</span>
+                <input id="tlhMax" type="number" min="0" step="500" placeholder="Auto">
+              </label>
+              <label>
+                <span>Max annual gain override</span>
+                <input id="tghMax" type="number" min="0" step="1000" placeholder="Auto">
+              </label>
+              <label>
+                <span>Annual conversion override</span>
+                <input id="rothAmount" type="number" min="0" step="1000" placeholder="Auto">
+              </label>
+              <label>
+                <span>Conversion bracket target %</span>
+                <input id="rothTargetRate" type="number" min="0" max="37" step="1" value="12">
+              </label>
+            </div>
+          </details>
+        </section>
+
+        <section class="panel plan-panel">
+          <div class="panel-heading">
+            <h2>One-Offs</h2>
+            <button id="addOneOff" class="ghost-button" type="button">Add</button>
+          </div>
+          <div class="control-grid">
+            <label>
+              <span>Name</span>
+              <input id="oneOffName" type="text" value="New car">
+            </label>
+            <label>
+              <span>Start year</span>
+              <input id="oneOffStart" type="number" min="1" value="7">
+            </label>
+            <label>
+              <span>End year</span>
+              <input id="oneOffEnd" type="number" min="1" value="7">
+            </label>
+            <label>
+              <span>Amount</span>
+              <input id="oneOffAmount" type="number" min="0" step="1000" value="45000">
+            </label>
+          </div>
+          <label class="check-row">
+            <input id="oneOffInflation" type="checkbox" checked>
+            <span>Inflation adjusted</span>
+          </label>
+          <div id="oneOffList" class="one-off-list"></div>
+        </section>
+      </aside>
+
+      <section class="main-stage">
+        <div id="status" class="status">Ready</div>
+        <section id="kpis" class="kpi-grid"></section>
+
+        <section class="panel wide">
+          <div class="panel-heading">
+            <h2>Flow View</h2>
+            <div class="inline-controls">
+              <label>
+                <span>Flow</span>
+                <select id="flowMode">
+                  <option value="current">Yearly cash flow</option>
+                  <option value="total">Yearly portfolio flow</option>
+                </select>
+              </label>
+              <label>
+                <span>Year</span>
+                <input id="yearRange" type="range" min="1" max="35" value="1">
+              </label>
+              <strong id="yearLabel">Year 1</strong>
+            </div>
+          </div>
+          <svg id="sankeySvg" class="sankey" role="img" aria-label="Portfolio cash flow diagram"></svg>
+        </section>
+
+        <section class="panel wide action-panel">
+          <div class="panel-heading">
+            <h2>What You Should Do This Year</h2>
+            <span id="actionPlanNote" class="table-note"></span>
+          </div>
+          <div id="actionPlan" class="table-wrap"></div>
+        </section>
+
+        <section class="visual-grid">
+          <div class="panel">
+            <div class="panel-heading">
+              <h2>Year-by-Year Path</h2>
+            </div>
+            <svg id="timelineSvg" class="chart" role="img" aria-label="Portfolio value over time"></svg>
+          </div>
+          <div class="panel">
+            <div class="panel-heading">
+              <h2>Monte Carlo Distribution</h2>
+            </div>
+            <svg id="distributionSvg" class="chart" role="img" aria-label="Monte Carlo ending value distribution"></svg>
+          </div>
+        </section>
+
+        <section class="panel wide">
+          <div class="panel-heading">
+            <h2>Year Breakdown</h2>
+          </div>
+          <div id="yearTable" class="table-wrap"></div>
+        </section>
+
+        <section class="panel wide">
+          <div class="panel-heading">
+            <h2>Asset Snapshot</h2>
+          </div>
+          <div id="assetBreakdownTable" class="table-wrap"></div>
+        </section>
+
+        <section class="results-grid">
+          <div class="panel">
+            <div class="panel-heading">
+              <h2>Scenario Breakdown</h2>
+            </div>
+            <div id="scenarioTable" class="table-wrap"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-heading">
+              <h2>Backtests</h2>
+            </div>
+            <div id="backtestTable" class="table-wrap"></div>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <script type="module" src="./src/app.mjs"></script>
+  </body>
+</html>

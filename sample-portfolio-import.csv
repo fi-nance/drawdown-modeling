@@ -1,0 +1,7 @@
+name,accountType,assetClass,units,price,costBasisPerUnit,dividendYield,qualifiedDividendShare,holdingPeriod
+Taxable US Total Market,taxable,stock,6300,100,62,0.018,0.95,long
+Taxable International,taxable,stock,3150,80,92,0.032,0.75,long
+Taxable Cash Reserve,taxable,cash,245000,1,1,0.02,0,long
+Traditional Balanced Fund,traditional,bond,9100,100,100,0.025,0,long
+Roth Growth Fund,roth,stock,3850,120,120,0.005,1,long
+HSA Index Fund,hsa,stock,630,100,100,0.01,1,long

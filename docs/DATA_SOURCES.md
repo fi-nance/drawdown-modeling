@@ -1,0 +1,110 @@
+# Data Sources And Annual Update Runbook
+
+This file documents where the app's versioned tax, ACA, and historical return data comes from, how it is transformed, and what to update when a new calendar year closes.
+
+## Current Data Versions
+
+| Dataset | App location | Current version | Current coverage |
+| --- | --- | --- | --- |
+| Federal tax, ACA, FPL, ACA premium defaults | `src/data/taxData.mjs` | `TAX_DATA_VERSION = "2026.1"` | 2026 tax-law year |
+| State income tax defaults | `src/data/stateTax2026.generated.mjs` | generated 2026 table | 2026 tax-law year |
+| Historical return backtesting | `src/data/historicalReturns.mjs` | `HISTORICAL_RETURN_DATA_VERSION = "2026.1"` | core asset classes through 2025 |
+
+## Source Inventory
+
+| Data | Primary source | App fields | Update timing |
+| --- | --- | --- | --- |
+| Federal ordinary income tax brackets, standard deduction, long-term capital gains thresholds, child tax credit amounts | IRS Rev. Proc. 2025-32 / IRB 2025-45: https://www.irs.gov/irb/2025-45_IRB and direct PDF https://www.irs.gov/pub/irs-drop/rp-25-32.pdf | `FEDERAL_TAX_2026`, `FEDERAL_TAX_BY_YEAR` | Usually released in Q4 before the tax year |
+| Net investment income tax | IRS NIIT topic page: https://www.irs.gov/individuals/net-investment-income-tax and IRS Topic 559: https://www.irs.gov/taxtopics/tc559 | `FEDERAL_TAX_2026.niit` | Statutory thresholds are not indexed; verify if Congress changes them |
+| ACA premium tax credit applicable percentages and required contribution percentage | IRS Rev. Proc. 2025-25 / IRB 2025-32: https://www.irs.gov/irb/2025-32_IRB and direct PDF https://www.irs.gov/pub/irs-drop/rp-25-25.pdf | `ACA_2026.applicablePercentageTable`, `ACA_2026.requiredContributionPercentage` | Usually released in summer before the plan year |
+| ACA federal default age rating curve | CMS Final Guidance Regarding Age Curves and State Reporting: https://www.cms.gov/cciio/resources/regulations-and-guidance/downloads/final-guidance-regarding-age-curves-and-state-reporting-12-16-16.pdf | `FEDERAL_DEFAULT_ACA_AGE_RATING_CURVE` | Verify if CMS changes default age-curve guidance or a state-specific curve should apply |
+| ACA maximum annual limitation on cost-sharing | CMS Marketplace Integrity and Affordability Final Rule / fact sheet: https://www.cms.gov/newsroom/fact-sheets/2025-marketplace-integrity-and-affordability-final-rule | `ACA_2026.costSharingLimit` | Usually finalized before open enrollment |
+| Federal poverty guidelines | HHS Federal Register annual notice: https://www.federalregister.gov/documents/2026/01/15/2026-00755/annual-update-of-the-hhs-poverty-guidelines and ASPE poverty guidelines page https://aspe.hhs.gov/topics/poverty-economic-mobility/poverty-guidelines | `FPL_2026`, `FEDERAL_POVERTY_GUIDELINES_BY_YEAR` | Usually released in January of the guideline year |
+| State income tax rates, brackets, standard deductions, exemptions, capital gains notes | Tax Foundation state income tax annual table: https://taxfoundation.org/data/all/state/state-income-tax-rates-2026/ | `STATE_TAX_2026`, `STATE_TAX_BY_YEAR` | Usually published early in the tax year; verify retroactive updates |
+| Exchange plan premiums and plan attributes | CMS Exchange PUFs: https://www.cms.gov/marketplace/resources/data/public-use-files; state-based exchange PUFs: https://www.cms.gov/marketplace/resources/data/state-based-public-use-files; QHP Landscape metadata: https://catalog.data.gov/dataset/qhp-landscape-py2026-individual-medical | `ACA_BENCHMARK_PREMIUMS_2026_MONTHLY`, future plan/rating-area tables | Updated during the plan year; CMS notes that PUF data can differ from Healthcare.gov display timing |
+| Stocks, T-bills, 10-year Treasuries, real estate | NYU Stern Damodaran annual returns: https://pages.stern.nyu.edu/~adamodar/New_Home_Page/datafile/histretSP.html | `HISTORICAL_RETURNS[].stock`, `.cash`, `.bond`, `.realEstate` | Final calendar-year row is usually available in early January |
+| Inflation through 2023 | NYU Stern Damodaran historical inflation table: https://pages.stern.nyu.edu/~adamodar/New_Home_Page/datafile/histret.html | `HISTORICAL_RETURNS[].inflation` for source years available there | Updated periodically |
+| Inflation extension for 2024 and 2025 | FRED CPIAUCSL: https://fred.stlouisfed.org/series/CPIAUCSL and CSV endpoint `https://fred.stlouisfed.org/graph/fredgraph.csv?id=CPIAUCSL` | `HISTORICAL_RETURNS[].inflation` for years not yet in Damodaran's inflation table | Use December-over-December CPI when the final December value is available |
+| TIPS returns | iShares TIPS Bond ETF performance page: https://www.ishares.com/ch/professionals/en/products/239467/ishares-tips-bond-etf | `HISTORICAL_RETURNS[].tips` | Available from ETF history; current app coverage starts in 2004 |
+| Crypto returns | Coin Metrics community API daily BTC PriceUSD: `https://community-api.coinmetrics.io/v4/timeseries/asset-metrics?assets=btc&metrics=PriceUSD&frequency=1d&start_time=2010-01-01&end_time=2025-12-31&page_size=10000&format=csv` | `HISTORICAL_RETURNS[].crypto` | Update after final December 31 close is available |
+
+## Current Modeling Notes
+
+- Historical backtests only include years where every asset class in the user's portfolio has source data. For example, a portfolio with no TIPS or crypto can use 1928-2025; a portfolio with TIPS starts in 2004; a portfolio with crypto starts in 2011.
+- `bond` is mapped to NYU Stern's annual 10-year Treasury bond total return.
+- `cash` is mapped to NYU Stern's annual 3-month T-bill return.
+- `stock` is mapped to NYU Stern's annual S&P 500 total return including dividends.
+- `realEstate` is mapped to NYU Stern's annual real estate return series.
+- `tips` is derived from iShares TIP NAV total return history when available.
+- `crypto` is derived from BTC year-end daily USD price changes. It is a BTC proxy, not a diversified crypto index.
+- ACA benchmark premiums are currently state-level defaults age-rated with the federal default age curve. For production-grade precision, replace these with CMS/state PUF-derived benchmark premiums by county, rating area, exact household member ages, tobacco status where relevant, and household member mix.
+- Federal tax currently models the standard deduction, progressive ordinary income tax, preferential long-term capital gain and qualified dividend stacking, child tax credit, NIIT, capital-loss offsets and carryforwards, and manual additional deduction/credit overrides.
+- NIIT thresholds are held nominal because IRS guidance says the statutory thresholds are not indexed for inflation.
+- The child tax credit is modeled as a nonrefundable credit against regular federal income tax. The refundable additional child tax credit is documented in the data object but is not yet applied because it depends on earned-income rules that this portfolio model does not collect.
+
+## Annual Update Checklist
+
+1. Create a new version label.
+   - Tax data: increment `TAX_DATA_VERSION`, for example from `2026.1` to `2027.1`.
+   - Historical returns: increment `HISTORICAL_RETURN_DATA_VERSION`, for example from `2026.1` to `2027.1`.
+
+2. Add the new tax year in `src/data/taxData.mjs`.
+   - Add `FEDERAL_TAX_YYYY`.
+   - Add it to `FEDERAL_TAX_BY_YEAR`.
+   - Add `FPL_YYYY` and register it in `FEDERAL_POVERTY_GUIDELINES_BY_YEAR`.
+   - Add `ACA_YYYY` and register it in `ACA_BY_YEAR`.
+   - Add or replace `ACA_BENCHMARK_PREMIUMS_YYYY_MONTHLY`.
+   - Update `DEFAULT_TAX_YEAR` only after the UI should default to that year.
+
+3. Regenerate state taxes.
+   - Pull the Tax Foundation annual table and its downloadable data when available.
+   - Generate `src/data/stateTaxYYYY.generated.mjs`.
+   - Import the new generated table into `taxData.mjs`.
+   - Add it to `STATE_TAX_BY_YEAR`.
+   - Keep old generated files so prior-year tests and projections remain reproducible.
+
+4. Update ACA plan-cost defaults.
+   - Download CMS Exchange PUFs for the plan year.
+   - For federal-platform states, use Rate PUF, Plan Attributes PUF, Service Area PUF, and QHP Landscape files.
+   - For state-based exchanges, use CMS SBE QHP PUFs or the state exchange's own public files.
+   - Prefer deriving a second-lowest-cost silver plan benchmark by rating area and household composition. If keeping a state-level fallback, document the aggregation method.
+
+5. Append the final historical return year.
+   - Download NYU Stern `histretSP.html` and verify the new final year exists.
+   - If Damodaran's inflation table does not yet include the final year, download FRED CPIAUCSL and compute December-over-December CPI inflation.
+   - Pull final iShares TIP calendar-year or year-end NAV return data.
+   - Pull final Coin Metrics BTC daily prices through December 31 and compute year-over-year return from prior December 31 to current December 31.
+   - Append the new row in `HISTORICAL_RETURNS`.
+
+6. Add tests before trusting the new data.
+   - Add tax-year tests for the new standard deduction, ordinary brackets, long-term capital gains thresholds, ACA applicable percentages, FPL values, and representative state tax cases.
+   - Add historical return tests confirming the dataset ends in the new final year.
+   - Add coverage tests for shorter-history asset classes.
+
+7. Run verification.
+   - `npm test`
+   - Reload the local app.
+   - Confirm the Backtests table includes a rolling window ending in the newly added final year.
+   - Confirm the Year Breakdown table shows asset-class returns for the selected historical path.
+
+## Useful Fetch Commands
+
+These are starting points for the next annual data refresh. Update the year and direct file names as new source documents are released.
+
+```bash
+curl -L -o /tmp/histretSP.html "https://pages.stern.nyu.edu/~adamodar/New_Home_Page/datafile/histretSP.html"
+curl -L -o /tmp/histret.html "https://pages.stern.nyu.edu/~adamodar/New_Home_Page/datafile/histret.html"
+curl -L -o /tmp/cpi.csv "https://fred.stlouisfed.org/graph/fredgraph.csv?id=CPIAUCSL"
+curl -L -o /tmp/tip_ishares.html "https://www.ishares.com/ch/professionals/en/products/239467/ishares-tips-bond-etf"
+curl -L -o /tmp/btc_coinmetrics.csv "https://community-api.coinmetrics.io/v4/timeseries/asset-metrics?assets=btc&metrics=PriceUSD&frequency=1d&start_time=2010-01-01&end_time=2026-12-31&page_size=10000&format=csv"
+curl -L -o /tmp/irs-federal-tax.pdf "https://www.irs.gov/pub/irs-drop/rp-25-32.pdf"
+curl -L -o /tmp/irs-aca-ptc.pdf "https://www.irs.gov/pub/irs-drop/rp-25-25.pdf"
+```
+
+## Known Gaps To Close
+
+- Replace state-level ACA benchmark defaults with rating-area and household-specific CMS/state PUF calculations.
+- Add an explicit data-generation script so `src/data/historicalReturns.mjs` can be regenerated from raw downloaded source files instead of manually rebuilding the generated module.
+- Add direct source URLs inside every tax-year object, not just source names.
+- Track source retrieval dates and checksums for downloaded raw data files.
+- Add full itemized deduction, refundable credit, earned income credit, Social Security taxation, AMT, QBI, education credit, and household-specific ACA benchmark engines.

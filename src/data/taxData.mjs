@@ -1,0 +1,345 @@
+import { STATE_TAX_2026 } from "./stateTax2026.generated.mjs";
+
+export const TAX_DATA_VERSION = "2026.1";
+export const DEFAULT_TAX_YEAR = 2026;
+
+export const FILING_STATUSES = {
+  single: "Single",
+  marriedFilingJointly: "Married filing jointly",
+  marriedFilingSeparately: "Married filing separately",
+  headOfHousehold: "Head of household"
+};
+
+const FEDERAL_BRACKET_RATES = [0.1, 0.12, 0.22, 0.24, 0.32, 0.35, 0.37];
+
+export const FEDERAL_TAX_2026 = {
+  year: 2026,
+  source: "IRS Rev. Proc. 2025-32",
+  capitalLossOrdinaryIncomeOffset: 3000,
+  niit: {
+    rate: 0.038,
+    thresholds: {
+      single: 200000,
+      marriedFilingJointly: 250000,
+      marriedFilingSeparately: 125000,
+      headOfHousehold: 200000
+    },
+    source: "IRS Net Investment Income Tax thresholds are statutory and not indexed for inflation."
+  },
+  childTaxCredit: {
+    perChild: 2200,
+    refundablePerChild: 1700,
+    phaseoutThresholds: {
+      single: 200000,
+      marriedFilingJointly: 400000,
+      marriedFilingSeparately: 200000,
+      headOfHousehold: 200000
+    },
+    phaseoutPerThousand: 50
+  },
+  standardDeduction: {
+    single: 16100,
+    marriedFilingJointly: 32200,
+    marriedFilingSeparately: 16100,
+    headOfHousehold: 24150
+  },
+  ordinaryBrackets: {
+    single: brackets([12400, 50400, 105700, 201775, 256225, 640600]),
+    marriedFilingJointly: brackets([24800, 100800, 211400, 403550, 512450, 768700]),
+    marriedFilingSeparately: brackets([12400, 50400, 105700, 201775, 256225, 384350]),
+    headOfHousehold: brackets([17700, 67450, 105700, 201750, 256200, 640600])
+  },
+  capitalGainsBrackets: {
+    single: capitalGainsBrackets(49450, 545500),
+    marriedFilingJointly: capitalGainsBrackets(98900, 613700),
+    marriedFilingSeparately: capitalGainsBrackets(49450, 306850),
+    headOfHousehold: capitalGainsBrackets(66200, 579600)
+  }
+};
+
+export const FEDERAL_TAX_BY_YEAR = {
+  2026: FEDERAL_TAX_2026
+};
+
+export const FPL_2026 = {
+  year: 2026,
+  source: "HHS 2026 poverty guidelines, 91 FR 1797",
+  contiguous: { base: 15960, increment: 5680 },
+  Alaska: { base: 19950, increment: 7100 },
+  Hawaii: { base: 18360, increment: 6530 }
+};
+
+export const FEDERAL_POVERTY_GUIDELINES_BY_YEAR = {
+  2026: FPL_2026
+};
+
+export const ACA_2026 = {
+  year: 2026,
+  source: "IRS Rev. Proc. 2025-25",
+  maxEligibleFplPercent: 400,
+  requiredContributionPercentage: 0.0996,
+  costSharingLimit: {
+    selfOnly: 10600,
+    family: 21200
+  },
+  applicablePercentageTable: [
+    { minFplPercent: 0, maxFplPercent: 133, initialRate: 0.021, finalRate: 0.021 },
+    { minFplPercent: 133, maxFplPercent: 150, initialRate: 0.0314, finalRate: 0.0419 },
+    { minFplPercent: 150, maxFplPercent: 200, initialRate: 0.0419, finalRate: 0.066 },
+    { minFplPercent: 200, maxFplPercent: 250, initialRate: 0.066, finalRate: 0.0844 },
+    { minFplPercent: 250, maxFplPercent: 300, initialRate: 0.0844, finalRate: 0.0996 },
+    { minFplPercent: 300, maxFplPercent: 400, initialRate: 0.0996, finalRate: 0.0996 }
+  ]
+};
+
+export const ACA_DEFAULT_BENCHMARK_REFERENCE_AGE = 40;
+
+export const ACA_BY_YEAR = {
+  2026: ACA_2026
+};
+
+export const ACA_BENCHMARK_PREMIUMS_2026_MONTHLY = {
+  Alabama: 645,
+  Alaska: 1032,
+  Arizona: 532,
+  Arkansas: 774,
+  California: 570,
+  Colorado: 557,
+  Connecticut: 870,
+  Delaware: 691,
+  "District of Columbia": 610,
+  Florida: 683,
+  Georgia: 615,
+  Hawaii: 541,
+  Idaho: 490,
+  Illinois: 646,
+  Indiana: 474,
+  Iowa: 501,
+  Kansas: 670,
+  Kentucky: 590,
+  Louisiana: 646,
+  Maine: 709,
+  Maryland: 414,
+  Massachusetts: 494,
+  Michigan: 523,
+  Minnesota: 448,
+  Mississippi: 662,
+  Missouri: 605,
+  Montana: 692,
+  Nebraska: 710,
+  Nevada: 497,
+  "New Hampshire": 401,
+  "New Jersey": 545,
+  "New Mexico": 623,
+  "New York": 817,
+  "North Carolina": 638,
+  "North Dakota": 570,
+  Ohio: 513,
+  Oklahoma: 604,
+  Oregon: 543,
+  Pennsylvania: 572,
+  "Rhode Island": 506,
+  "South Carolina": 564,
+  "South Dakota": 655,
+  Tennessee: 711,
+  Texas: 661,
+  Utah: 640,
+  Vermont: 1299,
+  Virginia: 455,
+  Washington: 612,
+  "West Virginia": 1073,
+  Wisconsin: 611,
+  Wyoming: 1090
+};
+
+export const STATE_TAX_BY_YEAR = {
+  2026: STATE_TAX_2026
+};
+
+export const STATE_OPTIONS = Object.keys(STATE_TAX_2026).sort((a, b) => a.localeCompare(b));
+
+export function buildFederalTaxProfile({
+  taxYear = DEFAULT_TAX_YEAR,
+  filingStatus = "marriedFilingJointly",
+  qualifyingChildren = 0,
+  additionalDeduction = 0,
+  additionalCredits = 0
+} = {}) {
+  const data = FEDERAL_TAX_BY_YEAR[taxYear] ?? FEDERAL_TAX_2026;
+  const status = FILING_STATUSES[filingStatus] ? filingStatus : "marriedFilingJointly";
+  return {
+    year: data.year,
+    filingStatus: status,
+    standardDeduction: data.standardDeduction[status],
+    capitalLossOrdinaryIncomeOffset: data.capitalLossOrdinaryIncomeOffset,
+    ordinaryBrackets: data.ordinaryBrackets[status],
+    capitalGainsBrackets: data.capitalGainsBrackets[status],
+    niit: data.niit,
+    childTaxCredit: data.childTaxCredit,
+    qualifyingChildren: Math.max(0, Math.trunc(Number(qualifyingChildren) || 0)),
+    additionalDeduction: Math.max(0, Number(additionalDeduction) || 0),
+    additionalCredits: Math.max(0, Number(additionalCredits) || 0),
+    source: data.source
+  };
+}
+
+export function buildStateTaxProfile({
+  taxYear = DEFAULT_TAX_YEAR,
+  state = "Florida",
+  filingStatus = "marriedFilingJointly",
+  dependentCount = 0,
+  overrideRate = null,
+  overrideCapitalGainsRate = null,
+  separateCapitalGains = false
+} = {}) {
+  const stateData = STATE_TAX_BY_YEAR[taxYear]?.[state] ?? STATE_TAX_2026.Florida;
+  const stateStatus = filingStatus === "marriedFilingJointly" ? "mfj" : "single";
+
+  if (Number.isFinite(overrideRate)) {
+    return {
+      year: taxYear,
+      state,
+      source: "Manual override",
+      standardDeduction: 0,
+      personalExemption: 0,
+      brackets: [{ upTo: Infinity, rate: Math.max(0, overrideRate) }],
+      treatCapitalGainsAsOrdinary: !separateCapitalGains,
+      capitalGainsRate: Number.isFinite(overrideCapitalGainsRate)
+        ? Math.max(0, overrideCapitalGainsRate)
+        : Math.max(0, overrideRate),
+      capitalGainsTreatment: separateCapitalGains ? "separate" : "ordinary"
+    };
+  }
+
+  const exemptions = stateData.personalExemption ?? {};
+  const personalExemption = (exemptions[stateStatus] ?? 0)
+    + Math.max(0, dependentCount) * (exemptions.dependent ?? 0);
+
+  return {
+    year: taxYear,
+    state,
+    source: "Tax Foundation 2026 state income tax compilation",
+    standardDeduction: stateData.standardDeduction?.[stateStatus] ?? 0,
+    personalExemption,
+    brackets: thresholdPairsToBrackets(stateData[stateStatus] ?? [[0, 0]]),
+    treatCapitalGainsAsOrdinary: stateData.capitalGainsTreatment === "ordinary",
+    capitalGainsTreatment: stateData.capitalGainsTreatment ?? "ordinary"
+  };
+}
+
+export function buildTaxProfile(options = {}) {
+  return {
+    ...buildFederalTaxProfile(options),
+    state: buildStateTaxProfile(options)
+  };
+}
+
+export function getFplGuideline({
+  taxYear = DEFAULT_TAX_YEAR,
+  state = "Florida",
+  householdSize = 2
+} = {}) {
+  const data = FEDERAL_POVERTY_GUIDELINES_BY_YEAR[taxYear] ?? FPL_2026;
+  const region = state === "Alaska" ? data.Alaska : state === "Hawaii" ? data.Hawaii : data.contiguous;
+  const size = Math.max(1, Math.trunc(Number(householdSize) || 1));
+  return region.base + Math.max(0, size - 1) * region.increment;
+}
+
+export function getMonthlyBenchmarkPremium({
+  taxYear = DEFAULT_TAX_YEAR,
+  state = "Florida"
+} = {}) {
+  if (taxYear !== 2026) return ACA_BENCHMARK_PREMIUMS_2026_MONTHLY[state] ?? 625;
+  return ACA_BENCHMARK_PREMIUMS_2026_MONTHLY[state] ?? 625;
+}
+
+export function buildAcaConfig({
+  enabled = true,
+  taxYear = DEFAULT_TAX_YEAR,
+  state = "Florida",
+  householdSize = 2,
+  marketplaceMembers = householdSize,
+  currentAge = null,
+  memberAges = null,
+  benchmarkPremiumOverride = null,
+  benchmarkPremiumReferenceAge = null,
+  benchmarkPremiumReferenceAges = null,
+  fplOverride = null
+} = {}) {
+  const aca = ACA_BY_YEAR[taxYear] ?? ACA_2026;
+  const members = Math.max(1, Math.trunc(Number(marketplaceMembers) || Number(householdSize) || 1));
+  const hasBenchmarkOverride = Number.isFinite(benchmarkPremiumOverride);
+  const annualBenchmark = Number.isFinite(benchmarkPremiumOverride)
+    ? Math.max(0, benchmarkPremiumOverride)
+    : getMonthlyBenchmarkPremium({ taxYear, state }) * 12 * members;
+  const referenceAge = Number.isFinite(benchmarkPremiumReferenceAge)
+    ? Math.max(0, benchmarkPremiumReferenceAge)
+    : hasBenchmarkOverride && Number.isFinite(currentAge)
+      ? Math.max(0, currentAge)
+      : ACA_DEFAULT_BENCHMARK_REFERENCE_AGE;
+  const referenceAges = normalizeAgeArray(benchmarkPremiumReferenceAges)
+    ?? (hasBenchmarkOverride ? normalizeAgeArray(memberAges) : null);
+  const coveredMemberAges = normalizeAgeArray(memberAges);
+
+  return {
+    enabled,
+    year: aca.year,
+    source: aca.source,
+    state,
+    householdSize: Math.max(1, Math.trunc(Number(householdSize) || 1)),
+    marketplaceMembers: members,
+    fpl: Number.isFinite(fplOverride)
+      ? Math.max(1, fplOverride)
+      : getFplGuideline({ taxYear, state, householdSize }),
+    benchmarkPremium: annualBenchmark,
+    ageRatedBenchmarkPremium: true,
+    benchmarkPremiumReferenceAge: referenceAge,
+    benchmarkPremiumReferenceAges: referenceAges,
+    memberAges: coveredMemberAges,
+    oopMaximum: members > 1 ? aca.costSharingLimit.family : aca.costSharingLimit.selfOnly,
+    costSharingLimit: aca.costSharingLimit,
+    applicablePercentageTable: aca.applicablePercentageTable,
+    maxEligibleFplPercent: aca.maxEligibleFplPercent,
+    requiredContributionPercentage: aca.requiredContributionPercentage
+  };
+}
+
+function brackets(upperBounds) {
+  return [...upperBounds, Infinity].map((upTo, index) => ({
+    upTo,
+    rate: FEDERAL_BRACKET_RATES[index]
+  }));
+}
+
+function normalizeAgeArray(ages) {
+  if (!Array.isArray(ages)) return null;
+  return ages.map((age) => {
+    const numericAge = Number(age);
+    return Number.isFinite(numericAge) ? Math.max(0, numericAge) : null;
+  });
+}
+
+function capitalGainsBrackets(zeroRateUpTo, fifteenRateUpTo) {
+  return [
+    { upTo: zeroRateUpTo, rate: 0 },
+    { upTo: fifteenRateUpTo, rate: 0.15 },
+    { upTo: Infinity, rate: 0.2 }
+  ];
+}
+
+function thresholdPairsToBrackets(pairs) {
+  const sorted = [...pairs].sort((a, b) => a[0] - b[0]);
+  const result = [];
+  if ((sorted[0]?.[0] ?? 0) > 0) {
+    result.push({ upTo: sorted[0][0], rate: 0 });
+  }
+
+  for (let index = 0; index < sorted.length; index += 1) {
+    result.push({
+      upTo: sorted[index + 1]?.[0] ?? Infinity,
+      rate: sorted[index][1]
+    });
+  }
+
+  return result;
+}
