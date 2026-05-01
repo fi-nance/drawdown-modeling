@@ -1019,85 +1019,92 @@ export function makeHistoricalSequences({
   startYear = 1928,
   endYear = 2025,
   chunkYears = 10,
-  requiredAssetClasses = []
+  requiredAssetClasses = [],
+  assetClassProxies = {}
 } = {}) {
   const years = Math.max(1, Math.trunc(Number(planYears) || 1));
   const start = clampYear(startYear, HISTORICAL_RETURNS[0].year, HISTORICAL_RETURNS.at(-1).year);
   const end = clampYear(endYear, start, HISTORICAL_RETURNS.at(-1).year);
   const required = normalizeRequiredClasses(requiredAssetClasses);
+  const proxies = normalizeProxyMap(assetClassProxies);
   const rows = HISTORICAL_RETURNS
-    .filter((row) => row.year >= start && row.year <= end && supportsAssetClasses(row, required));
+    .filter((row) => row.year >= start && row.year <= end && supportsAssetClasses(row, required, proxies));
 
   if (!rows.length) return [];
-  if (mode === "specific") return specificSequence(rows, years, start);
-  if (mode === "chunks") return chunkedSequences(rows, years, chunkYears);
-  return rollingSequences(rows, years);
+  if (mode === "specific") return specificSequence(rows, years, start, proxies);
+  if (mode === "chunks") return chunkedSequences(rows, years, chunkYears, proxies);
+  return rollingSequences(rows, years, proxies);
 }
 
-export function historicalCoverageForAssetClasses(requiredAssetClasses = []) {
+export function historicalCoverageForAssetClasses(requiredAssetClasses = [], { assetClassProxies = {} } = {}) {
   const required = normalizeRequiredClasses(requiredAssetClasses);
-  const rows = HISTORICAL_RETURNS.filter((row) => supportsAssetClasses(row, required));
+  const proxies = normalizeProxyMap(assetClassProxies);
+  const rows = HISTORICAL_RETURNS.filter((row) => supportsAssetClasses(row, required, proxies));
   if (!rows.length) return null;
-  return {
+  const coverage = {
     startYear: rows[0].year,
     endYear: rows.at(-1).year,
     rowCount: rows.length,
     dataVersion: HISTORICAL_RETURN_DATA_VERSION
   };
+  const appliedProxies = Object.fromEntries(Object.entries(proxies).filter(([assetClass]) => required.includes(assetClass)));
+  if (Object.keys(appliedProxies).length) coverage.assetClassProxies = appliedProxies;
+  return coverage;
 }
 
 export function assetClassesInPortfolio(assets = []) {
   return [...new Set(assets.map((asset) => asset.assetClass).filter((assetClass) => HISTORICAL_ASSET_CLASSES.includes(assetClass)))];
 }
 
-function rollingSequences(rows, planYears) {
-  if (rows.length <= planYears) return [sequenceFromRows(repeatRowsToLength(rows, planYears), labelForRows(rows, rows.length < planYears))];
+function rollingSequences(rows, planYears, proxies = {}) {
+  if (rows.length <= planYears) return [sequenceFromRows(repeatRowsToLength(rows, planYears), labelForRows(rows, rows.length < planYears), proxies)];
   const sequences = [];
   for (let index = 0; index <= rows.length - planYears; index += 1) {
     const windowRows = rows.slice(index, index + planYears);
-    sequences.push(sequenceFromRows(windowRows, labelForRows(windowRows)));
+    sequences.push(sequenceFromRows(windowRows, labelForRows(windowRows), proxies));
   }
   return sequences;
 }
 
-function specificSequence(rows, planYears, requestedStartYear) {
-  if (rows.length <= planYears) return [sequenceFromRows(repeatRowsToLength(rows, planYears), labelForRows(rows, true))];
+function specificSequence(rows, planYears, requestedStartYear, proxies = {}) {
+  if (rows.length <= planYears) return [sequenceFromRows(repeatRowsToLength(rows, planYears), labelForRows(rows, true), proxies)];
   const requestedIndex = rows.findIndex((row) => row.year >= requestedStartYear);
   const boundedIndex = Math.min(Math.max(0, requestedIndex), rows.length - planYears);
   const windowRows = rows.slice(boundedIndex, boundedIndex + planYears);
-  return [sequenceFromRows(windowRows, labelForRows(windowRows))];
+  return [sequenceFromRows(windowRows, labelForRows(windowRows), proxies)];
 }
 
-function chunkedSequences(rows, planYears, chunkYears) {
+function chunkedSequences(rows, planYears, chunkYears, proxies = {}) {
   const size = Math.max(1, Math.trunc(Number(chunkYears) || 10));
   const sequences = [];
   for (let index = 0; index < rows.length; index += size) {
     const chunk = rows.slice(index, index + size);
     if (!chunk.length) continue;
     if (chunk.length >= planYears) {
-      sequences.push(...rollingSequences(chunk, planYears));
+      sequences.push(...rollingSequences(chunk, planYears, proxies));
     } else {
-      sequences.push(sequenceFromRows(repeatRowsToLength(chunk, planYears), labelForRows(chunk, true)));
+      sequences.push(sequenceFromRows(repeatRowsToLength(chunk, planYears), labelForRows(chunk, true), proxies));
     }
   }
   return sequences;
 }
 
-function sequenceFromRows(rows, name) {
+function sequenceFromRows(rows, name, proxies = {}) {
   return {
     name,
     sourceYears: rows.map((row) => row.year),
     startYear: rows[0]?.year ?? null,
     endYear: rows.at(-1)?.year ?? null,
-    returns: rows.map(returnObjectForRow),
+    returns: rows.map((row) => returnObjectForRow(row, proxies)),
     inflation: rows.map((row) => row.inflation)
   };
 }
 
-function returnObjectForRow(row) {
+function returnObjectForRow(row, proxies = {}) {
   const result = { default: row.stock };
   for (const assetClass of HISTORICAL_ASSET_CLASSES) {
-    if (Number.isFinite(row[assetClass])) result[assetClass] = row[assetClass];
+    const value = historicalValueFor(row, assetClass, proxies);
+    if (Number.isFinite(value)) result[assetClass] = value;
   }
   return result;
 }
@@ -1112,12 +1119,27 @@ function labelForRows(rows, repeated = false) {
   return repeated ? start + "-" + end + " repeated" : start + "-" + end;
 }
 
-function supportsAssetClasses(row, requiredAssetClasses) {
-  return requiredAssetClasses.every((assetClass) => Number.isFinite(row[assetClass]));
+function supportsAssetClasses(row, requiredAssetClasses, proxies = {}) {
+  return requiredAssetClasses.every((assetClass) => Number.isFinite(historicalValueFor(row, assetClass, proxies)));
 }
 
 function normalizeRequiredClasses(assetClasses) {
   return [...new Set(assetClasses)].filter((assetClass) => HISTORICAL_ASSET_CLASSES.includes(assetClass));
+}
+
+function historicalValueFor(row, assetClass, proxies = {}) {
+  if (Number.isFinite(row[assetClass])) return row[assetClass];
+  const proxyAssetClass = proxies[assetClass];
+  return proxyAssetClass ? row[proxyAssetClass] : row[assetClass];
+}
+
+function normalizeProxyMap(assetClassProxies = {}) {
+  return Object.fromEntries(Object.entries(assetClassProxies)
+    .filter(([target, source]) => (
+      target !== source
+      && HISTORICAL_ASSET_CLASSES.includes(target)
+      && HISTORICAL_ASSET_CLASSES.includes(source)
+    )));
 }
 
 function clampYear(value, min, max) {

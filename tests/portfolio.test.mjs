@@ -2,10 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  dividendIncome,
   harvestTaxGains,
   harvestTaxLosses,
   portfolioValue,
-  sellFromLot
+  sellFromLot,
+  removeEmptyLots
 } from "../src/core/portfolio.mjs";
 
 test("taxable sales preserve long-term versus short-term tax character", () => {
@@ -56,6 +58,23 @@ test("traditional retirement withdrawals are ordinary income and Roth withdrawal
   assert.equal(roth.gain, 0);
 });
 
+test("taxable cash sales do not create capital gain or loss treatment", () => {
+  const sale = sellFromLot({
+    id: "cash",
+    name: "Cash",
+    accountType: "taxable",
+    assetClass: "cash",
+    holdingPeriod: "long",
+    units: 1000,
+    price: 0.95,
+    costBasisPerUnit: 1
+  }, 500);
+
+  assert.equal(sale.proceeds, 500);
+  assert.equal(sale.taxType, "none");
+  assert.equal(sale.gain, 0);
+});
+
 test("tax loss harvesting realizes losses and resets harvested basis", () => {
   const assets = [{
     id: "loss-lot",
@@ -72,6 +91,24 @@ test("tax loss harvesting realizes losses and resets harvested basis", () => {
   assert.equal(harvested.realizedLosses, 150);
   assert.equal(portfolioValue(assets), 800);
   assert.ok(assets.some((asset) => asset.costBasisPerUnit === 80));
+});
+
+test("tax loss harvesting ignores cash lots", () => {
+  const assets = [{
+    id: "cash-lot",
+    accountType: "taxable",
+    assetClass: "cash",
+    holdingPeriod: "long",
+    units: 1000,
+    price: 0.95,
+    costBasisPerUnit: 1
+  }];
+
+  const harvested = harvestTaxLosses(assets, 100);
+
+  assert.equal(harvested.realizedLosses, 0);
+  assert.equal(harvested.flows.length, 0);
+  assert.equal(assets[0].costBasisPerUnit, 1);
 });
 
 test("tax gain harvesting realizes gains and steps up basis", () => {
@@ -92,3 +129,109 @@ test("tax gain harvesting realizes gains and steps up basis", () => {
   assert.ok(assets.some((asset) => asset.costBasisPerUnit === 100));
 });
 
+test("tax gain harvesting ignores cash lots", () => {
+  const assets = [{
+    id: "cash-lot",
+    accountType: "taxable",
+    assetClass: "cash",
+    holdingPeriod: "long",
+    units: 1000,
+    price: 1.05,
+    costBasisPerUnit: 1
+  }];
+
+  const harvested = harvestTaxGains(assets, 100);
+
+  assert.equal(harvested.realizedGains, 0);
+  assert.equal(harvested.flows.length, 0);
+  assert.equal(assets[0].costBasisPerUnit, 1);
+});
+
+test("taxable dividends are reported as one aggregate cash-flow input", () => {
+  const assets = [
+    {
+      id: "stock-a",
+      name: "Stock A",
+      accountType: "taxable",
+      assetClass: "stock",
+      units: 10,
+      price: 100,
+      dividendYield: 0.02,
+      qualifiedDividendShare: 1
+    },
+    {
+      id: "stock-b",
+      name: "Stock B",
+      accountType: "taxable",
+      assetClass: "stock",
+      units: 5,
+      price: 100,
+      dividendYield: 0.04,
+      qualifiedDividendShare: 0.5
+    }
+  ];
+
+  const dividends = dividendIncome(assets);
+
+  assert.equal(dividends.cash, 40);
+  assert.deepEqual(dividends.flows, [{
+    from: "Taxable account dividends",
+    to: "Spending reserve",
+    amount: 40,
+    type: "income"
+  }]);
+  assert.deepEqual(dividends.details, [
+    {
+      assetId: "stock-a",
+      name: "Stock A",
+      accountType: "taxable",
+      dividend: 20,
+      ordinaryDividends: 0,
+      qualifiedDividends: 20
+    },
+    {
+      assetId: "stock-b",
+      name: "Stock B",
+      accountType: "taxable",
+      dividend: 20,
+      ordinaryDividends: 10,
+      qualifiedDividends: 10
+    }
+  ]);
+});
+
+test("dividendIncome reinvests dividends for non-taxable accounts", () => {
+  const assets = [{
+    id: "ira-stock",
+    accountType: "traditional",
+    assetClass: "stock",
+    units: 10,
+    price: 100,
+    dividendYield: 0.05
+  }];
+  const dividends = dividendIncome(assets);
+  assert.equal(dividends.cash, 0);
+  assert.equal(assets[0].units, 10.5); // 1000 * 0.05 = 50 / 100 = 0.5 units added
+});
+
+test("sellFromLot returns empty sale for zero price or zero units", () => {
+  const emptySaleResult = sellFromLot({
+    id: "empty",
+    accountType: "taxable",
+    units: 0,
+    price: 100
+  }, 500);
+  assert.equal(emptySaleResult.proceeds, 0);
+  assert.equal(emptySaleResult.unitsSold, 0);
+});
+
+test("removeEmptyLots removes lots with zero units or zero price", () => {
+  const assets = [
+    { id: "good", units: 10, price: 100 },
+    { id: "empty1", units: 0, price: 100 },
+    { id: "empty2", units: 10, price: 0 }
+  ];
+  removeEmptyLots(assets);
+  assert.equal(assets.length, 1);
+  assert.equal(assets[0].id, "good");
+});

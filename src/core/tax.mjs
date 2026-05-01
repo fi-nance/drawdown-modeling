@@ -1,5 +1,9 @@
 import { EPSILON, round } from "./utils.mjs";
 import { buildTaxProfile } from "../data/taxData.mjs";
+import {
+  stateRetirementIncomeExclusion,
+  stateSocialSecurityExclusion
+} from "../data/stateRetirementTax2026.mjs";
 
 export const DEFAULT_TAX_PROFILE = buildTaxProfile();
 
@@ -40,10 +44,12 @@ export function taxPreferentialIncome({ ordinaryTaxableIncome, preferentialIncom
 
 export function computeIncomeTax({
   ordinaryIncome = 0,
+  retirementOrdinaryIncome = 0,
   shortTermCapitalGains = 0,
   longTermCapitalGains = 0,
   qualifiedDividends = 0,
   ordinaryInvestmentIncome = 0,
+  taxableSocialSecurity = 0,
   capitalLosses = 0,
   capitalLossCarryforward = 0,
   profile = DEFAULT_TAX_PROFILE
@@ -70,6 +76,9 @@ export function computeIncomeTax({
   lossPool -= ordinaryLossOffset;
 
   const ordinaryAfterLossOffset = Math.max(0, ordinaryBeforeLossOffset - ordinaryLossOffset);
+  const ordinaryIncomeScale = ordinaryBeforeLossOffset > 0
+    ? ordinaryAfterLossOffset / ordinaryBeforeLossOffset
+    : 0;
   const federalDeduction = (profile.standardDeduction ?? 0) + (profile.additionalDeduction ?? 0);
   const taxableOrdinaryIncome = Math.max(0, ordinaryAfterLossOffset - federalDeduction);
   const remainingDeduction = Math.max(0, federalDeduction - ordinaryAfterLossOffset);
@@ -104,6 +113,8 @@ export function computeIncomeTax({
 
   const stateTax = computeStateTax({
     ordinaryIncome: ordinaryAfterLossOffset,
+    retirementOrdinaryIncome: Math.max(0, retirementOrdinaryIncome) * ordinaryIncomeScale,
+    taxableSocialSecurity: Math.max(0, taxableSocialSecurity) * ordinaryIncomeScale,
     longTermCapitalGains: longGains,
     qualifiedDividends: dividendPreferentialIncome,
     profile: profile.state
@@ -111,7 +122,9 @@ export function computeIncomeTax({
 
   return {
     ordinaryIncome: round(ordinaryIncome, 6),
+    retirementOrdinaryIncome: round(retirementOrdinaryIncome, 6),
     ordinaryInvestmentIncome: round(ordinaryInvestmentIncome, 6),
+    taxableSocialSecurity: round(taxableSocialSecurity, 6),
     shortTermCapitalGains: round(shortTermCapitalGains, 6),
     longTermCapitalGains: round(longTermCapitalGains, 6),
     qualifiedDividends: round(qualifiedDividends, 6),
@@ -168,29 +181,86 @@ function computeChildTaxCredit({ magi, profile }) {
   return round(Math.max(0, grossCredit - phaseout), 6);
 }
 
-function computeStateTax({ ordinaryIncome, longTermCapitalGains, qualifiedDividends, profile }) {
+export function computeTaxableSocialSecurityBenefits({
+  benefits = 0,
+  otherIncome = 0,
+  filingStatus = "single",
+  marriedFilingSeparatelyLivedTogether = false,
+  profile = DEFAULT_TAX_PROFILE
+} = {}) {
+  const totalBenefits = Math.max(0, Number(benefits) || 0);
+  if (totalBenefits <= 0) return 0;
+
+  if (filingStatus === "marriedFilingSeparately" && marriedFilingSeparatelyLivedTogether) {
+    return round(totalBenefits * 0.85, 6);
+  }
+
+  const config = profile.socialSecurityTaxation ?? {};
+  const baseAmount = config.baseAmounts?.[filingStatus] ?? 25000;
+  const adjustedBaseAmount = config.adjustedBaseAmounts?.[filingStatus] ?? 34000;
+  const lowRate = config.taxableShareLow ?? 0.5;
+  const highRate = config.taxableShareHigh ?? 0.85;
+  const combinedIncome = Math.max(0, Number(otherIncome) || 0) + totalBenefits * 0.5;
+  if (combinedIncome <= baseAmount) return 0;
+
+  const lowerBandWidth = Math.max(0, adjustedBaseAmount - baseAmount);
+  const lowerBandTaxable = Math.min(totalBenefits * lowRate, Math.min(combinedIncome - baseAmount, lowerBandWidth) * lowRate);
+  const upperBandTaxable = Math.max(0, combinedIncome - adjustedBaseAmount) * highRate;
+  return round(Math.min(totalBenefits * highRate, lowerBandTaxable + upperBandTaxable), 6);
+}
+
+function computeStateTax({
+  ordinaryIncome,
+  retirementOrdinaryIncome = 0,
+  taxableSocialSecurity = 0,
+  longTermCapitalGains,
+  qualifiedDividends,
+  profile
+}) {
   if (!profile) return 0;
 
   const deduction = (profile.standardDeduction ?? 0) + (profile.personalExemption ?? 0);
   const capitalGains = Math.max(0, longTermCapitalGains);
   const qualified = Math.max(0, qualifiedDividends);
+  const stateIncomeBeforeDeduction = Math.max(0, ordinaryIncome + capitalGains + qualified);
+  const socialSecurityExclusion = stateSocialSecurityExclusion({
+    rule: profile.retirementRules,
+    filingStatus: profile.filingStatus,
+    age: profile.primaryAge,
+    spouseAge: profile.spouseAge,
+    taxableSocialSecurity,
+    stateIncome: stateIncomeBeforeDeduction,
+    manualTaxableRate: profile.socialSecurityTaxableRate
+  });
+  const remainingTaxableSocialSecurity = Math.max(0, taxableSocialSecurity - socialSecurityExclusion);
+  const retirementExclusion = stateRetirementIncomeExclusion({
+    rule: profile.retirementRules,
+    filingStatus: profile.filingStatus,
+    age: profile.primaryAge,
+    spouseAge: profile.spouseAge,
+    retirementIncome: retirementOrdinaryIncome,
+    remainingTaxableSocialSecurity,
+    stateIncome: stateIncomeBeforeDeduction,
+    manualExclusion: profile.retirementIncomeExclusion
+  });
+  const stateOrdinaryIncome = Math.max(0, ordinaryIncome - retirementExclusion - socialSecurityExclusion);
 
   if (profile.capitalGainsTreatment === "only") {
     return taxFromBrackets(Math.max(0, capitalGains - deduction), profile.brackets);
   }
 
   if (profile.capitalGainsTreatment === "excluded") {
-    return taxFromBrackets(Math.max(0, ordinaryIncome + qualified - deduction), profile.brackets);
+    return taxFromBrackets(Math.max(0, stateOrdinaryIncome + qualified - deduction), profile.brackets);
   }
 
   if (profile.treatCapitalGainsAsOrdinary !== false || profile.capitalGainsTreatment === "ordinary") {
     return taxFromBrackets(
-      Math.max(0, ordinaryIncome + capitalGains + qualified - deduction),
+      Math.max(0, stateOrdinaryIncome + capitalGains + qualified - deduction),
       profile.brackets
     );
   }
 
-  const stateOrdinaryTax = taxFromBrackets(Math.max(0, ordinaryIncome - deduction), profile.brackets);
+  const stateOrdinaryTax = taxFromBrackets(Math.max(0, stateOrdinaryIncome - deduction), profile.brackets);
   const stateCapitalGainsTax = Math.max(0, capitalGains + qualified) * (profile.capitalGainsRate ?? 0);
   return round(stateOrdinaryTax + stateCapitalGainsTax, 6);
 }
@@ -204,6 +274,10 @@ export function inflateTaxProfile(profile = DEFAULT_TAX_PROFILE, inflationIndex 
     additionalCredits: round((profile.additionalCredits ?? 0) * index, 6),
     ordinaryBrackets: scaleBracketLimits(profile.ordinaryBrackets, index),
     capitalGainsBrackets: scaleBracketLimits(profile.capitalGainsBrackets, index),
+    additionalStandardDeduction65: profile.additionalStandardDeduction65 ? {
+      married: round((profile.additionalStandardDeduction65.married ?? 0) * index, 6),
+      unmarried: round((profile.additionalStandardDeduction65.unmarried ?? 0) * index, 6)
+    } : null,
     childTaxCredit: profile.childTaxCredit ? {
       ...profile.childTaxCredit,
       perChild: round((profile.childTaxCredit.perChild ?? 0) * index, 6),
@@ -213,6 +287,7 @@ export function inflateTaxProfile(profile = DEFAULT_TAX_PROFILE, inflationIndex 
       ...profile.state,
       standardDeduction: round((profile.state.standardDeduction ?? 0) * index, 6),
       personalExemption: round((profile.state.personalExemption ?? 0) * index, 6),
+      retirementIncomeExclusion: round((profile.state.retirementIncomeExclusion ?? 0) * index, 6),
       brackets: scaleBracketLimits(profile.state.brackets, index)
     } : null
   };

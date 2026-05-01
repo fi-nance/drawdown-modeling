@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "test": "node --test",
+    "test:coverage": "node --experimental-test-coverage --test",
     "start": "python3 -m http.server 4173"
   }
 }

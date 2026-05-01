@@ -210,6 +210,14 @@ let googleSheetsTokenExpiresAt = 0;
 
 initialize();
 
+// Dismiss loading screen
+const loader = document.getElementById("appLoader");
+if (loader) {
+  loader.style.opacity = "0";
+  loader.style.visibility = "hidden";
+  setTimeout(() => loader.remove(), 600);
+}
+
 function initialize() {
   renderStateOptions();
   loadStoredState();
@@ -1130,17 +1138,120 @@ function drawTimeline() {
   const taxes = years.map((year) => adjustAmount(year.taxes.totalTax, year));
   const maxValue = Math.max(...values, ...taxes, 1);
   const minValue = Math.min(...values, 0);
-  const x = (index) => margin.left + (index / Math.max(1, years.length - 1)) * (width - margin.left - margin.right);
-  const y = (value) => height - margin.bottom - ((value - minValue) / (maxValue - minValue || 1)) * (height - margin.top - margin.bottom);
+  const plotW = width - margin.left - margin.right;
+  const plotH = height - margin.top - margin.bottom;
+  const x = (index) => margin.left + (index / Math.max(1, years.length - 1)) * plotW;
+  const y = (value) => height - margin.bottom - ((value - minValue) / (maxValue - minValue || 1)) * plotH;
 
   drawGrid(svg, width, height, margin, maxValue);
-  svg.append(pathElement(values.map((value, index) => [x(index), y(value)]), "#0f766e", 3));
-  svg.append(pathElement(taxes.map((value, index) => [x(index), y(value)]), "#c84f43", 2));
+
+  // Area fill under portfolio line
+  if (values.length > 0) {
+    const areaPoints = values.map((v, i) => `${x(i)},${y(v)}`).join(" ");
+    const baseline = height - margin.bottom;
+    svg.append(svgEl("polygon", {
+      points: `${x(0)},${baseline} ${areaPoints} ${x(values.length - 1)},${baseline}`,
+      fill: "rgba(52,209,182,0.08)"
+    }));
+  }
+
+  svg.append(pathElement(values.map((value, index) => [x(index), y(value)]), "#34d1b6", 2.5));
+  svg.append(pathElement(taxes.map((value, index) => [x(index), y(value)]), "#f06060", 2));
+
+  // Legend
   svg.append(svgEl("text", { x: margin.left, y: 20, class: "chart-label" }, activePathLabel()));
-  svg.append(svgEl("circle", { cx: width - 208, cy: 18, r: 5, fill: "#0f766e" }));
+  svg.append(svgEl("circle", { cx: width - 208, cy: 18, r: 5, fill: "#34d1b6" }));
   svg.append(svgEl("text", { x: width - 196, y: 22, class: "chart-label" }, "End value"));
-  svg.append(svgEl("circle", { cx: width - 108, cy: 18, r: 5, fill: "#c84f43" }));
+  svg.append(svgEl("circle", { cx: width - 108, cy: 18, r: 5, fill: "#f06060" }));
   svg.append(svgEl("text", { x: width - 96, y: 22, class: "chart-label" }, "Tax"));
+
+  // ── Interactive hover overlay ──
+  if (!years.length) return;
+
+  // Crosshair line
+  const crosshair = svgEl("line", {
+    x1: 0, x2: 0, y1: margin.top, y2: height - margin.bottom,
+    stroke: "rgba(255,255,255,0.2)", "stroke-width": 1, "stroke-dasharray": "4,3",
+    "pointer-events": "none", visibility: "hidden"
+  });
+  svg.append(crosshair);
+
+  // Highlight dots
+  const dotValue = svgEl("circle", { r: 5, fill: "#34d1b6", stroke: "#0c1018", "stroke-width": 2, "pointer-events": "none", visibility: "hidden" });
+  const dotTax = svgEl("circle", { r: 4, fill: "#f06060", stroke: "#0c1018", "stroke-width": 2, "pointer-events": "none", visibility: "hidden" });
+  svg.append(dotValue);
+  svg.append(dotTax);
+
+  // Tooltip (HTML, positioned relative to the SVG's parent)
+  let tooltip = svg.parentElement.querySelector(".v2-chart-tooltip");
+  if (!tooltip) {
+    tooltip = document.createElement("div");
+    tooltip.className = "v2-chart-tooltip";
+    svg.parentElement.style.position = "relative";
+    svg.parentElement.append(tooltip);
+  }
+  tooltip.style.display = "none";
+
+  // Invisible rect to capture mouse events
+  const overlay = svgEl("rect", {
+    x: margin.left, y: margin.top,
+    width: plotW, height: plotH,
+    fill: "transparent", cursor: "crosshair"
+  });
+  svg.append(overlay);
+
+  overlay.addEventListener("mousemove", (e) => {
+    const rect = svg.getBoundingClientRect();
+    const svgX = (e.clientX - rect.left) * (width / rect.width);
+    const nearestIdx = Math.round(((svgX - margin.left) / plotW) * Math.max(1, years.length - 1));
+    const idx = Math.max(0, Math.min(years.length - 1, nearestIdx));
+    const cx = x(idx);
+
+    crosshair.setAttribute("x1", cx);
+    crosshair.setAttribute("x2", cx);
+    crosshair.setAttribute("visibility", "visible");
+
+    dotValue.setAttribute("cx", cx);
+    dotValue.setAttribute("cy", y(values[idx]));
+    dotValue.setAttribute("visibility", "visible");
+    dotTax.setAttribute("cx", cx);
+    dotTax.setAttribute("cy", y(taxes[idx]));
+    dotTax.setAttribute("visibility", "visible");
+
+    const yr = years[idx];
+    const pctX = (e.clientX - rect.left) / rect.width * 100;
+    tooltip.innerHTML = `
+      <div class="v2-tt-year">${yr.year}</div>
+      <div class="v2-tt-row"><span class="v2-tt-dot" style="background:#34d1b6"></span>Portfolio <strong>${moneyFormatter.format(values[idx])}</strong></div>
+      <div class="v2-tt-row"><span class="v2-tt-dot" style="background:#f06060"></span>Tax <strong>${moneyFormatter.format(taxes[idx])}</strong></div>
+      <div class="v2-tt-row v2-tt-muted">Spend ${moneyFormatter.format(adjustAmount(yr.plannedSpending, yr))}</div>
+    `;
+    tooltip.style.display = "block";
+    tooltip.style.top = `${(e.clientY - rect.top) - 80}px`;
+    tooltip.style.left = pctX > 70 ? `${(e.clientX - rect.left) - tooltip.offsetWidth - 16}px` : `${(e.clientX - rect.left) + 16}px`;
+  });
+
+  overlay.addEventListener("mouseleave", () => {
+    crosshair.setAttribute("visibility", "hidden");
+    dotValue.setAttribute("visibility", "hidden");
+    dotTax.setAttribute("visibility", "hidden");
+    tooltip.style.display = "none";
+  });
+
+  // Click to select year
+  overlay.addEventListener("click", (e) => {
+    const rect = svg.getBoundingClientRect();
+    const svgX = (e.clientX - rect.left) * (width / rect.width);
+    const nearestIdx = Math.round(((svgX - margin.left) / plotW) * Math.max(1, years.length - 1));
+    const idx = Math.max(0, Math.min(years.length - 1, nearestIdx));
+    selectedYearIndex = idx;
+    els.yearRange.value = String(idx + 1);
+    renderKpis();
+    renderFlowAndSales();
+    renderYearTable();
+    renderAssetBreakdown();
+    renderYearLabel();
+  });
 }
 
 function activePathLabel() {
@@ -1157,167 +1268,357 @@ function drawDistribution() {
   clearSvg(svg, 860, 320);
   const width = 860;
   const height = 320;
-  const margin = { top: 28, right: 28, bottom: 42, left: 60 };
-  const values = latest.monteCarlo.scenarios.map((scenario) => adjustAmount(scenario.endingValue, scenario.years.at(-1)));
+  const margin = { top: 28, right: 28, bottom: 52, left: 60 };
+  const scenarios = latest.monteCarlo.scenarios;
+  const values = scenarios.map((s) => adjustAmount(s.endingValue, s.years.at(-1)));
+  const sorted = [...values].sort((a, b) => a - b);
   const min = Math.min(...values);
   const max = Math.max(...values);
-  const binCount = 16;
-  const bins = Array.from({ length: binCount }, () => 0);
-  for (const value of values) {
-    const index = Math.min(binCount - 1, Math.floor(((value - min) / (max - min || 1)) * binCount));
-    bins[index] += 1;
+  const binCount = 20;
+  const binWidth = (max - min) / binCount || 1;
+  const bins = Array.from({ length: binCount }, (_, i) => ({
+    low: min + i * binWidth,
+    high: min + (i + 1) * binWidth,
+    count: 0,
+    scenarios: []
+  }));
+  for (let vi = 0; vi < values.length; vi++) {
+    const idx = Math.min(binCount - 1, Math.floor(((values[vi] - min) / (max - min || 1)) * binCount));
+    bins[idx].count += 1;
+    bins[idx].scenarios.push(scenarios[vi]);
   }
-  const maxBin = Math.max(...bins, 1);
-  const plotWidth = width - margin.left - margin.right;
-  const plotHeight = height - margin.top - margin.bottom;
+  const maxBin = Math.max(...bins.map(b => b.count), 1);
+  const plotW = width - margin.left - margin.right;
+  const plotH = height - margin.top - margin.bottom;
 
-  bins.forEach((count, index) => {
-    const barWidth = plotWidth / binCount - 4;
-    const barHeight = (count / maxBin) * plotHeight;
-    const x = margin.left + index * (plotWidth / binCount) + 2;
-    const y = height - margin.bottom - barHeight;
-    svg.append(svgEl("rect", {
-      x,
-      y,
-      width: barWidth,
-      height: barHeight,
-      rx: 4,
-      fill: index < 3 ? "#c84f43" : index > 11 ? "#0f766e" : "#2f5f98",
-      opacity: 0.82
-    }));
+  // Percentiles
+  const pct = (p) => sorted[Math.floor(p * sorted.length)] ?? 0;
+  const p10 = pct(0.1), median = pct(0.5), p90 = pct(0.9);
+  const xScale = (v) => margin.left + ((v - min) / (max - min || 1)) * plotW;
+
+  // Tooltip
+  let tooltip = svg.parentElement.querySelector(".v2-chart-tooltip");
+  if (!tooltip) {
+    tooltip = document.createElement("div");
+    tooltip.className = "v2-chart-tooltip";
+    svg.parentElement.style.position = "relative";
+    svg.parentElement.append(tooltip);
+  }
+  tooltip.style.display = "none";
+
+  // Draw bars
+  bins.forEach((bin, index) => {
+    const barW = plotW / binCount - 2;
+    const barH = (bin.count / maxBin) * plotH;
+    const bx = margin.left + index * (plotW / binCount) + 1;
+    const by = height - margin.bottom - barH;
+    const failRate = bin.scenarios.filter(s => !s.success).length / Math.max(1, bin.count);
+    const color = failRate > 0.5 ? "#f06060" : failRate > 0.1 ? "#f0a848" : "#34d1b6";
+    const bar = svgEl("rect", {
+      x: bx, y: by, width: barW, height: Math.max(0, barH),
+      rx: 3, fill: color, opacity: 0.72,
+      class: "v2-dist-bar", cursor: "pointer"
+    });
+
+    bar.addEventListener("mouseenter", (e) => {
+      bar.setAttribute("opacity", "1");
+      const rect = svg.getBoundingClientRect();
+      const successes = bin.scenarios.filter(s => s.success).length;
+      tooltip.innerHTML = `
+        <div class="v2-tt-year">${moneyFormatter.format(bin.low)} – ${moneyFormatter.format(bin.high)}</div>
+        <div class="v2-tt-row"><strong>${bin.count}</strong> scenarios (${Math.round(bin.count / values.length * 100)}%)</div>
+        <div class="v2-tt-row">${successes} succeeded, ${bin.count - successes} failed</div>
+      `;
+      tooltip.style.display = "block";
+      const pctX = (e.clientX - rect.left) / rect.width * 100;
+      tooltip.style.top = `${(e.clientY - rect.top) - 70}px`;
+      tooltip.style.left = pctX > 70 ? `${(e.clientX - rect.left) - tooltip.offsetWidth - 12}px` : `${(e.clientX - rect.left) + 12}px`;
+    });
+    bar.addEventListener("mouseleave", () => {
+      bar.setAttribute("opacity", "0.72");
+      tooltip.style.display = "none";
+    });
+    svg.append(bar);
   });
 
-  svg.append(svgEl("text", { x: margin.left, y: 20, class: "chart-label" }, `${latest.monteCarlo.summary.runs} scenarios`));
-  svg.append(svgEl("text", { x: margin.left, y: height - 12, class: "axis-label" }, moneyFormatter.format(min)));
-  svg.append(svgEl("text", { x: width - margin.right - 120, y: height - 12, class: "axis-label" }, moneyFormatter.format(max)));
+  // Percentile lines
+  const drawPctLine = (value, label, color) => {
+    const lx = xScale(value);
+    svg.append(svgEl("line", {
+      x1: lx, x2: lx, y1: margin.top, y2: height - margin.bottom,
+      stroke: color, "stroke-width": 1.5, "stroke-dasharray": "6,4", opacity: 0.7
+    }));
+    svg.append(svgEl("text", {
+      x: lx, y: margin.top - 6, "text-anchor": "middle",
+      fill: color, "font-size": 10, "font-weight": 700,
+      "font-family": "'Inter', sans-serif"
+    }, label));
+    svg.append(svgEl("text", {
+      x: lx, y: margin.top + 10, "text-anchor": "middle",
+      fill: color, "font-size": 9, "font-weight": 600,
+      "font-family": "'JetBrains Mono', monospace"
+    }, compactMoney(value)));
+  };
+  drawPctLine(p10, "P10", "#f06060");
+  drawPctLine(median, "Median", "#56c8e8");
+  drawPctLine(p90, "P90", "#34d1b6");
+
+  // Header
+  const summary = latest.monteCarlo.summary;
+  svg.append(svgEl("text", { x: margin.left, y: 20, class: "chart-label" },
+    `${summary.runs} scenarios · ${Math.round(summary.successRate * 100)}% success`));
+
+  // X-axis labels
+  svg.append(svgEl("text", { x: margin.left, y: height - 8, class: "axis-label" }, moneyFormatter.format(min)));
+  svg.append(svgEl("text", { x: width - margin.right, y: height - 8, "text-anchor": "end", class: "axis-label" }, moneyFormatter.format(max)));
+  svg.append(svgEl("text", { x: width / 2, y: height - 8, "text-anchor": "middle", class: "axis-label", "font-size": 10 }, "Ending Portfolio Value"));
+
+  // Color legend
+  svg.append(svgEl("rect", { x: width - 220, y: height - 48, width: 8, height: 8, rx: 2, fill: "#34d1b6" }));
+  svg.append(svgEl("text", { x: width - 208, y: height - 41, class: "axis-label", "font-size": 9 }, "Mostly succeed"));
+  svg.append(svgEl("rect", { x: width - 220, y: height - 34, width: 8, height: 8, rx: 2, fill: "#f0a848" }));
+  svg.append(svgEl("text", { x: width - 208, y: height - 27, class: "axis-label", "font-size": 9 }, "Mixed"));
+  svg.append(svgEl("rect", { x: width - 220, y: height - 20, width: 8, height: 8, rx: 2, fill: "#f06060" }));
+  svg.append(svgEl("text", { x: width - 208, y: height - 13, class: "axis-label", "font-size": 9 }, "Mostly fail"));
 }
 
 function drawSankey(svg, rawFlows, nodeDetails = {}) {
-  clearSvg(svg, 1280, 680);
-  const width = 1280;
-  const height = 680;
-  const margin = { top: 54, right: 58, bottom: 48, left: 58 };
-  const flows = rawFlows.filter((flow) => flow.amount > 1);
-  svg.append(svgEl("rect", {
-    x: 0,
-    y: 0,
-    width,
-    height,
-    rx: 18,
-    class: "sankey-bg"
-  }));
-  if (!flows.length) {
-    svg.append(svgEl("text", { x: margin.left, y: margin.top, class: "chart-label" }, "No cash flows for this view."));
-    return;
-  }
+  clearSvg(svg, 1280, 700);
+  const W = 1280, H = 700;
+  const pad = { t: 40, r: 200, b: 36, l: 200 };
+  const flows = rawFlows.filter(f => f.amount > 1);
 
-  const nodes = new Map();
-  for (const flow of flows) {
-    if (!nodes.has(flow.from)) nodes.set(flow.from, { id: flow.from, in: 0, out: 0, sources: [] });
-    if (!nodes.has(flow.to)) nodes.set(flow.to, { id: flow.to, in: 0, out: 0, sources: [] });
-    nodes.get(flow.from).out += flow.amount;
-    nodes.get(flow.to).in += flow.amount;
-    nodes.get(flow.to).sources.push(flow.from);
-  }
-
-  const depthCache = new Map();
-  const depthOf = (nodeId, seen = new Set()) => {
-    if (depthCache.has(nodeId)) return depthCache.get(nodeId);
-    const node = nodes.get(nodeId);
-    if (!node || !node.sources.length || seen.has(nodeId)) return 0;
-    const nextSeen = new Set(seen);
-    nextSeen.add(nodeId);
-    const depth = 1 + Math.max(...node.sources.map((source) => depthOf(source, nextSeen)));
-    depthCache.set(nodeId, depth);
-    return depth;
-  };
-
-  for (const node of nodes.values()) node.depth = depthOf(node.id);
-  const maxDepth = Math.max(...[...nodes.values()].map((node) => node.depth), 1);
-  const columns = new Map();
-  for (const node of nodes.values()) {
-    const column = columns.get(node.depth) ?? [];
-    column.push(node);
-    columns.set(node.depth, column);
-  }
-
-  const nodeWidth = 22;
-  const plotHeight = height - margin.top - margin.bottom;
-  const plotWidth = width - margin.left - margin.right - nodeWidth;
-  for (const [depth, column] of columns.entries()) {
-    const layout = sankeyColumnLayout(column, plotHeight, (node) => Math.max(node.in, node.out));
-    let cursor = margin.top + layout.offsetTop;
-    for (const [index, node] of layout.nodes.entries()) {
-      const nodeTotal = Math.max(node.in, node.out);
-      node.x = margin.left + (depth / maxDepth) * plotWidth;
-      node.h = layout.heights[index];
-      node.y = cursor;
-      node.linkScale = node.h / Math.max(1, nodeTotal);
-      node.sourceOffset = 0;
-      node.targetOffset = 0;
-      cursor += node.h + layout.gap;
+  // Background
+  svg.append(svgEl("rect", { x: 0, y: 0, width: W, height: H, rx: 14, fill: "#0c1018" }));
+  // Subtle grid dots
+  for (let gx = pad.l; gx < W - pad.r; gx += 60) {
+    for (let gy = pad.t; gy < H - pad.b; gy += 60) {
+      svg.append(svgEl("circle", { cx: gx, cy: gy, r: 0.6, fill: "rgba(255,255,255,0.04)" }));
     }
   }
 
-  const orderedFlows = [...flows].sort((a, b) => {
-    const sourceDiff = nodes.get(a.from).y - nodes.get(b.from).y;
-    if (Math.abs(sourceDiff) > 1) return sourceDiff;
+  if (!flows.length) {
+    svg.append(svgEl("text", { x: W / 2, y: H / 2, "text-anchor": "middle", fill: "#5c6478", "font-size": 15 }, "No cash flows for this view."));
+    return;
+  }
+
+  const defs = svgEl("defs", {});
+  svg.append(defs);
+
+  // ── Build node graph ──
+  const nodes = new Map();
+  for (const f of flows) {
+    if (!nodes.has(f.from)) nodes.set(f.from, { id: f.from, totalIn: 0, totalOut: 0, parents: [], flowTypes: new Set() });
+    if (!nodes.has(f.to))   nodes.set(f.to,   { id: f.to,   totalIn: 0, totalOut: 0, parents: [], flowTypes: new Set() });
+    nodes.get(f.from).totalOut += f.amount;
+    nodes.get(f.from).flowTypes.add(f.type);
+    nodes.get(f.to).totalIn += f.amount;
+    nodes.get(f.to).flowTypes.add(f.type);
+    nodes.get(f.to).parents.push(f.from);
+  }
+
+  // Assign depths
+  const dCache = new Map();
+  const depth = (id, seen = new Set()) => {
+    if (dCache.has(id)) return dCache.get(id);
+    const n = nodes.get(id);
+    if (!n || !n.parents.length || seen.has(id)) return 0;
+    seen = new Set(seen); seen.add(id);
+    const d = 1 + Math.max(...n.parents.map(p => depth(p, seen)));
+    dCache.set(id, d);
+    return d;
+  };
+  for (const n of nodes.values()) n.depth = depth(n.id);
+  const maxD = Math.max(...[...nodes.values()].map(n => n.depth), 1);
+
+  // Group into columns
+  const cols = new Map();
+  for (const n of nodes.values()) {
+    const c = cols.get(n.depth) ?? [];
+    c.push(n);
+    cols.set(n.depth, c);
+  }
+
+  // ── Layout nodes ──
+  const nW = 8; // slim node bar
+  const plotH = H - pad.t - pad.b;
+  const plotW = W - pad.l - pad.r - nW;
+
+  for (const [d, col] of cols.entries()) {
+    const layout = sankeyColumnLayout(col, plotH, (n) => Math.max(n.totalIn, n.totalOut));
+    let cy = pad.t + layout.offsetTop;
+    for (const [index, n] of layout.nodes.entries()) {
+      const total = Math.max(n.totalIn, n.totalOut);
+      n.x = pad.l + (d / maxD) * plotW;
+      n.h = layout.heights[index];
+      n.y = cy;
+      n.scale = n.h / Math.max(1, total);
+      n.srcOff = 0;
+      n.tgtOff = 0;
+      cy += n.h + layout.gap;
+    }
+  }
+
+  // ── Node color by dominant flow type ──
+  const nodeColor = (n) => {
+    const types = n.flowTypes;
+    if (types.has("tax") || types.has("tax-source") || types.has("penalty")) return ["#f06060", "#c04848"];
+    if (types.has("medical"))   return ["#f0a848", "#c88030"];
+    if (types.has("spending"))  return ["#8892a8", "#6a7288"];
+    if (types.has("conversion"))return ["#a8d060", "#80a840"];
+    if (types.has("withdrawal"))return ["#34d1b6", "#1a8a76"];
+    if (types.has("income"))    return ["#56c8e8", "#3898b8"];
+    if (types.has("loss"))      return ["#7c6cf0", "#5a4cc0"];
+    return ["#5b8def", "#3868c0"]; // balance
+  };
+
+  // Sort flows for consistent layering
+  const sorted = [...flows].sort((a, b) => {
+    const sd = nodes.get(a.from).y - nodes.get(b.from).y;
+    if (Math.abs(sd) > 1) return sd;
     return nodes.get(a.to).y - nodes.get(b.to).y;
   });
 
-  for (const flow of orderedFlows) {
-    const source = nodes.get(flow.from);
-    const target = nodes.get(flow.to);
-    const sx = source.x + nodeWidth;
-    const sourceWidth = Math.max(4, flow.amount * source.linkScale);
-    const targetWidth = Math.max(4, flow.amount * target.linkScale);
-    const strokeWidth = Math.max(6, Math.min(52, (sourceWidth + targetWidth) / 2));
-    const sy = source.y + source.sourceOffset + sourceWidth / 2;
-    const tx = target.x;
-    const ty = target.y + target.targetOffset + targetWidth / 2;
-    source.sourceOffset += sourceWidth;
-    target.targetOffset += targetWidth;
-    const bend = Math.max(45, (tx - sx) * 0.5);
-    const path = svgEl("path", {
-      d: `M ${sx} ${sy} C ${sx + bend} ${sy}, ${tx - bend} ${ty}, ${tx} ${ty}`,
-      class: "sankey-link",
-      stroke: flowColor(flow.type),
-      "stroke-width": strokeWidth,
-      "data-flow-type": flow.type
+  // ── Ribbon group for hover interactions ──
+  const ribbonGroup = svgEl("g", { class: "sankey-ribbons" });
+  svg.append(ribbonGroup);
+  const nodeGroup = svgEl("g", { class: "sankey-nodes" });
+  svg.append(nodeGroup);
+  const labelGroup = svgEl("g", { class: "sankey-labels" });
+  svg.append(labelGroup);
+
+  // ── Draw filled ribbons ──
+  sorted.forEach((f, fi) => {
+    const src = nodes.get(f.from);
+    const tgt = nodes.get(f.to);
+    const sx = src.x + nW;
+    const tx = tgt.x;
+    const sH = Math.max(3, f.amount * src.scale);
+    const tH = Math.max(3, f.amount * tgt.scale);
+    const sy0 = src.y + src.srcOff;
+    const sy1 = sy0 + sH;
+    const ty0 = tgt.y + tgt.tgtOff;
+    const ty1 = ty0 + tH;
+    src.srcOff += sH;
+    tgt.tgtOff += tH;
+
+    const mx = (sx + tx) / 2;
+    // Filled area ribbon using two cubic beziers
+    const d = [
+      `M ${sx} ${sy0}`,
+      `C ${mx} ${sy0}, ${mx} ${ty0}, ${tx} ${ty0}`,
+      `L ${tx} ${ty1}`,
+      `C ${mx} ${ty1}, ${mx} ${sy1}, ${sx} ${sy1}`,
+      `Z`
+    ].join(" ");
+
+    // Gradient from source color to target color
+    const gid = `rg${fi}`;
+    const [sc] = nodeColor(src);
+    const [tc] = nodeColor(tgt);
+    const gr = svgEl("linearGradient", { id: gid, x1: "0%", y1: "0%", x2: "100%", y2: "0%" });
+    gr.append(svgEl("stop", { offset: "0%", "stop-color": sc, "stop-opacity": "0.45" }));
+    gr.append(svgEl("stop", { offset: "100%", "stop-color": tc, "stop-opacity": "0.3" }));
+    defs.append(gr);
+
+    const ribbon = svgEl("path", {
+      d,
+      fill: `url(#${gid})`,
+      class: "v2-ribbon",
+      "data-from": f.from,
+      "data-to": f.to,
+      "data-flow-type": f.type
     });
-    path.append(svgEl("title", {}, `${flow.from} to ${flow.to}: ${moneyFormatter.format(flow.amount)}`));
-    svg.append(path);
+    ribbon.append(svgEl("title", {}, `${f.from} → ${f.to}\n${moneyFormatter.format(f.amount)}`));
+    ribbonGroup.append(ribbon);
+  });
+
+  // ── Draw nodes as colored rounded bars ──
+  for (const n of nodes.values()) {
+    const [c1, c2] = nodeColor(n);
+    const ngid = `ng_${n.id.replace(/\W/g, "_")}`;
+    const ng = svgEl("linearGradient", { id: ngid, x1: "0%", y1: "0%", x2: "0%", y2: "100%" });
+    ng.append(svgEl("stop", { offset: "0%", "stop-color": c1, "stop-opacity": "0.95" }));
+    ng.append(svgEl("stop", { offset: "100%", "stop-color": c2, "stop-opacity": "0.8" }));
+    defs.append(ng);
+
+    // Glow
+    nodeGroup.append(svgEl("rect", {
+      x: n.x - 3, y: n.y - 1, width: nW + 6, height: n.h + 2,
+      rx: 6, fill: c1, opacity: 0.08, "pointer-events": "none"
+    }));
+    // Bar
+    const bar = svgEl("rect", {
+      x: n.x, y: n.y, width: nW, height: n.h,
+      rx: 4, fill: `url(#${ngid})`,
+      class: "v2-node",
+      "data-node-id": n.id
+    });
+    const nodeTitle = nodeDetails[n.id] ?? `${n.id}\n${moneyFormatter.format(Math.max(n.totalIn, n.totalOut))}`;
+    bar.append(svgEl("title", {}, nodeTitle));
+    nodeGroup.append(bar);
+
+    // Labels
+    const isRight = n.depth >= maxD;
+    const lx = isRight ? n.x - 10 : n.x + nW + 10;
+    const anchor = isRight ? "end" : "start";
+    const ly = n.y + n.h / 2;
+
+    // Name
+    const nameEl = svgEl("text", {
+      x: lx, y: ly - 1, "text-anchor": anchor,
+      fill: "#e8ecf4", "font-size": 13, "font-weight": 700,
+      class: "v2-node-name"
+    }, n.id);
+    nameEl.append(svgEl("title", {}, nodeTitle));
+    labelGroup.append(nameEl);
+
+    // Value badge
+    const val = moneyFormatter.format(Math.max(n.totalIn, n.totalOut));
+    const badgeY = ly + 15;
+    const badge = svgEl("text", {
+      x: lx, y: badgeY, "text-anchor": anchor,
+      fill: c1, "font-size": 11, "font-weight": 600,
+      "font-family": "'JetBrains Mono', monospace",
+      class: "v2-node-value"
+    }, val);
+    badge.append(svgEl("title", {}, nodeTitle));
+    labelGroup.append(badge);
   }
 
-  for (const node of nodes.values()) {
-    const nodeTitle = nodeDetails[node.id] ?? `${node.id}\n${moneyFormatter.format(Math.max(node.in, node.out))}`;
-    const nodeRect = svgEl("rect", {
-      x: node.x,
-      y: node.y,
-      width: nodeWidth,
-      height: node.h,
-      rx: 4,
-      class: "sankey-node"
+  // ── Hover interactions ──
+  svg.querySelectorAll(".v2-ribbon").forEach(ribbon => {
+    ribbon.addEventListener("mouseenter", () => {
+      svg.querySelectorAll(".v2-ribbon").forEach(r => {
+        r.style.opacity = r === ribbon ? "1" : "0.12";
+        r.style.transition = "opacity 0.2s";
+      });
     });
-    nodeRect.append(svgEl("title", {}, nodeTitle));
-    svg.append(nodeRect);
-    const labelX = node.depth >= maxDepth ? node.x - 8 : node.x + nodeWidth + 8;
-    const anchor = node.depth >= maxDepth ? "end" : "start";
-    const nameLabel = appendHaloText(svg, {
-      x: labelX,
-      y: node.y + node.h / 2 - 2,
-      "text-anchor": anchor,
-      class: "node-label"
-    }, node.id);
-    nameLabel.append(svgEl("title", {}, nodeTitle));
-    const valueLabel = appendHaloText(svg, {
-      x: labelX,
-      y: node.y + node.h / 2 + 20,
-      "text-anchor": anchor,
-      class: "axis-label"
-    }, moneyFormatter.format(Math.max(node.in, node.out)));
-    valueLabel.append(svgEl("title", {}, nodeTitle));
-  }
+    ribbon.addEventListener("mouseleave", () => {
+      svg.querySelectorAll(".v2-ribbon").forEach(r => {
+        r.style.opacity = "";
+        r.style.transition = "opacity 0.3s";
+      });
+    });
+  });
+
+  svg.querySelectorAll(".v2-node").forEach(bar => {
+    bar.style.cursor = "pointer";
+    bar.addEventListener("mouseenter", () => {
+      const id = bar.getAttribute("data-node-id");
+      svg.querySelectorAll(".v2-ribbon").forEach(r => {
+        const match = r.getAttribute("data-from") === id || r.getAttribute("data-to") === id;
+        r.style.opacity = match ? "1" : "0.08";
+        r.style.transition = "opacity 0.2s";
+      });
+    });
+    bar.addEventListener("mouseleave", () => {
+      svg.querySelectorAll(".v2-ribbon").forEach(r => {
+        r.style.opacity = "";
+        r.style.transition = "opacity 0.3s";
+      });
+    });
+  });
 }
 
 function sankeyColumnLayout(column, plotHeight, valueOf) {
@@ -1391,6 +1692,7 @@ function portfolioFlowsForYear(year) {
   const medical = adjustAmount(year.medicalCost ?? 0, year);
   const penalties = adjustAmount(year.penaltyTax ?? 0, year);
   const taxes = adjustAmount(Math.max(0, (year.taxes?.totalTax ?? 0) - (year.penaltyTax ?? 0)), year);
+  const rothConv = adjustAmount(year.rothConversionAmount ?? 0, year);
   const totalReturn = ending + withdrawals - beginning - unspent;
   const marketGains = Math.max(0, totalReturn);
   const marketLosses = Math.max(0, -totalReturn);
@@ -1407,7 +1709,19 @@ function portfolioFlowsForYear(year) {
   if (dividends > 0) flows.push({ from: "Taxable dividends", to: "Spending reserve", amount: dividends, type: "income" });
   if (socialSecurity > 0) flows.push({ from: "Social Security", to: "Spending reserve", amount: socialSecurity, type: "income" });
   flows.push({ from: "Invested portfolio", to: "Ending balance", amount: ending, type: "balance" });
-  if (spending > 0) flows.push({ from: "Spending reserve", to: "Lifestyle and one-off spending", amount: spending, type: "spending" });
+
+  // Roth conversions: show the conversion flow and its tax impact
+  if (rothConv > 1) {
+    flows.push({ from: "Invested portfolio", to: "Roth conversion", amount: rothConv, type: "conversion" });
+    flows.push({ from: "Roth conversion", to: "Roth account", amount: rothConv, type: "conversion" });
+    // Attribute tax share from conversion to tax payments
+    const convTax = adjustAmount((year.taxAttribution ?? []).filter(a => a.source === "Roth conversion").reduce((s, a) => s + (a.amount ?? 0), 0), year);
+    if (convTax > 1) {
+      flows.push({ from: "Roth conversion", to: "Tax payments", amount: convTax, type: "tax-source" });
+    }
+  }
+
+  if (spending > 0) flows.push({ from: "Spending reserve", to: "Lifestyle spending", amount: spending, type: "spending" });
   if (medical > 0) flows.push({ from: "Spending reserve", to: "Medical", amount: medical, type: "medical" });
   if (taxes > 0) flows.push({ from: "Spending reserve", to: "Tax payments", amount: taxes, type: "tax" });
   if (penalties > 0) {
@@ -1617,7 +1931,7 @@ function drawGrid(svg, width, height, margin, maxValue) {
       x2: width - margin.right,
       y1: y,
       y2: y,
-      stroke: "#d7ddd7",
+      stroke: "rgba(255,255,255,0.06)",
       "stroke-width": 1
     }));
     svg.append(svgEl("text", { x: 10, y: y + 4, class: "axis-label" }, compactMoney(value)));
@@ -1650,24 +1964,22 @@ function svgEl(name, attributes = {}, text = "") {
 
 function appendHaloText(svg, attributes, text) {
   svg.append(svgEl("text", { ...attributes, class: `${attributes.class} text-halo` }, text));
-  const textEl = svgEl("text", attributes, text);
-  svg.append(textEl);
-  return textEl;
+  svg.append(svgEl("text", attributes, text));
 }
 
 function flowColor(type) {
   return {
-    balance: "#355f8d",
-    income: "#2f5f98",
-    withdrawal: "#0f766e",
-    tax: "#c84f43",
-    "tax-source": "#d96d5f",
-    medical: "#b87516",
-    spending: "#4e5b56",
-    conversion: "#6a6f2a",
-    penalty: "#9b2d25",
-    loss: "#6b7280"
-  }[type] ?? "#61706b";
+    balance: "#5b8def",
+    income: "#56c8e8",
+    withdrawal: "#34d1b6",
+    tax: "#f06060",
+    "tax-source": "#e87878",
+    medical: "#f0a848",
+    spending: "#8892a8",
+    conversion: "#a8d060",
+    penalty: "#d04040",
+    loss: "#7c6cf0"
+  }[type] ?? "#8892a8";
 }
 
 function compactMoney(value) {
@@ -1688,9 +2000,9 @@ function setImportStatus(message, isError = false) {
 function paintStatus(element, message, isError = false) {
   if (!element) return;
   element.textContent = message;
-  element.style.borderColor = isError ? "#d59b94" : "#b7cfc9";
-  element.style.background = isError ? "#fff1ef" : "#eaf6f3";
-  element.style.color = isError ? "#9b2d25" : "#124f4b";
+  element.style.borderColor = isError ? "rgba(240,96,96,0.3)" : "rgba(52,209,182,0.2)";
+  element.style.background = isError ? "rgba(240,96,96,0.08)" : "rgba(52,209,182,0.06)";
+  element.style.color = isError ? "#f06060" : "#34d1b6";
 }
 
 function reportImportError(error) {

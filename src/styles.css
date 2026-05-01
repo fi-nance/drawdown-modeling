@@ -316,6 +316,10 @@ textarea {
   font-weight: 750;
 }
 
+.import-status {
+  margin: 0.85rem 0.95rem;
+}
+
 .kpi-grid {
   display: grid;
   grid-template-columns: repeat(5, minmax(140px, 1fr));

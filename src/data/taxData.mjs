@@ -1,4 +1,8 @@
 import { STATE_TAX_2026 } from "./stateTax2026.generated.mjs";
+import {
+  STATE_RETIREMENT_TAX_RULES_VERSION,
+  stateRetirementRulesFor
+} from "./stateRetirementTax2026.mjs";
 
 export const TAX_DATA_VERSION = "2026.1";
 export const DEFAULT_TAX_YEAR = 2026;
@@ -36,6 +40,26 @@ export const FEDERAL_TAX_2026 = {
       headOfHousehold: 200000
     },
     phaseoutPerThousand: 50
+  },
+  additionalStandardDeduction65: {
+    married: 1650,
+    unmarried: 2050
+  },
+  socialSecurityTaxation: {
+    baseAmounts: {
+      single: 25000,
+      marriedFilingJointly: 32000,
+      marriedFilingSeparately: 25000,
+      headOfHousehold: 25000
+    },
+    adjustedBaseAmounts: {
+      single: 34000,
+      marriedFilingJointly: 44000,
+      marriedFilingSeparately: 34000,
+      headOfHousehold: 34000
+    },
+    taxableShareLow: 0.5,
+    taxableShareHigh: 0.85
   },
   standardDeduction: {
     single: 16100,
@@ -158,15 +182,50 @@ export const STATE_TAX_BY_YEAR = {
 
 export const STATE_OPTIONS = Object.keys(STATE_TAX_2026).sort((a, b) => a.localeCompare(b));
 
+export const MEDICARE_IRMAA_2026 = {
+  year: 2026,
+  source: "CMS 2026 Medicare Parts A & B Premiums and Deductibles fact sheet",
+  partBStandardMonthlyPremium: 202.90,
+  brackets: {
+    individual: [
+      { upTo: 109000, partBMonthlyAdjustment: 0, partDMonthlyAdjustment: 0 },
+      { upTo: 137000, partBMonthlyAdjustment: 81.20, partDMonthlyAdjustment: 14.50 },
+      { upTo: 171000, partBMonthlyAdjustment: 202.90, partDMonthlyAdjustment: 37.50 },
+      { upTo: 205000, partBMonthlyAdjustment: 324.60, partDMonthlyAdjustment: 60.40 },
+      { upTo: 500000, partBMonthlyAdjustment: 446.30, partDMonthlyAdjustment: 83.30 },
+      { upTo: Infinity, partBMonthlyAdjustment: 487.00, partDMonthlyAdjustment: 91.00 }
+    ],
+    marriedFilingJointly: [
+      { upTo: 218000, partBMonthlyAdjustment: 0, partDMonthlyAdjustment: 0 },
+      { upTo: 274000, partBMonthlyAdjustment: 81.20, partDMonthlyAdjustment: 14.50 },
+      { upTo: 342000, partBMonthlyAdjustment: 202.90, partDMonthlyAdjustment: 37.50 },
+      { upTo: 410000, partBMonthlyAdjustment: 324.60, partDMonthlyAdjustment: 60.40 },
+      { upTo: 750000, partBMonthlyAdjustment: 446.30, partDMonthlyAdjustment: 83.30 },
+      { upTo: Infinity, partBMonthlyAdjustment: 487.00, partDMonthlyAdjustment: 91.00 }
+    ],
+    marriedFilingSeparatelyTogether: [
+      { upTo: 109000, partBMonthlyAdjustment: 0, partDMonthlyAdjustment: 0 },
+      { upTo: 391000, partBMonthlyAdjustment: 446.30, partDMonthlyAdjustment: 83.30 },
+      { upTo: Infinity, partBMonthlyAdjustment: 487.00, partDMonthlyAdjustment: 91.00 }
+    ]
+  }
+};
+
+export const MEDICARE_IRMAA_BY_YEAR = {
+  2026: MEDICARE_IRMAA_2026
+};
+
 export function buildFederalTaxProfile({
   taxYear = DEFAULT_TAX_YEAR,
   filingStatus = "marriedFilingJointly",
   qualifyingChildren = 0,
+  childAges = [],
   additionalDeduction = 0,
   additionalCredits = 0
 } = {}) {
   const data = FEDERAL_TAX_BY_YEAR[taxYear] ?? FEDERAL_TAX_2026;
   const status = FILING_STATUSES[filingStatus] ? filingStatus : "marriedFilingJointly";
+  const normalizedChildAges = normalizeChildAges(childAges);
   return {
     year: data.year,
     filingStatus: status,
@@ -176,7 +235,12 @@ export function buildFederalTaxProfile({
     capitalGainsBrackets: data.capitalGainsBrackets[status],
     niit: data.niit,
     childTaxCredit: data.childTaxCredit,
-    qualifyingChildren: Math.max(0, Math.trunc(Number(qualifyingChildren) || 0)),
+    additionalStandardDeduction65: data.additionalStandardDeduction65,
+    socialSecurityTaxation: data.socialSecurityTaxation,
+    qualifyingChildren: normalizedChildAges.length
+      ? normalizedChildAges.filter((age) => age < 17).length
+      : Math.max(0, Math.trunc(Number(qualifyingChildren) || 0)),
+    childAges: normalizedChildAges,
     additionalDeduction: Math.max(0, Number(additionalDeduction) || 0),
     additionalCredits: Math.max(0, Number(additionalCredits) || 0),
     source: data.source
@@ -190,15 +254,23 @@ export function buildStateTaxProfile({
   dependentCount = 0,
   overrideRate = null,
   overrideCapitalGainsRate = null,
-  separateCapitalGains = false
+  separateCapitalGains = false,
+  stateRetirementExclusion = 0,
+  stateSocialSecurityTaxablePercent = null
 } = {}) {
   const stateData = STATE_TAX_BY_YEAR[taxYear]?.[state] ?? STATE_TAX_2026.Florida;
   const stateStatus = filingStatus === "marriedFilingJointly" ? "mfj" : "single";
+  const manualRetirementIncomeExclusion = Math.max(0, Number(stateRetirementExclusion) || 0);
+  const manualSocialSecurityTaxableRate = stateSocialSecurityTaxablePercent == null
+    ? null
+    : normalizeRate(Number(stateSocialSecurityTaxablePercent) / 100);
+  const retirementRules = stateRetirementRulesFor(state);
 
   if (Number.isFinite(overrideRate)) {
     return {
       year: taxYear,
       state,
+      filingStatus,
       source: "Manual override",
       standardDeduction: 0,
       personalExemption: 0,
@@ -207,7 +279,12 @@ export function buildStateTaxProfile({
       capitalGainsRate: Number.isFinite(overrideCapitalGainsRate)
         ? Math.max(0, overrideCapitalGainsRate)
         : Math.max(0, overrideRate),
-      capitalGainsTreatment: separateCapitalGains ? "separate" : "ordinary"
+      capitalGainsTreatment: separateCapitalGains ? "separate" : "ordinary",
+      retirementRules,
+      retirementRulesVersion: STATE_RETIREMENT_TAX_RULES_VERSION,
+      retirementRulesSource: retirementRules.source,
+      retirementIncomeExclusion: manualRetirementIncomeExclusion,
+      socialSecurityTaxableRate: manualSocialSecurityTaxableRate
     };
   }
 
@@ -218,12 +295,18 @@ export function buildStateTaxProfile({
   return {
     year: taxYear,
     state,
+    filingStatus,
     source: "Tax Foundation 2026 state income tax compilation",
     standardDeduction: stateData.standardDeduction?.[stateStatus] ?? 0,
     personalExemption,
     brackets: thresholdPairsToBrackets(stateData[stateStatus] ?? [[0, 0]]),
     treatCapitalGainsAsOrdinary: stateData.capitalGainsTreatment === "ordinary",
-    capitalGainsTreatment: stateData.capitalGainsTreatment ?? "ordinary"
+    capitalGainsTreatment: stateData.capitalGainsTreatment ?? "ordinary",
+    retirementRules,
+    retirementRulesVersion: STATE_RETIREMENT_TAX_RULES_VERSION,
+    retirementRulesSource: retirementRules.source,
+    retirementIncomeExclusion: manualRetirementIncomeExclusion,
+    socialSecurityTaxableRate: manualSocialSecurityTaxableRate
   };
 }
 
@@ -251,6 +334,26 @@ export function getMonthlyBenchmarkPremium({
 } = {}) {
   if (taxYear !== 2026) return ACA_BENCHMARK_PREMIUMS_2026_MONTHLY[state] ?? 625;
   return ACA_BENCHMARK_PREMIUMS_2026_MONTHLY[state] ?? 625;
+}
+
+export function getMedicareIrmaaConfig({
+  taxYear = DEFAULT_TAX_YEAR,
+  inflationIndex = 1
+} = {}) {
+  const config = MEDICARE_IRMAA_BY_YEAR[taxYear] ?? MEDICARE_IRMAA_2026;
+  const index = Math.max(0, Number(inflationIndex) || 0);
+  return {
+    ...config,
+    partBStandardMonthlyPremium: roundMoney((config.partBStandardMonthlyPremium ?? 0) * index),
+    brackets: Object.fromEntries(Object.entries(config.brackets ?? {}).map(([key, rows]) => [
+      key,
+      rows.map((row) => ({
+        upTo: Number.isFinite(row.upTo) ? roundMoney(row.upTo * index) : Infinity,
+        partBMonthlyAdjustment: roundMoney((row.partBMonthlyAdjustment ?? 0) * index),
+        partDMonthlyAdjustment: roundMoney((row.partDMonthlyAdjustment ?? 0) * index)
+      }))
+    ]))
+  };
 }
 
 export function buildAcaConfig({
@@ -316,7 +419,25 @@ function normalizeAgeArray(ages) {
   return ages.map((age) => {
     const numericAge = Number(age);
     return Number.isFinite(numericAge) ? Math.max(0, numericAge) : null;
-  });
+  }).filter((age) => age !== null);
+}
+
+function normalizeChildAges(ages) {
+  if (!Array.isArray(ages)) return [];
+  return ages.map((age) => {
+    const numericAge = Number(age);
+    return Number.isFinite(numericAge) ? Math.max(0, numericAge) : null;
+  }).filter((age) => age !== null);
+}
+
+function normalizeRate(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return 1;
+  return Math.max(0, Math.min(1, numeric));
+}
+
+function roundMoney(value) {
+  return Math.round((Number(value) || 0) * 100) / 100;
 }
 
 function capitalGainsBrackets(zeroRateUpTo, fifteenRateUpTo) {

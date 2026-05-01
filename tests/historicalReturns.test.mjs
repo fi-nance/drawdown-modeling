@@ -60,3 +60,22 @@ test("historical backtests filter to years where portfolio asset classes exist",
   assert.equal(sequences.at(-1).sourceYears.at(-1), 2025);
   assert.ok(sequences.every((sequence) => sequence.returns.every((returns) => Number.isFinite(returns.crypto))));
 });
+
+test("crypto can use stock returns as a missing-history proxy", () => {
+  const coverage = historicalCoverageForAssetClasses(["crypto"], {
+    assetClassProxies: { crypto: "stock" }
+  });
+  const sequences = makeHistoricalSequences({
+    planYears: 35,
+    mode: "all",
+    requiredAssetClasses: ["crypto"],
+    assetClassProxies: { crypto: "stock" }
+  });
+
+  assert.equal(coverage.startYear, 1928);
+  assert.equal(coverage.assetClassProxies.crypto, "stock");
+  assert.equal(sequences.length, 64);
+  assert.equal(sequences[0].sourceYears[0], 1928);
+  assert.equal(sequences[0].returns[0].crypto, sequences[0].returns[0].stock);
+  assert.equal(sequences.at(-1).returns.at(-1).crypto, -0.062884);
+});

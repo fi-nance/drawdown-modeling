@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { computeIncomeTax, taxFromBrackets } from "../src/core/tax.mjs";
+import {
+  computeIncomeTax,
+  computeTaxableSocialSecurityBenefits,
+  taxFromBrackets,
+  inflateTaxProfile
+} from "../src/core/tax.mjs";
 import { buildTaxProfile } from "../src/data/taxData.mjs";
 
 const profile = {
@@ -168,6 +173,94 @@ test("additional federal deductions and credits are explicit tax-profile overrid
   assert.equal(tax.totalTax, 0);
 });
 
+test("Social Security taxable benefits follow provisional-income tiers", () => {
+  const taxable = computeTaxableSocialSecurityBenefits({
+    benefits: 20000,
+    otherIncome: 30000,
+    filingStatus: "single",
+    profile: buildTaxProfile({ taxYear: 2026, filingStatus: "single", state: "Florida" })
+  });
+
+  assert.equal(taxable, 9600);
+});
+
+test("state tax can exclude retirement income and taxable Social Security", () => {
+  const tax = computeIncomeTax({
+    ordinaryIncome: 50000,
+    retirementOrdinaryIncome: 30000,
+    taxableSocialSecurity: 10000,
+    profile: {
+      ...profile,
+      state: {
+        standardDeduction: 0,
+        personalExemption: 0,
+        brackets: [{ upTo: Infinity, rate: 0.05 }],
+        treatCapitalGainsAsOrdinary: true,
+        retirementIncomeExclusion: 20000,
+        socialSecurityTaxableRate: 0
+      }
+    }
+  });
+
+  assert.equal(tax.stateTax, 1000);
+});
+
+test("state retirement rules exclude Illinois retirement income by default", () => {
+  const taxProfile = buildTaxProfile({ taxYear: 2026, filingStatus: "single", state: "Illinois" });
+  taxProfile.state.primaryAge = 65;
+  const tax = computeIncomeTax({
+    ordinaryIncome: 50000,
+    retirementOrdinaryIncome: 50000,
+    profile: taxProfile
+  });
+
+  assert.equal(tax.stateTax, 0);
+});
+
+test("state retirement rules apply age and income limited exclusions", () => {
+  const newJersey = buildTaxProfile({ taxYear: 2026, filingStatus: "marriedFilingJointly", state: "New Jersey" });
+  newJersey.state.primaryAge = 62;
+  newJersey.state.spouseAge = 62;
+  const excluded = computeIncomeTax({
+    ordinaryIncome: 100000,
+    retirementOrdinaryIncome: 100000,
+    profile: newJersey
+  });
+
+  const highIncomeProfile = buildTaxProfile({ taxYear: 2026, filingStatus: "marriedFilingJointly", state: "New Jersey" });
+  highIncomeProfile.state.primaryAge = 62;
+  highIncomeProfile.state.spouseAge = 62;
+  const taxable = computeIncomeTax({
+    ordinaryIncome: 200000,
+    retirementOrdinaryIncome: 200000,
+    profile: highIncomeProfile
+  });
+
+  assert.equal(excluded.stateTax, 0);
+  assert.ok(taxable.stateTax > 0);
+});
+
+test("state Social Security rules distinguish exempt and taxable states", () => {
+  const colorado = buildTaxProfile({ taxYear: 2026, filingStatus: "single", state: "Colorado" });
+  colorado.state.primaryAge = 65;
+  const coloradoTax = computeIncomeTax({
+    ordinaryIncome: 10000,
+    taxableSocialSecurity: 10000,
+    profile: colorado
+  });
+
+  const utah = buildTaxProfile({ taxYear: 2026, filingStatus: "single", state: "Utah" });
+  utah.state.primaryAge = 65;
+  const utahTax = computeIncomeTax({
+    ordinaryIncome: 10000,
+    taxableSocialSecurity: 10000,
+    profile: utah
+  });
+
+  assert.equal(coloradoTax.stateTax, 0);
+  assert.ok(utahTax.stateTax > 0);
+});
+
 test("2026 state profile applies no-tax and progressive-tax states", () => {
   const florida = computeIncomeTax({
     ordinaryIncome: 250000,
@@ -196,4 +289,21 @@ test("2026 state capital-gains special cases are represented", () => {
 
   assert.equal(missouri.stateTax, 0);
   assert.equal(washington.stateTax, 1540);
+});
+
+test("inflateTaxProfile scales standard deduction, child tax credit, and brackets", () => {
+  const taxProfile = buildTaxProfile({
+    taxYear: 2026,
+    filingStatus: "marriedFilingJointly"
+  });
+  taxProfile.childTaxCredit = {
+    perChild: 2000,
+    refundablePerChild: 1600
+  };
+
+  const inflated = inflateTaxProfile(taxProfile, 1.1);
+
+  assert.equal(inflated.standardDeduction, 35420); // 32200 * 1.1
+  assert.equal(inflated.childTaxCredit.perChild, 2200);
+  assert.equal(inflated.childTaxCredit.refundablePerChild, 1760);
 });

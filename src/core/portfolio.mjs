@@ -51,6 +51,7 @@ export function sellFromLot(lot, requestedProceeds) {
     assetId: lot.id,
     name: lot.name ?? lot.id,
     accountType: lot.accountType,
+    assetClass: lot.assetClass,
     proceeds: round(proceeds, 6),
     unitsSold: round(unitsSold, 8),
     costBasisSold: round(costBasisSold, 6),
@@ -66,7 +67,8 @@ export function dividendIncome(assets = []) {
     cash: 0,
     ordinaryDividends: 0,
     qualifiedDividends: 0,
-    flows: []
+    flows: [],
+    details: []
   };
 
   for (const asset of assets) {
@@ -79,11 +81,13 @@ export function dividendIncome(assets = []) {
       result.cash += dividend;
       result.ordinaryDividends += ordinary;
       result.qualifiedDividends += qualified;
-      result.flows.push({
-        from: asset.name ?? asset.id,
-        to: "Taxable dividends",
-        amount: round(dividend, 6),
-        type: "income"
+      result.details.push({
+        assetId: asset.id,
+        name: asset.name ?? asset.id,
+        accountType: asset.accountType,
+        dividend: round(dividend, 6),
+        ordinaryDividends: round(ordinary, 6),
+        qualifiedDividends: round(qualified, 6)
       });
     } else {
       asset.units += dividend / asset.price;
@@ -93,6 +97,14 @@ export function dividendIncome(assets = []) {
   result.cash = round(result.cash, 6);
   result.ordinaryDividends = round(result.ordinaryDividends, 6);
   result.qualifiedDividends = round(result.qualifiedDividends, 6);
+  if (result.cash > EPSILON) {
+    result.flows.push({
+      from: "Taxable account dividends",
+      to: "Spending reserve",
+      amount: result.cash,
+      type: "income"
+    });
+  }
   return result;
 }
 
@@ -103,7 +115,7 @@ export function harvestTaxLosses(assets = [], maxLoss = Infinity) {
 
   for (let index = 0; index < assets.length && remaining > EPSILON; index += 1) {
     const asset = assets[index];
-    if (asset.accountType !== "taxable" || marketValue(asset) <= EPSILON) continue;
+    if (asset.accountType !== "taxable" || asset.assetClass === "cash" || marketValue(asset) <= EPSILON) continue;
     const lossPerUnit = (asset.costBasisPerUnit ?? asset.price) - asset.price;
     if (lossPerUnit <= EPSILON) continue;
 
@@ -135,7 +147,7 @@ export function harvestTaxGains(assets = [], maxGain = Infinity) {
 
   for (let index = 0; index < assets.length && remaining > EPSILON; index += 1) {
     const asset = assets[index];
-    if (asset.accountType !== "taxable" || asset.holdingPeriod === "short" || marketValue(asset) <= EPSILON) {
+    if (asset.accountType !== "taxable" || asset.assetClass === "cash" || asset.holdingPeriod === "short" || marketValue(asset) <= EPSILON) {
       continue;
     }
     const gainPerUnit = asset.price - (asset.costBasisPerUnit ?? asset.price);
@@ -174,8 +186,8 @@ function classifySale(lot, taxableGain, proceeds) {
   if (lot.accountType === "traditional") return "ordinary";
   if (lot.accountType === "roth" || lot.accountType === "hsa") return "none";
   if (lot.accountType !== "taxable") return "none";
-  if (taxableGain < -EPSILON) return "capital-loss";
   if (lot.assetClass === "cash" || Math.abs(taxableGain) <= EPSILON) return "none";
+  if (taxableGain < -EPSILON) return "capital-loss";
   return lot.holdingPeriod === "short" ? "ordinary" : "capital-gains";
 }
 
@@ -184,6 +196,7 @@ function emptySale(lot) {
     assetId: lot?.id,
     name: lot?.name ?? lot?.id,
     accountType: lot?.accountType,
+    assetClass: lot?.assetClass,
     proceeds: 0,
     unitsSold: 0,
     costBasisSold: 0,

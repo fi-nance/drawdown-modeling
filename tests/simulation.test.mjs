@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { runMonteCarlo, simulatePlan } from "../src/core/simulation.mjs";
+import { runMonteCarlo, simulatePlan, runHistoricalBacktests } from "../src/core/simulation.mjs";
 
 const noTaxProfile = {
   standardDeduction: 0,
@@ -113,6 +113,57 @@ test("yearly cash audit distinguishes withdrawals from taxable dividend cash", (
   assert.equal(plan.years[0].taxableDividendsCash, 100);
   assert.equal(plan.years[0].cashAvailable, 100);
   assert.equal(plan.years[0].totalCashRequired, 100);
+});
+
+test("yearly cash flow aggregates taxable dividend inputs", () => {
+  const plan = simulatePlan({
+    assets: [
+      {
+        id: "dividend-stock-a",
+        name: "Dividend Stock A",
+        accountType: "taxable",
+        assetClass: "stock",
+        holdingPeriod: "long",
+        units: 10,
+        price: 100,
+        costBasisPerUnit: 100,
+        dividendYield: 0.02,
+        qualifiedDividendShare: 1
+      },
+      {
+        id: "dividend-stock-b",
+        name: "Dividend Stock B",
+        accountType: "taxable",
+        assetClass: "stock",
+        holdingPeriod: "long",
+        units: 5,
+        price: 100,
+        costBasisPerUnit: 100,
+        dividendYield: 0.04,
+        qualifiedDividendShare: 1
+      }
+    ],
+    scenario: {
+      planYears: 1,
+      targetSpend: 40,
+      targetSpendIncludesTaxes: true,
+      targetSpendIncludesMedical: true,
+      withdrawalOrder: ["taxable"],
+      returnAssumptions: { stock: { mean: 0, stdev: 0 } },
+      rothConversion: { enabled: false },
+      aca: { enabled: false }
+    },
+    taxProfile: noTaxProfile,
+    returnSequence: [{ stock: 0 }],
+    inflationSequence: [0]
+  });
+
+  const dividendInputs = plan.years[0].flows.filter((flow) => flow.from === "Taxable account dividends");
+
+  assert.equal(dividendInputs.length, 1);
+  assert.equal(dividendInputs[0].to, "Spending reserve");
+  assert.equal(dividendInputs[0].amount, 40);
+  assert.equal(plan.years[0].taxableDividendDetails.length, 2);
 });
 
 test("Roth conversions move assets and create ordinary income", () => {
@@ -430,6 +481,203 @@ test("ACA premiums age-rate by simulated year on top of inflation", () => {
   assert.equal(plan.years[1].aca.grossPremium, round6(12780 * (1.302 / 1.278) * 1.1));
 });
 
+test("child tax credit counts children by age each simulated year", () => {
+  const plan = simulatePlan({
+    assets: [{
+      id: "ira",
+      accountType: "traditional",
+      assetClass: "bond",
+      units: 5000,
+      price: 1,
+      costBasisPerUnit: 1
+    }],
+    scenario: {
+      planYears: 2,
+      targetSpend: 0,
+      targetSpendIncludesTaxes: true,
+      targetSpendIncludesMedical: true,
+      withdrawalOrder: ["traditional"],
+      currentAge: 40,
+      returnAssumptions: { bond: { mean: 0, stdev: 0 } },
+      rothConversion: { enabled: true, annualAmount: 1000 },
+      aca: { enabled: false }
+    },
+    taxProfile: {
+      ...flatOrdinaryTaxProfile,
+      filingStatus: "single",
+      childAges: [16],
+      qualifyingChildren: 1,
+      childTaxCredit: {
+        perChild: 100,
+        refundablePerChild: 0,
+        phaseoutThresholds: { single: 999999 },
+        phaseoutPerThousand: 0
+      }
+    },
+    returnSequence: [{ bond: 0 }, { bond: 0 }],
+    inflationSequence: [0, 0]
+  });
+
+  assert.equal(plan.years[0].qualifyingChildren, 1);
+  assert.equal(plan.years[0].taxes.totalTax, 0);
+  assert.equal(plan.years[1].qualifyingChildren, 0);
+  assert.equal(plan.years[1].taxes.totalTax, 100);
+});
+
+test("age 65 additional standard deduction applies by simulated age", () => {
+  const plan = simulatePlan({
+    assets: [{
+      id: "ira",
+      accountType: "traditional",
+      assetClass: "bond",
+      units: 5000,
+      price: 1,
+      costBasisPerUnit: 1
+    }],
+    scenario: {
+      planYears: 2,
+      targetSpend: 0,
+      targetSpendIncludesTaxes: true,
+      targetSpendIncludesMedical: true,
+      withdrawalOrder: ["traditional"],
+      currentAge: 64,
+      returnAssumptions: { bond: { mean: 0, stdev: 0 } },
+      rothConversion: { enabled: true, annualAmount: 2000 },
+      aca: { enabled: false }
+    },
+    taxProfile: {
+      ...flatOrdinaryTaxProfile,
+      filingStatus: "single",
+      additionalStandardDeduction65: { unmarried: 1000, married: 800 }
+    },
+    returnSequence: [{ bond: 0 }, { bond: 0 }],
+    inflationSequence: [0, 0]
+  });
+
+  assert.equal(plan.years[0].age65AdditionalDeduction, 0);
+  assert.equal(plan.years[0].taxes.totalTax, 200);
+  assert.equal(plan.years[1].age65AdditionalDeduction, 1000);
+  assert.equal(plan.years[1].taxes.totalTax, 100);
+});
+
+test("RMDs force traditional-account distributions and retain unspent cash", () => {
+  const plan = simulatePlan({
+    assets: [{
+      id: "ira",
+      accountType: "traditional",
+      assetClass: "bond",
+      units: 2650,
+      price: 1,
+      costBasisPerUnit: 1
+    }],
+    scenario: {
+      planYears: 1,
+      targetSpend: 0,
+      targetSpendIncludesTaxes: true,
+      targetSpendIncludesMedical: true,
+      withdrawalOrder: ["traditional"],
+      currentAge: 73,
+      returnAssumptions: { bond: { mean: 0, stdev: 0 } },
+      rothConversion: { enabled: false },
+      aca: { enabled: false }
+    },
+    taxProfile: noTaxProfile,
+    returnSequence: [{ bond: 0 }],
+    inflationSequence: [0]
+  });
+
+  assert.equal(plan.years[0].rmdAmount, 100);
+  assert.equal(plan.years[0].unspentCash, 100);
+  assert.equal(plan.endingAccounts.traditional, 2550);
+  assert.equal(plan.endingAccounts.taxable, 100);
+});
+
+test("Social Security benefits create cash and taxable ordinary income by provisional income", () => {
+  const plan = simulatePlan({
+    assets: [{
+      id: "ira",
+      accountType: "traditional",
+      assetClass: "bond",
+      units: 50000,
+      price: 1,
+      costBasisPerUnit: 1
+    }],
+    scenario: {
+      planYears: 1,
+      targetSpend: 0,
+      targetSpendIncludesTaxes: true,
+      targetSpendIncludesMedical: true,
+      withdrawalOrder: ["traditional"],
+      currentAge: 62,
+      socialSecurityAnnualBenefit: 20000,
+      socialSecurityStartAge: 62,
+      returnAssumptions: { bond: { mean: 0, stdev: 0 } },
+      rothConversion: { enabled: true, annualAmount: 30000 },
+      aca: { enabled: false }
+    },
+    taxProfile: {
+      ...flatOrdinaryTaxProfile,
+      filingStatus: "single",
+      socialSecurityTaxation: {
+        baseAmounts: { single: 25000 },
+        adjustedBaseAmounts: { single: 34000 },
+        taxableShareLow: 0.5,
+        taxableShareHigh: 0.85
+      }
+    },
+    returnSequence: [{ bond: 0 }],
+    inflationSequence: [0]
+  });
+
+  assert.equal(plan.years[0].socialSecurityBenefits, 20000);
+  assert.equal(plan.years[0].taxableSocialSecurity, 9600);
+  assert.equal(plan.years[0].cashAvailable, 20000);
+  assert.ok(plan.years[0].taxAttribution.some((item) => item.source === "Social Security benefits"));
+});
+
+test("Medicare IRMAA uses two-year lookback MAGI once Medicare age starts", () => {
+  const plan = simulatePlan({
+    assets: [{
+      id: "cash",
+      accountType: "taxable",
+      assetClass: "cash",
+      holdingPeriod: "long",
+      units: 20000,
+      price: 1,
+      costBasisPerUnit: 1
+    }],
+    scenario: {
+      planYears: 1,
+      targetSpend: 0,
+      targetSpendIncludesTaxes: true,
+      targetSpendIncludesMedical: false,
+      withdrawalOrder: ["taxable"],
+      currentAge: 65,
+      spouseAge: 65,
+      medicalExpensesBase: 0,
+      expectedOopMaxUsePercent: 0,
+      oopMaxOverride: 0,
+      returnAssumptions: { cash: { mean: 0, stdev: 0 } },
+      rothConversion: { enabled: false },
+      aca: { enabled: false },
+      medicare: {
+        irmaaEnabled: true,
+        twoYearsPriorMagi: 300000
+      }
+    },
+    taxProfile: {
+      ...noTaxProfile,
+      filingStatus: "marriedFilingJointly"
+    },
+    returnSequence: [{ cash: 0 }],
+    inflationSequence: [0]
+  });
+
+  assert.equal(plan.years[0].medicare.lookbackMagi, 300000);
+  assert.equal(Math.round(plan.years[0].medicare.totalAnnualPremium), 10639);
+  assert.equal(Math.round(plan.years[0].medicalCost), 10639);
+});
+
 test("yearly results include beginning and ending asset snapshots", () => {
   const plan = simulatePlan({
     assets: [{
@@ -530,6 +778,120 @@ test("Monte Carlo scenarios are deterministic with the same seed", () => {
 
   assert.deepEqual(first.summary, second.summary);
   assert.equal(first.scenarios.length, 5);
+});
+
+test("Roth conversion with earnings withdrawn inside five years is penalized and earnings are taxable", () => {
+  const plan = simulatePlan({
+    assets: [{
+      id: "recent-conversion-with-gain",
+      accountType: "roth",
+      assetClass: "bond",
+      units: 1000,
+      price: 2, // doubled
+      costBasisPerUnit: 1,
+      rothSource: "conversion",
+      conversionYear: 2026
+    }],
+    scenario: {
+      startYear: 2028,
+      planYears: 1,
+      targetSpend: 2000,
+      targetSpendIncludesTaxes: true,
+      targetSpendIncludesMedical: true,
+      withdrawalOrder: ["roth"],
+      currentAge: 50,
+      rothBasis: 0,
+      returnAssumptions: { bond: { mean: 0, stdev: 0 } },
+      rothConversion: { enabled: false },
+      aca: { enabled: false }
+    },
+    taxProfile: flatOrdinaryTaxProfile,
+    returnSequence: [{ bond: 0 }],
+    inflationSequence: [0]
+  });
+
+  assert.equal(Math.round(plan.years[0].magi), 1000);
+  assert.equal(Math.round(plan.years[0].penaltyTax), 200);
+});
+
+test("runHistoricalBacktests processes multiple return sequences", () => {
+  const results = runHistoricalBacktests({
+    assets: [{
+      id: "stock",
+      accountType: "taxable",
+      assetClass: "stock",
+      holdingPeriod: "long",
+      units: 100,
+      price: 100,
+      costBasisPerUnit: 100
+    }],
+    scenario: {
+      planYears: 1,
+      targetSpend: 100,
+      targetSpendIncludesTaxes: true,
+      targetSpendIncludesMedical: true,
+      withdrawalOrder: ["taxable"],
+      returnAssumptions: { stock: { mean: 0, stdev: 0 } },
+      aca: { enabled: false }
+    },
+    taxProfile: noTaxProfile,
+    sequences: [
+      { name: "Seq 1", returns: [{ stock: 0.1 }], inflation: [0] },
+      { name: "Seq 2", returns: [{ stock: -0.1 }], inflation: [0] }
+    ]
+  });
+
+  assert.equal(results.length, 2);
+  assert.equal(results[0].id, "Seq 1");
+  assert.equal(results[1].id, "Seq 2");
+  assert.equal(Math.round(results[0].endingValue), 10900);
+  assert.equal(Math.round(results[1].endingValue), 8900);
+});
+
+test("tax attribution includes multiple tax sources", () => {
+  const plan = simulatePlan({
+    assets: [{
+      id: "ira",
+      accountType: "traditional",
+      assetClass: "bond",
+      units: 1000,
+      price: 1,
+      costBasisPerUnit: 1
+    }, {
+      id: "stock",
+      accountType: "taxable",
+      assetClass: "stock",
+      units: 100,
+      price: 200,
+      costBasisPerUnit: 100,
+      dividendYield: 0.05,
+      qualifiedDividendShare: 1,
+      holdingPeriod: "long"
+    }],
+    scenario: {
+      planYears: 1,
+      targetSpend: 5000,
+      targetSpendIncludesTaxes: true,
+      targetSpendIncludesMedical: true,
+      withdrawalOrder: ["traditional", "taxable"],
+      currentAge: 65,
+      returnAssumptions: { bond: { mean: 0, stdev: 0 }, stock: { mean: 0, stdev: 0 } },
+      rothConversion: { enabled: true, annualAmount: 500 },
+      taxGainHarvesting: { enabled: true, maxGain: 1000 },
+      aca: { enabled: false }
+    },
+    taxProfile: {
+      ...noTaxProfile,
+      ordinaryBrackets: [{ upTo: Infinity, rate: 0.1 }],
+      capitalGainsBrackets: [{ upTo: Infinity, rate: 0.1 }]
+    },
+    returnSequence: [{ bond: 0, stock: 0 }],
+    inflationSequence: [0]
+  });
+
+  const attributionSources = plan.years[0].taxAttribution.map(a => a.source);
+  assert.ok(attributionSources.includes("Roth conversion"));
+  assert.ok(attributionSources.includes("Traditional withdrawals"));
 });
 
 function round6(value) {
