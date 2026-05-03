@@ -16,7 +16,16 @@ import {
   HISTORICAL_RETURN_DATA_VERSION,
   makeHistoricalSequences
 } from "./data/historicalReturns.mjs";
-import { buildAcaConfig, buildTaxProfile, STATE_OPTIONS } from "./data/taxData.mjs";
+import { buildAcaConfig, buildTaxProfile, STATE_OPTIONS, getMonthlyBenchmarkPremium } from "./data/taxData.mjs";
+import { massachusettsConnectorCareEstimate } from "./data/acaPlanPresets.mjs";
+import {
+  buildMarketplacePlanSearchRequest,
+  marketplaceApiUrl,
+  marketplaceStateCode,
+  normalizeMarketplaceCounties,
+  normalizeMarketplacePlans,
+  secondLowestSilverPremium
+} from "./data/marketplaceApi.mjs";
 
 const moneyFormatter = new Intl.NumberFormat("en-US", {
   style: "currency",
@@ -31,6 +40,7 @@ const percentFormatter = new Intl.NumberFormat("en-US", {
 });
 const GOOGLE_IDENTITY_SCRIPT_URL = "https://accounts.google.com/gsi/client";
 const GOOGLE_SHEETS_READONLY_SCOPE = "https://www.googleapis.com/auth/spreadsheets.readonly";
+const FEDERAL_MARKETPLACE_UNSUPPORTED_STATES = new Set(["Massachusetts"]);
 
 const STORAGE_KEY = "portfolio-success-lab:v3";
 const CONTROL_IDS = [
@@ -73,9 +83,24 @@ const CONTROL_IDS = [
   "acaEnabled",
   "medicalBase",
   "acaPlanCostMode",
+  "acaPremiumInputMode",
+  "acaQuoteIncome",
+  "marketplaceApiKey",
+  "marketplaceZip",
+  "marketplaceCountyFips",
+  "marketplacePlanYear",
+  "marketplaceUsesTobacco",
+  "marketplaceUtilizationLevel",
   "acaBenchmarkMonthlyPremium",
   "acaSelectedPlanMonthlyPremium",
   "oopMaxOverride",
+  "acaBackupPremiumInputMode",
+  "acaBackupBenchmarkMonthlyPremium",
+  "acaBackupMonthlyPremium",
+  "acaBackupOopMax",
+  "acaBackupTriggerFplPercent",
+  "acaBackupPlanName",
+  "acaAgeRateManualPremiums",
   "acaPremium",
   "acaFpl",
   "qualifyingChildren",
@@ -165,9 +190,29 @@ const els = {
   acaEnabled: document.querySelector("#acaEnabled"),
   medicalBase: document.querySelector("#medicalBase"),
   acaPlanCostMode: document.querySelector("#acaPlanCostMode"),
+  acaPremiumInputMode: document.querySelector("#acaPremiumInputMode"),
+  acaQuoteIncome: document.querySelector("#acaQuoteIncome"),
+  fillMassConnectorCare: document.querySelector("#fillMassConnectorCare"),
+  fillMassBackupPlan: document.querySelector("#fillMassBackupPlan"),
+  findMarketplacePlans: document.querySelector("#findMarketplacePlans"),
+  marketplaceApiKey: document.querySelector("#marketplaceApiKey"),
+  marketplaceZip: document.querySelector("#marketplaceZip"),
+  marketplaceCountyFips: document.querySelector("#marketplaceCountyFips"),
+  marketplacePlanYear: document.querySelector("#marketplacePlanYear"),
+  marketplaceUsesTobacco: document.querySelector("#marketplaceUsesTobacco"),
+  marketplaceUtilizationLevel: document.querySelector("#marketplaceUtilizationLevel"),
+  acaPlanLookupStatus: document.querySelector("#acaPlanLookupStatus"),
+  marketplacePlanResults: document.querySelector("#marketplacePlanResults"),
   acaBenchmarkMonthlyPremium: document.querySelector("#acaBenchmarkMonthlyPremium"),
   acaSelectedPlanMonthlyPremium: document.querySelector("#acaSelectedPlanMonthlyPremium"),
   oopMaxOverride: document.querySelector("#oopMaxOverride"),
+  acaBackupPremiumInputMode: document.querySelector("#acaBackupPremiumInputMode"),
+  acaBackupBenchmarkMonthlyPremium: document.querySelector("#acaBackupBenchmarkMonthlyPremium"),
+  acaBackupMonthlyPremium: document.querySelector("#acaBackupMonthlyPremium"),
+  acaBackupOopMax: document.querySelector("#acaBackupOopMax"),
+  acaBackupTriggerFplPercent: document.querySelector("#acaBackupTriggerFplPercent"),
+  acaBackupPlanName: document.querySelector("#acaBackupPlanName"),
+  acaAgeRateManualPremiums: document.querySelector("#acaAgeRateManualPremiums"),
   acaPremium: document.querySelector("#acaPremium"),
   acaFpl: document.querySelector("#acaFpl"),
   qualifyingChildren: document.querySelector("#qualifyingChildren"),
@@ -217,6 +262,8 @@ let latest = null;
 let activeScreen = "plan";
 let googleSheetsAccessToken = null;
 let googleSheetsTokenExpiresAt = 0;
+let marketplacePlanChoices = [];
+let marketplaceSlcspMonthly = null;
 
 initialize();
 
@@ -243,6 +290,10 @@ function bindEvents() {
   els.planTab.addEventListener("click", () => setActiveScreen("plan"));
   els.setupTab.addEventListener("click", () => setActiveScreen("setup"));
   els.runModel.addEventListener("click", runModels);
+  els.fillMassConnectorCare.addEventListener("click", applyMassachusettsConnectorCarePreset);
+  els.fillMassBackupPlan.addEventListener("click", applyMassachusettsBackupPlanPreset);
+  els.findMarketplacePlans.addEventListener("click", findMarketplacePlans);
+  els.marketplacePlanResults.addEventListener("click", handleMarketplacePlanSelection);
   els.viewMode.addEventListener("change", renderLatest);
   els.flowMode.addEventListener("change", renderFlowAndSales);
   CONTROL_IDS.forEach((id) => {
@@ -398,6 +449,264 @@ function renderStateOptions() {
   )).join("");
 }
 
+function applyMassachusettsConnectorCarePreset() {
+  try {
+    if (els.stateSelect.value !== "Massachusetts") {
+      throw new Error("Set State to Massachusetts before using the ConnectorCare preset.");
+    }
+
+    const householdSize = clampInteger(Number(els.householdSize.value), 1, 12);
+    const marketplaceMembers = clampInteger(Number(els.marketplaceMembers.value), 1, 12);
+    const income = numberOrNull(els.acaQuoteIncome.value);
+    if (!(income > 0)) {
+      throw new Error("Enter ACA quote income/MAGI before filling ConnectorCare. This can be lower than target spend.");
+    }
+
+    const estimate = massachusettsConnectorCareEstimate({ income, householdSize, marketplaceMembers });
+    if (!estimate.eligible) {
+      throw new Error(`${estimate.reason} Estimated FPL is ${percentFormatter.format(estimate.fplPercent / 100)}.`);
+    }
+
+    els.acaEnabled.checked = true;
+    els.acaPlanCostMode.value = "selectedPlan";
+    els.acaPremiumInputMode.value = "net";
+    els.acaSelectedPlanMonthlyPremium.value = String(estimate.selectedPlanMonthlyPremium);
+    els.oopMaxOverride.value = String(estimate.selectedPlanOopMaximum);
+    els.acaBenchmarkMonthlyPremium.value = "";
+    els.acaPremium.value = "";
+    setAcaPlanLookupStatus(
+      `${estimate.planName} from ACA MAGI ${moneyFormatter.format(income)}: ${moneyFormatter.format(estimate.selectedPlanMonthlyPremium)}/mo net premium, ${moneyFormatter.format(estimate.selectedPlanOopMaximum)} combined medical/Rx OOP max. Add a backup plan for years above 400% FPL.`
+    );
+    saveStoredState();
+    runModels();
+  } catch (error) {
+    setAcaPlanLookupStatus(error.message, true);
+  }
+}
+
+function applyMassachusettsBackupPlanPreset() {
+  try {
+    if (els.stateSelect.value !== "Massachusetts") {
+      throw new Error("Set State to Massachusetts before using the MA backup preset.");
+    }
+    const benchmark = getMonthlyBenchmarkPremium({ state: "Massachusetts" });
+    const marketplaceMembers = clampInteger(Number(els.marketplaceMembers.value), 1, 12);
+    const oopMax = marketplaceMembers > 1 ? 21200 : 10600;
+
+    els.acaBackupPremiumInputMode.value = "gross";
+    els.acaBackupMonthlyPremium.value = String(benchmark);
+    els.acaBackupOopMax.value = String(oopMax);
+    els.acaBackupBenchmarkMonthlyPremium.value = String(benchmark);
+    els.acaBackupTriggerFplPercent.value = els.acaBackupTriggerFplPercent.value || "400";
+    els.acaBackupPlanName.value = "Massachusetts Standard Silver Backup";
+    
+    setAcaPlanLookupStatus(
+      `Massachusetts Standard Silver filled as backup plan using state benchmark rate (${moneyFormatter.format(benchmark)}/mo base) and ${moneyFormatter.format(oopMax)} OOP max.`
+    );
+    saveStoredState();
+    runModels();
+  } catch (error) {
+    setAcaPlanLookupStatus(error.message, true);
+  }
+}
+
+async function findMarketplacePlans() {
+  try {
+    const state = els.stateSelect.value || "";
+    if (FEDERAL_MARKETPLACE_UNSUPPORTED_STATES.has(state)) {
+      throw new Error("Massachusetts is state-based. Use Fill MA ConnectorCare for subsidized ConnectorCare and the backup-plan fields for a non-ConnectorCare fallback.");
+    }
+    const apiKey = String(els.marketplaceApiKey.value || "").trim();
+    if (!apiKey) throw new Error("Enter a CMS Marketplace API key.");
+    const stateCode = marketplaceStateCode(state);
+    if (!stateCode) throw new Error("Choose a valid state before searching Marketplace plans.");
+    const income = numberOrNull(els.acaQuoteIncome.value);
+    if (!(income > 0)) throw new Error("Enter ACA quote income/MAGI before searching Marketplace plans.");
+    const zipcode = String(els.marketplaceZip.value || "").trim();
+    if (!zipcode) throw new Error("Enter a ZIP code for the Marketplace plan search.");
+    const year = Math.trunc(numberOrNull(els.marketplacePlanYear.value) ?? numberOrNull(els.taxYear.value) ?? 2026);
+    const countyfips = await resolveMarketplaceCountyFips({ apiKey, zipcode });
+    const ages = marketplaceCoveredAges();
+    const request = buildMarketplacePlanSearchRequest({
+      income,
+      ages,
+      state,
+      zipcode,
+      countyfips,
+      year,
+      usesTobacco: els.marketplaceUsesTobacco.checked,
+      utilizationLevel: els.marketplaceUtilizationLevel.value || "Medium"
+    });
+
+    setAcaPlanLookupStatus("Searching CMS Marketplace plans...");
+    const response = await fetch(marketplaceApiUrl("/plans/search", apiKey), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(request)
+    });
+    if (!response.ok) throw new Error(await marketplaceResponseError(response, "Marketplace plan search failed"));
+
+    const payload = await response.json();
+    const plans = normalizeMarketplacePlans(payload, { marketplaceMembers: ages.length });
+    if (!plans.length) throw new Error("CMS Marketplace returned no plans for that household and location.");
+    const slcspMonthly = secondLowestSilverPremium(plans);
+    marketplacePlanChoices = plans;
+    marketplaceSlcspMonthly = slcspMonthly;
+    renderMarketplacePlanResults(plans, slcspMonthly);
+    setAcaPlanLookupStatus(
+      `Found ${numberFormatter.format(plans.length)} Marketplace plans for ${zipcode}. Pick a primary plan or a backup plan.`
+    );
+  } catch (error) {
+    setAcaPlanLookupStatus(error.message, true);
+  }
+}
+
+async function resolveMarketplaceCountyFips({ apiKey, zipcode }) {
+  const current = String(els.marketplaceCountyFips.value || "").trim();
+  if (current) return current;
+
+  const response = await fetch(marketplaceApiUrl(`/counties/by/zip/${encodeURIComponent(zipcode)}`, apiKey));
+  if (!response.ok) throw new Error(await marketplaceResponseError(response, "County lookup failed"));
+  const counties = normalizeMarketplaceCounties(await response.json());
+  if (!counties.length) throw new Error("CMS Marketplace could not find a county for that ZIP code.");
+  if (counties.length === 1) {
+    els.marketplaceCountyFips.value = counties[0].fips;
+    saveStoredState();
+    return counties[0].fips;
+  }
+
+  renderMarketplaceCountyChoices(counties);
+  throw new Error("That ZIP spans multiple counties. Choose the county, then search again.");
+}
+
+function renderMarketplaceCountyChoices(counties) {
+  els.marketplacePlanResults.innerHTML = `
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>County</th><th>FIPS</th><th></th></tr></thead>
+        <tbody>
+          ${counties.map((county) => `
+            <tr>
+              <td>${escapeHtml(county.name || "County")}</td>
+              <td>${escapeHtml(county.fips)}</td>
+              <td><button type="button" data-county-fips="${escapeAttr(county.fips)}">Use</button></td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function renderMarketplacePlanResults(plans, slcspMonthly) {
+  const visiblePlans = plans.slice(0, 60);
+  els.marketplacePlanResults.innerHTML = `
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Plan</th>
+            <th>Issuer</th>
+            <th>Metal</th>
+            <th>Gross</th>
+            <th>Est. net</th>
+            <th>OOP max</th>
+            <th></th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          ${visiblePlans.map((plan, index) => `
+            <tr>
+              <td>${escapeHtml(plan.name)}</td>
+              <td>${escapeHtml(plan.issuer || "Unknown")}</td>
+              <td>${escapeHtml(plan.metalLevel || "")}</td>
+              <td>${moneyFormatter.format(plan.premium ?? 0)}</td>
+              <td>${Number.isFinite(plan.premiumWithCredit) ? moneyFormatter.format(plan.premiumWithCredit) : "-"}</td>
+              <td>${Number.isFinite(plan.oopMaximum) ? moneyFormatter.format(plan.oopMaximum) : "Manual"}</td>
+              <td><button type="button" data-plan-target="primary" data-plan-index="${index}">Use primary</button></td>
+              <td><button type="button" data-plan-target="backup" data-plan-index="${index}">Use backup</button></td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    </div>
+    <p class="muted">SLCSP estimate from returned silver plans: ${Number.isFinite(slcspMonthly) ? moneyFormatter.format(slcspMonthly) : "not available"} monthly. Showing ${numberFormatter.format(visiblePlans.length)} of ${numberFormatter.format(plans.length)} plans.</p>
+  `;
+}
+
+function handleMarketplacePlanSelection(event) {
+  const countyButton = event.target.closest("[data-county-fips]");
+  if (countyButton) {
+    els.marketplaceCountyFips.value = countyButton.dataset.countyFips;
+    saveStoredState();
+    findMarketplacePlans();
+    return;
+  }
+
+  const button = event.target.closest("[data-plan-index]");
+  if (!button) return;
+  const plan = marketplacePlanChoices[Number(button.dataset.planIndex)];
+  if (!plan) return;
+  if (button.dataset.planTarget === "backup") {
+    fillBackupPlanFromMarketplace(plan);
+  } else {
+    fillPrimaryPlanFromMarketplace(plan);
+  }
+  saveStoredState();
+  runModels();
+}
+
+function fillPrimaryPlanFromMarketplace(plan) {
+  els.acaMemberAges.value = marketplaceCoveredAges().join(", ");
+  els.acaEnabled.checked = true;
+  els.acaPlanCostMode.value = "selectedPlan";
+  els.acaPremiumInputMode.value = "gross";
+  els.acaSelectedPlanMonthlyPremium.value = formatPlanInput(plan.premium);
+  els.oopMaxOverride.value = Number.isFinite(plan.oopMaximum) ? formatPlanInput(plan.oopMaximum) : "";
+  els.acaBenchmarkMonthlyPremium.value = Number.isFinite(marketplaceSlcspMonthly)
+    ? formatPlanInput(marketplaceSlcspMonthly)
+    : "";
+  setAcaPlanLookupStatus(`${plan.name} filled as the primary ACA plan using gross Marketplace premiums.`);
+}
+
+function fillBackupPlanFromMarketplace(plan) {
+  els.acaMemberAges.value = marketplaceCoveredAges().join(", ");
+  els.acaBackupPremiumInputMode.value = "gross";
+  els.acaBackupMonthlyPremium.value = formatPlanInput(plan.premium);
+  els.acaBackupOopMax.value = Number.isFinite(plan.oopMaximum) ? formatPlanInput(plan.oopMaximum) : "";
+  els.acaBackupBenchmarkMonthlyPremium.value = Number.isFinite(marketplaceSlcspMonthly)
+    ? formatPlanInput(marketplaceSlcspMonthly)
+    : "";
+  els.acaBackupTriggerFplPercent.value = els.acaBackupTriggerFplPercent.value || "400";
+  els.acaBackupPlanName.value = [plan.name, plan.issuer].filter(Boolean).join(" - ");
+  setAcaPlanLookupStatus(`${plan.name} filled as the backup plan for future MAGI above the trigger.`);
+}
+
+function marketplaceCoveredAges() {
+  const marketplaceMembers = clampInteger(Number(els.marketplaceMembers.value), 1, 12);
+  return acaMemberAgesForScenario({
+    explicitMemberAges: numberList(els.acaMemberAges.value),
+    marketplaceMembers,
+    currentAge: Number(els.currentAge.value) || DEFAULT_SCENARIO.currentAge,
+    spouseAge: numberOrNull(els.spouseAge.value) ?? (Number(els.currentAge.value) || DEFAULT_SCENARIO.currentAge)
+  });
+}
+
+async function marketplaceResponseError(response, fallback) {
+  const text = await response.text();
+  try {
+    const payload = JSON.parse(text);
+    return `${fallback}: ${payload.message ?? payload.error ?? response.statusText}`;
+  } catch {
+    return `${fallback}: ${text || response.statusText}`;
+  }
+}
+
+function formatPlanInput(value) {
+  return Number.isFinite(value) ? String(round(value, 2)) : "";
+}
+
 function setActiveScreen(screen) {
   const isSetup = screen === "setup";
   activeScreen = isSetup ? "setup" : "plan";
@@ -422,6 +731,13 @@ function saveStoredState() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(setupStateSnapshot()));
   } catch (error) {
     console.warn("Saved state could not be written.", error);
+  }
+}
+
+function setAcaPlanLookupStatus(message, isError = false) {
+  paintStatus(els.acaPlanLookupStatus, message, isError);
+  if (els.acaPlanLookupStatus) {
+    els.acaPlanLookupStatus.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }
 }
 
@@ -594,6 +910,13 @@ function renderYearLabel() {
   els.yearLabel.textContent = year ? `${year.year}` : `Year ${selectedYearIndex + 1}`;
 }
 
+function acaPlanLabel(year) {
+  const role = year.aca?.activePlanRole;
+  if (!role) return "";
+  if (role === "backup") return year.aca.planName ? `Backup: ${year.aca.planName}` : "Backup";
+  return "Primary";
+}
+
 function renderYearTable() {
   const years = activeVisibleYears();
   const rows = years.map((year) => [
@@ -622,6 +945,7 @@ function renderYearTable() {
     money(year.taxableSocialSecurity ?? 0, year),
     money(year.age65AdditionalDeduction ?? 0, year),
     year.qualifyingChildren ?? 0,
+    acaPlanLabel(year),
     money(year.aca.benchmarkPremium ?? 0, year),
     money(year.aca.grossPremium ?? 0, year),
     money(year.aca.subsidy, year),
@@ -636,7 +960,7 @@ function renderYearTable() {
   ]);
 
   els.yearTable.innerHTML = tableHtml(
-    ["Year", "Stock", "Bond", "Real estate", "TIPS", "Crypto", "Inflation", "Start value", "End value", "Sales / withdrawals", "Dividends", "Social Security", "RMD", "Total cash", "Total need", "Tax", "Fed income tax", "CG/QD tax", "NIIT", "Credits", "State tax", "MAGI", "Taxable SS", "65+ deduction", "CTC children", "ACA SLCSP", "ACA gross", "ACA subsidy", "ACA net", "Medicare", "Spend", "Medical", "Tax gain harvest", "Roth conv.", "Penalty", "Loss carry"],
+    ["Year", "Stock", "Bond", "Real estate", "TIPS", "Crypto", "Inflation", "Start value", "End value", "Sales / withdrawals", "Dividends", "Social Security", "RMD", "Total cash", "Total need", "Tax", "Fed income tax", "CG/QD tax", "NIIT", "Credits", "State tax", "MAGI", "Taxable SS", "65+ deduction", "CTC children", "ACA plan", "ACA SLCSP", "ACA gross", "ACA subsidy", "ACA net", "Medicare", "Spend", "Medical", "Tax gain harvest", "Roth conv.", "Penalty", "Loss carry"],
     rows,
     (index) => `data-year-index="${index}" class="${index === selectedYearIndex ? "selected-row" : ""}"`
   );
@@ -1794,9 +2118,24 @@ function readScenario() {
     ? null
     : selectedPlanMonthlyPremium * 12;
   const selectedPlanOopMaximumOverride = numberOrNull(els.oopMaxOverride.value);
+  const premiumInputMode = els.acaPremiumInputMode.value === "net" ? "net" : "gross";
+  const backupMonthlyPremium = numberOrNull(els.acaBackupMonthlyPremium.value);
+  const backupPlanPremiumOverride = backupMonthlyPremium == null ? null : backupMonthlyPremium * 12;
+  const backupBenchmarkMonthlyPremium = numberOrNull(els.acaBackupBenchmarkMonthlyPremium.value);
+  const backupPlanBenchmarkPremiumOverride = backupBenchmarkMonthlyPremium == null
+    ? null
+    : backupBenchmarkMonthlyPremium * 12;
+  const backupPlanOopMaximumOverride = numberOrNull(els.acaBackupOopMax.value);
+  const backupPlanPremiumInputMode = els.acaBackupPremiumInputMode.value === "net" ? "net" : "gross";
+  const backupTriggerFplPercent = numberOrNull(els.acaBackupTriggerFplPercent.value);
+  const backupPlanName = String(els.acaBackupPlanName.value || "").trim();
+  const hasBackupPlanInputs = backupPlanPremiumOverride != null
+    || backupPlanBenchmarkPremiumOverride != null
+    || backupPlanOopMaximumOverride != null
+    || backupPlanName;
 
   if (els.acaEnabled.checked && planCostMode === "selectedPlan") {
-    if (benchmarkPremiumOverride == null) {
+    if (premiumInputMode === "gross" && benchmarkPremiumOverride == null) {
       throw new Error("Exact ACA plan mode requires the household SLCSP monthly premium.");
     }
     if (selectedPlanPremiumOverride == null) {
@@ -1809,6 +2148,14 @@ function readScenario() {
       throw new Error("Exact ACA plan mode requires one marketplace member age per covered member.");
     }
   }
+  if (els.acaEnabled.checked && hasBackupPlanInputs) {
+    if (backupPlanPremiumOverride == null) {
+      throw new Error("ACA backup plan requires a backup monthly premium.");
+    }
+    if (backupPlanOopMaximumOverride == null) {
+      throw new Error("ACA backup plan requires a backup OOP max.");
+    }
+  }
 
   const aca = buildAcaConfig({
     enabled: els.acaEnabled.checked,
@@ -1819,9 +2166,17 @@ function readScenario() {
     currentAge,
     memberAges,
     planCostMode,
+    premiumInputMode,
+    ageRateManualPremiums: els.acaAgeRateManualPremiums.checked,
     benchmarkPremiumOverride,
     selectedPlanPremiumOverride,
     selectedPlanOopMaximumOverride,
+    backupPlanPremiumOverride,
+    backupPlanBenchmarkPremiumOverride,
+    backupPlanOopMaximumOverride,
+    backupPlanPremiumInputMode,
+    backupPlanName,
+    backupTriggerFplPercent,
     fplOverride: numberOrNull(els.acaFpl.value)
   });
 

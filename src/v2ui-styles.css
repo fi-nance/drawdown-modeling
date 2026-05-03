@@ -385,6 +385,14 @@ textarea {
   gap: 0.72rem;
 }
 
+.span-full {
+  grid-column: 1 / -1;
+}
+
+.span-full:empty {
+  display: none;
+}
+
 .check-row,
 .file-control {
   display: flex;

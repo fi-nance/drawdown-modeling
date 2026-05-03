@@ -119,6 +119,61 @@ test("selected ACA plan subsidy is capped at actual plan premium", () => {
   assert.equal(result.netPremium, 0);
 });
 
+test("quoted net ACA premiums bypass subsidy recalculation", () => {
+  const result = computeAca({
+    magi: 30000,
+    config: {
+      enabled: true,
+      premiumInputMode: "net",
+      fpl: 20000,
+      benchmarkPremium: 18000,
+      selectedPlanPremium: 1200,
+      maxEligibleFplPercent: 400,
+      applicablePercentageTable: [
+        { minFplPercent: 0, maxFplPercent: 400, initialRate: 0.05, finalRate: 0.05 }
+      ]
+    }
+  });
+
+  assert.equal(result.premiumInputMode, "net");
+  assert.equal(result.expectedContribution, 0);
+  assert.equal(result.subsidy, 0);
+  assert.equal(result.netPremium, 1200);
+});
+
+test("ACA backup plan activates when MAGI crosses the configured FPL trigger", () => {
+  const config = buildAcaConfig({
+    taxYear: 2026,
+    state: "Massachusetts",
+    householdSize: 2,
+    marketplaceMembers: 2,
+    fplOverride: 20000,
+    planCostMode: "selectedPlan",
+    premiumInputMode: "net",
+    selectedPlanPremiumOverride: 3600,
+    selectedPlanOopMaximumOverride: 4500,
+    backupPlanPremiumOverride: 12000,
+    backupPlanBenchmarkPremiumOverride: 10000,
+    backupPlanOopMaximumOverride: 9000,
+    backupTriggerFplPercent: 400,
+    backupPlanName: "Backup silver plan"
+  });
+  const below = computeAca({ magi: 79000, config });
+  const above = computeAca({ magi: 81000, config });
+
+  assert.equal(below.activePlanRole, "primary");
+  assert.equal(below.premiumInputMode, "net");
+  assert.equal(below.netPremium, 3600);
+  assert.equal(below.oopMaximum, 4500);
+  assert.equal(above.activePlanRole, "backup");
+  assert.equal(above.planName, "Backup silver plan");
+  assert.equal(above.eligible, false);
+  assert.equal(above.benchmarkPremium, 10000);
+  assert.equal(above.grossPremium, 12000);
+  assert.equal(above.netPremium, 12000);
+  assert.equal(above.oopMaximum, 9000);
+});
+
 test("selected ACA plan exact premiums age-rate from current household ages", () => {
   const config = buildAcaConfig({
     taxYear: 2026,
@@ -141,6 +196,45 @@ test("selected ACA plan exact premiums age-rate from current household ages", ()
   assert.equal(current.benchmarkPremium, 18000);
   assert.equal(current.selectedPlanPremium, 24000);
   assert.equal(nextYear.selectedPlanPremium, round6(24000 * (nextRatingTotal / currentRatingTotal)));
+  assert.equal(nextYear.oopMaximum, 14000);
+});
+
+test("manual ACA premiums can opt out of age-rating", () => {
+  const config = buildAcaConfig({
+    taxYear: 2026,
+    state: "Florida",
+    householdSize: 1,
+    marketplaceMembers: 1,
+    currentAge: 50,
+    memberAges: [50],
+    planCostMode: "selectedPlan",
+    ageRateManualPremiums: false,
+    benchmarkPremiumOverride: 12000,
+    selectedPlanPremiumOverride: 18000,
+    selectedPlanOopMaximumOverride: 9000
+  });
+  const nextYear = inflateAcaConfig(config, 1, { age: 51, yearIndex: 1 });
+
+  assert.equal(nextYear.benchmarkPremium, 12000);
+  assert.equal(nextYear.selectedPlanPremium, 18000);
+  assert.equal(nextYear.oopMaximum, 9000);
+});
+
+test("ACA backup plan premiums can age-rate while OOP max only inflates", () => {
+  const config = buildAcaConfig({
+    taxYear: 2026,
+    state: "Florida",
+    householdSize: 1,
+    marketplaceMembers: 1,
+    currentAge: 40,
+    memberAges: [40],
+    backupPlanPremiumOverride: 12000,
+    backupPlanOopMaximumOverride: 9000
+  });
+  const nextYear = inflateAcaConfig(config, 1.1, { age: 41, yearIndex: 1 });
+
+  assert.equal(nextYear.backupPlan.selectedPlanPremium, round6(12000 * (1.302 / 1.278) * 1.1));
+  assert.equal(nextYear.backupPlan.oopMaximum, 9900);
 });
 
 test("ACA benchmark overrides are treated as current-age premiums", () => {

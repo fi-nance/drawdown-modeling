@@ -190,6 +190,48 @@
                 </select>
               </label>
               <label>
+                <span>ACA premium input</span>
+                <select id="acaPremiumInputMode">
+                  <option value="gross">Gross premiums, calculate PTC</option>
+                  <option value="net">Quoted net premium</option>
+                </select>
+              </label>
+              <label>
+                <span>ACA quote income</span>
+                <input id="acaQuoteIncome" type="number" min="0" step="1000" placeholder="ACA MAGI, not spend">
+              </label>
+              <button id="fillMassConnectorCare" type="button">Fill MA ConnectorCare</button>
+              <button id="fillMassBackupPlan" type="button">Fill MA Backup</button>
+              <label>
+                <span>CMS Marketplace API key</span>
+                <input id="marketplaceApiKey" type="password" autocomplete="off" placeholder="Required for federal states">
+              </label>
+              <label>
+                <span>Marketplace ZIP</span>
+                <input id="marketplaceZip" type="text" inputmode="numeric" maxlength="5" placeholder="ZIP">
+              </label>
+              <label>
+                <span>County FIPS</span>
+                <input id="marketplaceCountyFips" type="text" inputmode="numeric" maxlength="5" placeholder="Auto by ZIP">
+              </label>
+              <label>
+                <span>Plan year</span>
+                <input id="marketplacePlanYear" type="number" min="2024" max="2035" step="1" value="2026">
+              </label>
+              <label>
+                <span>Utilization</span>
+                <select id="marketplaceUtilizationLevel">
+                  <option value="Low">Low</option>
+                  <option value="Medium" selected>Medium</option>
+                  <option value="High">High</option>
+                </select>
+              </label>
+              <label class="check-row">
+                <input id="marketplaceUsesTobacco" type="checkbox">
+                <span>Tobacco rating</span>
+              </label>
+              <button id="findMarketplacePlans" type="button">Find federal Marketplace plans</button>
+              <label>
                 <span>SLCSP monthly total</span>
                 <input id="acaBenchmarkMonthlyPremium" type="number" min="0" step="1" placeholder="Auto">
               </label>
@@ -202,6 +244,37 @@
                 <input id="oopMaxOverride" type="number" min="0" step="500" placeholder="Auto">
               </label>
               <label>
+                <span>Backup premium input</span>
+                <select id="acaBackupPremiumInputMode">
+                  <option value="gross" selected>Gross premiums, calculate PTC</option>
+                  <option value="net">Quoted net premium</option>
+                </select>
+              </label>
+              <label>
+                <span>Backup SLCSP monthly</span>
+                <input id="acaBackupBenchmarkMonthlyPremium" type="number" min="0" step="1" placeholder="Optional">
+              </label>
+              <label>
+                <span>Backup monthly total</span>
+                <input id="acaBackupMonthlyPremium" type="number" min="0" step="1" placeholder="Optional">
+              </label>
+              <label>
+                <span>Backup OOP max</span>
+                <input id="acaBackupOopMax" type="number" min="0" step="500" placeholder="Optional">
+              </label>
+              <label>
+                <span>Backup trigger FPL %</span>
+                <input id="acaBackupTriggerFplPercent" type="number" min="0" step="1" value="400">
+              </label>
+              <label>
+                <span>Backup plan name</span>
+                <input id="acaBackupPlanName" type="text" placeholder="Optional">
+              </label>
+              <label class="check-row">
+                <input id="acaAgeRateManualPremiums" type="checkbox" checked>
+                <span>Age-rate manual ACA premiums</span>
+              </label>
+              <label>
                 <span>SLCSP annual override</span>
                 <input id="acaPremium" type="number" min="0" step="500" placeholder="Auto">
               </label>
@@ -209,6 +282,8 @@
                 <span>FPL override</span>
                 <input id="acaFpl" type="number" min="1" step="100" placeholder="Auto">
               </label>
+              <div id="acaPlanLookupStatus" class="status" role="status" aria-live="polite">ACA plan helper ready.</div>
+              <div id="marketplacePlanResults" class="span-full"></div>
               <label>
                 <span>Social Security annual benefit</span>
                 <input id="socialSecurityAnnualBenefit" type="number" min="0" step="1000" value="0">
@@ -488,6 +563,6 @@
       </section>
     </main>
 
-    <script type="module" src="./src/app.mjs?v=20260503-history-coverage"></script>
+    <script type="module" src="./src/app.mjs?v=20260503-ma-connectorcare"></script>
   </body>
 </html>

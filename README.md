@@ -10,7 +10,7 @@ A test-first foundation for tax-aware portfolio success forecasting.
 - Versioned 2026 federal tax tables, preferential long-term capital gains stacking, state tax profiles, capital loss carryforwards, and ordinary loss offsets
 - Withdrawal tax character by account type and lot holding period
 - Tax loss harvesting, tax gain harvesting, and Roth conversion modeling
-- 2026 ACA premium tax credit estimates from annual MAGI, household-size FPL, age-rated SLCSP benchmark premiums, and optional exact selected-plan premiums/OOP maximums
+- 2026 ACA premium tax credit estimates from annual MAGI, household-size FPL, age-rated SLCSP benchmark premiums, optional exact selected-plan premiums/OOP maximums, and backup-plan switching above an FPL trigger
 - Target spend controls that can include or exclude taxes and medical costs
 - One-off expenses by year or year range, fixed or inflation adjusted
 - JSON import/export, a sample CSV template, and published Google Sheets CSV import
@@ -53,7 +53,11 @@ Private data can also be imported without OAuth by downloading the sheet as CSV 
 
 The active tax-law year is 2026. Federal brackets, standard deductions, long-term capital gains thresholds, ACA applicable percentages, and HHS poverty guidelines are versioned in `src/data/taxData.mjs`. State income tax defaults use the generated 2026 state table in `src/data/stateTax2026.generated.mjs`, with manual overrides available in the UI for power users or state-specific nuance not yet modeled.
 
-ACA has two plan-cost modes. State benchmark estimate mode uses the built-in state-level SLCSP fallback and treats that benchmark as the selected plan. Exact selected plan mode requires the household SLCSP monthly premium, selected plan monthly premium, selected plan OOP max, and covered member ages; subsidy math uses the SLCSP while medical spending uses the selected plan.
+ACA has two plan-cost modes. State benchmark estimate mode uses the built-in state-level SLCSP fallback and treats that benchmark as the selected plan. Exact selected plan mode requires the household SLCSP monthly premium, selected plan monthly premium, selected plan OOP max, and covered member ages; subsidy math uses the SLCSP while medical spending uses the selected plan. Manual ACA premiums can optionally be age-rated forward with the federal ACA age curve on top of inflation. Selected-plan OOP maximums inflate as dollar limits, but are not age-rated.
+
+For HealthCare.gov states, the CMS Marketplace API helper can look up available plans by ZIP/county FIPS, household ages, ACA quote income/MAGI, tobacco flag, utilization level, and plan year. Selecting a plan fills the SLCSP benchmark, selected plan premium, selected plan OOP max, issuer/name metadata where used, and covered ages for exact gross-premium modeling.
+
+Massachusetts users can use the MA ConnectorCare helper to fill an estimated 2026 lowest-cost ConnectorCare net premium and combined medical/Rx OOP maximum from ACA quote income/MAGI, household size, and marketplace member count. Those premiums are treated as quoted net premiums, so the app does not subtract a second federal subsidy. A backup ACA plan can also be entered or filled from supported federal Marketplace results; the simulator switches to it when modeled MAGI exceeds the backup FPL trigger, which defaults to 400%.
 
 Historical backtesting data is versioned in `src/data/historicalReturns.mjs` and runs through 2025 where source history exists. Crypto and TIPS histories start later than the core stock/bond/cash series, so the Backtesting panel includes explicit proxy options: stock returns before crypto data begins and bond returns before TIPS data begins. Actual crypto and TIPS returns are still used once available. The data-source inventory and annual refresh checklist live in [`docs/DATA_SOURCES.md`](docs/DATA_SOURCES.md).
 

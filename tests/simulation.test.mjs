@@ -423,7 +423,7 @@ test("one-off expenses can be inflation adjusted by year", () => {
       planYears: 2,
       targetSpend: 0,
       targetSpendIncludesTaxes: true,
-      targetSpendIncludesMedical: true,
+      targetSpendIncludesMedical: false,
       withdrawalOrder: ["taxable"],
       oneOffExpenses: [{
         name: "Car",
@@ -458,7 +458,7 @@ test("ACA premiums age-rate by simulated year on top of inflation", () => {
       planYears: 2,
       targetSpend: 0,
       targetSpendIncludesTaxes: true,
-      targetSpendIncludesMedical: true,
+      targetSpendIncludesMedical: false,
       withdrawalOrder: ["taxable"],
       currentAge: 40,
       returnAssumptions: { cash: { mean: 0, stdev: 0 } },
@@ -479,6 +479,168 @@ test("ACA premiums age-rate by simulated year on top of inflation", () => {
 
   assert.equal(plan.years[0].aca.grossPremium, 12780);
   assert.equal(plan.years[1].aca.grossPremium, round6(12780 * (1.302 / 1.278) * 1.1));
+});
+
+test("manual ACA OOP max inflates without age-rating", () => {
+  const plan = simulatePlan({
+    assets: [{
+      id: "cash",
+      accountType: "taxable",
+      assetClass: "cash",
+      holdingPeriod: "long",
+      units: 50000,
+      price: 1,
+      costBasisPerUnit: 1
+    }],
+    scenario: {
+      planYears: 2,
+      targetSpend: 0,
+      targetSpendIncludesTaxes: true,
+      targetSpendIncludesMedical: false,
+      medicalExpensesBase: 0,
+      expectedOopMaxUsePercent: 1,
+      withdrawalOrder: ["taxable"],
+      currentAge: 40,
+      returnAssumptions: { cash: { mean: 0, stdev: 0 } },
+      aca: {
+        enabled: true,
+        householdSize: 1,
+        marketplaceMembers: 1,
+        fpl: 20000,
+        benchmarkPremium: 0,
+        selectedPlanPremium: 0,
+        oopMaximum: 10000,
+        manualOopMaximum: true
+      }
+    },
+    taxProfile: noTaxProfile,
+    returnSequence: [{ cash: 0 }, { cash: 0 }],
+    inflationSequence: [0.1, 0]
+  });
+
+  assert.equal(plan.years[0].medicalCost, 10000);
+  assert.equal(plan.years[1].medicalCost, 11000);
+});
+
+test("ACA backup plan changes medical premium and OOP when modeled MAGI exceeds trigger", () => {
+  const plan = simulatePlan({
+    assets: [{
+      id: "ira",
+      accountType: "traditional",
+      assetClass: "cash",
+      units: 200000,
+      price: 1,
+      costBasisPerUnit: 1
+    }],
+    scenario: {
+      planYears: 1,
+      targetSpend: 85000,
+      targetSpendIncludesTaxes: true,
+      targetSpendIncludesMedical: false,
+      medicalExpensesBase: 0,
+      expectedOopMaxUsePercent: 1,
+      withdrawalOrder: ["traditional"],
+      currentAge: 55,
+      returnAssumptions: { cash: { mean: 0, stdev: 0 } },
+      rothConversion: { enabled: false },
+      aca: {
+        enabled: true,
+        fpl: 20000,
+        premiumInputMode: "net",
+        benchmarkPremium: 0,
+        selectedPlanPremium: 3600,
+        oopMaximum: 4500,
+        backupPlan: {
+          enabled: true,
+          triggerFplPercent: 400,
+          premiumInputMode: "gross",
+          benchmarkPremium: 10000,
+          selectedPlanPremium: 12000,
+          oopMaximum: 9000,
+          planName: "Backup silver plan"
+        },
+        applicablePercentageTable: [
+          { minFplPercent: 0, maxFplPercent: 400, initialRate: 0.05, finalRate: 0.05 }
+        ],
+        maxEligibleFplPercent: 400
+      }
+    },
+    taxProfile: noTaxProfile,
+    returnSequence: [{ cash: 0 }],
+    inflationSequence: [0]
+  });
+
+  assert.equal(plan.years[0].aca.activePlanRole, "backup");
+  assert.equal(plan.years[0].aca.netPremium, 12000);
+  assert.equal(plan.years[0].medicalCost, 21000);
+});
+
+test("ACA plan switches from primary to backup mid-simulation when MAGI crosses trigger", () => {
+  const plan = simulatePlan({
+    assets: [{
+      id: "ira",
+      accountType: "traditional",
+      assetClass: "cash",
+      units: 500000,
+      price: 1,
+      costBasisPerUnit: 1
+    }],
+    scenario: {
+      planYears: 2,
+      targetSpend: 50000,
+      targetSpendIncludesTaxes: true,
+      targetSpendIncludesMedical: false,
+      medicalExpensesBase: 0,
+      expectedOopMaxUsePercent: 1,
+      withdrawalOrder: ["traditional"],
+      currentAge: 55,
+      returnAssumptions: { cash: { mean: 0, stdev: 0 } },
+      rothConversion: { enabled: false },
+      aca: {
+        enabled: true,
+        fpl: 20000,
+        premiumInputMode: "net",
+        benchmarkPremium: 0,
+        selectedPlanPremium: 3600,
+        oopMaximum: 4500,
+        manualOopMaximum: true,
+        backupPlan: {
+          enabled: true,
+          triggerFplPercent: 400,
+          premiumInputMode: "net",
+          benchmarkPremium: 0,
+          selectedPlanPremium: 12000,
+          oopMaximum: 9000,
+          manualOopMaximum: true,
+          planName: "Backup silver plan"
+        },
+        applicablePercentageTable: [
+          { minFplPercent: 0, maxFplPercent: 400, initialRate: 0.05, finalRate: 0.05 }
+        ],
+        maxEligibleFplPercent: 400
+      },
+      oneOffExpenses: [{
+        name: "Large expense pushing MAGI up",
+        startYear: 2,
+        endYear: 2,
+        amount: 50000,
+        inflationAdjusted: false
+      }]
+    },
+    taxProfile: noTaxProfile,
+    returnSequence: [{ cash: 0 }, { cash: 0 }],
+    inflationSequence: [0, 0]
+  });
+
+  // Year 1: MAGI is around 50k + 8100 (medical) = 58k. FPL=20k. FPL% ~290%. So primary plan used.
+  assert.equal(plan.years[0].aca.activePlanRole, "primary");
+  assert.equal(plan.years[0].aca.netPremium, 3600);
+  assert.equal(plan.years[0].medicalCost, 8100);
+
+  // Year 2: oneOffExpense adds 50k to target spend. MAGI > 100k. FPL=20k. FPL% > 500%. Switch to backup.
+  assert.equal(plan.years[1].aca.activePlanRole, "backup");
+  assert.equal(plan.years[1].aca.netPremium, 12000);
+  assert.equal(plan.years[1].medicalCost, 21000);
 });
 
 test("child tax credit counts children by age each simulated year", () => {

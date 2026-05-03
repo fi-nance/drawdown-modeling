@@ -1142,7 +1142,7 @@ function medicalCostForYear({
   magi,
   magiHistory
 }) {
-  const baseMedical = medicalCostForScenario(scenario, yearAcaConfig, inflationIndex);
+  const baseMedical = medicalCostForScenario(scenario, yearAcaConfig, inflationIndex, aca);
   const medicare = computeMedicareCostForYear({
     scenario,
     age,
@@ -1273,11 +1273,24 @@ function plannedSpendingForYear(scenario, planYear, inflationIndex) {
   return round(baseSpend + oneOffs, 6);
 }
 
-function medicalCostForScenario(scenario, acaConfig, inflationIndex) {
+function medicalCostForScenario(scenario, acaConfig, inflationIndex, aca = null) {
   const base = (scenario.medicalExpensesBase ?? 0) * inflationIndex;
-  const oopMax = Number.isFinite(Number(scenario.oopMaxOverride))
-    ? Math.max(0, Number(scenario.oopMaxOverride)) * inflationIndex
-    : (acaConfig.oopMaximum ?? 0) * inflationIndex;
+  const hasScenarioOopOverride = Number.isFinite(Number(scenario.oopMaxOverride));
+  const scenarioOopOverride = Math.max(0, Number(scenario.oopMaxOverride));
+  const activePlanOop = aca?.activePlanRole
+    && (aca.activePlanRole === "backup" || acaConfig.manualOopMaximum)
+    && Number.isFinite(Number(aca.oopMaximum))
+    ? Math.max(0, Number(aca.oopMaximum))
+    : null;
+  const oopMax = activePlanOop ?? (acaConfig.oopMaximumInflated
+    ? acaConfig.manualOopMaximum
+      ? Math.max(0, acaConfig.oopMaximum ?? 0)
+      : hasScenarioOopOverride
+        ? scenarioOopOverride * inflationIndex
+        : Math.max(0, acaConfig.oopMaximum ?? 0)
+    : hasScenarioOopOverride
+      ? scenarioOopOverride * inflationIndex
+      : Math.max(0, acaConfig.oopMaximum ?? 0) * inflationIndex);
   const expectedOop = oopMax * Math.max(0, Math.min(1, scenario.expectedOopMaxUsePercent ?? 0));
   return round(base + expectedOop, 6);
 }

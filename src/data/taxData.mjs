@@ -365,6 +365,8 @@ export function buildAcaConfig({
   currentAge = null,
   memberAges = null,
   planCostMode = "stateBenchmark",
+  premiumInputMode = "gross",
+  ageRateManualPremiums = true,
   benchmarkPremiumOverride = null,
   benchmarkPremiumReferenceAge = null,
   benchmarkPremiumReferenceAges = null,
@@ -372,14 +374,29 @@ export function buildAcaConfig({
   selectedPlanPremiumReferenceAge = null,
   selectedPlanPremiumReferenceAges = null,
   selectedPlanOopMaximumOverride = null,
+  backupPlanPremiumOverride = null,
+  backupPlanBenchmarkPremiumOverride = null,
+  backupPlanOopMaximumOverride = null,
+  backupPlanPremiumInputMode = "gross",
+  backupPlanName = "",
+  backupTriggerFplPercent = null,
   fplOverride = null
 } = {}) {
   const aca = ACA_BY_YEAR[taxYear] ?? ACA_2026;
   const members = Math.max(1, Math.trunc(Number(marketplaceMembers) || Number(householdSize) || 1));
   const normalizedPlanCostMode = planCostMode === "selectedPlan" ? "selectedPlan" : "stateBenchmark";
+  const normalizedPremiumInputMode = premiumInputMode === "net" ? "net" : "gross";
+  const normalizedBackupPremiumInputMode = backupPlanPremiumInputMode === "net" ? "net" : "gross";
+  const shouldAgeRateManualPremiums = ageRateManualPremiums !== false;
   const hasBenchmarkOverride = Number.isFinite(benchmarkPremiumOverride);
+  const hasOopOverride = Number.isFinite(selectedPlanOopMaximumOverride);
+  const hasBackupPremiumOverride = Number.isFinite(backupPlanPremiumOverride);
+  const hasBackupBenchmarkOverride = Number.isFinite(backupPlanBenchmarkPremiumOverride);
+  const hasBackupOopOverride = Number.isFinite(backupPlanOopMaximumOverride);
   const annualBenchmark = Number.isFinite(benchmarkPremiumOverride)
     ? Math.max(0, benchmarkPremiumOverride)
+    : normalizedPremiumInputMode === "net"
+      ? 0
     : getMonthlyBenchmarkPremium({ taxYear, state }) * 12 * members;
   const hasSelectedPlanOverride = Number.isFinite(selectedPlanPremiumOverride);
   const annualSelectedPlanPremium = normalizedPlanCostMode === "selectedPlan" && hasSelectedPlanOverride
@@ -400,15 +417,47 @@ export function buildAcaConfig({
   const selectedPlanReferenceAges = normalizeAgeArray(selectedPlanPremiumReferenceAges)
     ?? (hasSelectedPlanOverride ? normalizeAgeArray(memberAges) : referenceAges);
   const coveredMemberAges = normalizeAgeArray(memberAges);
-  const oopMaximum = Number.isFinite(selectedPlanOopMaximumOverride)
+  const oopMaximum = hasOopOverride
     ? Math.max(0, selectedPlanOopMaximumOverride)
     : members > 1 ? aca.costSharingLimit.family : aca.costSharingLimit.selfOnly;
+  const manualSelectedPlanPremium = hasSelectedPlanOverride || hasBenchmarkOverride;
+  const backupBenchmarkPremium = hasBackupBenchmarkOverride
+    ? Math.max(0, backupPlanBenchmarkPremiumOverride)
+    : normalizedBackupPremiumInputMode === "net"
+      ? 0
+      : annualBenchmark;
+  const backupPlan = hasBackupPremiumOverride && hasBackupOopOverride
+    ? {
+      enabled: true,
+      triggerFplPercent: Number.isFinite(backupTriggerFplPercent)
+        ? Math.max(0, backupTriggerFplPercent)
+        : aca.maxEligibleFplPercent,
+      premiumInputMode: normalizedBackupPremiumInputMode,
+      benchmarkPremium: backupBenchmarkPremium,
+      ageRatedBenchmarkPremium: !hasBackupBenchmarkOverride || shouldAgeRateManualPremiums,
+      benchmarkPremiumReferenceAge: selectedPlanReferenceAge,
+      benchmarkPremiumReferenceAges: selectedPlanReferenceAges,
+      selectedPlanPremium: Math.max(0, backupPlanPremiumOverride),
+      ageRatedSelectedPlanPremium: shouldAgeRateManualPremiums,
+      selectedPlanPremiumReferenceAge: selectedPlanReferenceAge,
+      selectedPlanPremiumReferenceAges: selectedPlanReferenceAges,
+      oopMaximum: Math.max(0, backupPlanOopMaximumOverride),
+      manualOopMaximum: true,
+      planName: String(backupPlanName ?? "").trim(),
+      currentAge,
+      householdSize: Math.max(1, Math.trunc(Number(householdSize) || 1)),
+      marketplaceMembers: members,
+      memberAges: coveredMemberAges
+    }
+    : null;
 
   return {
     enabled,
     year: aca.year,
     source: aca.source,
     planCostMode: normalizedPlanCostMode,
+    premiumInputMode: normalizedPremiumInputMode,
+    ageRateManualPremiums: shouldAgeRateManualPremiums,
     state,
     householdSize: Math.max(1, Math.trunc(Number(householdSize) || 1)),
     marketplaceMembers: members,
@@ -416,15 +465,17 @@ export function buildAcaConfig({
       ? Math.max(1, fplOverride)
       : getFplGuideline({ taxYear, state, householdSize }),
     benchmarkPremium: annualBenchmark,
-    ageRatedBenchmarkPremium: true,
+    ageRatedBenchmarkPremium: !hasBenchmarkOverride || shouldAgeRateManualPremiums,
     benchmarkPremiumReferenceAge: referenceAge,
     benchmarkPremiumReferenceAges: referenceAges,
     selectedPlanPremium: annualSelectedPlanPremium,
-    ageRatedSelectedPlanPremium: true,
+    ageRatedSelectedPlanPremium: !manualSelectedPlanPremium || shouldAgeRateManualPremiums,
     selectedPlanPremiumReferenceAge: selectedPlanReferenceAge,
     selectedPlanPremiumReferenceAges: selectedPlanReferenceAges,
     memberAges: coveredMemberAges,
     oopMaximum,
+    manualOopMaximum: hasOopOverride,
+    backupPlan,
     costSharingLimit: aca.costSharingLimit,
     applicablePercentageTable: aca.applicablePercentageTable,
     maxEligibleFplPercent: aca.maxEligibleFplPercent,

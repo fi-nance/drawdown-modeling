@@ -71,9 +71,11 @@ export function computeAca({ magi = 0, config = DEFAULT_ACA_CONFIG } = {}) {
   }
 
   const fpl = config.fpl ?? DEFAULT_ACA_CONFIG.fpl;
-  const benchmarkPremium = Math.max(0, config.benchmarkPremium ?? 0);
-  const grossPremium = Math.max(0, config.selectedPlanPremium ?? config.planPremium ?? benchmarkPremium);
   const fplPercent = fpl > 0 ? (Math.max(0, magi) / fpl) * 100 : Infinity;
+  const activePlan = activeAcaPlan(config, fplPercent);
+  const premiumInputMode = activePlan.premiumInputMode === "net" ? "net" : "gross";
+  const benchmarkPremium = Math.max(0, activePlan.benchmarkPremium ?? 0);
+  const grossPremium = Math.max(0, activePlan.selectedPlanPremium ?? activePlan.planPremium ?? benchmarkPremium);
   const eligible = fplPercent <= (config.maxEligibleFplPercent ?? 400);
   const contributionRate = eligible
     ? contributionRateForFplPercent(
@@ -81,11 +83,12 @@ export function computeAca({ magi = 0, config = DEFAULT_ACA_CONFIG } = {}) {
       config.applicablePercentageTable ?? DEFAULT_ACA_CONFIG.applicablePercentageTable
     )
     : config.requiredContributionPercentage ?? DEFAULT_ACA_CONFIG.requiredContributionPercentage;
-  const expectedContribution = Math.max(0, magi) * contributionRate;
+  const expectedContribution = premiumInputMode === "net" ? 0 : Math.max(0, magi) * contributionRate;
   const maxPremiumTaxCredit = eligible ? clamp(benchmarkPremium - expectedContribution, 0, benchmarkPremium) : 0;
-  const subsidy = clamp(maxPremiumTaxCredit, 0, grossPremium);
+  const subsidy = premiumInputMode === "net" ? 0 : clamp(maxPremiumTaxCredit, 0, grossPremium);
 
   return {
+    premiumInputMode,
     fplPercent: round(fplPercent, 4),
     contributionRate: round(contributionRate, 6),
     expectedContribution: round(expectedContribution, 6),
@@ -94,7 +97,38 @@ export function computeAca({ magi = 0, config = DEFAULT_ACA_CONFIG } = {}) {
     maxPremiumTaxCredit: round(maxPremiumTaxCredit, 6),
     subsidy: round(subsidy, 6),
     netPremium: round(Math.max(0, grossPremium - subsidy), 6),
+    oopMaximum: round(Math.max(0, activePlan.oopMaximum ?? 0), 6),
+    activePlanRole: activePlan.role,
+    planName: activePlan.planName ?? "",
     eligible
+  };
+}
+
+function activeAcaPlan(config, fplPercent) {
+  const backup = config.backupPlan;
+  const backupTrigger = Number.isFinite(Number(backup?.triggerFplPercent))
+    ? Number(backup.triggerFplPercent)
+    : config.maxEligibleFplPercent ?? 400;
+  if (backup?.enabled && fplPercent > backupTrigger) {
+    return {
+      role: "backup",
+      premiumInputMode: backup.premiumInputMode ?? config.premiumInputMode ?? "gross",
+      benchmarkPremium: backup.benchmarkPremium ?? config.benchmarkPremium,
+      selectedPlanPremium: backup.selectedPlanPremium ?? backup.planPremium,
+      planPremium: backup.planPremium,
+      oopMaximum: backup.oopMaximum,
+      planName: backup.planName ?? ""
+    };
+  }
+
+  return {
+    role: "primary",
+    premiumInputMode: config.premiumInputMode ?? "gross",
+    benchmarkPremium: config.benchmarkPremium,
+    selectedPlanPremium: config.selectedPlanPremium,
+    planPremium: config.planPremium,
+    oopMaximum: config.oopMaximum,
+    planName: config.planName ?? ""
   };
 }
 
@@ -183,11 +217,45 @@ function ageAdjustedHouseholdPremium(options = {}, ageContext = {}) {
 }
 
 export function inflateAcaConfig(config = DEFAULT_ACA_CONFIG, inflationIndex = 1, ageContext = {}) {
+  const index = Math.max(0, inflationIndex);
   return {
     ...config,
-    fpl: round((config.fpl ?? 0) * Math.max(0, inflationIndex), 6),
-    benchmarkPremium: round(ageAdjustedBenchmarkPremium(config, ageContext) * Math.max(0, inflationIndex), 6),
-    selectedPlanPremium: round(ageAdjustedSelectedPlanPremium(config, ageContext) * Math.max(0, inflationIndex), 6)
+    fpl: round((config.fpl ?? 0) * index, 6),
+    benchmarkPremium: round(ageAdjustedBenchmarkPremium(config, ageContext) * index, 6),
+    selectedPlanPremium: round(ageAdjustedSelectedPlanPremium(config, ageContext) * index, 6),
+    oopMaximum: round(Math.max(0, config.oopMaximum ?? 0) * index, 6),
+    backupPlan: inflateBackupPlan(config, index, ageContext),
+    oopMaximumInflated: true
+  };
+}
+
+function inflateBackupPlan(config, inflationIndex, ageContext) {
+  const backup = config.backupPlan;
+  if (!backup?.enabled) return backup ?? null;
+  return {
+    ...backup,
+    benchmarkPremium: round(ageAdjustedHouseholdPremium({
+      premium: backup.benchmarkPremium,
+      ageRated: backup.ageRatedBenchmarkPremium,
+      referenceAge: backup.benchmarkPremiumReferenceAge,
+      referenceAges: backup.benchmarkPremiumReferenceAges,
+      memberAges: backup.memberAges ?? config.memberAges,
+      marketplaceMembers: backup.marketplaceMembers ?? config.marketplaceMembers,
+      householdSize: backup.householdSize ?? config.householdSize,
+      currentAge: backup.currentAge ?? config.currentAge
+    }, ageContext) * inflationIndex, 6),
+    selectedPlanPremium: round(ageAdjustedHouseholdPremium({
+      premium: backup.selectedPlanPremium ?? backup.planPremium,
+      ageRated: backup.ageRatedSelectedPlanPremium,
+      referenceAge: backup.selectedPlanPremiumReferenceAge,
+      referenceAges: backup.selectedPlanPremiumReferenceAges,
+      memberAges: backup.memberAges ?? config.memberAges,
+      marketplaceMembers: backup.marketplaceMembers ?? config.marketplaceMembers,
+      householdSize: backup.householdSize ?? config.householdSize,
+      currentAge: backup.currentAge ?? config.currentAge
+    }, ageContext) * inflationIndex, 6),
+    oopMaximum: round(Math.max(0, backup.oopMaximum ?? 0) * inflationIndex, 6),
+    oopMaximumInflated: true
   };
 }
 
