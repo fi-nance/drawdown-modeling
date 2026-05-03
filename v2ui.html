@@ -128,7 +128,7 @@
             </label>
             <label>
               <span>Monte Carlo runs</span>
-              <input id="runs" type="number" min="10" max="2000" value="250">
+              <input id="runs" type="number" min="10" max="5000" value="250">
             </label>
             <label>
               <span>Random seed</span>
@@ -175,6 +175,10 @@
               <input id="spouseAge" type="number" min="0" max="120" step="0.5" value="55">
             </label>
             <label>
+              <span>Marketplace member ages</span>
+              <input id="acaMemberAges" type="text" inputmode="decimal" placeholder="Example: 55, 54">
+            </label>
+            <label>
               <span>Penalty-free age</span>
               <input id="retirementPenaltyAge" type="number" min="0" max="120" step="0.5" value="59.5">
             </label>
@@ -207,11 +211,26 @@
                 <input id="medicalBase" type="number" min="0" step="500" value="0">
               </label>
               <label>
-                <span>OOP max override</span>
+                <span>ACA plan cost mode</span>
+                <select id="acaPlanCostMode">
+                  <option value="stateBenchmark">State benchmark estimate</option>
+                  <option value="selectedPlan">Exact selected plan</option>
+                </select>
+              </label>
+              <label>
+                <span>SLCSP monthly total</span>
+                <input id="acaBenchmarkMonthlyPremium" type="number" min="0" step="1" placeholder="Auto">
+              </label>
+              <label>
+                <span>Selected plan monthly total</span>
+                <input id="acaSelectedPlanMonthlyPremium" type="number" min="0" step="1" placeholder="Required for exact">
+              </label>
+              <label>
+                <span>Selected plan OOP max</span>
                 <input id="oopMaxOverride" type="number" min="0" step="500" placeholder="Auto">
               </label>
               <label>
-                <span>ACA benchmark override</span>
+                <span>SLCSP annual override</span>
                 <input id="acaPremium" type="number" min="0" step="500" placeholder="Auto">
               </label>
               <label>
@@ -336,6 +355,10 @@
             <label class="check-row">
               <input id="cryptoStockProxy" type="checkbox" checked>
               <span>Use stock returns before crypto history</span>
+            </label>
+            <label class="check-row">
+              <input id="tipsBondProxy" type="checkbox" checked>
+              <span>Use bond returns before TIPS history</span>
             </label>
           </div>
           <p class="data-note">Historical datasets run through 2025 where source history exists.</p>
@@ -493,6 +516,6 @@
       </section>
     </main>
 
-    <script type="module" src="./src/v2ui-app.mjs?v=20260501-sankey-sources"></script>
+    <script type="module" src="./src/v2ui-app.mjs?v=20260503-history-coverage"></script>
   </body>
 </html>

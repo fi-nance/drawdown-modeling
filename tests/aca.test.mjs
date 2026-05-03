@@ -77,6 +77,72 @@ test("ACA benchmark premiums use the federal default age rating curve", () => {
   assert.equal(age50.benchmarkPremium, round6(config.benchmarkPremium * (1.786 / 1.278)));
 });
 
+test("selected ACA plan premium is separate from the subsidy benchmark", () => {
+  const config = {
+    enabled: true,
+    fpl: 20000,
+    benchmarkPremium: 18000,
+    selectedPlanPremium: 24000,
+    maxEligibleFplPercent: 400,
+    applicablePercentageTable: [
+      { minFplPercent: 0, maxFplPercent: 400, initialRate: 0.05, finalRate: 0.05 }
+    ]
+  };
+
+  const result = computeAca({ magi: 30000, config });
+
+  assert.equal(result.benchmarkPremium, 18000);
+  assert.equal(result.grossPremium, 24000);
+  assert.equal(result.expectedContribution, 1500);
+  assert.equal(result.maxPremiumTaxCredit, 16500);
+  assert.equal(result.subsidy, 16500);
+  assert.equal(result.netPremium, 7500);
+});
+
+test("selected ACA plan subsidy is capped at actual plan premium", () => {
+  const result = computeAca({
+    magi: 30000,
+    config: {
+      enabled: true,
+      fpl: 20000,
+      benchmarkPremium: 18000,
+      selectedPlanPremium: 12000,
+      maxEligibleFplPercent: 400,
+      applicablePercentageTable: [
+        { minFplPercent: 0, maxFplPercent: 400, initialRate: 0.05, finalRate: 0.05 }
+      ]
+    }
+  });
+
+  assert.equal(result.maxPremiumTaxCredit, 16500);
+  assert.equal(result.subsidy, 12000);
+  assert.equal(result.netPremium, 0);
+});
+
+test("selected ACA plan exact premiums age-rate from current household ages", () => {
+  const config = buildAcaConfig({
+    taxYear: 2026,
+    state: "Florida",
+    householdSize: 2,
+    marketplaceMembers: 2,
+    currentAge: 50,
+    memberAges: [50, 55],
+    planCostMode: "selectedPlan",
+    benchmarkPremiumOverride: 18000,
+    selectedPlanPremiumOverride: 24000,
+    selectedPlanOopMaximumOverride: 14000
+  });
+  const current = inflateAcaConfig(config, 1, { age: 50, yearIndex: 0 });
+  const nextYear = inflateAcaConfig(config, 1, { age: 51, yearIndex: 1 });
+  const currentRatingTotal = acaAgeRatingFactor(50) + acaAgeRatingFactor(55);
+  const nextRatingTotal = acaAgeRatingFactor(51) + acaAgeRatingFactor(56);
+
+  assert.equal(config.oopMaximum, 14000);
+  assert.equal(current.benchmarkPremium, 18000);
+  assert.equal(current.selectedPlanPremium, 24000);
+  assert.equal(nextYear.selectedPlanPremium, round6(24000 * (nextRatingTotal / currentRatingTotal)));
+});
+
 test("ACA benchmark overrides are treated as current-age premiums", () => {
   const config = buildAcaConfig({
     taxYear: 2026,

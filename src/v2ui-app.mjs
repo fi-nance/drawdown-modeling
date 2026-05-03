@@ -44,6 +44,7 @@ const CONTROL_IDS = [
   "historicalEndYear",
   "historicalChunkYears",
   "cryptoStockProxy",
+  "tipsBondProxy",
   "taxYear",
   "filingStatus",
   "stateSelect",
@@ -51,6 +52,7 @@ const CONTROL_IDS = [
   "marketplaceMembers",
   "currentAge",
   "spouseAge",
+  "acaMemberAges",
   "retirementPenaltyAge",
   "rothBasis",
   "socialSecurityAnnualBenefit",
@@ -70,6 +72,9 @@ const CONTROL_IDS = [
   "includeMedical",
   "acaEnabled",
   "medicalBase",
+  "acaPlanCostMode",
+  "acaBenchmarkMonthlyPremium",
+  "acaSelectedPlanMonthlyPremium",
   "oopMaxOverride",
   "acaPremium",
   "acaFpl",
@@ -131,6 +136,7 @@ const els = {
   historicalEndYear: document.querySelector("#historicalEndYear"),
   historicalChunkYears: document.querySelector("#historicalChunkYears"),
   cryptoStockProxy: document.querySelector("#cryptoStockProxy"),
+  tipsBondProxy: document.querySelector("#tipsBondProxy"),
   taxYear: document.querySelector("#taxYear"),
   filingStatus: document.querySelector("#filingStatus"),
   stateSelect: document.querySelector("#stateSelect"),
@@ -138,6 +144,7 @@ const els = {
   marketplaceMembers: document.querySelector("#marketplaceMembers"),
   currentAge: document.querySelector("#currentAge"),
   spouseAge: document.querySelector("#spouseAge"),
+  acaMemberAges: document.querySelector("#acaMemberAges"),
   retirementPenaltyAge: document.querySelector("#retirementPenaltyAge"),
   rothBasis: document.querySelector("#rothBasis"),
   socialSecurityAnnualBenefit: document.querySelector("#socialSecurityAnnualBenefit"),
@@ -157,6 +164,9 @@ const els = {
   includeMedical: document.querySelector("#includeMedical"),
   acaEnabled: document.querySelector("#acaEnabled"),
   medicalBase: document.querySelector("#medicalBase"),
+  acaPlanCostMode: document.querySelector("#acaPlanCostMode"),
+  acaBenchmarkMonthlyPremium: document.querySelector("#acaBenchmarkMonthlyPremium"),
+  acaSelectedPlanMonthlyPremium: document.querySelector("#acaSelectedPlanMonthlyPremium"),
   oopMaxOverride: document.querySelector("#oopMaxOverride"),
   acaPremium: document.querySelector("#acaPremium"),
   acaFpl: document.querySelector("#acaFpl"),
@@ -472,7 +482,7 @@ function runModels() {
     saveStoredState();
     const scenario = readScenario();
     const taxProfile = readTaxProfile();
-    const runs = clampInteger(Number(els.runs.value), 10, 2000);
+    const runs = clampInteger(Number(els.runs.value), 10, 5000);
     const seed = Number(els.seed.value) || 42;
     const historicalAssetClasses = assetClassesInPortfolio(assets);
     const historicalProxies = historicalProxyMapForControls(historicalAssetClasses);
@@ -515,7 +525,7 @@ function runModels() {
     selectedScenarioId = latest.monteCarlo.scenarios[0]?.id ?? null;
     selectedBacktestIndex = null;
     renderLatest();
-    setStatus(`Completed ${runs} Monte Carlo runs and ${latest.backtests.length} historical backtests in ${Math.round(performance.now() - started)} ms.`);
+    setStatus(`Completed ${runs} Monte Carlo runs and ${latest.backtests.length} historical backtests in ${Math.round(performance.now() - started)} ms.${historicalCompletionNote()}`);
   } catch (error) {
     console.error(error);
     setStatus(error.message, true);
@@ -612,7 +622,10 @@ function renderYearTable() {
     money(year.taxableSocialSecurity ?? 0, year),
     money(year.age65AdditionalDeduction ?? 0, year),
     year.qualifyingChildren ?? 0,
+    money(year.aca.benchmarkPremium ?? 0, year),
+    money(year.aca.grossPremium ?? 0, year),
     money(year.aca.subsidy, year),
+    money(year.aca.netPremium ?? 0, year),
     money(year.medicare?.totalAnnualPremium ?? 0, year),
     money(year.plannedSpending, year),
     money(year.medicalCost, year),
@@ -623,7 +636,7 @@ function renderYearTable() {
   ]);
 
   els.yearTable.innerHTML = tableHtml(
-    ["Year", "Stock", "Bond", "Real estate", "TIPS", "Crypto", "Inflation", "Start value", "End value", "Sales / withdrawals", "Dividends", "Social Security", "RMD", "Total cash", "Total need", "Tax", "Fed income tax", "CG/QD tax", "NIIT", "Credits", "State tax", "MAGI", "Taxable SS", "65+ deduction", "CTC children", "ACA subsidy", "Medicare", "Spend", "Medical", "Tax gain harvest", "Roth conv.", "Penalty", "Loss carry"],
+    ["Year", "Stock", "Bond", "Real estate", "TIPS", "Crypto", "Inflation", "Start value", "End value", "Sales / withdrawals", "Dividends", "Social Security", "RMD", "Total cash", "Total need", "Tax", "Fed income tax", "CG/QD tax", "NIIT", "Credits", "State tax", "MAGI", "Taxable SS", "65+ deduction", "CTC children", "ACA SLCSP", "ACA gross", "ACA subsidy", "ACA net", "Medicare", "Spend", "Medical", "Tax gain harvest", "Roth conv.", "Penalty", "Loss carry"],
     rows,
     (index) => `data-year-index="${index}" class="${index === selectedYearIndex ? "selected-row" : ""}"`
   );
@@ -871,8 +884,8 @@ function renderActionPlan() {
       "Reserve for medical",
       money(year.medicalCost, year),
       "Spending reserve",
-      `${money(year.aca?.netPremium ?? 0, year)} net ACA premium; ${money(medicarePremium, year)} Medicare/IRMAA`,
-      "Uses expected OOP costs, ACA subsidies before Medicare age, and Medicare IRMAA after age 65."
+      `${money(year.aca?.grossPremium ?? 0, year)} gross ACA premium; ${money(year.aca?.subsidy ?? 0, year)} subsidy; ${money(year.aca?.netPremium ?? 0, year)} net`,
+      `${money(medicarePremium, year)} Medicare/IRMAA after age 65.`
     ]);
   }
 
@@ -899,13 +912,14 @@ function taxAttributionFor(year, source) {
 }
 
 function historicalProxyMapForControls(assetClasses = []) {
-  return els.cryptoStockProxy?.checked && assetClasses.includes("crypto")
-    ? { crypto: "stock" }
-    : {};
+  return {
+    ...(els.cryptoStockProxy?.checked && assetClasses.includes("crypto") ? { crypto: "stock" } : {}),
+    ...(els.tipsBondProxy?.checked && assetClasses.includes("tips") ? { tips: "bond" } : {})
+  };
 }
 
 function reconcileHistoricalRangeControls({ coverage, strictCoverage, proxies }) {
-  if (!coverage || proxies?.crypto !== "stock" || els.backtestMode.value !== "all") return;
+  if (!coverage || !Object.keys(proxies ?? {}).length || els.backtestMode.value !== "all") return;
   const start = Number(els.historicalStartYear.value);
   const end = Number(els.historicalEndYear.value);
   if (strictCoverage && start === strictCoverage.startYear && end === strictCoverage.endYear && coverage.startYear < strictCoverage.startYear) {
@@ -922,18 +936,38 @@ function readHistoricalRange(coverage) {
 }
 
 function historicalProxyNote() {
-  return latest?.historicalProxies?.crypto === "stock"
-    ? " Crypto uses stock returns before crypto data begins."
-    : "";
+  const notes = [];
+  if (latest?.historicalProxies?.crypto === "stock") {
+    notes.push("crypto uses stock returns before crypto data begins");
+  }
+  if (latest?.historicalProxies?.tips === "bond") {
+    notes.push("TIPS uses bond returns before TIPS data begins");
+  }
+  return notes.length ? ` ${sentenceJoin(notes)}.` : "";
 }
 
 function historicalRangeNote() {
   if (!latest?.historicalRange || latest.historicalMode === "specific") return "";
   const rangeYears = Math.max(0, latest.historicalRange.endYear - latest.historicalRange.startYear + 1);
+  const coverage = latest.historicalCoverage;
+  if (latest.backtests.length === 1 && coverage?.rowCount <= latest.scenario.planYears) {
+    return ` The selected asset mix has ${coverage.rowCount} usable historical years (${coverage.startYear}-${coverage.endYear}), shorter than the ${latest.scenario.planYears}-year plan, so it is repeated as one path.`;
+  }
   if (latest.backtests.length === 1 && rangeYears <= latest.scenario.planYears) {
     return ` Selected range ${latest.historicalRange.startYear}-${latest.historicalRange.endYear} is shorter than the ${latest.scenario.planYears}-year plan, so it is repeated as one path.`;
   }
   return "";
+}
+
+function historicalCompletionNote() {
+  const note = historicalRangeNote().trim();
+  return note ? ` ${note}` : "";
+}
+
+function sentenceJoin(items) {
+  if (items.length <= 1) return items[0] ?? "";
+  if (items.length === 2) return `${items[0]} and ${items[1]}`;
+  return `${items.slice(0, -1).join(", ")}, and ${items.at(-1)}`;
 }
 
 function saleActionLabel(sale) {
@@ -1743,6 +1777,39 @@ function readScenario() {
   const marketplaceMembers = clampInteger(Number(els.marketplaceMembers.value), 1, 12);
   const currentAge = Number(els.currentAge.value) || DEFAULT_SCENARIO.currentAge;
   const spouseAge = numberOrNull(els.spouseAge.value) ?? currentAge;
+  const planCostMode = els.acaPlanCostMode.value === "selectedPlan" ? "selectedPlan" : "stateBenchmark";
+  const explicitMemberAges = numberList(els.acaMemberAges.value);
+  const memberAges = acaMemberAgesForScenario({
+    explicitMemberAges,
+    marketplaceMembers,
+    currentAge,
+    spouseAge
+  });
+  const benchmarkMonthlyPremium = numberOrNull(els.acaBenchmarkMonthlyPremium.value);
+  const benchmarkPremiumOverride = benchmarkMonthlyPremium == null
+    ? numberOrNull(els.acaPremium.value)
+    : benchmarkMonthlyPremium * 12;
+  const selectedPlanMonthlyPremium = numberOrNull(els.acaSelectedPlanMonthlyPremium.value);
+  const selectedPlanPremiumOverride = selectedPlanMonthlyPremium == null
+    ? null
+    : selectedPlanMonthlyPremium * 12;
+  const selectedPlanOopMaximumOverride = numberOrNull(els.oopMaxOverride.value);
+
+  if (els.acaEnabled.checked && planCostMode === "selectedPlan") {
+    if (benchmarkPremiumOverride == null) {
+      throw new Error("Exact ACA plan mode requires the household SLCSP monthly premium.");
+    }
+    if (selectedPlanPremiumOverride == null) {
+      throw new Error("Exact ACA plan mode requires the selected plan monthly premium.");
+    }
+    if (selectedPlanOopMaximumOverride == null) {
+      throw new Error("Exact ACA plan mode requires the selected plan OOP max.");
+    }
+    if (marketplaceMembers > 2 && explicitMemberAges.length < marketplaceMembers) {
+      throw new Error("Exact ACA plan mode requires one marketplace member age per covered member.");
+    }
+  }
+
   const aca = buildAcaConfig({
     enabled: els.acaEnabled.checked,
     taxYear,
@@ -1750,7 +1817,11 @@ function readScenario() {
     householdSize,
     marketplaceMembers,
     currentAge,
-    benchmarkPremiumOverride: numberOrNull(els.acaPremium.value),
+    memberAges,
+    planCostMode,
+    benchmarkPremiumOverride,
+    selectedPlanPremiumOverride,
+    selectedPlanOopMaximumOverride,
     fplOverride: numberOrNull(els.acaFpl.value)
   });
 
@@ -1787,7 +1858,7 @@ function readScenario() {
     targetSpendIncludesMedical: els.includeMedical.checked,
     medicalExpensesBase: Number(els.medicalBase.value) || 0,
     expectedOopMaxUsePercent: Math.max(0, Math.min(1, (Number(els.expectedOopPercent.value) || 0) / 100)),
-    oopMaxOverride: numberOrNull(els.oopMaxOverride.value),
+    oopMaxOverride: selectedPlanOopMaximumOverride,
     oneOffExpenses,
     taxLossHarvesting: {
       enabled: els.taxLossHarvesting.checked,
@@ -2133,6 +2204,20 @@ function numberList(value) {
     .split(/[\s,;]+/)
     .map((item) => Number(item))
     .filter((number) => Number.isFinite(number));
+}
+
+function acaMemberAgesForScenario({
+  explicitMemberAges = [],
+  marketplaceMembers = 1,
+  currentAge = DEFAULT_SCENARIO.currentAge,
+  spouseAge = currentAge
+} = {}) {
+  if (explicitMemberAges.length) return explicitMemberAges.slice(0, marketplaceMembers);
+
+  const ages = [currentAge];
+  if (marketplaceMembers > 1) ages.push(spouseAge);
+  while (ages.length < marketplaceMembers) ages.push(currentAge);
+  return ages.slice(0, marketplaceMembers);
 }
 
 function escapeHtml(value) {

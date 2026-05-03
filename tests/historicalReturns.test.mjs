@@ -79,3 +79,21 @@ test("crypto can use stock returns as a missing-history proxy", () => {
   assert.equal(sequences[0].returns[0].crypto, sequences[0].returns[0].stock);
   assert.equal(sequences.at(-1).returns.at(-1).crypto, -0.062884);
 });
+
+test("TIPS can use bond returns as a missing-history proxy", () => {
+  const coverage = historicalCoverageForAssetClasses(["tips"], {
+    assetClassProxies: { tips: "bond" }
+  });
+  const sequences = makeHistoricalSequences({
+    planYears: 35,
+    mode: "all",
+    requiredAssetClasses: ["tips"],
+    assetClassProxies: { tips: "bond" }
+  });
+
+  assert.equal(coverage.startYear, 1928);
+  assert.equal(coverage.assetClassProxies.tips, "bond");
+  assert.equal(sequences.length, 64);
+  assert.equal(sequences[0].returns[0].tips, sequences[0].returns[0].bond);
+  assert.equal(sequences.at(-1).returns.at(-1).tips, 0.067074);
+});

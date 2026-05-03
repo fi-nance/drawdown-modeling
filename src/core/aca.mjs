@@ -71,7 +71,8 @@ export function computeAca({ magi = 0, config = DEFAULT_ACA_CONFIG } = {}) {
   }
 
   const fpl = config.fpl ?? DEFAULT_ACA_CONFIG.fpl;
-  const grossPremium = config.benchmarkPremium ?? 0;
+  const benchmarkPremium = Math.max(0, config.benchmarkPremium ?? 0);
+  const grossPremium = Math.max(0, config.selectedPlanPremium ?? config.planPremium ?? benchmarkPremium);
   const fplPercent = fpl > 0 ? (Math.max(0, magi) / fpl) * 100 : Infinity;
   const eligible = fplPercent <= (config.maxEligibleFplPercent ?? 400);
   const contributionRate = eligible
@@ -81,15 +82,18 @@ export function computeAca({ magi = 0, config = DEFAULT_ACA_CONFIG } = {}) {
     )
     : config.requiredContributionPercentage ?? DEFAULT_ACA_CONFIG.requiredContributionPercentage;
   const expectedContribution = Math.max(0, magi) * contributionRate;
-  const subsidy = eligible ? clamp(grossPremium - expectedContribution, 0, grossPremium) : 0;
+  const maxPremiumTaxCredit = eligible ? clamp(benchmarkPremium - expectedContribution, 0, benchmarkPremium) : 0;
+  const subsidy = clamp(maxPremiumTaxCredit, 0, grossPremium);
 
   return {
     fplPercent: round(fplPercent, 4),
     contributionRate: round(contributionRate, 6),
     expectedContribution: round(expectedContribution, 6),
+    benchmarkPremium: round(benchmarkPremium, 6),
     grossPremium: round(grossPremium, 6),
+    maxPremiumTaxCredit: round(maxPremiumTaxCredit, 6),
     subsidy: round(subsidy, 6),
-    netPremium: round(grossPremium - subsidy, 6),
+    netPremium: round(Math.max(0, grossPremium - subsidy), 6),
     eligible
   };
 }
@@ -117,41 +121,73 @@ export function acaAgeRatingFactor(age, curve = FEDERAL_DEFAULT_ACA_AGE_RATING_C
 }
 
 export function ageAdjustedBenchmarkPremium(config = DEFAULT_ACA_CONFIG, ageContext = {}) {
-  const benchmarkPremium = Math.max(0, config.benchmarkPremium ?? 0);
-  if (!config.ageRatedBenchmarkPremium) return round(benchmarkPremium, 6);
+  return ageAdjustedHouseholdPremium({
+    premium: config.benchmarkPremium,
+    ageRated: config.ageRatedBenchmarkPremium,
+    referenceAge: config.benchmarkPremiumReferenceAge,
+    referenceAges: config.benchmarkPremiumReferenceAges,
+    memberAges: config.memberAges,
+    marketplaceMembers: config.marketplaceMembers,
+    householdSize: config.householdSize,
+    currentAge: config.currentAge
+  }, ageContext);
+}
+
+export function ageAdjustedSelectedPlanPremium(config = DEFAULT_ACA_CONFIG, ageContext = {}) {
+  const selectedPlanPremium = config.selectedPlanPremium ?? config.planPremium;
+  if (!Number.isFinite(selectedPlanPremium)) {
+    return ageAdjustedBenchmarkPremium(config, ageContext);
+  }
+
+  return ageAdjustedHouseholdPremium({
+    premium: selectedPlanPremium,
+    ageRated: config.ageRatedSelectedPlanPremium ?? config.ageRatedBenchmarkPremium,
+    referenceAge: config.selectedPlanPremiumReferenceAge ?? config.benchmarkPremiumReferenceAge,
+    referenceAges: config.selectedPlanPremiumReferenceAges ?? config.benchmarkPremiumReferenceAges,
+    memberAges: config.memberAges,
+    marketplaceMembers: config.marketplaceMembers,
+    householdSize: config.householdSize,
+    currentAge: config.currentAge
+  }, ageContext);
+}
+
+function ageAdjustedHouseholdPremium(options = {}, ageContext = {}) {
+  const premium = Math.max(0, options.premium ?? 0);
+  if (!options.ageRated) return round(premium, 6);
 
   const context = typeof ageContext === "number" ? { age: ageContext } : ageContext ?? {};
-  const members = Math.max(1, Math.trunc(Number(config.marketplaceMembers) || Number(config.householdSize) || 1));
+  const members = Math.max(1, Math.trunc(Number(options.marketplaceMembers) || Number(options.householdSize) || 1));
   const yearIndex = Math.max(0, Math.trunc(Number(context.yearIndex) || 0));
   const currentFallbackAge = finiteAge(context.age)
-    ?? finiteAge(config.currentAge)
-    ?? finiteAge(config.benchmarkPremiumReferenceAge);
-  const referenceFallbackAge = finiteAge(config.benchmarkPremiumReferenceAge) ?? currentFallbackAge;
+    ?? finiteAge(options.currentAge)
+    ?? finiteAge(options.referenceAge);
+  const referenceFallbackAge = finiteAge(options.referenceAge) ?? currentFallbackAge;
 
-  if (currentFallbackAge == null || referenceFallbackAge == null) return round(benchmarkPremium, 6);
+  if (currentFallbackAge == null || referenceFallbackAge == null) return round(premium, 6);
 
   const currentRatingTotal = householdAgeRatingTotal({
-    ages: config.memberAges,
+    ages: options.memberAges,
     fallbackAge: currentFallbackAge,
     members,
-    ageOffset: Array.isArray(config.memberAges) ? yearIndex : 0
+    ageOffset: Array.isArray(options.memberAges) ? yearIndex : 0
   });
   const referenceRatingTotal = householdAgeRatingTotal({
-    ages: config.benchmarkPremiumReferenceAges,
+    ages: options.referenceAges,
     fallbackAge: referenceFallbackAge,
     members,
     ageOffset: 0
   });
 
-  if (referenceRatingTotal <= 0) return round(benchmarkPremium, 6);
-  return round(benchmarkPremium * (currentRatingTotal / referenceRatingTotal), 6);
+  if (referenceRatingTotal <= 0) return round(premium, 6);
+  return round(premium * (currentRatingTotal / referenceRatingTotal), 6);
 }
 
 export function inflateAcaConfig(config = DEFAULT_ACA_CONFIG, inflationIndex = 1, ageContext = {}) {
   return {
     ...config,
     fpl: round((config.fpl ?? 0) * Math.max(0, inflationIndex), 6),
-    benchmarkPremium: round(ageAdjustedBenchmarkPremium(config, ageContext) * Math.max(0, inflationIndex), 6)
+    benchmarkPremium: round(ageAdjustedBenchmarkPremium(config, ageContext) * Math.max(0, inflationIndex), 6),
+    selectedPlanPremium: round(ageAdjustedSelectedPlanPremium(config, ageContext) * Math.max(0, inflationIndex), 6)
   };
 }
 

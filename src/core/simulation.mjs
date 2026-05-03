@@ -1638,9 +1638,13 @@ function mergeAcaScenario(aca) {
   if (!aca) return merged;
 
   const hasBenchmark = hasOwn(aca, "benchmarkPremium");
+  const hasSelectedPlanPremium = hasOwn(aca, "selectedPlanPremium") || hasOwn(aca, "planPremium");
   const hasAgeRatingConfig = hasOwn(aca, "ageRatedBenchmarkPremium")
     || hasOwn(aca, "benchmarkPremiumReferenceAge")
     || hasOwn(aca, "benchmarkPremiumReferenceAges")
+    || hasOwn(aca, "ageRatedSelectedPlanPremium")
+    || hasOwn(aca, "selectedPlanPremiumReferenceAge")
+    || hasOwn(aca, "selectedPlanPremiumReferenceAges")
     || hasOwn(aca, "memberAges");
 
   if (hasBenchmark && !hasAgeRatingConfig) {
@@ -1648,6 +1652,17 @@ function mergeAcaScenario(aca) {
     merged.benchmarkPremiumReferenceAge = null;
     merged.benchmarkPremiumReferenceAges = null;
     merged.memberAges = null;
+  }
+  if (hasBenchmark && !hasSelectedPlanPremium) {
+    merged.selectedPlanPremium = merged.benchmarkPremium;
+    merged.ageRatedSelectedPlanPremium = merged.ageRatedBenchmarkPremium;
+    merged.selectedPlanPremiumReferenceAge = merged.benchmarkPremiumReferenceAge;
+    merged.selectedPlanPremiumReferenceAges = merged.benchmarkPremiumReferenceAges;
+  }
+  if (hasSelectedPlanPremium && !hasAgeRatingConfig) {
+    merged.ageRatedSelectedPlanPremium = false;
+    merged.selectedPlanPremiumReferenceAge = null;
+    merged.selectedPlanPremiumReferenceAges = null;
   }
 
   return merged;
