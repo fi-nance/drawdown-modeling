@@ -265,6 +265,47 @@ let googleSheetsTokenExpiresAt = 0;
 let marketplacePlanChoices = [];
 let marketplaceSlcspMonthly = null;
 
+const PINNED_YEAR_STORAGE_KEY = "portfolio-success-lab:pinned-year-columns";
+const PINNED_ASSET_STORAGE_KEY = "portfolio-success-lab:pinned-asset-columns";
+const TABLE_HEIGHT_STORAGE_KEY = "portfolio-success-lab:table-heights";
+const ALWAYS_PINNED_YEAR = ["Year", "Age"];
+const ALWAYS_PINNED_ASSET = ["Asset", "Account"];
+let pinnedYearColumns = loadPinnedColumns(PINNED_YEAR_STORAGE_KEY);
+let pinnedAssetColumns = loadPinnedColumns(PINNED_ASSET_STORAGE_KEY);
+
+function loadPinnedColumns(key) {
+  try {
+    const stored = JSON.parse(localStorage.getItem(key) || "null");
+    return Array.isArray(stored) ? new Set(stored) : new Set();
+  } catch { return new Set(); }
+}
+
+function savePinnedColumns(key, set) {
+  try { localStorage.setItem(key, JSON.stringify([...set])); }
+  catch { /* ignore */ }
+}
+
+function loadTableHeights() {
+  try {
+    return JSON.parse(localStorage.getItem(TABLE_HEIGHT_STORAGE_KEY) || "null") || {};
+  } catch { return {}; }
+}
+
+function saveTableHeight(tableId, height) {
+  try {
+    const heights = loadTableHeights();
+    heights[tableId] = height;
+    localStorage.setItem(TABLE_HEIGHT_STORAGE_KEY, JSON.stringify(heights));
+  } catch { /* ignore */ }
+}
+
+function restoreTableHeight(container, tableId) {
+  const heights = loadTableHeights();
+  if (heights[tableId]) {
+    container.style.maxHeight = `${heights[tableId]}px`;
+  }
+}
+
 initialize();
 
 // Dismiss loading screen
@@ -919,8 +960,10 @@ function acaPlanLabel(year) {
 
 function renderYearTable() {
   const years = activeVisibleYears();
+  const headers = ["Year", "Age", "Stock", "Bond", "Real estate", "TIPS", "Crypto", "Inflation", "Start value", "End value", "Sales / withdrawals", "Dividends", "Social Security", "RMD", "Total cash", "Total need", "Tax", "Fed income tax", "CG/QD tax", "NIIT", "Credits", "State tax", "MAGI", "Taxable SS", "65+ deduction", "CTC children", "ACA plan", "ACA SLCSP", "ACA gross", "ACA subsidy", "ACA net", "Medicare", "Spend", "Medical", "Tax gain harvest", "Roth conv.", "Roth basis left", "Penalty", "Loss carry"];
   const rows = years.map((year) => [
     year.year,
+    ageLabel(year.age),
     returnPercent(year, "stock"),
     returnPercent(year, "bond"),
     returnPercent(year, "realEstate"),
@@ -955,15 +998,18 @@ function renderYearTable() {
     money(year.medicalCost, year),
     money(year.taxGainHarvested, year),
     money(year.rothConversionAmount, year),
+    money(year.rothBasisRemaining ?? 0, year),
     money(year.penaltyTax, year),
     money(year.lossCarryforward, year)
   ]);
 
-  els.yearTable.innerHTML = tableHtml(
-    ["Year", "Stock", "Bond", "Real estate", "TIPS", "Crypto", "Inflation", "Start value", "End value", "Sales / withdrawals", "Dividends", "Social Security", "RMD", "Total cash", "Total need", "Tax", "Fed income tax", "CG/QD tax", "NIIT", "Credits", "State tax", "MAGI", "Taxable SS", "65+ deduction", "CTC children", "ACA plan", "ACA SLCSP", "ACA gross", "ACA subsidy", "ACA net", "Medicare", "Spend", "Medical", "Tax gain harvest", "Roth conv.", "Penalty", "Loss carry"],
-    rows,
+  els.yearTable.className = "pinnable-table-wrap";
+  restoreTableHeight(els.yearTable, "yearTable");
+  els.yearTable.innerHTML = pinnableTableHtml(
+    headers, rows, pinnedYearColumns, ALWAYS_PINNED_YEAR,
     (index) => `data-year-index="${index}" class="${index === selectedYearIndex ? "selected-row" : ""}"`
   );
+  applyPinnedColumnOffsets(els.yearTable);
   els.yearTable.querySelectorAll("[data-year-index]").forEach((row) => {
     row.addEventListener("click", () => {
       selectedYearIndex = Number(row.dataset.yearIndex);
@@ -974,6 +1020,8 @@ function renderYearTable() {
       renderAssetBreakdown();
     });
   });
+  bindPinToggles(els.yearTable, pinnedYearColumns, ALWAYS_PINNED_YEAR, PINNED_YEAR_STORAGE_KEY, () => renderYearTable());
+  bindResizeObserver(els.yearTable, "yearTable");
   addStickyHorizontalScrollbar(els.yearTable);
 }
 
@@ -990,6 +1038,7 @@ function renderAssetBreakdown() {
     ? years[selectedYearIndex - 1]?.assets
     : year.beginningAssets);
   const keys = new Set([...current.keys(), ...previous.keys()]);
+  const assetHeaders = ["Asset", "Account", "Class", "Units", "Price", "Ending value", "Change", "Change %", "Basis", "Unrealized"];
   const rows = [...keys]
     .map((key) => {
       const currentAsset = current.get(key) ?? emptyAssetFromKey(key);
@@ -1012,10 +1061,14 @@ function renderAssetBreakdown() {
       signedMoney(currentAsset.unrealizedGain, year)
     ]);
 
-  els.assetBreakdownTable.innerHTML = tableHtml(
-    ["Asset", "Account", "Class", "Units", "Price", "Ending value", "Change", "Change %", "Basis", "Unrealized"],
-    rows
+  els.assetBreakdownTable.className = "pinnable-table-wrap";
+  restoreTableHeight(els.assetBreakdownTable, "assetBreakdown");
+  els.assetBreakdownTable.innerHTML = pinnableTableHtml(
+    assetHeaders, rows, pinnedAssetColumns, ALWAYS_PINNED_ASSET
   );
+  applyPinnedColumnOffsets(els.assetBreakdownTable);
+  bindPinToggles(els.assetBreakdownTable, pinnedAssetColumns, ALWAYS_PINNED_ASSET, PINNED_ASSET_STORAGE_KEY, () => renderAssetBreakdown());
+  bindResizeObserver(els.assetBreakdownTable, "assetBreakdown");
   addStickyHorizontalScrollbar(els.assetBreakdownTable);
 }
 
@@ -1788,6 +1841,9 @@ function drawSankey(svg, rawFlows, nodeDetails = {}) {
   };
   for (const n of nodes.values()) n.depth = depth(n.id);
   const maxD = Math.max(...[...nodes.values()].map(n => n.depth), 1);
+  for (const n of nodes.values()) {
+    if (n.totalOut <= 0) n.depth = maxD;
+  }
 
   // Group into columns
   const cols = new Map();
@@ -2035,7 +2091,50 @@ function sankeyNodeDetailsForYear(year) {
     ].join("\n");
   }
 
+  const rothBasisSales = (year.sales ?? []).filter((sale) => (sale.rothBasisUsed ?? 0) > 1);
+  if (rothBasisSales.length) {
+    const total = rothBasisSales.reduce((sum, sale) => sum + (sale.rothBasisUsed ?? 0), 0);
+    details["Roth basis used"] = [
+      `Roth basis used: ${money(total, year)}`,
+      ...rothBasisSales.map((sale) => `${sale.name}: ${money(sale.rothBasisUsed ?? 0, year)} basis from ${money(sale.proceeds ?? 0, year)} withdrawn`),
+      `Roth basis left: ${money(year.rothBasisRemaining ?? 0, year)}`
+    ].join("\n");
+  }
+
+  const taxDetails = taxPaymentNodeDetails(year);
+  if (taxDetails) details["Tax payment"] = taxDetails;
+
   return details;
+}
+
+function taxPaymentNodeDetails(year) {
+  const taxes = year?.taxes;
+  if (!taxes || !((taxes.totalTax ?? 0) > 0)) return "";
+  const penalty = taxes.penaltyTax ?? 0;
+  const taxPayment = Math.max(0, (taxes.totalTax ?? 0) - penalty);
+  const lines = [
+    `Tax payment: ${money(taxPayment, year)}`,
+    `State tax: ${money(taxes.stateTax ?? 0, year)}`,
+    `Regular federal income brackets: ${money(taxes.federalOrdinaryTax ?? 0, year)}`,
+    ...taxBracketDetailLines(taxes.federalOrdinaryBracketDetails, year, "ordinary"),
+    `Capital gains / qualified dividends: ${money(taxes.federalPreferentialTax ?? 0, year)}`,
+    ...taxBracketDetailLines(taxes.federalPreferentialBracketDetails, year, "capital gains"),
+    `NIIT: ${money(taxes.niitTax ?? 0, year)}`
+  ];
+  if ((taxes.federalCreditsUsed ?? 0) > 0) {
+    lines.push(`Federal credits used: -${money(taxes.federalCreditsUsed, year)}`);
+  }
+  if (penalty > 0) {
+    lines.push(`Early withdrawal penalties are shown separately: ${money(penalty, year)}`);
+  }
+  return lines.join("\n");
+}
+
+function taxBracketDetailLines(details = [], year, label) {
+  if (!details?.length) return [`  No ${label} taxable income in brackets.`];
+  return details.map((bracket) => (
+    `  ${percentFormatter.format(bracket.rate ?? 0)} ${label}: ${money(bracket.taxableIncome ?? 0, year)} taxed -> ${money(bracket.tax ?? 0, year)}`
+  ));
 }
 
 function portfolioFlowsForYear(year) {
@@ -2050,46 +2149,32 @@ function portfolioFlowsForYear(year) {
   const medical = adjustAmount(year.medicalCost ?? 0, year);
   const penalties = adjustAmount(year.penaltyTax ?? 0, year);
   const taxes = adjustAmount(Math.max(0, (year.taxes?.totalTax ?? 0) - (year.penaltyTax ?? 0)), year);
-  const rothConv = adjustAmount(year.rothConversionAmount ?? 0, year);
   const totalReturn = ending + withdrawals - beginning - unspent;
   const marketGains = Math.max(0, totalReturn);
   const marketLosses = Math.max(0, -totalReturn);
   const reserveInflow = withdrawals + dividends + socialSecurity;
   const reserveOutflow = spending + medical + taxes + penalties;
   const flows = [
-    { from: "Starting balance", to: "Invested portfolio", amount: beginning, type: "balance" }
+    { from: "Starting balance", to: "Portfolio after returns", amount: beginning, type: "balance" }
   ];
 
-  if (marketGains > 0) flows.push({ from: "Market gains", to: "Invested portfolio", amount: marketGains, type: "income" });
-  if (marketLosses > 0) flows.push({ from: "Invested portfolio", to: "Market losses", amount: marketLosses, type: "loss" });
-  if (dividends > 0) flows.push({ from: "Invested portfolio", to: "Taxable dividends", amount: dividends, type: "income" });
-  if (withdrawals > 0) flows.push({ from: "Invested portfolio", to: "Spending reserve", amount: withdrawals, type: "withdrawal" });
-  if (dividends > 0) flows.push({ from: "Taxable dividends", to: "Spending reserve", amount: dividends, type: "income" });
-  if (socialSecurity > 0) flows.push({ from: "Social Security", to: "Spending reserve", amount: socialSecurity, type: "income" });
-  flows.push({ from: "Invested portfolio", to: "Ending balance", amount: ending, type: "balance" });
-
-  // Roth conversions: show the conversion flow and its tax impact
-  if (rothConv > 1) {
-    flows.push({ from: "Invested portfolio", to: "Roth conversion", amount: rothConv, type: "conversion" });
-    flows.push({ from: "Roth conversion", to: "Roth account", amount: rothConv, type: "conversion" });
-    // Attribute tax share from conversion to tax payments
-    const convTax = adjustAmount((year.taxAttribution ?? []).filter(a => a.source === "Roth conversion").reduce((s, a) => s + (a.amount ?? 0), 0), year);
-    if (convTax > 1) {
-      flows.push({ from: "Roth conversion", to: "Tax payments", amount: convTax, type: "tax-source" });
-    }
-  }
-
-  if (spending > 0) flows.push({ from: "Spending reserve", to: "Lifestyle spending", amount: spending, type: "spending" });
-  if (medical > 0) flows.push({ from: "Spending reserve", to: "Medical", amount: medical, type: "medical" });
-  if (taxes > 0) flows.push({ from: "Spending reserve", to: "Tax payments", amount: taxes, type: "tax" });
+  if (marketGains > 0) flows.push({ from: "Market gains", to: "Portfolio after returns", amount: marketGains, type: "income" });
+  if (marketLosses > 0) flows.push({ from: "Portfolio after returns", to: "Market losses", amount: marketLosses, type: "loss" });
+  if (withdrawals > 0) flows.push({ from: "Portfolio after returns", to: "Yearly cash flow", amount: withdrawals, type: "withdrawal" });
+  if (dividends > 0) flows.push({ from: "Taxable dividends", to: "Yearly cash flow", amount: dividends, type: "income" });
+  if (socialSecurity > 0) flows.push({ from: "Social Security", to: "Yearly cash flow", amount: socialSecurity, type: "income" });
+  if (spending > 0) flows.push({ from: "Yearly cash flow", to: "Lifestyle spending", amount: spending, type: "spending" });
+  if (medical > 0) flows.push({ from: "Yearly cash flow", to: "Medical", amount: medical, type: "medical" });
+  if (taxes > 0) flows.push({ from: "Yearly cash flow", to: "Tax payment", amount: taxes, type: "tax" });
   if (penalties > 0) {
-    flows.push({ from: "Spending reserve", to: "Early withdrawal penalties", amount: penalties, type: "penalty" });
+    flows.push({ from: "Yearly cash flow", to: "Early withdrawal penalties", amount: penalties, type: "penalty" });
   }
   if (unspent > 1) {
-    flows.push({ from: "Spending reserve", to: "Taxable cash reserve", amount: unspent, type: "balance" });
+    flows.push({ from: "Yearly cash flow", to: "Taxable cash reserve", amount: unspent, type: "balance" });
   } else if (reserveOutflow > reserveInflow + 1) {
-    flows.push({ from: "Unfunded cash need", to: "Spending reserve", amount: reserveOutflow - reserveInflow, type: "loss" });
+    flows.push({ from: "Unfunded cash need", to: "Yearly cash flow", amount: reserveOutflow - reserveInflow, type: "loss" });
   }
+  flows.push({ from: "Portfolio after returns", to: "Ending balance", amount: ending, type: "balance" });
 
   return flows;
 }
@@ -2273,6 +2358,103 @@ function tableHtml(headers, rows, rowAttrs = () => "") {
   `;
 }
 
+function pinnableTableHtml(headers, rows, pinnedSet, alwaysPinned, rowAttrs = () => "") {
+  const allPinned = new Set([...alwaysPinned, ...pinnedSet]);
+  const originalIndices = headers.map((_, i) => i);
+  const pinnedIndices = originalIndices.filter((i) => allPinned.has(headers[i]));
+  const unpinnedIndices = originalIndices.filter((i) => !allPinned.has(headers[i]));
+  const columnOrder = [...pinnedIndices, ...unpinnedIndices];
+  const pinnedCount = pinnedIndices.length;
+
+  const thCells = columnOrder.map((origIdx, visIdx) => {
+    const name = headers[origIdx];
+    const isPinned = visIdx < pinnedCount;
+    const isLast = visIdx === pinnedCount - 1;
+    const isLocked = alwaysPinned.includes(name);
+    const pinClass = isPinned ? `pinned-col${isLast ? " pinned-col-last" : ""}` : "";
+    const btnClass = isLocked ? "pin-toggle is-locked" : (isPinned ? "pin-toggle is-pinned" : "pin-toggle");
+    const btnIcon = isLocked ? "🔒" : (isPinned ? "📌" : "📌");
+    const btnTitle = isLocked ? "Always pinned" : (isPinned ? `Unpin ${name}` : `Pin ${name}`);
+    const btn = `<button type="button" class="${btnClass}" data-pin-header="${escapeAttr(name)}" title="${btnTitle}">${btnIcon}</button>`;
+    return `<th class="${pinClass}" data-col-index="${visIdx}">${escapeHtml(name)}${btn}</th>`;
+  }).join("");
+
+  const bodyRows = rows.map((row, rowIndex) => {
+    const cells = columnOrder.map((origIdx, visIdx) => {
+      const isPinned = visIdx < pinnedCount;
+      const isLast = visIdx === pinnedCount - 1;
+      const pinClass = isPinned ? `pinned-col${isLast ? " pinned-col-last" : ""}` : "";
+      return `<td class="${pinClass}" data-col-index="${visIdx}">${row[origIdx]}</td>`;
+    }).join("");
+    return `<tr ${rowAttrs(rowIndex)}>${cells}</tr>`;
+  }).join("");
+
+  return `
+    <table>
+      <thead><tr>${thCells}</tr></thead>
+      <tbody>${bodyRows}</tbody>
+    </table>
+  `;
+}
+
+function applyPinnedColumnOffsets(container) {
+  const table = container.querySelector("table");
+  if (!table) return;
+  const headerCells = table.querySelectorAll("thead th.pinned-col");
+  if (!headerCells.length) return;
+
+  // Measure widths from the header row
+  const widths = [];
+  headerCells.forEach((th) => widths.push(th.offsetWidth));
+
+  // Compute cumulative left offsets
+  const leftOffsets = [];
+  let cumulative = 0;
+  for (const w of widths) {
+    leftOffsets.push(cumulative);
+    cumulative += w;
+  }
+
+  // Apply to all pinned cells by column index
+  for (let i = 0; i < leftOffsets.length; i++) {
+    const left = `${leftOffsets[i]}px`;
+    table.querySelectorAll(`[data-col-index="${i}"].pinned-col`).forEach((cell) => {
+      cell.style.left = left;
+    });
+  }
+}
+
+function bindPinToggles(container, pinnedSet, alwaysPinned, storageKey, rerender) {
+  container.querySelectorAll(".pin-toggle:not(.is-locked)").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const headerName = btn.dataset.pinHeader;
+      if (alwaysPinned.includes(headerName)) return;
+      if (pinnedSet.has(headerName)) {
+        pinnedSet.delete(headerName);
+      } else {
+        pinnedSet.add(headerName);
+      }
+      savePinnedColumns(storageKey, pinnedSet);
+      rerender();
+    });
+  });
+}
+
+function bindResizeObserver(container, tableId) {
+  if (container._resizeCleanup) container._resizeCleanup();
+  let debounce = null;
+  const observer = new ResizeObserver(() => {
+    clearTimeout(debounce);
+    debounce = setTimeout(() => {
+      const height = container.offsetHeight;
+      if (height > 50) saveTableHeight(tableId, height);
+    }, 300);
+  });
+  observer.observe(container);
+  container._resizeCleanup = () => observer.disconnect();
+}
+
 function aggregateAssetSnapshot(snapshot = []) {
   const assetsByKey = new Map();
   for (const asset of snapshot ?? []) {
@@ -2325,6 +2507,12 @@ function selectHtml(index, field, options, value) {
 
 function money(value, year) {
   return moneyFormatter.format(adjustAmount(value, year));
+}
+
+function ageLabel(value) {
+  const age = Number(value);
+  if (!Number.isFinite(age)) return "";
+  return Number.isInteger(age) ? String(age) : age.toFixed(1);
 }
 
 function signedMoney(value, year) {

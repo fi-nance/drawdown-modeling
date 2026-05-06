@@ -4,6 +4,8 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Portfolio Success Lab</title>
+    <link rel="icon" href="./favicon.svg?v=20260505-favicon" type="image/svg+xml">
+    <meta name="theme-color" content="#07111f">
     <link rel="stylesheet" href="./src/styles.css?v=20260501-sankey-sources">
     <script src="https://accounts.google.com/gsi/client" async defer></script>
   </head>
@@ -44,40 +46,61 @@
           <div class="panel-heading">
             <h2>Import</h2>
           </div>
-          <textarea id="assetJson" spellcheck="false"></textarea>
-          <div class="button-row">
-            <button id="loadJson" type="button">Load JSON</button>
-            <button id="downloadJson" type="button">Export</button>
+          <div class="setup-group">
+            <p class="setup-group-label">File import</p>
+            <div class="control-grid">
+              <label class="file-control">
+                <span>JSON file</span>
+                <input id="jsonFile" type="file" accept="application/json,.json">
+              </label>
+              <label class="file-control">
+                <span>CSV file</span>
+                <input id="csvFile" type="file" accept="text/csv,.csv">
+              </label>
+            </div>
+            <div class="button-row">
+              <a class="button-link" href="./sample-portfolio-import.csv" download>Sample CSV</a>
+            </div>
           </div>
-          <label class="file-control">
-            <span>JSON file</span>
-            <input id="jsonFile" type="file" accept="application/json,.json">
-          </label>
-          <label>
-            <span>CSV file</span>
-            <input id="csvFile" type="file" accept="text/csv,.csv">
-          </label>
-          <label>
-            <span>Public sheet URL</span>
-            <input id="sheetUrl" type="url" placeholder="https://docs.google.com/spreadsheets/...">
-          </label>
-          <div class="button-row">
-            <button id="loadSheet" type="button">Import public sheet</button>
-            <a class="button-link" href="./sample-portfolio-import.csv" download>Sample CSV</a>
+          <div class="setup-group">
+            <p class="setup-group-label">Google Sheets</p>
+            <label>
+              <span>Public sheet URL</span>
+              <input id="sheetUrl" type="url" placeholder="https://docs.google.com/spreadsheets/...">
+            </label>
+            <div class="button-row">
+              <button id="loadSheet" type="button">Import public sheet</button>
+            </div>
+            <details class="advanced">
+              <summary>Private sheet (OAuth)</summary>
+              <div class="control-grid">
+                <label>
+                  <span>OAuth client ID</span>
+                  <input id="googleClientId" type="text" autocomplete="off" placeholder="Google web client ID">
+                </label>
+                <label>
+                  <span>Sheet range</span>
+                  <input id="sheetRange" type="text" value="A:I">
+                </label>
+              </div>
+              <div class="button-row">
+                <button id="loadPrivateSheet" type="button">Import private sheet</button>
+              </div>
+            </details>
           </div>
-          <label>
-            <span>OAuth client ID</span>
-            <input id="googleClientId" type="text" autocomplete="off" placeholder="Google web client ID">
-          </label>
-          <label>
-            <span>Sheet range</span>
-            <input id="sheetRange" type="text" value="A:I">
-          </label>
-          <div class="button-row">
-            <button id="loadPrivateSheet" type="button">Import private sheet</button>
-          </div>
+          <details class="advanced">
+            <summary>JSON editor</summary>
+            <textarea id="assetJson" spellcheck="false"></textarea>
+            <div class="button-row">
+              <button id="loadJson" type="button">Load JSON</button>
+              <button id="downloadJson" type="button">Export</button>
+            </div>
+          </details>
           <div id="importStatus" class="status import-status" role="status" aria-live="polite">Ready to import.</div>
-          <div class="panel-heading compact">
+        </section>
+
+        <section class="panel setup-panel">
+          <div class="panel-heading">
             <h2>Backup / Restore</h2>
           </div>
           <div class="button-row">
@@ -563,6 +586,6 @@
       </section>
     </main>
 
-    <script type="module" src="./src/app.mjs?v=20260503-ma-connectorcare"></script>
+    <script type="module" src="./src/app.mjs?v=20260505-sankey-tax-roth-basis-hover"></script>
   </body>
 </html>

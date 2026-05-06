@@ -198,6 +198,35 @@ h2 {
   margin: 0.85rem 0.95rem;
 }
 
+/* ─── Setup Groups ───────────────────────────────────────────────── */
+
+.setup-group {
+  margin: 0 0.95rem;
+  padding: 0.75rem 0 0.5rem;
+  border-top: 1px solid var(--line);
+}
+
+.setup-group:first-child {
+  border-top: none;
+  padding-top: 0.5rem;
+}
+
+.setup-group > label,
+.setup-group > .control-grid,
+.setup-group > .button-row,
+.setup-group > details {
+  margin-top: 0.55rem;
+}
+
+.setup-group-label {
+  margin: 0 0 0.3rem;
+  color: var(--teal-dark);
+  font-size: 0.7rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
 body[data-screen="plan"] .setup-panel,
 body[data-screen="setup"] .plan-panel {
   display: none;
@@ -529,6 +558,128 @@ tr[data-backtest-index],
 tr[data-scenario] {
   cursor: pointer;
 }
+
+/* ─── Pinnable Table Container ───────────────────────────────────── */
+
+.pinnable-table-wrap {
+  max-height: 80vh;
+  overflow: auto;
+  resize: vertical;
+  position: relative;
+}
+
+.pinnable-table-wrap::after {
+  content: '⋮⋮';
+  position: sticky;
+  bottom: 0;
+  left: 50%;
+  display: block;
+  width: 40px;
+  margin: 0 auto;
+  padding: 0 0 2px;
+  color: var(--muted);
+  font-size: 10px;
+  text-align: center;
+  letter-spacing: 2px;
+  pointer-events: none;
+  opacity: 0.4;
+}
+
+/* Pinned column cells */
+.pinned-col {
+  position: sticky !important;
+  z-index: 2 !important;
+  background: var(--surface-2) !important;
+}
+
+/* Pinned header cells need higher z-index (sticky in both X and Y) */
+th.pinned-col {
+  z-index: 4 !important;
+}
+
+/* Shadow separator on the last pinned column */
+.pinned-col-last::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: -6px;
+  bottom: 0;
+  width: 6px;
+  background: linear-gradient(to right, rgba(0, 0, 0, 0.08), transparent);
+  pointer-events: none;
+}
+
+/* Even row backgrounds for pinned cells */
+tbody tr:nth-child(even) .pinned-col {
+  background: color-mix(in srgb, var(--surface-2) 96%, var(--surface-3) 4%) !important;
+}
+
+/* Hover background for pinned cells */
+tbody tr:hover .pinned-col {
+  background: #eef5f2 !important;
+}
+
+/* Selected row pinned cells */
+.selected-row .pinned-col {
+  background: #e8f4f0 !important;
+}
+
+/* ─── Pin Toggle Button ──────────────────────────────────────────── */
+
+.pin-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin-left: 4px;
+  padding: 0;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease, color 0.15s ease, background 0.15s ease;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+
+th:hover .pin-toggle {
+  opacity: 0.7;
+}
+
+.pin-toggle:hover {
+  opacity: 1 !important;
+  color: var(--teal);
+  background: rgba(15, 118, 110, 0.08);
+  box-shadow: none;
+  transform: none;
+}
+
+.pin-toggle.is-pinned {
+  opacity: 0.85;
+  color: var(--teal);
+}
+
+.pin-toggle.is-locked {
+  opacity: 0.4;
+  color: var(--muted);
+  cursor: default;
+}
+
+.pin-toggle.is-locked:hover {
+  background: transparent;
+  color: var(--muted);
+}
+
+th .pin-toggle {
+  position: relative;
+  top: 0;
+}
+
 
 .sankey-bg {
   fill: #f8fbf9;

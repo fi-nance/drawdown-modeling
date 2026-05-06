@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Portfolio Success Lab">
+  <defs>
+    <linearGradient id="bg" x1="10" y1="8" x2="56" y2="58" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#102033"/>
+      <stop offset="1" stop-color="#07111f"/>
+    </linearGradient>
+    <linearGradient id="line" x1="14" y1="42" x2="52" y2="20" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#34d1b6"/>
+      <stop offset="1" stop-color="#8ff4df"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="14" fill="url(#bg)"/>
+  <path d="M14 43 L25 31 L34 38 L50 20" fill="none" stroke="#06111f" stroke-width="9" stroke-linecap="round" stroke-linejoin="round" opacity="0.55"/>
+  <path d="M14 43 L25 31 L34 38 L50 20" fill="none" stroke="url(#line)" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="50" cy="20" r="5" fill="#f5c84c"/>
+  <circle cx="18" cy="46" r="4" fill="#34d1b6" opacity="0.95"/>
+  <path d="M13 51 H52" stroke="#d7e6f2" stroke-width="3" stroke-linecap="round" opacity="0.72"/>
+</svg>

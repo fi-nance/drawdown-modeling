@@ -266,11 +266,13 @@ test("tax attribution identifies tax created by Roth conversions", () => {
   });
   const conversionTax = plan.years[0].taxAttribution.find((item) => item.source === "Roth conversion");
   const conversionTaxFlow = plan.years[0].flows.find((flow) => (
-    flow.from === "Roth conversion" && flow.to === "Roth conversion tax"
+    flow.to === "Tax payment"
   ));
 
   assert.equal(Math.round(conversionTax.amount), 10);
+  assert.equal(conversionTaxFlow.from, "Spending reserve");
   assert.equal(Math.round(conversionTaxFlow.amount), 10);
+  assert.equal(plan.years[0].flows.filter((flow) => flow.type === "tax-source").length, 0);
 });
 
 test("traditional early withdrawals create ordinary income and a 10 percent penalty", () => {
@@ -337,6 +339,200 @@ test("Roth contribution basis is tax-free and penalty-free before penalty-free a
   assert.equal(Math.round(plan.years[0].rothBasisRemaining), 50);
   assert.equal(Math.round(plan.years[0].taxes.totalTax), 0);
   assert.equal(Math.round(plan.years[0].penaltyTax), 0);
+  assert.deepEqual(plan.years[0].flows.filter((flow) => flow.from === "Roth basis used"), [{
+    from: "Roth basis used",
+    to: "Spending reserve",
+    amount: 100,
+    type: "withdrawal"
+  }]);
+});
+
+test("Roth basis is preserved when modeled savings are below the hurdle", () => {
+  const plan = simulatePlan({
+    assets: [
+      {
+        id: "traditional",
+        accountType: "traditional",
+        assetClass: "bond",
+        units: 1000,
+        price: 1,
+        costBasisPerUnit: 1
+      },
+      {
+        id: "roth",
+        accountType: "roth",
+        assetClass: "bond",
+        units: 1000,
+        price: 1,
+        costBasisPerUnit: 1
+      }
+    ],
+    scenario: {
+      planYears: 1,
+      targetSpend: 100,
+      targetSpendIncludesTaxes: true,
+      targetSpendIncludesMedical: true,
+      withdrawalOrder: ["roth", "traditional"],
+      currentAge: 50,
+      rothBasis: 500,
+      returnAssumptions: { bond: { mean: 0, stdev: 0 } },
+      rothConversion: { enabled: false },
+      aca: { enabled: false }
+    },
+    taxProfile: flatOrdinaryTaxProfile,
+    returnSequence: [{ bond: 0 }],
+    inflationSequence: [0]
+  });
+
+  assert.equal(Math.round(plan.years[0].cashRaised), 100);
+  assert.equal(Math.round(plan.years[0].magi), 100);
+  assert.equal(Math.round(plan.years[0].taxes.totalTax), 20);
+  assert.equal(Math.round(plan.years[0].rothWithdrawals), 0);
+  assert.equal(Math.round(plan.years[0].rothBasisUsed), 0);
+  assert.equal(plan.years[0].rothBasisOptimization.accepted, false);
+  assert.equal(Math.round(plan.years[0].rothBasisOptimization.modeledSavings), 20);
+  assert.equal(Math.round(plan.years[0].rothBasisOptimization.requiredSavings), 50);
+});
+
+test("Roth basis is used when ACA savings clear the 50 percent hurdle", () => {
+  const plan = simulatePlan({
+    assets: [
+      {
+        id: "traditional",
+        accountType: "traditional",
+        assetClass: "cash",
+        units: 200000,
+        price: 1,
+        costBasisPerUnit: 1
+      },
+      {
+        id: "roth",
+        accountType: "roth",
+        assetClass: "cash",
+        units: 200000,
+        price: 1,
+        costBasisPerUnit: 1
+      }
+    ],
+    scenario: {
+      planYears: 1,
+      targetSpend: 90000,
+      targetSpendIncludesTaxes: true,
+      targetSpendIncludesMedical: true,
+      withdrawalOrder: ["traditional", "roth"],
+      currentAge: 50,
+      rothBasis: 90000,
+      earlyWithdrawalPenaltyRate: 0,
+      returnAssumptions: { cash: { mean: 0, stdev: 0 } },
+      taxLossHarvesting: { enabled: false },
+      taxGainHarvesting: { enabled: false },
+      rothConversion: { enabled: false },
+      aca: {
+        enabled: true,
+        fpl: 20000,
+        benchmarkPremium: 60000,
+        selectedPlanPremium: 60000,
+        applicablePercentageTable: [
+          { minFplPercent: 0, maxFplPercent: 400, initialRate: 0, finalRate: 0 }
+        ],
+        requiredContributionPercentage: 0.1,
+        maxEligibleFplPercent: 400
+      }
+    },
+    taxProfile: noTaxProfile,
+    returnSequence: [{ cash: 0 }],
+    inflationSequence: [0]
+  });
+
+  assert.equal(Math.round(plan.years[0].cashRaised), 90000);
+  assert.equal(Math.round(plan.years[0].magi), 0);
+  assert.equal(Math.round(plan.years[0].aca.netPremium), 0);
+  assert.equal(Math.round(plan.years[0].rothWithdrawals), 90000);
+  assert.equal(Math.round(plan.years[0].rothBasisUsed), 90000);
+  assert.equal(plan.years[0].rothBasisOptimization.accepted, true);
+  assert.equal(Math.round(plan.years[0].rothBasisOptimization.modeledSavings), 60000);
+  assert.equal(Math.round(plan.years[0].rothBasisOptimization.requiredSavings), 45000);
+});
+
+test("early Roth basis withdrawals sell low-return Roth assets before growth assets", () => {
+  const plan = simulatePlan({
+    assets: [
+      {
+        id: "traditional",
+        accountType: "traditional",
+        assetClass: "cash",
+        units: 200000,
+        price: 1,
+        costBasisPerUnit: 1
+      },
+      {
+        id: "roth-stock",
+        accountType: "roth",
+        assetClass: "stock",
+        units: 30000,
+        price: 1,
+        costBasisPerUnit: 1,
+        expectedReturn: 0.08
+      },
+      {
+        id: "roth-bond",
+        accountType: "roth",
+        assetClass: "bond",
+        units: 30000,
+        price: 1,
+        costBasisPerUnit: 1,
+        expectedReturn: 0.03
+      },
+      {
+        id: "roth-cash",
+        accountType: "roth",
+        assetClass: "cash",
+        units: 30000,
+        price: 1,
+        costBasisPerUnit: 1,
+        expectedReturn: 0.01
+      }
+    ],
+    scenario: {
+      planYears: 1,
+      targetSpend: 90000,
+      targetSpendIncludesTaxes: true,
+      targetSpendIncludesMedical: true,
+      withdrawalOrder: ["traditional", "roth"],
+      currentAge: 50,
+      rothBasis: 90000,
+      earlyWithdrawalPenaltyRate: 0,
+      returnAssumptions: {
+        cash: { mean: 0, stdev: 0 },
+        bond: { mean: 0, stdev: 0 },
+        stock: { mean: 0, stdev: 0 }
+      },
+      taxLossHarvesting: { enabled: false },
+      taxGainHarvesting: { enabled: false },
+      rothConversion: { enabled: false },
+      aca: {
+        enabled: true,
+        fpl: 20000,
+        benchmarkPremium: 60000,
+        selectedPlanPremium: 60000,
+        applicablePercentageTable: [
+          { minFplPercent: 0, maxFplPercent: 400, initialRate: 0, finalRate: 0 }
+        ],
+        requiredContributionPercentage: 0.1,
+        maxEligibleFplPercent: 400
+      }
+    },
+    taxProfile: noTaxProfile,
+    returnSequence: [{ cash: 0, bond: 0, stock: 0 }],
+    inflationSequence: [0]
+  });
+
+  const rothSaleIds = plan.years[0].sales
+    .filter((sale) => sale.accountType === "roth")
+    .map((sale) => sale.assetId);
+
+  assert.deepEqual(rothSaleIds, ["roth-cash", "roth-bond", "roth-stock"]);
+  assert.equal(plan.years[0].rothBasisOptimization.accepted, true);
 });
 
 test("Roth earnings above contribution basis are taxable and penalized when withdrawn early", () => {

@@ -87,12 +87,14 @@ export function computeIncomeTax({
   const taxableLongTermCapitalGains = Math.max(0, longGains - remainingDeduction);
   const taxableQualifiedDividends = Math.max(0, taxablePreferentialIncome - taxableLongTermCapitalGains);
 
-  const federalOrdinaryTax = taxFromBrackets(taxableOrdinaryIncome, profile.ordinaryBrackets);
-  const federalPreferentialTax = taxPreferentialIncome({
+  const federalOrdinaryBracketDetails = taxBracketDetails(taxableOrdinaryIncome, profile.ordinaryBrackets);
+  const federalOrdinaryTax = round(federalOrdinaryBracketDetails.reduce((total, bracket) => total + bracket.tax, 0), 6);
+  const federalPreferentialBracketDetails = preferentialTaxBracketDetails({
     ordinaryTaxableIncome: taxableOrdinaryIncome,
     preferentialIncome: taxablePreferentialIncome,
     brackets: profile.capitalGainsBrackets
   });
+  const federalPreferentialTax = round(federalPreferentialBracketDetails.reduce((total, bracket) => total + bracket.tax, 0), 6);
   const federalIncomeTaxBeforeCredits = round(federalOrdinaryTax + federalPreferentialTax, 6);
   const magi = round(ordinaryAfterLossOffset + preferentialIncome, 6);
   const niitTax = computeNiit({
@@ -134,7 +136,9 @@ export function computeIncomeTax({
     taxableLongTermCapitalGains: round(taxableLongTermCapitalGains, 6),
     taxableQualifiedDividends: round(taxableQualifiedDividends, 6),
     federalOrdinaryTax,
+    federalOrdinaryBracketDetails,
     federalPreferentialTax,
+    federalPreferentialBracketDetails,
     federalIncomeTaxBeforeCredits,
     childTaxCredit: round(childTaxCredit, 6),
     additionalCredits: round(Math.max(0, profile.additionalCredits ?? 0), 6),
@@ -145,6 +149,55 @@ export function computeIncomeTax({
     totalTax: round(federalIncomeTax + niitTax + stateTax, 6),
     lossCarryforward: round(lossPool, 6)
   };
+}
+
+function taxBracketDetails(amount, brackets = []) {
+  const taxable = Math.max(0, amount);
+  let previousLimit = 0;
+  const details = [];
+
+  for (const bracket of brackets) {
+    const upper = bracket.upTo;
+    const width = Math.max(0, Math.min(taxable, upper) - previousLimit);
+    if (width > EPSILON) {
+      details.push({
+        rate: bracket.rate ?? 0,
+        upTo: Number.isFinite(upper) ? round(upper, 6) : Infinity,
+        taxableIncome: round(width, 6),
+        tax: round(width * (bracket.rate ?? 0), 6)
+      });
+    }
+    previousLimit = upper;
+    if (taxable <= upper + EPSILON) break;
+  }
+
+  return details;
+}
+
+function preferentialTaxBracketDetails({ ordinaryTaxableIncome, preferentialIncome, brackets = [] }) {
+  const gainStart = Math.max(0, ordinaryTaxableIncome);
+  const gainEnd = gainStart + Math.max(0, preferentialIncome);
+  let previousLimit = 0;
+  const details = [];
+
+  for (const bracket of brackets) {
+    const upper = bracket.upTo;
+    const lowerOverlap = Math.max(gainStart, previousLimit);
+    const upperOverlap = Math.min(gainEnd, upper);
+    const taxableInBracket = Math.max(0, upperOverlap - lowerOverlap);
+    if (taxableInBracket > EPSILON) {
+      details.push({
+        rate: bracket.rate ?? 0,
+        upTo: Number.isFinite(upper) ? round(upper, 6) : Infinity,
+        taxableIncome: round(taxableInBracket, 6),
+        tax: round(taxableInBracket * (bracket.rate ?? 0), 6)
+      });
+    }
+    previousLimit = upper;
+    if (gainEnd <= upper + EPSILON) break;
+  }
+
+  return details;
 }
 
 function computeNiit({

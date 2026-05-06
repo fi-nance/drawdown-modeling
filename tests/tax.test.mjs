@@ -44,6 +44,22 @@ test("capital gains stack on top of ordinary taxable income", () => {
   assert.equal(tax.federalPreferentialTax, 1500);
   assert.equal(tax.stateTax, 2500);
   assert.equal(tax.totalTax, 9000);
+  assert.deepEqual(tax.federalOrdinaryBracketDetails.map((bracket) => ({
+    rate: bracket.rate,
+    taxableIncome: bracket.taxableIncome,
+    tax: bracket.tax
+  })), [
+    { rate: 0.1, taxableIncome: 10000, tax: 1000 },
+    { rate: 0.2, taxableIncome: 20000, tax: 4000 }
+  ]);
+  assert.deepEqual(tax.federalPreferentialBracketDetails.map((bracket) => ({
+    rate: bracket.rate,
+    taxableIncome: bracket.taxableIncome,
+    tax: bracket.tax
+  })), [
+    { rate: 0, taxableIncome: 10000, tax: 0 },
+    { rate: 0.15, taxableIncome: 10000, tax: 1500 }
+  ]);
 });
 
 test("capital losses offset gains, then ordinary income, then carry forward", () => {
