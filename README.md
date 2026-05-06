@@ -7,7 +7,7 @@ A browser-based, tax-aware retirement decumulation planner with Monte Carlo simu
 - Deterministic portfolio engine in `src/core/`
 - V2 UI is the default app at `index.html`; `v2ui.html` remains as a compatibility entrypoint
 - Monte Carlo runs with seeded random return and inflation paths
-- Historical rolling, specific-start-year, and chunked-window backtests
+- Historical rolling, specific-start-year, and chunked-window backtests with a default 1928-present modern source and an opt-in reconstructed 1872-present source
 - Versioned 2026 federal tax tables, preferential long-term capital gains stacking, NIIT, Additional Medicare Tax, state tax profiles, capital loss carryforwards, and ordinary loss offsets
 - Withdrawal tax character by account type and lot holding period, including Roth contribution basis, Roth five-year-rule controls, conversion five-year penalty recapture, and annual early-withdrawal penalty exception controls
 - Tax loss harvesting, tax gain harvesting, and Roth conversion modeling
@@ -65,6 +65,6 @@ Massachusetts users can use the MA ConnectorCare helper to fill an estimated 202
 
 Retirement-tax controls include Roth contribution basis, whether the Roth five-year qualified-distribution rule is satisfied, annual early-withdrawal penalty exception amounts, RMD start-age override, Social Security benefit timing, Medicare/IRMAA enrollment and lookback inputs, earned-income inputs for Additional Medicare Tax, dynamic child ages, age-65 standard-deduction bumps, and manual federal deduction/credit overrides.
 
-Historical backtesting data is versioned in `src/data/historicalReturns.mjs` and runs through 2025 where source history exists. Crypto and TIPS histories start later than the core stock/bond/cash series, so the Backtesting panel includes explicit proxy options: stock returns before crypto data begins and bond returns before TIPS data begins. Actual crypto and TIPS returns are still used once available. The data-source inventory and annual refresh checklist live in [`docs/DATA_SOURCES.md`](docs/DATA_SOURCES.md).
+Historical backtesting data is versioned in `src/data/historicalReturns.mjs` and runs through 2025 where source history exists. The default modern baseline uses Damodaran-style annual returns from 1928 onward. The opt-in extended reconstructed source prepends JST U.S. reconstructed stock, bond, cash, housing, and CPI history before 1928; stock/bond/cash coverage starts in 1872 and real estate coverage starts in 1891. Crypto and TIPS histories start later than the core stock/bond/cash series, so the Backtesting panel includes explicit proxy options: stock returns before crypto data begins and bond returns before TIPS data begins. Actual crypto and TIPS returns are still used once available. The data-source inventory and annual refresh checklist live in [`docs/DATA_SOURCES.md`](docs/DATA_SOURCES.md).
 
 Long-horizon tax-law limitations and implementation priorities are tracked in [`docs/KNOWN_LIMITATIONS.md`](docs/KNOWN_LIMITATIONS.md).

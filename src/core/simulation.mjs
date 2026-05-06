@@ -235,12 +235,13 @@ export function runMonteCarlo({
       inflationSequence
     });
 
+    const depletion = firstDepletionDetails(plan.years);
     scenarios.push({
       id: run + 1,
       success: plan.success,
       endingValue: plan.endingValue,
       heirValue: plan.heirValue,
-      depletionYear: firstDepletionYear(plan.years),
+      ...depletion,
       years: plan.years
     });
   }
@@ -274,12 +275,13 @@ export function runHistoricalBacktests({
       returnSequence: sequence.returns,
       inflationSequence: sequence.inflation
     });
+    const depletion = firstDepletionDetails(plan.years);
     return {
       id: sequence.name ?? `Sequence ${index + 1}`,
       sourceYears: sequence.sourceYears ?? [],
       sourceStartYear: sequence.startYear ?? null,
       sourceEndYear: sequence.endYear ?? null,
-      depletionYear: firstDepletionYear(plan.years),
+      ...depletion,
       ...plan
     };
   });
@@ -2076,9 +2078,13 @@ function assetSnapshot(portfolio) {
   });
 }
 
-function firstDepletionYear(years) {
+function firstDepletionDetails(years) {
   const depleted = years.find((year) => year.unfunded > 1 || year.endingPortfolioValue <= 1);
-  return depleted?.year ?? null;
+  return {
+    depletionYear: depleted?.year ?? null,
+    depletionYearIndex: depleted?.yearIndex ?? null,
+    depletionAge: depleted?.age ?? null
+  };
 }
 
 function annualReturns(scenario, returnSequence, yearIndex) {

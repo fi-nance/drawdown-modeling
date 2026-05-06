@@ -8,7 +8,7 @@ This file documents where the app's versioned tax, ACA, and historical return da
 | --- | --- | --- | --- |
 | Federal tax, ACA, FPL, ACA premium defaults | `src/data/taxData.mjs` | `TAX_DATA_VERSION = "2026.1"` | 2026 tax-law year |
 | State income tax defaults | `src/data/stateTax2026.generated.mjs` | generated 2026 table | 2026 tax-law year |
-| Historical return backtesting | `src/data/historicalReturns.mjs` | `HISTORICAL_RETURN_DATA_VERSION = "2026.1"` | core asset classes through 2025 |
+| Historical return backtesting | `src/data/historicalReturns.mjs` | `HISTORICAL_RETURN_DATA_VERSION = "2026.1"` | modern baseline core asset classes 1928-2025; opt-in reconstructed U.S. source extends stock/bond/cash to 1872 and real estate to 1891 |
 
 ## Source Inventory
 
@@ -33,16 +33,17 @@ This file documents where the app's versioned tax, ACA, and historical return da
 | Stocks, T-bills, 10-year Treasuries, real estate | NYU Stern Damodaran annual returns: https://pages.stern.nyu.edu/~adamodar/New_Home_Page/datafile/histretSP.html | `HISTORICAL_RETURNS[].stock`, `.cash`, `.bond`, `.realEstate` | Final calendar-year row is usually available in early January |
 | Inflation through 2023 | NYU Stern Damodaran historical inflation table: https://pages.stern.nyu.edu/~adamodar/New_Home_Page/datafile/histret.html | `HISTORICAL_RETURNS[].inflation` for source years available there | Updated periodically |
 | Inflation extension for 2024 and 2025 | FRED CPIAUCSL: https://fred.stlouisfed.org/series/CPIAUCSL and CSV endpoint `https://fred.stlouisfed.org/graph/fredgraph.csv?id=CPIAUCSL` | `HISTORICAL_RETURNS[].inflation` for years not yet in Damodaran's inflation table | Use December-over-December CPI when the final December value is available |
+| Extended reconstructed U.S. returns before 1928 | Jordà-Schularick-Taylor Macrohistory Database R6: https://www.macrohistory.net/database/ and returns documentation: https://www.macrohistory.net/app/download/9834516469/RORE_documentation.pdf | `EXTENDED_HISTORICAL_RETURNS` prepended rows for `stock`, `bond`, `cash`, `realEstate`, and `inflation` before 1928 | JST data is licensed CC BY-NC-SA 4.0 and should be refreshed only when adopting a new JST release |
+| Cross-check for pre-1928 U.S. stock returns | Robert Shiller/Yale stock market data: https://www.econ.yale.edu/~shiller/data.htm | Validation that JST U.S. equity total returns match annual returns reconstructed from Shiller/Cowles price and dividend history for 1872-1927 | Recheck when JST or Shiller/Yale source files are updated |
 | TIPS returns | iShares TIPS Bond ETF performance page: https://www.ishares.com/ch/professionals/en/products/239467/ishares-tips-bond-etf | `HISTORICAL_RETURNS[].tips` | Available from ETF history; current app coverage starts in 2004 |
 | Crypto returns | Coin Metrics community API daily BTC PriceUSD: `https://community-api.coinmetrics.io/v4/timeseries/asset-metrics?assets=btc&metrics=PriceUSD&frequency=1d&start_time=2010-01-01&end_time=2025-12-31&page_size=10000&format=csv` | `HISTORICAL_RETURNS[].crypto` | Update after final December 31 close is available |
 
 ## Current Modeling Notes
 
-- Historical backtests only include years where every asset class in the user's portfolio has source data. For example, a portfolio with no TIPS or crypto can use 1928-2025; a portfolio with TIPS starts in 2004; a portfolio with crypto starts in 2011.
-- `bond` is mapped to NYU Stern's annual 10-year Treasury bond total return.
-- `cash` is mapped to NYU Stern's annual 3-month T-bill return.
-- `stock` is mapped to NYU Stern's annual S&P 500 total return including dividends.
-- `realEstate` is mapped to NYU Stern's annual real estate return series.
+- Historical backtests only include years where every asset class in the user's portfolio has source data. In the default modern baseline, a portfolio with no TIPS or crypto can use 1928-2025; a portfolio with TIPS starts in 2004; a portfolio with crypto starts in 2011. In the opt-in extended reconstructed source, U.S. stock/bond/cash history starts in 1872 and U.S. real estate starts in 1891; 1928 onward remains the modern baseline data.
+- The extended reconstructed source uses JST R6 before 1928. For U.S. stocks, the 1872-1927 JST total-return rows were cross-checked against annual total returns reconstructed from Shiller/Yale monthly price and dividend data, with differences limited to rounding noise. Bond, cash, real estate, and inflation values come directly from JST fields (`bond_tr`, `bill_rate`, `housing_tr`, and CPI percentage change).
+- In the modern baseline, `stock`, `bond`, `cash`, and `realEstate` are mapped to NYU Stern's annual S&P 500 total return, 10-year Treasury bond total return, 3-month T-bill return, and real estate return series.
+- In the extended reconstructed source before 1928, `stock`, `bond`, `cash`, and `realEstate` are mapped to JST U.S. equity total return, government bond total return, bill/deposit-rate return, and housing total return.
 - `tips` is derived from iShares TIP NAV total return history when available.
 - `crypto` is derived from BTC year-end daily USD price changes. It is a BTC proxy, not a diversified crypto index.
 - ACA benchmark premiums are currently state-level defaults age-rated with the federal default age curve unless the user fills exact plan data. Exact selected-plan mode can bypass the selected-plan assumption by using the household SLCSP monthly premium, selected plan monthly premium, selected plan OOP max, and covered member ages from Healthcare.gov or a state exchange. Manual ACA premiums can be projected with inflation alone or with the federal ACA age curve on top of inflation; selected-plan OOP maximums are projected as dollar limits without age-rating.
@@ -107,6 +108,8 @@ These are starting points for the next annual data refresh. Update the year and 
 ```bash
 curl -L -o /tmp/histretSP.html "https://pages.stern.nyu.edu/~adamodar/New_Home_Page/datafile/histretSP.html"
 curl -L -o /tmp/histret.html "https://pages.stern.nyu.edu/~adamodar/New_Home_Page/datafile/histret.html"
+curl -L -o /tmp/JSTdatasetR6.xlsx "https://www.macrohistory.net/app/download/9834512569/JSTdatasetR6.xlsx"
+curl -L -o /tmp/shiller-ie-data.xls "http://www.econ.yale.edu/~shiller/data/ie_data.xls"
 curl -L -o /tmp/cpi.csv "https://fred.stlouisfed.org/graph/fredgraph.csv?id=CPIAUCSL"
 curl -L -o /tmp/tip_ishares.html "https://www.ishares.com/ch/professionals/en/products/239467/ishares-tips-bond-etf"
 curl -L -o /tmp/btc_coinmetrics.csv "https://community-api.coinmetrics.io/v4/timeseries/asset-metrics?assets=btc&metrics=PriceUSD&frequency=1d&start_time=2010-01-01&end_time=2026-12-31&page_size=10000&format=csv"

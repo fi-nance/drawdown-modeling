@@ -1338,6 +1338,44 @@ test("Monte Carlo scenarios are deterministic with the same seed", () => {
   assert.equal(first.scenarios.length, 5);
 });
 
+test("Monte Carlo depletion metadata includes failure year index and age", () => {
+  const result = runMonteCarlo({
+    assets: [{
+      id: "stock",
+      accountType: "taxable",
+      assetClass: "stock",
+      holdingPeriod: "long",
+      units: 100,
+      price: 100,
+      costBasisPerUnit: 100
+    }],
+    scenario: {
+      planYears: 3,
+      startYear: 2030,
+      currentAge: 60,
+      targetSpend: 7000,
+      targetSpendInflationAdjusted: false,
+      targetSpendIncludesTaxes: true,
+      targetSpendIncludesMedical: true,
+      withdrawalOrder: ["taxable"],
+      returnAssumptions: {
+        stock: { mean: 0, stdev: 0 },
+        inflation: { mean: 0, stdev: 0 }
+      },
+      aca: { enabled: false }
+    },
+    taxProfile: noTaxProfile,
+    runs: 1,
+    seed: 1
+  });
+
+  const scenario = result.scenarios[0];
+  assert.equal(scenario.success, false);
+  assert.equal(scenario.depletionYear, 2031);
+  assert.equal(scenario.depletionYearIndex, 2);
+  assert.equal(scenario.depletionAge, 61);
+});
+
 test("Roth conversion with earnings withdrawn inside five years is penalized and earnings are taxable", () => {
   const plan = simulatePlan({
     assets: [{

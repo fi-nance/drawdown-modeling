@@ -2,8 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  EXTENDED_HISTORICAL_RETURNS,
   historicalCoverageForAssetClasses,
   HISTORICAL_RETURNS,
+  HISTORICAL_DATA_SOURCE_EXTENDED,
+  historicalReturnsForDataSource,
   makeHistoricalSequences
 } from "../src/data/historicalReturns.mjs";
 
@@ -31,12 +34,46 @@ test("asset-class coverage reflects shorter TIPS and crypto histories", () => {
   assert.equal(historicalCoverageForAssetClasses(["tips", "crypto"]).startYear, 2011);
 });
 
+test("extended historical source adds reconstructed pre-1928 JST history", () => {
+  assert.equal(EXTENDED_HISTORICAL_RETURNS[0].year, 1872);
+  assert.equal(EXTENDED_HISTORICAL_RETURNS.at(-1).year, 2025);
+  assert.equal(historicalReturnsForDataSource(HISTORICAL_DATA_SOURCE_EXTENDED)[0].stock, 0.132911);
+  assert.equal(historicalReturnsForDataSource("unknown"), HISTORICAL_RETURNS);
+
+  assert.deepEqual(historicalCoverageForAssetClasses(["stock", "bond", "cash"], {
+    historicalDataSource: HISTORICAL_DATA_SOURCE_EXTENDED
+  }), {
+    startYear: 1872,
+    endYear: 2025,
+    rowCount: 154,
+    dataVersion: "2026.1",
+    dataSource: HISTORICAL_DATA_SOURCE_EXTENDED
+  });
+  assert.equal(historicalCoverageForAssetClasses(["realEstate"], {
+    historicalDataSource: HISTORICAL_DATA_SOURCE_EXTENDED
+  }).startYear, 1891);
+});
+
 test("rolling all-year backtests create every full historical window", () => {
   const sequences = makeHistoricalSequences({ planYears: 35, mode: "all" });
   assert.equal(sequences.length, 64);
   assert.equal(sequences[0].name, "1928-1962");
   assert.equal(sequences.at(-1).name, "1991-2025");
   assert.equal(sequences.at(-1).returns.at(-1).stock, 0.1778);
+});
+
+test("extended rolling backtests create pre-1928 windows when opted in", () => {
+  const sequences = makeHistoricalSequences({
+    planYears: 40,
+    mode: "all",
+    requiredAssetClasses: ["stock", "bond", "cash"],
+    historicalDataSource: HISTORICAL_DATA_SOURCE_EXTENDED
+  });
+
+  assert.equal(sequences.length, 115);
+  assert.equal(sequences[0].name, "1872-1911");
+  assert.equal(sequences[0].returns[0].stock, 0.132911);
+  assert.equal(sequences.at(-1).name, "1986-2025");
 });
 
 test("specific and chunked historical modes produce complete plan-length sequences", () => {

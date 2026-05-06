@@ -455,6 +455,13 @@
           </div>
           <div class="control-grid">
             <label>
+              <span>Historical source</span>
+              <select id="historicalDataSource">
+                <option value="modern">Modern baseline (1928-present)</option>
+                <option value="extended">Extended reconstructed (1872-present)</option>
+              </select>
+            </label>
+            <label>
               <span>Historical mode</span>
               <select id="backtestMode">
                 <option value="all">Rolling all years</option>
@@ -464,11 +471,11 @@
             </label>
             <label>
               <span>Historical start year</span>
-              <input id="historicalStartYear" type="number" min="1928" max="2025" value="1928">
+              <input id="historicalStartYear" type="number" min="1872" max="2025" value="1928">
             </label>
             <label>
               <span>Historical end year</span>
-              <input id="historicalEndYear" type="number" min="1928" max="2025" value="2025">
+              <input id="historicalEndYear" type="number" min="1872" max="2025" value="2025">
             </label>
             <label>
               <span>Chunk size years</span>
@@ -483,7 +490,7 @@
               <span>Use bond returns before TIPS history</span>
             </label>
           </div>
-          <p class="data-note">Historical datasets run through 2025 where source history exists.</p>
+          <p class="data-note">Modern baseline starts in 1928. Extended reconstructed source adds JST U.S. stock/bond/cash history from 1872 and real estate from 1891.</p>
         </section>
 
         <section class="panel plan-panel">
@@ -649,6 +656,6 @@
       </section>
     </main>
 
-    <script type="module" src="./src/v2ui-app.mjs?v=20260506-one-off-income"></script>
+    <script type="module" src="./src/v2ui-app.mjs?v=20260506-failure-detail"></script>
   </body>
 </html>

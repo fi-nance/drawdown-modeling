@@ -12,7 +12,9 @@ import { round } from "./core/utils.mjs";
 import { defaultOneOffExpenses, sampleAssets } from "./data/sample.mjs";
 import {
   assetClassesInPortfolio,
+  DEFAULT_HISTORICAL_DATA_SOURCE,
   historicalCoverageForAssetClasses,
+  HISTORICAL_DATA_SOURCE_OPTIONS,
   HISTORICAL_RETURN_DATA_VERSION,
   makeHistoricalSequences
 } from "./data/historicalReturns.mjs";
@@ -49,6 +51,7 @@ const CONTROL_IDS = [
   "runs",
   "seed",
   "targetSpend",
+  "historicalDataSource",
   "backtestMode",
   "historicalStartYear",
   "historicalEndYear",
@@ -163,6 +166,7 @@ const els = {
   runs: document.querySelector("#runs"),
   seed: document.querySelector("#seed"),
   targetSpend: document.querySelector("#targetSpend"),
+  historicalDataSource: document.querySelector("#historicalDataSource"),
   backtestMode: document.querySelector("#backtestMode"),
   historicalStartYear: document.querySelector("#historicalStartYear"),
   historicalEndYear: document.querySelector("#historicalEndYear"),
@@ -349,6 +353,7 @@ function bindEvents() {
     input.addEventListener("change", saveStoredState);
     input.addEventListener("input", saveStoredState);
   });
+  els.historicalDataSource?.addEventListener("change", resetHistoricalRangeControlsForCurrentSource);
   els.yearRange.addEventListener("input", () => {
     selectedYearIndex = Number(els.yearRange.value) - 1;
     clampSelectedYearToVisible();
@@ -849,10 +854,11 @@ function runModels() {
     const taxProfile = readTaxProfile();
     const runs = clampInteger(Number(els.runs.value), 10, 5000);
     const seed = Number(els.seed.value) || 42;
+    const historicalDataSource = readHistoricalDataSource();
     const historicalAssetClasses = assetClassesInPortfolio(assets);
     const historicalProxies = historicalProxyMapForControls(historicalAssetClasses);
-    const strictHistoricalCoverage = historicalCoverageForAssetClasses(historicalAssetClasses);
-    const historicalCoverage = historicalCoverageForAssetClasses(historicalAssetClasses, { assetClassProxies: historicalProxies });
+    const strictHistoricalCoverage = historicalCoverageForAssetClasses(historicalAssetClasses, { historicalDataSource });
+    const historicalCoverage = historicalCoverageForAssetClasses(historicalAssetClasses, { assetClassProxies: historicalProxies, historicalDataSource });
     reconcileHistoricalRangeControls({ coverage: historicalCoverage, strictCoverage: strictHistoricalCoverage, proxies: historicalProxies });
     const historicalRange = readHistoricalRange(historicalCoverage);
     const historicalSequences = makeHistoricalSequences({
@@ -862,7 +868,8 @@ function runModels() {
       endYear: historicalRange.endYear,
       chunkYears: Number(els.historicalChunkYears.value) || 10,
       requiredAssetClasses: historicalAssetClasses,
-      assetClassProxies: historicalProxies
+      assetClassProxies: historicalProxies,
+      historicalDataSource
     });
 
     setStatus("Running projections...");
@@ -872,6 +879,7 @@ function runModels() {
       historicalCoverage,
       historicalAssetClasses,
       historicalProxies,
+      historicalDataSource,
       historicalRange,
       historicalMode: els.backtestMode.value,
       plan: simulatePlan({ assets, scenario, taxProfile }),
@@ -1089,7 +1097,7 @@ function renderScenarioTable() {
     scenarioResult.success ? `<span class="positive">Yes</span>` : `<span class="negative">No</span>`,
     money(scenarioResult.endingValue, scenarioResult.years.at(-1)),
     money(scenarioResult.heirValue, scenarioResult.years.at(-1)),
-    scenarioResult.depletionYear ?? ""
+    escapeHtml(failureSummary(scenarioResult))
   ]);
 
   els.scenarioTable.innerHTML = tableHtml(
@@ -1128,8 +1136,9 @@ function renderBacktests() {
   const coverage = latest.historicalCoverage;
   const proxyNote = historicalProxyNote();
   const rangeNote = historicalRangeNote();
+  const sourceLabel = historicalDataSourceLabel();
   const note = coverage
-    ? `Historical success ${percentFormatter.format(successRate)} across ${latest.backtests.length} paths. Data version ${HISTORICAL_RETURN_DATA_VERSION}; ${coverage.startYear}-${coverage.endYear} available for this asset mix.${proxyNote}${rangeNote}`
+    ? `Historical success ${percentFormatter.format(successRate)} across ${latest.backtests.length} paths. ${sourceLabel}; data version ${HISTORICAL_RETURN_DATA_VERSION}; ${coverage.startYear}-${coverage.endYear} available for this asset mix.${proxyNote}${rangeNote}`
     : `Historical success ${percentFormatter.format(successRate)} across ${latest.backtests.length} paths.`;
   const rows = latest.backtests.map((backtest) => [
     escapeHtml(backtest.id),
@@ -1326,14 +1335,50 @@ function historicalProxyMapForControls(assetClasses = []) {
   };
 }
 
+function readHistoricalDataSource() {
+  const value = els.historicalDataSource?.value;
+  return HISTORICAL_DATA_SOURCE_OPTIONS.some((option) => option.id === value)
+    ? value
+    : DEFAULT_HISTORICAL_DATA_SOURCE;
+}
+
+function resetHistoricalRangeControlsForCurrentSource() {
+  const assetClasses = assetClassesInPortfolio(assets);
+  const proxies = historicalProxyMapForControls(assetClasses);
+  const coverage = historicalCoverageForAssetClasses(assetClasses, {
+    assetClassProxies: proxies,
+    historicalDataSource: readHistoricalDataSource()
+  });
+  if (!coverage) return;
+  updateHistoricalRangeBounds(coverage);
+  els.historicalStartYear.value = String(coverage.startYear);
+  els.historicalEndYear.value = String(coverage.endYear);
+  saveStoredState();
+}
+
 function reconcileHistoricalRangeControls({ coverage, strictCoverage, proxies }) {
-  if (!coverage || !Object.keys(proxies ?? {}).length || els.backtestMode.value !== "all") return;
+  if (!coverage) return;
+  updateHistoricalRangeBounds(coverage);
   const start = Number(els.historicalStartYear.value);
   const end = Number(els.historicalEndYear.value);
+  if (!Number.isFinite(start) || start < coverage.startYear || start > coverage.endYear) {
+    els.historicalStartYear.value = String(coverage.startYear);
+  }
+  if (!Number.isFinite(end) || end < coverage.startYear || end > coverage.endYear) {
+    els.historicalEndYear.value = String(coverage.endYear);
+  }
+  if (!Object.keys(proxies ?? {}).length || els.backtestMode.value !== "all") return;
   if (strictCoverage && start === strictCoverage.startYear && end === strictCoverage.endYear && coverage.startYear < strictCoverage.startYear) {
     els.historicalStartYear.value = String(coverage.startYear);
     els.historicalEndYear.value = String(coverage.endYear);
   }
+}
+
+function updateHistoricalRangeBounds(coverage) {
+  els.historicalStartYear.min = String(coverage.startYear);
+  els.historicalStartYear.max = String(coverage.endYear);
+  els.historicalEndYear.min = String(coverage.startYear);
+  els.historicalEndYear.max = String(coverage.endYear);
 }
 
 function readHistoricalRange(coverage) {
@@ -1352,6 +1397,12 @@ function historicalProxyNote() {
     notes.push("TIPS uses bond returns before TIPS data begins");
   }
   return notes.length ? ` ${sentenceJoin(notes)}.` : "";
+}
+
+function historicalDataSourceLabel() {
+  return HISTORICAL_DATA_SOURCE_OPTIONS.find((option) => option.id === latest?.historicalDataSource)?.label
+    ?? HISTORICAL_DATA_SOURCE_OPTIONS.find((option) => option.id === DEFAULT_HISTORICAL_DATA_SOURCE)?.label
+    ?? "Historical data";
 }
 
 function historicalRangeNote() {
@@ -1426,6 +1477,28 @@ function visibleYearsThroughFailure(years) {
 
 function firstFailureYear(years) {
   return years.find(isFailureYear)?.year ?? null;
+}
+
+function failureSummary(result) {
+  const details = depletionDetailsForResult(result);
+  if (!details?.year) return "";
+  const pieces = [];
+  if (Number.isFinite(details.yearIndex)) {
+    pieces.push(`after ${numberFormatter.format(details.yearIndex)} ${details.yearIndex === 1 ? "year" : "years"}`);
+  }
+  if (Number.isFinite(details.age)) pieces.push(`age ${ageLabel(details.age)}`);
+  return pieces.length ? `${details.year} (${pieces.join(", ")})` : String(details.year);
+}
+
+function depletionDetailsForResult(result) {
+  const matchingYear = result.years?.find((year) => year.year === result.depletionYear)
+    ?? result.years?.find(isFailureYear);
+  if (!result.depletionYear && !matchingYear) return null;
+  return {
+    year: result.depletionYear ?? matchingYear?.year,
+    yearIndex: result.depletionYearIndex ?? matchingYear?.yearIndex,
+    age: result.depletionAge ?? matchingYear?.age
+  };
 }
 
 function isFailureYear(year) {

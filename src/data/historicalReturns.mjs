@@ -25,10 +25,594 @@ export const HISTORICAL_RETURN_SOURCES = [
     name: "Coin Metrics community BTC PriceUSD",
     url: "https://community-api.coinmetrics.io/v4/timeseries/asset-metrics",
     covers: "Bitcoin daily USD prices through 2025"
+  },
+  {
+    name: "Jordà-Schularick-Taylor Macrohistory Database R6",
+    url: "https://www.macrohistory.net/database/",
+    covers: "Reconstructed U.S. equity, government bond, bill/cash, housing, and CPI history before 1928"
   }
 ];
 
 export const HISTORICAL_ASSET_CLASSES = ["stock", "bond", "cash", "realEstate", "tips", "crypto"];
+export const HISTORICAL_DATA_SOURCE_MODERN = "modern";
+export const HISTORICAL_DATA_SOURCE_EXTENDED = "extended";
+export const DEFAULT_HISTORICAL_DATA_SOURCE = HISTORICAL_DATA_SOURCE_MODERN;
+
+export const HISTORICAL_DATA_SOURCE_OPTIONS = [
+  {
+    id: HISTORICAL_DATA_SOURCE_MODERN,
+    label: "Modern baseline",
+    description: "Damodaran-based annual returns, 1928-present"
+  },
+  {
+    id: HISTORICAL_DATA_SOURCE_EXTENDED,
+    label: "Extended reconstructed",
+    description: "JST U.S. reconstructed returns before 1928, then modern baseline"
+  }
+];
+
+const JST_PRE_1928_RETURNS = [
+  {
+    year: 1872,
+    stock: 0.132911,
+    bond: 0.061485,
+    cash: 0.06,
+    realEstate: null,
+    tips: null,
+    crypto: null,
+    inflation: 0
+  },
+  {
+    year: 1873,
+    stock: -0.063116,
+    bond: 0.066279,
+    cash: 0.06,
+    realEstate: null,
+    tips: null,
+    crypto: null,
+    inflation: -0.020442
+  },
+  {
+    year: 1874,
+    stock: 0.10181,
+    bond: 0.061957,
+    cash: 0.06,
+    realEstate: null,
+    tips: null,
+    crypto: null,
+    inflation: -0.048581
+  },
+  {
+    year: 1875,
+    stock: 0.028634,
+    bond: 0.069667,
+    cash: 0.06,
+    realEstate: null,
+    tips: null,
+    crypto: null,
+    inflation: -0.036498
+  },
+  {
+    year: 1876,
+    stock: -0.112128,
+    bond: -0.012226,
+    cash: 0.06,
+    realEstate: null,
+    tips: null,
+    crypto: null,
+    inflation: -0.022765
+  },
+  {
+    year: 1877,
+    stock: -0.039106,
+    bond: -0.010722,
+    cash: 0.06,
+    realEstate: null,
+    tips: null,
+    crypto: null,
+    inflation: -0.023202
+  },
+  {
+    year: 1878,
+    stock: 0.116923,
+    bond: 0.054701,
+    cash: 0.05,
+    realEstate: null,
+    tips: null,
+    crypto: null,
+    inflation: -0.047696
+  },
+  {
+    year: 1879,
+    stock: 0.484058,
+    bond: 0.054793,
+    cash: 0.05,
+    realEstate: null,
+    tips: null,
+    crypto: null,
+    inflation: 0
+  },
+  {
+    year: 1880,
+    stock: 0.239837,
+    bond: 0.127755,
+    cash: 0.05,
+    realEstate: null,
+    tips: null,
+    crypto: null,
+    inflation: 0.025043
+  },
+  {
+    year: 1881,
+    stock: 0.083904,
+    bond: 0.021618,
+    cash: 0.04,
+    realEstate: null,
+    tips: null,
+    crypto: null,
+    inflation: 0
+  },
+  {
+    year: 1882,
+    stock: 0.024958,
+    bond: 0.065395,
+    cash: 0.04,
+    realEstate: null,
+    tips: null,
+    crypto: null,
+    inflation: 0
+  },
+  {
+    year: 1883,
+    stock: -0.02911,
+    bond: 0.051596,
+    cash: 0.04,
+    realEstate: null,
+    tips: null,
+    crypto: null,
+    inflation: -0.016222
+  },
+  {
+    year: 1884,
+    stock: -0.129213,
+    bond: 0.021898,
+    cash: 0.04,
+    realEstate: null,
+    tips: null,
+    crypto: null,
+    inflation: -0.024834
+  },
+  {
+    year: 1885,
+    stock: 0.253456,
+    bond: 0.051154,
+    cash: 0.04,
+    realEstate: null,
+    tips: null,
+    crypto: null,
+    inflation: -0.016909
+  },
+  {
+    year: 1886,
+    stock: 0.126923,
+    bond: 0.039074,
+    cash: 0.04,
+    realEstate: null,
+    tips: null,
+    crypto: null,
+    inflation: -0.025904
+  },
+  {
+    year: 1887,
+    stock: -0.021277,
+    bond: 0.013825,
+    cash: 0.04,
+    realEstate: null,
+    tips: null,
+    crypto: null,
+    inflation: 0.008829
+  },
+  {
+    year: 1888,
+    stock: 0.018975,
+    bond: 0.054683,
+    cash: 0.04,
+    realEstate: null,
+    tips: null,
+    crypto: null,
+    inflation: 0
+  },
+  {
+    year: 1889,
+    stock: 0.077821,
+    bond: 0.012131,
+    cash: 0.04,
+    realEstate: null,
+    tips: null,
+    crypto: null,
+    inflation: -0.026255
+  },
+  {
+    year: 1890,
+    stock: -0.093985,
+    bond: -0.016784,
+    cash: 0.04,
+    realEstate: null,
+    tips: null,
+    crypto: null,
+    inflation: -0.018083
+  },
+  {
+    year: 1891,
+    stock: 0.223913,
+    bond: 0.018934,
+    cash: 0.04,
+    realEstate: -0.015887,
+    tips: null,
+    crypto: null,
+    inflation: 0
+  },
+  {
+    year: 1892,
+    stock: 0.062847,
+    bond: 0.012938,
+    cash: 0.04,
+    realEstate: 0.111931,
+    tips: null,
+    crypto: null,
+    inflation: 0
+  },
+  {
+    year: 1893,
+    stock: -0.154265,
+    bond: 0.029448,
+    cash: 0.04,
+    realEstate: 0.131837,
+    tips: null,
+    crypto: null,
+    inflation: -0.009153
+  },
+  {
+    year: 1894,
+    stock: 0.022676,
+    bond: 0.055307,
+    cash: 0.04,
+    realEstate: 0.25148,
+    tips: null,
+    crypto: null,
+    inflation: -0.046299
+  },
+  {
+    year: 1895,
+    stock: 0.048837,
+    bond: 0.007256,
+    cash: 0.04,
+    realEstate: -0.022487,
+    tips: null,
+    crypto: null,
+    inflation: -0.019372
+  },
+  {
+    year: 1896,
+    stock: 0.018519,
+    bond: 0.048863,
+    cash: 0.04,
+    realEstate: -0.057084,
+    tips: null,
+    crypto: null,
+    inflation: 0
+  },
+  {
+    year: 1897,
+    stock: 0.168246,
+    bond: 0.049911,
+    cash: 0.04,
+    realEstate: 0.11639,
+    tips: null,
+    crypto: null,
+    inflation: -0.009996
+  },
+  {
+    year: 1898,
+    stock: 0.231579,
+    bond: 0.029604,
+    cash: 0.04,
+    realEstate: 0.144628,
+    tips: null,
+    crypto: null,
+    inflation: 0
+  },
+  {
+    year: 1899,
+    stock: 0.102655,
+    bond: 0.052183,
+    cash: 0.035,
+    realEstate: 0.030104,
+    tips: null,
+    crypto: null,
+    inflation: 0
+  },
+  {
+    year: 1900,
+    stock: 0.19103,
+    bond: 0.043033,
+    cash: 0.035,
+    realEstate: 0.221616,
+    tips: null,
+    crypto: null,
+    inflation: 0.010097
+  },
+  {
+    year: 1901,
+    stock: 0.203785,
+    bond: -0.001164,
+    cash: 0.04,
+    realEstate: -0.095058,
+    tips: null,
+    crypto: null,
+    inflation: 0.009877
+  },
+  {
+    year: 1902,
+    stock: 0.054088,
+    bond: 0.019456,
+    cash: 0.04,
+    realEstate: 0.209132,
+    tips: null,
+    crypto: null,
+    inflation: 0.009781
+  },
+  {
+    year: 1903,
+    stock: -0.140373,
+    bond: 0.015004,
+    cash: 0.035,
+    realEstate: 0.131457,
+    tips: null,
+    crypto: null,
+    inflation: 0.029175
+  },
+  {
+    year: 1904,
+    stock: 0.302892,
+    bond: 0.011025,
+    cash: 0.035,
+    realEstate: 0.118893,
+    tips: null,
+    crypto: null,
+    inflation: 0.009411
+  },
+  {
+    year: 1905,
+    stock: 0.196364,
+    bond: 0.022666,
+    cash: 0.04,
+    realEstate: -0.057209,
+    tips: null,
+    crypto: null,
+    inflation: -0.009324
+  },
+  {
+    year: 1906,
+    stock: 0.073375,
+    bond: 0.029605,
+    cash: 0.035,
+    realEstate: 0.264897,
+    tips: null,
+    crypto: null,
+    inflation: 0.018823
+  },
+  {
+    year: 1907,
+    stock: -0.287602,
+    bond: -0.024407,
+    cash: 0.04,
+    realEstate: -0.215645,
+    tips: null,
+    crypto: null,
+    inflation: 0.046299
+  },
+  {
+    year: 1908,
+    stock: 0.435312,
+    bond: 0.037161,
+    cash: 0.04,
+    realEstate: 0.471915,
+    tips: null,
+    crypto: null,
+    inflation: -0.017658
+  },
+  {
+    year: 1909,
+    stock: 0.189369,
+    bond: 0.012824,
+    cash: 0.04,
+    realEstate: 0.040471,
+    tips: null,
+    crypto: null,
+    inflation: -0.018083
+  },
+  {
+    year: 1910,
+    stock: -0.075728,
+    bond: 0.03598,
+    cash: 0.035,
+    realEstate: 0.147059,
+    tips: null,
+    crypto: null,
+    inflation: 0.045876
+  },
+  {
+    year: 1911,
+    stock: 0.058564,
+    bond: 0.034621,
+    cash: 0.035,
+    realEstate: 0.035547,
+    tips: null,
+    crypto: null,
+    inflation: 0
+  },
+  {
+    year: 1912,
+    stock: 0.082327,
+    bond: 0.020213,
+    cash: 0.035,
+    realEstate: 0.099416,
+    tips: null,
+    crypto: null,
+    inflation: 0.02636
+  },
+  {
+    year: 1913,
+    stock: -0.091684,
+    bond: 0.009081,
+    cash: 0.035,
+    realEstate: 0.058933,
+    tips: null,
+    crypto: null,
+    inflation: 0.017054
+  },
+  {
+    year: 1914,
+    stock: -0.033582,
+    bond: 0.010867,
+    cash: 0.035,
+    realEstate: 0.098211,
+    tips: null,
+    crypto: null,
+    inflation: 0.010101
+  },
+  {
+    year: 1915,
+    stock: 0.348299,
+    bond: 0.044905,
+    cash: 0.035,
+    realEstate: -0.027026,
+    tips: null,
+    crypto: null,
+    inflation: 0.01
+  },
+  {
+    year: 1916,
+    stock: 0.092827,
+    bond: 0.032977,
+    cash: 0.035,
+    realEstate: 0.159268,
+    tips: null,
+    crypto: null,
+    inflation: 0.079208
+  },
+  {
+    year: 1917,
+    stock: -0.235714,
+    bond: -0.014062,
+    cash: 0.04,
+    realEstate: 0.07659,
+    tips: null,
+    crypto: null,
+    inflation: 0.174312
+  },
+  {
+    year: 1918,
+    stock: 0.245588,
+    bond: 0.031293,
+    cash: 0.04,
+    realEstate: 0.120652,
+    tips: null,
+    crypto: null,
+    inflation: 0.179688
+  },
+  {
+    year: 1919,
+    stock: 0.196203,
+    bond: 0.037025,
+    cash: 0.04,
+    realEstate: 0.157877,
+    tips: null,
+    crypto: null,
+    inflation: 0.145695
+  },
+  {
+    year: 1920,
+    stock: -0.179372,
+    bond: -0.031147,
+    cash: 0.04,
+    realEstate: 0.157383,
+    tips: null,
+    crypto: null,
+    inflation: 0.156069
+  },
+  {
+    year: 1921,
+    stock: 0.140969,
+    bond: 0.123083,
+    cash: 0.04,
+    realEstate: 0.039124,
+    tips: null,
+    crypto: null,
+    inflation: -0.105
+  },
+  {
+    year: 1922,
+    stock: 0.270862,
+    bond: 0.067601,
+    cash: 0.04,
+    realEstate: 0.077934,
+    tips: null,
+    crypto: null,
+    inflation: -0.061453
+  },
+  {
+    year: 1923,
+    stock: 0.034169,
+    bond: 0.03598,
+    cash: 0.04,
+    realEstate: 0.079622,
+    tips: null,
+    crypto: null,
+    inflation: 0.017857
+  },
+  {
+    year: 1924,
+    stock: 0.252632,
+    bond: 0.064843,
+    cash: 0.04,
+    realEstate: 0.066945,
+    tips: null,
+    crypto: null,
+    inflation: 0
+  },
+  {
+    year: 1925,
+    stock: 0.285433,
+    bond: 0.035093,
+    cash: 0.04,
+    realEstate: 0.117306,
+    tips: null,
+    crypto: null,
+    inflation: 0.023392
+  },
+  {
+    year: 1926,
+    stock: 0.138042,
+    bond: 0.05292,
+    cash: 0.04,
+    realEstate: 0.021616,
+    tips: null,
+    crypto: null,
+    inflation: 0.011429
+  },
+  {
+    year: 1927,
+    stock: 0.351371,
+    bond: 0.037224,
+    cash: 0.04,
+    realEstate: 0.0239,
+    tips: null,
+    crypto: null,
+    inflation: -0.016949
+  }
+];
 
 export const HISTORICAL_RETURNS = [
   {
@@ -1013,21 +1597,31 @@ export const HISTORICAL_RETURNS = [
   }
 ];
 
+export const EXTENDED_HISTORICAL_RETURNS = [...JST_PRE_1928_RETURNS, ...HISTORICAL_RETURNS];
+
+export function historicalReturnsForDataSource(dataSource = DEFAULT_HISTORICAL_DATA_SOURCE) {
+  return normalizeHistoricalDataSource(dataSource) === HISTORICAL_DATA_SOURCE_EXTENDED
+    ? EXTENDED_HISTORICAL_RETURNS
+    : HISTORICAL_RETURNS;
+}
+
 export function makeHistoricalSequences({
   planYears = 35,
   mode = "all",
-  startYear = 1928,
-  endYear = 2025,
+  startYear = null,
+  endYear = null,
   chunkYears = 10,
   requiredAssetClasses = [],
-  assetClassProxies = {}
+  assetClassProxies = {},
+  historicalDataSource = DEFAULT_HISTORICAL_DATA_SOURCE
 } = {}) {
+  const historicalReturns = historicalReturnsForDataSource(historicalDataSource);
   const years = Math.max(1, Math.trunc(Number(planYears) || 1));
-  const start = clampYear(startYear, HISTORICAL_RETURNS[0].year, HISTORICAL_RETURNS.at(-1).year);
-  const end = clampYear(endYear, start, HISTORICAL_RETURNS.at(-1).year);
+  const start = clampYear(startYear ?? historicalReturns[0].year, historicalReturns[0].year, historicalReturns.at(-1).year);
+  const end = clampYear(endYear ?? historicalReturns.at(-1).year, start, historicalReturns.at(-1).year);
   const required = normalizeRequiredClasses(requiredAssetClasses);
   const proxies = normalizeProxyMap(assetClassProxies);
-  const rows = HISTORICAL_RETURNS
+  const rows = historicalReturns
     .filter((row) => row.year >= start && row.year <= end && supportsAssetClasses(row, required, proxies));
 
   if (!rows.length) return [];
@@ -1036,10 +1630,17 @@ export function makeHistoricalSequences({
   return rollingSequences(rows, years, proxies);
 }
 
-export function historicalCoverageForAssetClasses(requiredAssetClasses = [], { assetClassProxies = {} } = {}) {
+export function historicalCoverageForAssetClasses(
+  requiredAssetClasses = [],
+  {
+    assetClassProxies = {},
+    historicalDataSource = DEFAULT_HISTORICAL_DATA_SOURCE
+  } = {}
+) {
+  const dataSource = normalizeHistoricalDataSource(historicalDataSource);
   const required = normalizeRequiredClasses(requiredAssetClasses);
   const proxies = normalizeProxyMap(assetClassProxies);
-  const rows = HISTORICAL_RETURNS.filter((row) => supportsAssetClasses(row, required, proxies));
+  const rows = historicalReturnsForDataSource(dataSource).filter((row) => supportsAssetClasses(row, required, proxies));
   if (!rows.length) return null;
   const coverage = {
     startYear: rows[0].year,
@@ -1047,6 +1648,7 @@ export function historicalCoverageForAssetClasses(requiredAssetClasses = [], { a
     rowCount: rows.length,
     dataVersion: HISTORICAL_RETURN_DATA_VERSION
   };
+  if (dataSource !== DEFAULT_HISTORICAL_DATA_SOURCE) coverage.dataSource = dataSource;
   const appliedProxies = Object.fromEntries(Object.entries(proxies).filter(([assetClass]) => required.includes(assetClass)));
   if (Object.keys(appliedProxies).length) coverage.assetClassProxies = appliedProxies;
   return coverage;
@@ -1140,6 +1742,12 @@ function normalizeProxyMap(assetClassProxies = {}) {
       && HISTORICAL_ASSET_CLASSES.includes(target)
       && HISTORICAL_ASSET_CLASSES.includes(source)
     )));
+}
+
+function normalizeHistoricalDataSource(dataSource) {
+  return HISTORICAL_DATA_SOURCE_OPTIONS.some((option) => option.id === dataSource)
+    ? dataSource
+    : DEFAULT_HISTORICAL_DATA_SOURCE;
 }
 
 function clampYear(value, min, max) {
