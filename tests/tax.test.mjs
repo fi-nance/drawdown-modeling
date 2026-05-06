@@ -152,6 +152,26 @@ test("2026 NIIT applies to the lesser of investment income or MAGI over the thre
   assert.equal(tax.niitTax, 3040);
 });
 
+test("2026 Additional Medicare Tax applies to wage and self-employment thresholds", () => {
+  const taxProfile = buildTaxProfile({
+    taxYear: 2026,
+    filingStatus: "marriedFilingJointly",
+    state: "Florida"
+  });
+  const tax = computeIncomeTax({
+    medicareWages: 300000,
+    selfEmploymentIncome: 100000,
+    rrtaCompensation: 260000,
+    profile: taxProfile
+  });
+
+  assert.equal(tax.additionalMedicareWageBase, 50000);
+  assert.equal(tax.additionalMedicareSelfEmploymentBase, 100000);
+  assert.equal(tax.additionalMedicareRrtaBase, 10000);
+  assert.equal(tax.additionalMedicareTax, 1440);
+  assert.equal(tax.totalTax, 1440);
+});
+
 test("2026 child tax credit reduces regular federal income tax after brackets", () => {
   const taxProfile = buildTaxProfile({
     taxYear: 2026,

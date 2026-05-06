@@ -65,6 +65,12 @@ const CONTROL_IDS = [
   "acaMemberAges",
   "retirementPenaltyAge",
   "rothBasis",
+  "earlyWithdrawalPenaltyExceptionAmount",
+  "rothFiveYearRuleSatisfied",
+  "medicareWages",
+  "selfEmploymentIncome",
+  "rrtaCompensation",
+  "earnedIncomeInflationAdjusted",
   "socialSecurityAnnualBenefit",
   "socialSecurityStartAge",
   "socialSecurityInflationAdjusted",
@@ -120,6 +126,7 @@ const CONTROL_IDS = [
   "rothAmount",
   "rothTargetRate",
   "oneOffName",
+  "oneOffType",
   "oneOffStart",
   "oneOffEnd",
   "oneOffAmount",
@@ -172,6 +179,12 @@ const els = {
   acaMemberAges: document.querySelector("#acaMemberAges"),
   retirementPenaltyAge: document.querySelector("#retirementPenaltyAge"),
   rothBasis: document.querySelector("#rothBasis"),
+  earlyWithdrawalPenaltyExceptionAmount: document.querySelector("#earlyWithdrawalPenaltyExceptionAmount"),
+  rothFiveYearRuleSatisfied: document.querySelector("#rothFiveYearRuleSatisfied"),
+  medicareWages: document.querySelector("#medicareWages"),
+  selfEmploymentIncome: document.querySelector("#selfEmploymentIncome"),
+  rrtaCompensation: document.querySelector("#rrtaCompensation"),
+  earnedIncomeInflationAdjusted: document.querySelector("#earnedIncomeInflationAdjusted"),
   socialSecurityAnnualBenefit: document.querySelector("#socialSecurityAnnualBenefit"),
   socialSecurityStartAge: document.querySelector("#socialSecurityStartAge"),
   socialSecurityInflationAdjusted: document.querySelector("#socialSecurityInflationAdjusted"),
@@ -232,6 +245,7 @@ const els = {
   rothAmount: document.querySelector("#rothAmount"),
   rothTargetRate: document.querySelector("#rothTargetRate"),
   oneOffName: document.querySelector("#oneOffName"),
+  oneOffType: document.querySelector("#oneOffType"),
   oneOffStart: document.querySelector("#oneOffStart"),
   oneOffEnd: document.querySelector("#oneOffEnd"),
   oneOffAmount: document.querySelector("#oneOffAmount"),
@@ -464,8 +478,10 @@ function bindEvents() {
   });
 
   els.addOneOff.addEventListener("click", () => {
+    const cashFlowType = normalizedOneOffCashFlowType(els.oneOffType.value);
     oneOffExpenses.push({
-      name: els.oneOffName.value || "One-off expense",
+      name: els.oneOffName.value || oneOffDefaultName(cashFlowType),
+      cashFlowType,
       startYear: Number(els.oneOffStart.value),
       endYear: Number(els.oneOffEnd.value),
       amount: Number(els.oneOffAmount.value),
@@ -952,7 +968,7 @@ function acaPlanLabel(year) {
 
 function renderYearTable() {
   const years = activeVisibleYears();
-  const headers = ["Year", "Age", "Stock", "Bond", "Real estate", "TIPS", "Crypto", "Inflation", "Start value", "End value", "Sales / withdrawals", "Dividends", "Social Security", "RMD", "Total cash", "Total need", "Tax", "Fed income tax", "CG/QD tax", "NIIT", "Credits", "State tax", "MAGI", "Taxable SS", "65+ deduction", "CTC children", "ACA plan", "ACA SLCSP", "ACA gross", "ACA subsidy", "ACA net", "Medicare", "Spend", "Medical", "Tax gain harvest", "Roth conv.", "Roth basis left", "Penalty", "Loss carry"];
+  const headers = ["Year", "Age", "Stock", "Bond", "Real estate", "TIPS", "Crypto", "Inflation", "Start value", "End value", "Sales / withdrawals", "Dividends", "Social Security", "Earned income", "One-off income", "RMD", "Total cash", "Total need", "Tax", "Fed income tax", "CG/QD tax", "NIIT", "Addl Medicare", "Credits", "State tax", "MAGI", "Taxable SS", "65+ deduction", "CTC children", "ACA plan", "ACA SLCSP", "ACA gross", "ACA subsidy", "ACA net", "Medicare", "Spend", "Medical", "Tax gain harvest", "Roth conv.", "Roth basis left", "Penalty", "Loss carry"];
   const rows = years.map((year) => [
     year.year,
     ageLabel(year.age),
@@ -967,6 +983,8 @@ function renderYearTable() {
     money(year.cashRaised, year),
     money(year.taxableDividendsCash ?? 0, year),
     money(year.socialSecurityBenefits ?? 0, year),
+    money(year.earnedIncome ?? 0, year),
+    money(year.oneOffIncome ?? 0, year),
     money(year.rmdAmount ?? 0, year),
     money(year.cashAvailable ?? ((year.cashRaised ?? 0) + (year.taxableDividendsCash ?? 0)), year),
     money(year.totalCashRequired ?? ((year.plannedSpending ?? 0) + (year.medicalCost ?? 0) + (year.taxes?.totalTax ?? 0)), year),
@@ -974,6 +992,7 @@ function renderYearTable() {
     money(year.taxes.federalIncomeTax ?? year.taxes.incomeTax ?? 0, year),
     money(year.taxes.federalPreferentialTax ?? 0, year),
     money(year.taxes.niitTax ?? 0, year),
+    money(year.taxes.additionalMedicareTax ?? 0, year),
     money(year.taxes.federalCreditsUsed ?? 0, year),
     money(year.taxes.stateTax ?? 0, year),
     money(year.magi, year),
@@ -1196,6 +1215,26 @@ function renderActionPlan() {
     ]);
   }
 
+  if ((year.earnedIncome ?? 0) > 0) {
+    rows.push([
+      "Receive earned income",
+      money(year.earnedIncome, year),
+      "Earned income",
+      `${money(year.taxes?.additionalMedicareTax ?? 0, year)} Additional Medicare Tax; ${money(taxAttributionFor(year, "Earned income"), year)} estimated tax share`,
+      "Counts as ordinary income and cash available for this year."
+    ]);
+  }
+
+  if ((year.oneOffIncome ?? 0) > 0) {
+    rows.push([
+      "Receive one-off income",
+      money(year.oneOffIncome, year),
+      "One-off income",
+      `${money(taxAttributionFor(year, "One-off income"), year)} estimated tax share`,
+      "Adds outside cash for the configured year range before selling portfolio assets."
+    ]);
+  }
+
   if ((year.taxGainHarvested ?? 0) > 0) {
     rows.push([
       "Harvest taxable gains",
@@ -1242,7 +1281,7 @@ function renderActionPlan() {
       "Reserve for taxes",
       money(year.taxes.totalTax, year),
       "Spending reserve",
-      `${money(year.taxes.federalIncomeTax ?? 0, year)} federal; ${money(year.taxes.stateTax ?? 0, year)} state; ${money(year.taxes.niitTax ?? 0, year)} NIIT`,
+      `${money(year.taxes.federalIncomeTax ?? 0, year)} federal; ${money(year.taxes.stateTax ?? 0, year)} state; ${money(year.taxes.niitTax ?? 0, year)} NIIT; ${money(year.taxes.additionalMedicareTax ?? 0, year)} Additional Medicare`,
       "Includes estimated income taxes and any early-withdrawal penalties."
     ]);
   }
@@ -1507,7 +1546,7 @@ function renderAssetTable() {
 
 function renderOneOffs() {
   if (!oneOffExpenses.length) {
-    els.oneOffList.innerHTML = `<p class="empty-state">No one-off expenses.</p>`;
+    els.oneOffList.innerHTML = `<p class="empty-state">No one-off cash flows.</p>`;
     return;
   }
 
@@ -1515,7 +1554,7 @@ function renderOneOffs() {
     <div class="one-off-item">
       <div>
         <strong>${escapeHtml(expense.name)}</strong>
-        <span>Years ${expense.startYear}-${expense.endYear}, ${moneyFormatter.format(expense.amount)}, ${expense.inflationAdjusted ? "inflation adjusted" : "fixed"}</span>
+        <span>${oneOffTypeLabel(expense.cashFlowType)}; years ${expense.startYear}-${expense.endYear}, ${moneyFormatter.format(expense.amount)}, ${expense.inflationAdjusted ? "inflation adjusted" : "fixed"}</span>
       </div>
       <button type="button" data-remove-one-off="${index}">Remove</button>
     </div>
@@ -1528,6 +1567,31 @@ function renderOneOffs() {
       saveStoredState();
     });
   });
+}
+
+function normalizedOneOffCashFlowType(type) {
+  return [
+    "taxableOrdinaryIncome",
+    "taxFreeIncome",
+    "medicareWages",
+    "selfEmploymentIncome",
+    "rrtaCompensation"
+  ].includes(type) ? type : "expense";
+}
+
+function oneOffTypeLabel(type) {
+  return {
+    expense: "Expense",
+    taxableOrdinaryIncome: "Taxable ordinary income",
+    taxFreeIncome: "Tax-free income",
+    medicareWages: "Medicare wages",
+    selfEmploymentIncome: "Self-employment income",
+    rrtaCompensation: "RRTA compensation"
+  }[normalizedOneOffCashFlowType(type)];
+}
+
+function oneOffDefaultName(type) {
+  return normalizedOneOffCashFlowType(type) === "expense" ? "One-off expense" : "One-off income";
 }
 
 function drawTimeline() {
@@ -1818,7 +1882,8 @@ function taxPaymentNodeDetails(year) {
     ...taxBracketDetailLines(taxes.federalOrdinaryBracketDetails, year, "ordinary"),
     `Capital gains / qualified dividends: ${money(taxes.federalPreferentialTax ?? 0, year)}`,
     ...taxBracketDetailLines(taxes.federalPreferentialBracketDetails, year, "capital gains"),
-    `NIIT: ${money(taxes.niitTax ?? 0, year)}`
+    `NIIT: ${money(taxes.niitTax ?? 0, year)}`,
+    `Additional Medicare Tax: ${money(taxes.additionalMedicareTax ?? 0, year)}`
   ];
   if ((taxes.federalCreditsUsed ?? 0) > 0) {
     lines.push(`Federal credits used: -${money(taxes.federalCreditsUsed, year)}`);
@@ -1843,6 +1908,8 @@ function portfolioFlowsForYear(year) {
   const withdrawals = adjustAmount(year.cashRaised ?? 0, year);
   const dividends = adjustAmount(year.taxableDividendsCash ?? 0, year);
   const socialSecurity = adjustAmount(year.socialSecurityBenefits ?? 0, year);
+  const earnedIncome = adjustAmount(year.earnedIncome ?? 0, year);
+  const oneOffIncome = adjustAmount(year.oneOffIncome ?? 0, year);
   const unspent = adjustAmount(year.unspentCash ?? 0, year);
   const spending = adjustAmount(year.plannedSpending ?? 0, year);
   const medical = adjustAmount(year.medicalCost ?? 0, year);
@@ -1851,7 +1918,7 @@ function portfolioFlowsForYear(year) {
   const totalReturn = ending + withdrawals - beginning - unspent;
   const marketGains = Math.max(0, totalReturn);
   const marketLosses = Math.max(0, -totalReturn);
-  const reserveInflow = withdrawals + dividends + socialSecurity;
+  const reserveInflow = withdrawals + dividends + socialSecurity + earnedIncome + oneOffIncome;
   const reserveOutflow = spending + medical + taxes + penalties;
   const flows = [
     { from: "Starting balance", to: "Portfolio after returns", amount: beginning, type: "balance" }
@@ -1862,6 +1929,8 @@ function portfolioFlowsForYear(year) {
   if (withdrawals > 0) flows.push({ from: "Portfolio after returns", to: "Yearly cash flow", amount: withdrawals, type: "withdrawal" });
   if (dividends > 0) flows.push({ from: "Taxable dividends", to: "Yearly cash flow", amount: dividends, type: "income" });
   if (socialSecurity > 0) flows.push({ from: "Social Security", to: "Yearly cash flow", amount: socialSecurity, type: "income" });
+  if (earnedIncome > 0) flows.push({ from: "Earned income", to: "Yearly cash flow", amount: earnedIncome, type: "income" });
+  if (oneOffIncome > 0) flows.push({ from: "One-off income", to: "Yearly cash flow", amount: oneOffIncome, type: "income" });
   if (spending > 0) flows.push({ from: "Yearly cash flow", to: "Lifestyle and one-off spending", amount: spending, type: "spending" });
   if (medical > 0) flows.push({ from: "Yearly cash flow", to: "Medical", amount: medical, type: "medical" });
   if (taxes > 0) flows.push({ from: "Yearly cash flow", to: "Tax payment", amount: taxes, type: "tax" });
@@ -1975,6 +2044,12 @@ function readScenario() {
     spouseAge,
     retirementPenaltyAge: Number(els.retirementPenaltyAge.value) || DEFAULT_SCENARIO.retirementPenaltyAge,
     rothBasis: Number(els.rothBasis.value) || 0,
+    earlyWithdrawalPenaltyExceptionAmount: numberOrNull(els.earlyWithdrawalPenaltyExceptionAmount.value) ?? 0,
+    rothFiveYearRuleSatisfied: els.rothFiveYearRuleSatisfied.checked,
+    medicareWages: Number(els.medicareWages.value) || 0,
+    selfEmploymentIncome: Number(els.selfEmploymentIncome.value) || 0,
+    rrtaCompensation: Number(els.rrtaCompensation.value) || 0,
+    earnedIncomeInflationAdjusted: els.earnedIncomeInflationAdjusted.checked,
     socialSecurityAnnualBenefit: Number(els.socialSecurityAnnualBenefit.value) || 0,
     socialSecurityStartAge: Number(els.socialSecurityStartAge.value) || DEFAULT_SCENARIO.socialSecurityStartAge,
     socialSecurityInflationAdjusted: els.socialSecurityInflationAdjusted.checked,

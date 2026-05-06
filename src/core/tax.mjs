@@ -50,6 +50,9 @@ export function computeIncomeTax({
   qualifiedDividends = 0,
   ordinaryInvestmentIncome = 0,
   taxableSocialSecurity = 0,
+  medicareWages = 0,
+  selfEmploymentIncome = 0,
+  rrtaCompensation = 0,
   capitalLosses = 0,
   capitalLossCarryforward = 0,
   profile = DEFAULT_TAX_PROFILE
@@ -105,6 +108,12 @@ export function computeIncomeTax({
     longTermCapitalGains: longGains,
     profile
   });
+  const additionalMedicare = computeAdditionalMedicareTax({
+    medicareWages,
+    selfEmploymentIncome,
+    rrtaCompensation,
+    profile
+  });
   const childTaxCredit = computeChildTaxCredit({
     magi,
     profile
@@ -127,6 +136,9 @@ export function computeIncomeTax({
     retirementOrdinaryIncome: round(retirementOrdinaryIncome, 6),
     ordinaryInvestmentIncome: round(ordinaryInvestmentIncome, 6),
     taxableSocialSecurity: round(taxableSocialSecurity, 6),
+    medicareWages: round(medicareWages, 6),
+    selfEmploymentIncome: round(selfEmploymentIncome, 6),
+    rrtaCompensation: round(rrtaCompensation, 6),
     shortTermCapitalGains: round(shortTermCapitalGains, 6),
     longTermCapitalGains: round(longTermCapitalGains, 6),
     qualifiedDividends: round(qualifiedDividends, 6),
@@ -145,8 +157,14 @@ export function computeIncomeTax({
     federalCreditsUsed,
     federalIncomeTax,
     niitTax,
+    additionalMedicareTax: additionalMedicare.tax,
+    additionalMedicareTaxBase: additionalMedicare.taxBase,
+    additionalMedicareWageBase: additionalMedicare.wageBase,
+    additionalMedicareSelfEmploymentBase: additionalMedicare.selfEmploymentBase,
+    additionalMedicareRrtaBase: additionalMedicare.rrtaBase,
+    additionalMedicareThreshold: additionalMedicare.threshold,
     stateTax,
-    totalTax: round(federalIncomeTax + niitTax + stateTax, 6),
+    totalTax: round(federalIncomeTax + niitTax + additionalMedicare.tax + stateTax, 6),
     lossCarryforward: round(lossPool, 6)
   };
 }
@@ -220,6 +238,44 @@ function computeNiit({
       + Math.max(0, longTermCapitalGains)
   );
   return round(Math.min(netInvestmentIncome, excessMagi) * (config.rate ?? 0), 6);
+}
+
+function computeAdditionalMedicareTax({
+  medicareWages = 0,
+  selfEmploymentIncome = 0,
+  rrtaCompensation = 0,
+  profile
+}) {
+  const config = profile.additionalMedicareTax;
+  if (!config) {
+    return {
+      tax: 0,
+      taxBase: 0,
+      wageBase: 0,
+      selfEmploymentBase: 0,
+      rrtaBase: 0,
+      threshold: Infinity
+    };
+  }
+  const threshold = config.thresholds?.[profile.filingStatus] ?? Infinity;
+  const rate = config.rate ?? 0;
+  const wages = Math.max(0, medicareWages);
+  const selfEmployment = Math.max(0, selfEmploymentIncome);
+  const rrta = Math.max(0, rrtaCompensation);
+  const wageBase = Math.max(0, wages - threshold);
+  const selfEmploymentThreshold = Math.max(0, threshold - wages);
+  const selfEmploymentBase = Math.max(0, selfEmployment - selfEmploymentThreshold);
+  const rrtaBase = Math.max(0, rrta - threshold);
+  const taxBase = round(wageBase + selfEmploymentBase + rrtaBase, 6);
+
+  return {
+    tax: round(taxBase * rate, 6),
+    taxBase,
+    wageBase: round(wageBase, 6),
+    selfEmploymentBase: round(selfEmploymentBase, 6),
+    rrtaBase: round(rrtaBase, 6),
+    threshold: Number.isFinite(threshold) ? round(threshold, 6) : Infinity
+  };
 }
 
 function computeChildTaxCredit({ magi, profile }) {

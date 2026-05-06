@@ -4,10 +4,20 @@ import test from "node:test";
 import { runMonteCarlo, simulatePlan, runHistoricalBacktests } from "../src/core/simulation.mjs";
 
 const noTaxProfile = {
+  filingStatus: "marriedFilingJointly",
   standardDeduction: 0,
   capitalLossOrdinaryIncomeOffset: 3000,
   ordinaryBrackets: [{ upTo: Infinity, rate: 0 }],
   capitalGainsBrackets: [{ upTo: Infinity, rate: 0 }],
+  additionalMedicareTax: {
+    rate: 0.009,
+    thresholds: {
+      single: 200000,
+      marriedFilingJointly: 250000,
+      marriedFilingSeparately: 125000,
+      headOfHousehold: 200000
+    }
+  },
   state: {
     standardDeduction: 0,
     brackets: [{ upTo: Infinity, rate: 0 }],
@@ -79,6 +89,33 @@ test("taxes can remain inside target spend when configured that way", () => {
 
   assert.equal(Math.round(plan.years[0].cashRaised), 100);
   assert.equal(Math.round(plan.years[0].taxes.totalTax), 10);
+});
+
+test("earned income creates cash, MAGI, and Additional Medicare Tax", () => {
+  const plan = simulatePlan({
+    assets: [],
+    scenario: {
+      planYears: 1,
+      targetSpend: 0,
+      targetSpendIncludesTaxes: false,
+      targetSpendIncludesMedical: true,
+      medicareWages: 300000,
+      earnedIncomeInflationAdjusted: false,
+      rothConversion: { enabled: false },
+      aca: { enabled: false }
+    },
+    taxProfile: noTaxProfile,
+    returnSequence: [{}],
+    inflationSequence: [0]
+  });
+
+  assert.equal(plan.years[0].earnedIncome, 300000);
+  assert.equal(plan.years[0].cashAvailable, 300000);
+  assert.equal(plan.years[0].magi, 300000);
+  assert.equal(plan.years[0].taxes.additionalMedicareTax, 450);
+  assert.equal(plan.years[0].taxes.totalTax, 450);
+  assert.equal(Math.round(plan.endingValue), 299550);
+  assert.ok(plan.years[0].taxAttribution.some((item) => item.source === "Earned income"));
 });
 
 test("yearly cash audit distinguishes withdrawals from taxable dividend cash", () => {
@@ -307,6 +344,41 @@ test("traditional early withdrawals create ordinary income and a 10 percent pena
   assert.equal(Math.round(plan.years[0].taxes.totalTax), 20);
 });
 
+test("annual early-withdrawal penalty exceptions reduce the penalty base", () => {
+  const plan = simulatePlan({
+    assets: [{
+      id: "ira",
+      accountType: "traditional",
+      assetClass: "bond",
+      units: 1000,
+      price: 1,
+      costBasisPerUnit: 1
+    }],
+    scenario: {
+      planYears: 1,
+      targetSpend: 100,
+      targetSpendIncludesTaxes: true,
+      targetSpendIncludesMedical: true,
+      withdrawalOrder: ["traditional"],
+      currentAge: 50,
+      earlyWithdrawalPenaltyExceptionAmount: 60,
+      returnAssumptions: { bond: { mean: 0, stdev: 0 } },
+      rothConversion: { enabled: false },
+      aca: { enabled: false }
+    },
+    taxProfile: flatOrdinaryTaxProfile,
+    returnSequence: [{ bond: 0 }],
+    inflationSequence: [0]
+  });
+
+  assert.equal(Math.round(plan.years[0].cashRaised), 100);
+  assert.equal(Math.round(plan.years[0].taxes.incomeTax), 10);
+  assert.equal(Math.round(plan.years[0].penaltyBase), 40);
+  assert.equal(Math.round(plan.years[0].penaltyExceptionUsed), 60);
+  assert.equal(Math.round(plan.years[0].penaltyTax), 4);
+  assert.equal(Math.round(plan.years[0].taxes.totalTax), 14);
+});
+
 test("Roth contribution basis is tax-free and penalty-free before penalty-free age", () => {
   const plan = simulatePlan({
     assets: [{
@@ -345,6 +417,72 @@ test("Roth contribution basis is tax-free and penalty-free before penalty-free a
     amount: 100,
     type: "withdrawal"
   }]);
+});
+
+test("Roth earnings after penalty-free age stay taxable when the five-year rule is not met", () => {
+  const plan = simulatePlan({
+    assets: [{
+      id: "roth",
+      accountType: "roth",
+      assetClass: "stock",
+      units: 100,
+      price: 2,
+      costBasisPerUnit: 1
+    }],
+    scenario: {
+      planYears: 1,
+      targetSpend: 200,
+      targetSpendIncludesTaxes: true,
+      targetSpendIncludesMedical: true,
+      withdrawalOrder: ["roth"],
+      currentAge: 60,
+      rothBasis: 100,
+      rothFiveYearRuleSatisfied: false,
+      returnAssumptions: { stock: { mean: 0, stdev: 0 } },
+      rothConversion: { enabled: false },
+      aca: { enabled: false }
+    },
+    taxProfile: flatOrdinaryTaxProfile,
+    returnSequence: [{ stock: 0 }],
+    inflationSequence: [0]
+  });
+
+  assert.equal(Math.round(plan.years[0].rothBasisUsed), 100);
+  assert.equal(Math.round(plan.years[0].magi), 100);
+  assert.equal(Math.round(plan.years[0].penaltyTax), 0);
+  assert.equal(Math.round(plan.years[0].taxes.totalTax), 10);
+});
+
+test("Roth withdrawals after penalty-free age default to qualified distributions", () => {
+  const plan = simulatePlan({
+    assets: [{
+      id: "roth",
+      accountType: "roth",
+      assetClass: "stock",
+      units: 100,
+      price: 2,
+      costBasisPerUnit: 1
+    }],
+    scenario: {
+      planYears: 1,
+      targetSpend: 200,
+      targetSpendIncludesTaxes: true,
+      targetSpendIncludesMedical: true,
+      withdrawalOrder: ["roth"],
+      currentAge: 60,
+      rothBasis: 0,
+      returnAssumptions: { stock: { mean: 0, stdev: 0 } },
+      rothConversion: { enabled: false },
+      aca: { enabled: false }
+    },
+    taxProfile: flatOrdinaryTaxProfile,
+    returnSequence: [{ stock: 0 }],
+    inflationSequence: [0]
+  });
+
+  assert.equal(Math.round(plan.years[0].magi), 0);
+  assert.equal(Math.round(plan.years[0].taxes.totalTax), 0);
+  assert.equal(plan.years[0].rothFiveYearRuleSatisfied, true);
 });
 
 test("Roth basis is preserved when modeled savings are below the hurdle", () => {
@@ -637,6 +775,68 @@ test("one-off expenses can be inflation adjusted by year", () => {
   });
 
   assert.equal(plan.years[1].plannedSpending, 110);
+});
+
+test("one-off taxable income adds cash and MAGI for the configured years", () => {
+  const plan = simulatePlan({
+    assets: [],
+    scenario: {
+      planYears: 3,
+      targetSpend: 0,
+      targetSpendIncludesTaxes: false,
+      targetSpendIncludesMedical: true,
+      oneOffExpenses: [{
+        name: "Consulting",
+        cashFlowType: "taxableOrdinaryIncome",
+        startYear: 1,
+        endYear: 2,
+        amount: 100,
+        inflationAdjusted: false
+      }],
+      rothConversion: { enabled: false },
+      aca: { enabled: false }
+    },
+    taxProfile: flatOrdinaryTaxProfile,
+    returnSequence: [{}, {}, {}],
+    inflationSequence: [0, 0, 0]
+  });
+
+  assert.equal(plan.years[0].oneOffIncome, 100);
+  assert.equal(plan.years[0].magi, 100);
+  assert.equal(plan.years[0].taxes.totalTax, 10);
+  assert.equal(plan.years[1].oneOffIncome, 100);
+  assert.equal(plan.years[2].oneOffIncome, 0);
+  assert.ok(plan.years[0].taxAttribution.some((item) => item.source === "One-off income"));
+});
+
+test("one-off tax-free income adds cash without MAGI", () => {
+  const plan = simulatePlan({
+    assets: [],
+    scenario: {
+      planYears: 1,
+      targetSpend: 0,
+      targetSpendIncludesTaxes: false,
+      targetSpendIncludesMedical: true,
+      oneOffExpenses: [{
+        name: "Gift",
+        cashFlowType: "taxFreeIncome",
+        startYear: 1,
+        endYear: 1,
+        amount: 100,
+        inflationAdjusted: false
+      }],
+      rothConversion: { enabled: false },
+      aca: { enabled: false }
+    },
+    taxProfile: flatOrdinaryTaxProfile,
+    returnSequence: [{}],
+    inflationSequence: [0]
+  });
+
+  assert.equal(plan.years[0].oneOffIncome, 100);
+  assert.equal(plan.years[0].magi, 0);
+  assert.equal(plan.years[0].taxes.totalTax, 0);
+  assert.equal(Math.round(plan.endingValue), 100);
 });
 
 test("ACA premiums age-rate by simulated year on top of inflation", () => {

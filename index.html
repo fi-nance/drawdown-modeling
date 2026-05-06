@@ -50,12 +50,12 @@
             <p class="setup-group-label">File import</p>
             <div class="control-grid">
               <label class="file-control">
-                <span>JSON file</span>
-                <input id="jsonFile" type="file" accept="application/json,.json">
-              </label>
-              <label class="file-control">
                 <span>CSV file</span>
                 <input id="csvFile" type="file" accept="text/csv,.csv">
+              </label>
+              <label class="file-control">
+                <span>JSON file</span>
+                <input id="jsonFile" type="file" accept="application/json,.json">
               </label>
             </div>
             <div class="button-row">
@@ -182,6 +182,10 @@
               <input id="rothBasis" type="number" min="0" step="1000" value="60000">
             </label>
             <label>
+              <span>Annual penalty exception</span>
+              <input id="earlyWithdrawalPenaltyExceptionAmount" type="number" min="0" step="500" value="0">
+            </label>
+            <label>
               <span>Expected OOP max used %</span>
               <input id="expectedOopPercent" type="number" min="0" max="100" step="5" value="25">
             </label>
@@ -197,6 +201,10 @@
           <label class="check-row">
             <input id="acaEnabled" type="checkbox" checked>
             <span>ACA marketplace coverage</span>
+          </label>
+          <label class="check-row">
+            <input id="rothFiveYearRuleSatisfied" type="checkbox" checked>
+            <span>Roth five-year rule satisfied</span>
           </label>
           <details class="advanced">
             <summary>Advanced overrides</summary>
@@ -307,6 +315,22 @@
               </label>
               <div id="acaPlanLookupStatus" class="status" role="status" aria-live="polite">ACA plan helper ready.</div>
               <div id="marketplacePlanResults" class="span-full"></div>
+              <label>
+                <span>Medicare wages</span>
+                <input id="medicareWages" type="number" min="0" step="1000" value="0">
+              </label>
+              <label>
+                <span>Self-employment income</span>
+                <input id="selfEmploymentIncome" type="number" min="0" step="1000" value="0">
+              </label>
+              <label>
+                <span>RRTA compensation</span>
+                <input id="rrtaCompensation" type="number" min="0" step="1000" value="0">
+              </label>
+              <label class="check-row">
+                <input id="earnedIncomeInflationAdjusted" type="checkbox" checked>
+                <span>Inflation-adjust earned income</span>
+              </label>
               <label>
                 <span>Social Security annual benefit</span>
                 <input id="socialSecurityAnnualBenefit" type="number" min="0" step="1000" value="0">
@@ -487,6 +511,17 @@
               <input id="oneOffName" type="text" value="New car">
             </label>
             <label>
+              <span>Type</span>
+              <select id="oneOffType">
+                <option value="expense">Expense</option>
+                <option value="taxableOrdinaryIncome">Taxable ordinary income</option>
+                <option value="taxFreeIncome">Tax-free income</option>
+                <option value="medicareWages">Medicare wages</option>
+                <option value="selfEmploymentIncome">Self-employment income</option>
+                <option value="rrtaCompensation">RRTA compensation</option>
+              </select>
+            </label>
+            <label>
               <span>Start year</span>
               <input id="oneOffStart" type="number" min="1" value="7">
             </label>
@@ -586,6 +621,6 @@
       </section>
     </main>
 
-    <script type="module" src="./src/app.mjs?v=20260505-sankey-tax-roth-basis-hover"></script>
+    <script type="module" src="./src/app.mjs?v=20260506-one-off-income"></script>
   </body>
 </html>

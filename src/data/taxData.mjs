@@ -30,6 +30,16 @@ export const FEDERAL_TAX_2026 = {
     },
     source: "IRS Net Investment Income Tax thresholds are statutory and not indexed for inflation."
   },
+  additionalMedicareTax: {
+    rate: 0.009,
+    thresholds: {
+      single: 200000,
+      marriedFilingJointly: 250000,
+      marriedFilingSeparately: 125000,
+      headOfHousehold: 200000
+    },
+    source: "IRS Topic 560; thresholds are statutory and not indexed for inflation."
+  },
   childTaxCredit: {
     perChild: 2200,
     refundablePerChild: 1700,
@@ -234,6 +244,7 @@ export function buildFederalTaxProfile({
     ordinaryBrackets: data.ordinaryBrackets[status],
     capitalGainsBrackets: data.capitalGainsBrackets[status],
     niit: data.niit,
+    additionalMedicareTax: data.additionalMedicareTax,
     childTaxCredit: data.childTaxCredit,
     additionalStandardDeduction65: data.additionalStandardDeduction65,
     socialSecurityTaxation: data.socialSecurityTaxation,
