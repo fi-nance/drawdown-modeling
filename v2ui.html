@@ -497,6 +497,13 @@
           <div class="panel-heading">
             <h2>Strategies</h2>
           </div>
+          <label>
+            <span>Withdrawal strategy</span>
+            <select id="withdrawalStrategyMode">
+              <option value="heuristic">Current heuristic</option>
+              <option value="lifetime">Lifetime optimizer</option>
+            </select>
+          </label>
           <label class="check-row">
             <input id="taxLossHarvesting" type="checkbox" checked>
             <span>Tax loss harvesting</span>
@@ -510,7 +517,7 @@
             <span>Roth conversions</span>
           </label>
           <div class="strategy-summary">
-            <span>Harvesting and conversions resolve automatically against the 2026 federal, state, and ACA thresholds.</span>
+            <span>Lifetime optimizer tests alternate withdrawal sources, MAGI thresholds, expected-return sale costs, and forward-looking gain/conversion room.</span>
           </div>
           <details class="advanced">
             <summary>Strategy overrides</summary>
@@ -656,6 +663,6 @@
       </section>
     </main>
 
-    <script type="module" src="./src/v2ui-app.mjs?v=20260506-failure-detail"></script>
+    <script type="module" src="./src/v2ui-app.mjs?v=20260506-lifetime-optimizer"></script>
   </body>
 </html>

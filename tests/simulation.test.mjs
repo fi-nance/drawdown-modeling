@@ -673,6 +673,103 @@ test("early Roth basis withdrawals sell low-return Roth assets before growth ass
   assert.equal(plan.years[0].rothBasisOptimization.accepted, true);
 });
 
+test("lifetime optimizer sells lower expected return taxable assets first", () => {
+  const plan = simulatePlan({
+    assets: [{
+      id: "stock-growth",
+      accountType: "taxable",
+      assetClass: "stock",
+      holdingPeriod: "long",
+      units: 100,
+      price: 100,
+      costBasisPerUnit: 100
+    }, {
+      id: "bond-low-return",
+      accountType: "taxable",
+      assetClass: "bond",
+      holdingPeriod: "long",
+      units: 100,
+      price: 100,
+      costBasisPerUnit: 100
+    }],
+    scenario: {
+      planYears: 1,
+      targetSpend: 1000,
+      targetSpendIncludesTaxes: true,
+      targetSpendIncludesMedical: true,
+      withdrawalOrder: ["taxable"],
+      withdrawalStrategy: { mode: "lifetime" },
+      taxGainHarvesting: { enabled: false },
+      taxLossHarvesting: { enabled: false },
+      rothConversion: { enabled: false },
+      returnAssumptions: {
+        stock: { mean: 0.08, stdev: 0 },
+        bond: { mean: 0.02, stdev: 0 }
+      },
+      aca: { enabled: false }
+    },
+    taxProfile: noTaxProfile,
+    returnSequence: [{ stock: 0, bond: 0 }],
+    inflationSequence: [0]
+  });
+
+  assert.equal(plan.years[0].sales[0].assetId, "bond-low-return");
+});
+
+test("lifetime optimizer can harvest gains beyond the zero percent bracket", () => {
+  const gainProfile = {
+    ...noTaxProfile,
+    capitalGainsBrackets: [
+      { upTo: 0, rate: 0 },
+      { upTo: 10000, rate: 0.15 },
+      { upTo: Infinity, rate: 0.2 }
+    ],
+    niit: {
+      rate: 0.038,
+      thresholds: { marriedFilingJointly: 250000 }
+    }
+  };
+  const input = {
+    assets: [{
+      id: "taxable-gain",
+      accountType: "taxable",
+      assetClass: "stock",
+      holdingPeriod: "long",
+      units: 100,
+      price: 200,
+      costBasisPerUnit: 100
+    }],
+    scenario: {
+      planYears: 1,
+      targetSpend: 0,
+      targetSpendIncludesTaxes: true,
+      targetSpendIncludesMedical: true,
+      withdrawalOrder: ["taxable"],
+      taxGainHarvesting: { enabled: true, mode: "auto" },
+      taxLossHarvesting: { enabled: false },
+      rothConversion: { enabled: false },
+      returnAssumptions: { stock: { mean: 0, stdev: 0 } },
+      aca: { enabled: false }
+    },
+    taxProfile: gainProfile,
+    returnSequence: [{ stock: 0 }],
+    inflationSequence: [0]
+  };
+
+  const heuristic = simulatePlan(input);
+  const optimized = simulatePlan({
+    ...input,
+    scenario: {
+      ...input.scenario,
+      withdrawalStrategy: { mode: "lifetime" }
+    }
+  });
+
+  assert.equal(heuristic.years[0].taxGainHarvested, 0);
+  assert.equal(optimized.years[0].taxGainHarvested, 10000);
+  assert.equal(optimized.years[0].taxes.federalPreferentialTax, 1500);
+});
+
 test("Roth earnings above contribution basis are taxable and penalized when withdrawn early", () => {
   const plan = simulatePlan({
     assets: [{
@@ -1432,14 +1529,15 @@ test("runHistoricalBacktests processes multiple return sequences", () => {
     },
     taxProfile: noTaxProfile,
     sequences: [
-      { name: "Seq 1", returns: [{ stock: 0.1 }], inflation: [0] },
-      { name: "Seq 2", returns: [{ stock: -0.1 }], inflation: [0] }
+      { name: "Seq 1", sourceYears: [1960], returns: [{ stock: 0.1 }], inflation: [0] },
+      { name: "Seq 2", sourceYears: [1961], returns: [{ stock: -0.1 }], inflation: [0] }
     ]
   });
 
   assert.equal(results.length, 2);
   assert.equal(results[0].id, "Seq 1");
   assert.equal(results[1].id, "Seq 2");
+  assert.equal(results[0].years[0].historicalSourceYear, 1960);
   assert.equal(Math.round(results[0].endingValue), 10900);
   assert.equal(Math.round(results[1].endingValue), 8900);
 });

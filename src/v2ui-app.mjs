@@ -58,6 +58,7 @@ const CONTROL_IDS = [
   "historicalChunkYears",
   "cryptoStockProxy",
   "tipsBondProxy",
+  "withdrawalStrategyMode",
   "taxYear",
   "filingStatus",
   "stateSelect",
@@ -173,6 +174,7 @@ const els = {
   historicalChunkYears: document.querySelector("#historicalChunkYears"),
   cryptoStockProxy: document.querySelector("#cryptoStockProxy"),
   tipsBondProxy: document.querySelector("#tipsBondProxy"),
+  withdrawalStrategyMode: document.querySelector("#withdrawalStrategyMode"),
   taxYear: document.querySelector("#taxYear"),
   filingStatus: document.querySelector("#filingStatus"),
   stateSelect: document.querySelector("#stateSelect"),
@@ -972,7 +974,7 @@ function renderFlowAndSales() {
 
 function renderYearLabel() {
   const year = activeVisibleYears()[selectedYearIndex];
-  els.yearLabel.textContent = year ? `${year.year}` : `Year ${selectedYearIndex + 1}`;
+  els.yearLabel.textContent = year ? yearDisplayLabel(year) : `Year ${selectedYearIndex + 1}`;
 }
 
 function acaPlanLabel(year) {
@@ -986,7 +988,7 @@ function renderYearTable() {
   const years = activeVisibleYears();
   const headers = ["Year", "Age", "Stock", "Bond", "Real estate", "TIPS", "Crypto", "Inflation", "Start value", "End value", "Sales / withdrawals", "Dividends", "Social Security", "Earned income", "One-off income", "RMD", "Total cash", "Total need", "Tax", "Fed income tax", "CG/QD tax", "NIIT", "Addl Medicare", "Credits", "State tax", "MAGI", "Taxable SS", "65+ deduction", "CTC children", "ACA plan", "ACA SLCSP", "ACA gross", "ACA subsidy", "ACA net", "Medicare", "Spend", "Medical", "Tax gain harvest", "Roth conv.", "Roth basis left", "Penalty", "Loss carry"];
   const rows = years.map((year) => [
-    year.year,
+    yearDisplayLabel(year),
     ageLabel(year.age),
     returnPercent(year, "stock"),
     returnPercent(year, "bond"),
@@ -1050,6 +1052,13 @@ function renderYearTable() {
   bindPinToggles(els.yearTable, pinnedYearColumns, ALWAYS_PINNED_YEAR, PINNED_YEAR_STORAGE_KEY, () => renderYearTable());
   bindResizeObserver(els.yearTable, "yearTable");
   addStickyHorizontalScrollbar(els.yearTable);
+}
+
+function yearDisplayLabel(year) {
+  if (!year) return "";
+  return Number.isFinite(year.historicalSourceYear)
+    ? `${year.year} (${year.historicalSourceYear})`
+    : `${year.year}`;
 }
 
 function renderAssetBreakdown() {
@@ -2447,6 +2456,9 @@ function readScenario() {
     medicalExpensesBase: Number(els.medicalBase.value) || 0,
     expectedOopMaxUsePercent: Math.max(0, Math.min(1, (Number(els.expectedOopPercent.value) || 0) / 100)),
     oopMaxOverride: selectedPlanOopMaximumOverride,
+    withdrawalStrategy: {
+      mode: els.withdrawalStrategyMode?.value === "lifetime" ? "lifetime" : "heuristic"
+    },
     oneOffExpenses,
     taxLossHarvesting: {
       enabled: els.taxLossHarvesting.checked,
