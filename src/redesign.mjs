@@ -453,14 +453,58 @@ function bindRouter() {
   const back = document.getElementById("resultsBackToWorkspace");
   back?.addEventListener("click", () => setScreen("workspace"));
 
-  // Listen for the existing #runModel button — after a successful run,
-  // route the user to the results screen automatically.
+  // Wrap the synchronous runModels (from v2ui-app) with a loading overlay
+  // that paints BEFORE the main thread freezes. We intercept #runModel
+  // clicks in the capture phase, show the overlay, and yield the event
+  // loop twice (rAF→rAF→setTimeout) to guarantee a paint before
+  // re-dispatching the click for the actual handler.
   const runModel = document.getElementById("runModel");
-  runModel?.addEventListener("click", () => {
-    // Run is async via v2ui-app; we'll advance once we observe a fresh
-    // render of the KPIs section.
-    flagPendingRun();
-  });
+  if (runModel) {
+    let isWrapping = false;
+    runModel.addEventListener("click", (ev) => {
+      if (isWrapping) return;            // re-entry from our re-dispatch — let it through
+      ev.stopImmediatePropagation();     // block v2ui-app's handler this turn
+      ev.preventDefault();
+      flagPendingRun();
+      showRunOverlay();
+      // Yield twice + a setTimeout to ensure the browser actually paints
+      // the overlay before the synchronous simulation work begins.
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          setTimeout(() => {
+            isWrapping = true;
+            try {
+              runModel.click();          // re-dispatch; v2ui-app handler now runs
+            } finally {
+              isWrapping = false;
+            }
+            // The MutationObserver in hookRunCompletion will fire when
+            // #yearTable repaints — that's our cue to hide.
+          }, 0);
+        });
+      });
+    }, true);                            // capture phase
+  }
+}
+
+function showRunOverlay(message) {
+  const overlay = document.getElementById("runOverlay");
+  if (!overlay) return;
+  if (message) {
+    const sub = document.getElementById("runOverlaySub");
+    if (sub) sub.textContent = message;
+  }
+  overlay.hidden = false;
+  // Safety timer: hide if a render hasn't happened in 30s.
+  clearTimeout(showRunOverlay._timer);
+  showRunOverlay._timer = setTimeout(() => hideRunOverlay(), 30000);
+}
+
+function hideRunOverlay() {
+  const overlay = document.getElementById("runOverlay");
+  if (!overlay) return;
+  overlay.hidden = true;
+  clearTimeout(showRunOverlay._timer);
 }
 
 function setScreen(screen) {
@@ -916,6 +960,7 @@ function hookRunCompletion() {
     // Pull what we can from the global (set below) AND from the DOM.
     rerenderResults();
     syncWorkspaceSummary();
+    hideRunOverlay();
     window.dispatchEvent(new CustomEvent("psl:run-complete"));
     if (pendingRunAdvance) {
       pendingRunAdvance = false;
@@ -925,6 +970,9 @@ function hookRunCompletion() {
   });
   const target = document.getElementById("yearTable");
   if (target) obs.observe(target, { childList: true, subtree: true });
+  // Also hide on the render-latest event in case the page repaints
+  // without modifying #yearTable (e.g., toggle inflation view).
+  window.addEventListener("psl:render-latest", () => hideRunOverlay());
 }
 
 function rerenderResults() {

@@ -12,6 +12,16 @@
     <script src="https://accounts.google.com/gsi/client" async defer></script>
   </head>
   <body data-screen="persona" data-theme="dark">
+    <!-- Run-model overlay: painted synchronously when Run model is clicked,
+         before the synchronous Monte Carlo / backtest work freezes the page. -->
+    <div id="runOverlay" class="run-overlay" role="alert" aria-live="assertive" aria-busy="true" hidden>
+      <div class="run-overlay-card">
+        <div class="run-overlay-spinner" aria-hidden="true"></div>
+        <p class="run-overlay-title">Running your projections…</p>
+        <p class="run-overlay-sub" id="runOverlaySub">Monte Carlo, historical backtests, action plan</p>
+        <p class="run-overlay-note">The page may briefly stop responding while the simulator runs on the main thread. Don't close the tab.</p>
+      </div>
+    </div>
     <!-- Loading screen: inline styles render instantly before external CSS. -->
     <div id="appLoader" style="
       position: fixed; inset: 0; z-index: 9999;

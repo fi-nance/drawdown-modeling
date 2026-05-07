@@ -1141,6 +1141,72 @@ body[data-screen="persona"]::before {
   .withdrawal-mix { grid-template-columns: repeat(3, 1fr); }
 }
 
+/* ─── Run-model overlay ────────────────────────────────────────────── */
+
+.run-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(7, 11, 22, 0.78);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  /* Animation handled via [hidden] toggling and explicit opacity on show */
+  opacity: 1;
+  transition: opacity 0.18s ease;
+}
+[data-theme="light"] .run-overlay {
+  background: rgba(20, 28, 50, 0.55);
+}
+.run-overlay[hidden] {
+  display: none !important;
+  opacity: 0;
+}
+.run-overlay-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.8rem;
+  padding: 2rem 2.4rem;
+  border-radius: 18px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-light);
+  box-shadow: var(--shadow-lg);
+  max-width: 420px;
+  text-align: center;
+  color: var(--text-primary);
+}
+.run-overlay-spinner {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 3px solid var(--teal-glow);
+  border-top-color: var(--teal);
+  animation: run-overlay-spin 0.9s linear infinite;
+}
+.run-overlay-title {
+  margin: 0;
+  font-weight: 800;
+  font-size: 1.15rem;
+  letter-spacing: -0.01em;
+}
+.run-overlay-sub {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+.run-overlay-note {
+  margin: 0.4rem 0 0;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  max-width: 32ch;
+}
+@keyframes run-overlay-spin {
+  to { transform: rotate(360deg); }
+}
+
 /* Hide the legacy topbar/sidebar/main-stage when on the new screens. */
 body[data-screen="persona"]  > main.workspace,
 body[data-screen="workspace"] > main.workspace,
