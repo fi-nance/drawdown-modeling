@@ -108,7 +108,7 @@ export function dividendIncome(assets = []) {
   return result;
 }
 
-export function harvestTaxLosses(assets = [], maxLoss = Infinity) {
+export function harvestTaxLosses(assets = [], maxLoss = Infinity, { calendarYear = null } = {}) {
   let remaining = Math.max(0, maxLoss);
   let realizedLosses = 0;
   let shortTermLosses = 0;
@@ -125,7 +125,7 @@ export function harvestTaxLosses(assets = [], maxLoss = Infinity) {
     const lossToHarvest = Math.min(fullLoss, remaining);
     const unitsToHarvest = lossToHarvest / lossPerUnit;
     const isShort = asset.holdingPeriod === "short";
-    resetBasisForHarvestedUnits(assets, asset, unitsToHarvest, asset.price, "tlh");
+    resetBasisForHarvestedUnits(assets, asset, unitsToHarvest, asset.price, "tlh", calendarYear);
 
     realizedLosses += lossToHarvest;
     if (isShort) shortTermLosses += lossToHarvest;
@@ -147,7 +147,7 @@ export function harvestTaxLosses(assets = [], maxLoss = Infinity) {
   };
 }
 
-export function harvestTaxGains(assets = [], maxGain = Infinity) {
+export function harvestTaxGains(assets = [], maxGain = Infinity, { calendarYear = null } = {}) {
   let remaining = Math.max(0, maxGain);
   let realizedGains = 0;
   const flows = [];
@@ -163,7 +163,7 @@ export function harvestTaxGains(assets = [], maxGain = Infinity) {
     const fullGain = gainPerUnit * asset.units;
     const gainToHarvest = Math.min(fullGain, remaining);
     const unitsToHarvest = gainToHarvest / gainPerUnit;
-    resetBasisForHarvestedUnits(assets, asset, unitsToHarvest, asset.price, "tgh");
+    resetBasisForHarvestedUnits(assets, asset, unitsToHarvest, asset.price, "tgh", calendarYear);
 
     realizedGains += gainToHarvest;
     remaining -= gainToHarvest;
@@ -179,6 +179,23 @@ export function harvestTaxGains(assets = [], maxGain = Infinity) {
     realizedGains: round(realizedGains, 6),
     flows
   };
+}
+
+// Promote "short" lots that were created by a prior-year TLH/TGH back to
+// "long" once at least one full simulation year has elapsed since the
+// reset. Lots without `holdingPeriodResetCalendarYear` are user-classified
+// (or pre-existing) and left untouched — the simulator does not have
+// acquisition-date info for those.
+export function ageHoldingPeriods(assets = [], calendarYear) {
+  if (!Number.isFinite(calendarYear)) return;
+  for (const asset of assets) {
+    if (asset.holdingPeriod !== "short") continue;
+    const resetYear = asset.holdingPeriodResetCalendarYear;
+    if (Number.isFinite(resetYear) && resetYear < calendarYear) {
+      asset.holdingPeriod = "long";
+      delete asset.holdingPeriodResetCalendarYear;
+    }
+  }
 }
 
 export function removeEmptyLots(assets) {
@@ -214,13 +231,19 @@ function emptySale(lot) {
   };
 }
 
-function resetBasisForHarvestedUnits(assets, asset, unitsToHarvest, newBasis, suffix) {
+function resetBasisForHarvestedUnits(assets, asset, unitsToHarvest, newBasis, suffix, calendarYear = null) {
   // After TLH/TGH the harvested units are effectively re-purchased today, so
   // the holding period clock restarts. Without this reset a sale within one
-  // year of harvesting would still be taxed as long-term gains.
+  // year of harvesting would still be taxed as long-term gains. We tag the
+  // lot with `holdingPeriodResetCalendarYear` so a later call to
+  // `ageHoldingPeriods` can promote it back to "long" once a full year has
+  // elapsed.
   if (unitsToHarvest >= asset.units - EPSILON) {
     asset.costBasisPerUnit = round(newBasis, 8);
     asset.holdingPeriod = "short";
+    if (Number.isFinite(calendarYear)) {
+      asset.holdingPeriodResetCalendarYear = calendarYear;
+    }
     return;
   }
 
@@ -231,6 +254,7 @@ function resetBasisForHarvestedUnits(assets, asset, unitsToHarvest, newBasis, su
     name: `${asset.name ?? asset.id} ${suffix.toUpperCase()}`,
     units: round(unitsToHarvest, 8),
     costBasisPerUnit: round(newBasis, 8),
-    holdingPeriod: "short"
+    holdingPeriod: "short",
+    ...(Number.isFinite(calendarYear) ? { holdingPeriodResetCalendarYear: calendarYear } : {})
   });
 }

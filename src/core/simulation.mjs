@@ -1,6 +1,7 @@
 import { computeAca, DEFAULT_ACA_CONFIG, inflateAcaConfig } from "./aca.mjs";
 import {
   accountBreakdown,
+  ageHoldingPeriods,
   applyReturns,
   clonePortfolio,
   dividendIncome,
@@ -392,6 +393,10 @@ function simulateYear({
   });
   const yearTaxProfile = taxProfileContext.profile;
   const yearAcaConfig = inflateAcaConfig(scenario.aca, inflationIndex, { age, yearIndex });
+  // Promote any prior-year-harvested "short" lots back to "long" once a
+  // full simulation year has elapsed since the reset, before we compute
+  // beginning-of-year snapshots and run any sales/harvests.
+  ageHoldingPeriods(portfolio, calendarYear);
   const beginningPortfolioValue = portfolioValue(portfolio);
   const beginningTraditionalValue = traditionalAccountValue(portfolio);
   const beginningAssets = assetSnapshot(portfolio);
@@ -419,7 +424,7 @@ function simulateYear({
     overrideField: "overrideMaxLoss"
   });
   const lossHarvest = scenario.taxLossHarvesting?.enabled
-    ? harvestTaxLosses(portfolio, lossHarvestLimit)
+    ? harvestTaxLosses(portfolio, lossHarvestLimit, { calendarYear })
     : { realizedLosses: 0, shortTermLosses: 0, longTermLosses: 0, flows: [] };
   strategyCapitalLosses += lossHarvest.realizedLosses;
   strategyShortTermLosses += lossHarvest.shortTermLosses ?? 0;
@@ -621,7 +626,7 @@ function simulateYear({
       age,
       yearIndex
     });
-    const gainHarvest = harvestTaxGains(finalPortfolio, gainHarvestLimit);
+    const gainHarvest = harvestTaxGains(finalPortfolio, gainHarvestLimit, { calendarYear });
     strategyLongTermGains += gainHarvest.realizedGains;
     flows.push(...gainHarvest.flows);
 

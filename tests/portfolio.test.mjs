@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  ageHoldingPeriods,
   dividendIncome,
   harvestTaxGains,
   harvestTaxLosses,
@@ -158,6 +159,48 @@ test("tax-gain harvesting resets holding period on harvested lots", () => {
   // Full harvest: in-place basis update + holding-period reset.
   harvestTaxGains(assets, 500);
   assert.equal(assets[0].costBasisPerUnit, 100);
+  assert.equal(assets[0].holdingPeriod, "short");
+});
+
+test("ageHoldingPeriods promotes harvested-short lots back to long after a year passes", () => {
+  const assets = [{
+    id: "gain-lot",
+    accountType: "taxable",
+    assetClass: "stock",
+    holdingPeriod: "long",
+    units: 10,
+    price: 100,
+    costBasisPerUnit: 50
+  }];
+
+  // Harvest in calendar year 2026.
+  harvestTaxGains(assets, 500, { calendarYear: 2026 });
+  assert.equal(assets[0].holdingPeriod, "short");
+  assert.equal(assets[0].holdingPeriodResetCalendarYear, 2026);
+
+  // Same year: no aging.
+  ageHoldingPeriods(assets, 2026);
+  assert.equal(assets[0].holdingPeriod, "short");
+
+  // Next year: lot ages back to long.
+  ageHoldingPeriods(assets, 2027);
+  assert.equal(assets[0].holdingPeriod, "long");
+  assert.equal(assets[0].holdingPeriodResetCalendarYear, undefined);
+});
+
+test("ageHoldingPeriods leaves user-classified short lots alone", () => {
+  // A user-input "short" lot with no reset marker — the simulator does not
+  // know its acquisition date and must not promote it.
+  const assets = [{
+    id: "user-short",
+    accountType: "taxable",
+    assetClass: "stock",
+    holdingPeriod: "short",
+    units: 10,
+    price: 100,
+    costBasisPerUnit: 100
+  }];
+  ageHoldingPeriods(assets, 3000);
   assert.equal(assets[0].holdingPeriod, "short");
 });
 

@@ -1789,6 +1789,53 @@ test("tax attribution includes multiple tax sources", () => {
   assert.ok(attributionSources.includes("Traditional withdrawals"));
 });
 
+test("harvested lots age back to long-term after a full simulation year", () => {
+  // Year 1: tax-gain harvest forces a basis step-up and holding-period
+  // reset on the lot. Year 1 sale (also in year 1) would be short.
+  // Year 2: the simulator's beginning-of-year aging promotes the lot back
+  // to long, so a sale in year 2 is taxed as LTCG.
+  // We verify by selling the entire taxable account in year 2 and looking
+  // at the realized gain character.
+  const flatTax = {
+    ...flatOrdinaryTaxProfile,
+    capitalGainsBrackets: [{ upTo: Infinity, rate: 0.15 }]
+  };
+  const plan = simulatePlan({
+    assets: [{
+      id: "stock",
+      accountType: "taxable",
+      assetClass: "stock",
+      holdingPeriod: "long",
+      units: 1000,
+      price: 100,
+      costBasisPerUnit: 50
+    }],
+    scenario: {
+      planYears: 2,
+      targetSpend: 80000,
+      targetSpendIncludesTaxes: true,
+      targetSpendIncludesMedical: true,
+      withdrawalOrder: ["taxable"],
+      currentAge: 65,
+      startYear: 2026,
+      returnAssumptions: { stock: { mean: 0, stdev: 0 } },
+      // Force a tax-gain harvest in year 1 to reset the lot's basis to
+      // current price, switching it to "short".
+      taxGainHarvesting: { enabled: true, maxGain: 50000 },
+      rothConversion: { enabled: false },
+      aca: { enabled: false }
+    },
+    taxProfile: flatTax,
+    returnSequence: [{ stock: 0 }, { stock: 0 }],
+    inflationSequence: [0, 0]
+  });
+
+  // Year 2's sale should produce LT gains, not ST gains, because the
+  // harvested lot has aged back to long-term.
+  assert.equal(plan.years[1].realizedShortTermGains, 0);
+  assert.ok(plan.years[1].realizedLongTermGains > 0);
+});
+
 test("missing return assumptions for an asset class are filled with safe defaults (no NaN)", () => {
   // Asset class "private-equity" has no entry in returnAssumptions or
   // DEFAULT_SCENARIO. The simulator must not propagate NaN into prices.
