@@ -59,6 +59,9 @@ const CONTROL_IDS = [
   "cryptoStockProxy",
   "tipsBondProxy",
   "withdrawalStrategyMode",
+  "sequenceReserveMode",
+  "sequenceReserveTargetYears",
+  "sequenceReserveTentYears",
   "taxYear",
   "filingStatus",
   "stateSelect",
@@ -175,6 +178,9 @@ const els = {
   cryptoStockProxy: document.querySelector("#cryptoStockProxy"),
   tipsBondProxy: document.querySelector("#tipsBondProxy"),
   withdrawalStrategyMode: document.querySelector("#withdrawalStrategyMode"),
+  sequenceReserveMode: document.querySelector("#sequenceReserveMode"),
+  sequenceReserveTargetYears: document.querySelector("#sequenceReserveTargetYears"),
+  sequenceReserveTentYears: document.querySelector("#sequenceReserveTentYears"),
   taxYear: document.querySelector("#taxYear"),
   filingStatus: document.querySelector("#filingStatus"),
   stateSelect: document.querySelector("#stateSelect"),
@@ -2157,6 +2163,13 @@ function readScenario() {
     oopMaxOverride: selectedPlanOopMaximumOverride,
     withdrawalStrategy: {
       mode: els.withdrawalStrategyMode?.value === "lifetime" ? "lifetime" : "heuristic"
+    },
+    sequenceRiskReserve: {
+      enabled: (els.sequenceReserveMode?.value ?? "none") !== "none",
+      mode: ["cash", "bond", "hybrid"].includes(els.sequenceReserveMode?.value) ? els.sequenceReserveMode.value : "cash",
+      targetYears: Math.max(0.5, Number(els.sequenceReserveTargetYears?.value) || 3),
+      tentYears: Math.max(1, Number(els.sequenceReserveTentYears?.value) || 10),
+      triggerStockReturn: 0
     },
     oneOffExpenses,
     taxLossHarvesting: {

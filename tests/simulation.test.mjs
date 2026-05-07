@@ -817,6 +817,106 @@ test("lifetime optimizer Roth conversion pressure uses default RMD age", () => {
   assert.equal(plan.years[0].rothConversionAmount, 80000);
 });
 
+test("sequence-risk cash reserve is preserved in positive early years", () => {
+  const plan = simulatePlan({
+    assets: [{
+      id: "reserve-cash",
+      accountType: "taxable",
+      assetClass: "cash",
+      holdingPeriod: "long",
+      units: 1000,
+      price: 1,
+      costBasisPerUnit: 1
+    }, {
+      id: "growth-stock",
+      accountType: "taxable",
+      assetClass: "stock",
+      holdingPeriod: "long",
+      units: 100,
+      price: 100,
+      costBasisPerUnit: 100
+    }],
+    scenario: {
+      planYears: 1,
+      targetSpend: 1000,
+      targetSpendIncludesTaxes: true,
+      targetSpendIncludesMedical: true,
+      withdrawalOrder: ["taxable"],
+      sequenceRiskReserve: {
+        enabled: true,
+        mode: "cash",
+        targetYears: 3,
+        tentYears: 10,
+        triggerStockReturn: 0
+      },
+      taxGainHarvesting: { enabled: false },
+      taxLossHarvesting: { enabled: false },
+      rothConversion: { enabled: false },
+      returnAssumptions: {
+        cash: { mean: 0, stdev: 0 },
+        stock: { mean: 0.08, stdev: 0 }
+      },
+      aca: { enabled: false }
+    },
+    taxProfile: noTaxProfile,
+    returnSequence: [{ cash: 0, stock: 0.1 }],
+    inflationSequence: [0]
+  });
+
+  assert.equal(plan.years[0].sequenceRiskReserve.preserveReserve, true);
+  assert.equal(plan.years[0].sales[0].assetId, "growth-stock");
+});
+
+test("sequence-risk cash reserve is spent first in negative early years", () => {
+  const plan = simulatePlan({
+    assets: [{
+      id: "reserve-cash",
+      accountType: "taxable",
+      assetClass: "cash",
+      holdingPeriod: "long",
+      units: 1000,
+      price: 1,
+      costBasisPerUnit: 1
+    }, {
+      id: "growth-stock",
+      accountType: "taxable",
+      assetClass: "stock",
+      holdingPeriod: "long",
+      units: 100,
+      price: 100,
+      costBasisPerUnit: 100
+    }],
+    scenario: {
+      planYears: 1,
+      targetSpend: 1000,
+      targetSpendIncludesTaxes: true,
+      targetSpendIncludesMedical: true,
+      withdrawalOrder: ["taxable"],
+      sequenceRiskReserve: {
+        enabled: true,
+        mode: "cash",
+        targetYears: 3,
+        tentYears: 10,
+        triggerStockReturn: 0
+      },
+      taxGainHarvesting: { enabled: false },
+      taxLossHarvesting: { enabled: false },
+      rothConversion: { enabled: false },
+      returnAssumptions: {
+        cash: { mean: 0, stdev: 0 },
+        stock: { mean: 0.08, stdev: 0 }
+      },
+      aca: { enabled: false }
+    },
+    taxProfile: noTaxProfile,
+    returnSequence: [{ cash: 0, stock: -0.1 }],
+    inflationSequence: [0]
+  });
+
+  assert.equal(plan.years[0].sequenceRiskReserve.spendReserveFirst, true);
+  assert.equal(plan.years[0].sales[0].assetId, "reserve-cash");
+});
+
 test("Roth earnings above contribution basis are taxable and penalized when withdrawn early", () => {
   const plan = simulatePlan({
     assets: [{

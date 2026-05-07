@@ -503,6 +503,25 @@
               <option value="lifetime">Lifetime optimizer</option>
             </select>
           </label>
+          <label>
+            <span>Sequence-risk reserve</span>
+            <select id="sequenceReserveMode">
+              <option value="none">Off</option>
+              <option value="cash">Cash / T-bills</option>
+              <option value="bond">Bond / TIPS</option>
+              <option value="hybrid">Hybrid reserve</option>
+            </select>
+          </label>
+          <div class="control-grid">
+            <label>
+              <span>Reserve target years</span>
+              <input id="sequenceReserveTargetYears" type="number" min="0.5" max="10" step="0.5" value="3">
+            </label>
+            <label>
+              <span>Reserve tent years</span>
+              <input id="sequenceReserveTentYears" type="number" min="1" max="30" step="1" value="10">
+            </label>
+          </div>
           <label class="check-row">
             <input id="taxLossHarvesting" type="checkbox" checked>
             <span>Tax loss harvesting</span>
@@ -516,7 +535,7 @@
             <span>Roth conversions</span>
           </label>
           <div class="strategy-summary">
-            <span>Lifetime optimizer tests alternate withdrawal sources, MAGI thresholds, expected-return sale costs, and forward-looking gain/conversion room.</span>
+            <span>Lifetime optimizer tests alternate withdrawal sources, MAGI thresholds, expected-return sale costs, forward-looking gain/conversion room, and optional sequence-risk reserves.</span>
           </div>
           <details class="advanced">
             <summary>Strategy overrides</summary>
@@ -662,6 +681,6 @@
       </section>
     </main>
 
-    <script type="module" src="./src/v2ui-app.mjs?v=20260506-lifetime-optimizer"></script>
+    <script type="module" src="./src/v2ui-app.mjs?v=20260506-sequence-reserve"></script>
   </body>
 </html>

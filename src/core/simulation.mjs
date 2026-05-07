@@ -36,6 +36,13 @@ export const DEFAULT_SCENARIO = {
     expectedReturnPenaltyYears: 1,
     gainHarvestingFutureTaxDiscount: 0.85
   },
+  sequenceRiskReserve: {
+    enabled: false,
+    mode: "cash",
+    targetYears: 3,
+    tentYears: 10,
+    triggerStockReturn: 0
+  },
   oneOffExpenses: [],
   currentAge: 55,
   spouseAge: 55,
@@ -412,6 +419,13 @@ function simulateYear({
   }
 
   const plannedSpending = plannedSpendingForYear(scenario, yearIndex + 1, inflationIndex, oneOffCashFlows);
+  const sequenceRiskReserve = sequenceRiskReserveStateForYear({
+    scenario,
+    portfolio,
+    plannedSpending,
+    returnByAssetClass,
+    yearIndex
+  });
   let finalWithdrawal = null;
   let finalTaxes = null;
   let finalAca = null;
@@ -440,7 +454,8 @@ function simulateYear({
         rothFiveYearRuleSatisfied: scenario.rothFiveYearRuleSatisfied !== false,
         penaltyExceptionRemaining: rmdWithdrawal.penaltyExceptionRemaining,
         returnAssumptions: scenario.returnAssumptions,
-        optimizedLotSelection: isLifetimeOptimizerEnabled(scenario)
+        optimizedLotSelection: isLifetimeOptimizerEnabled(scenario) || sequenceRiskReserve.enabled,
+        sequenceRiskReserve
       },
       evaluationContext: {
         scenario,
@@ -577,7 +592,8 @@ function simulateYear({
     spouseAge,
     yearIndex,
     calendarYear,
-    magiHistory
+    magiHistory,
+    sequenceRiskReserve
   });
   finalWithdrawal = reconciled.withdrawal;
   finalTaxes = reconciled.taxes;
@@ -737,6 +753,7 @@ function simulateYear({
     rothBasisRemaining: round(finalWithdrawal.rothBasisRemaining, 6),
     rothFiveYearRuleSatisfied: scenario.rothFiveYearRuleSatisfied !== false,
     rothBasisOptimization: finalRothBasisOptimization,
+    sequenceRiskReserve,
     unfunded: round(unfunded, 6),
     flows: flows.filter((flow) => flow.amount > 0),
     sales: finalWithdrawal.sales,
@@ -772,7 +789,8 @@ function reconcileCashRequirement({
   spouseAge,
   yearIndex,
   calendarYear,
-  magiHistory
+  magiHistory,
+  sequenceRiskReserve
 }) {
   let currentWithdrawal = withdrawal;
   let currentTaxes = taxes;
@@ -804,7 +822,8 @@ function reconcileCashRequirement({
         rothFiveYearRuleSatisfied: scenario.rothFiveYearRuleSatisfied !== false,
         penaltyExceptionRemaining: currentWithdrawal.penaltyExceptionRemaining,
         returnAssumptions: scenario.returnAssumptions,
-        optimizedLotSelection: isLifetimeOptimizerEnabled(scenario)
+        optimizedLotSelection: isLifetimeOptimizerEnabled(scenario) || sequenceRiskReserve?.enabled,
+        sequenceRiskReserve
       },
       evaluationContext: {
         scenario,
@@ -1247,6 +1266,66 @@ function withdrawalStrategyConfig(scenario) {
       ? gainHarvestingFutureTaxDiscount
       : 0.85
   };
+}
+
+function sequenceRiskReserveConfig(scenario) {
+  const config = scenario.sequenceRiskReserve ?? {};
+  const targetYears = Number(config.targetYears);
+  const tentYears = Number(config.tentYears);
+  const triggerStockReturn = Number(config.triggerStockReturn);
+  const mode = ["cash", "bond", "hybrid"].includes(config.mode) ? config.mode : "cash";
+  return {
+    enabled: config.enabled === true,
+    mode,
+    assetClasses: reserveAssetClassesForMode(mode),
+    targetYears: Number.isFinite(targetYears) && targetYears > 0 ? targetYears : 3,
+    tentYears: Number.isFinite(tentYears) && tentYears > 0 ? tentYears : 10,
+    triggerStockReturn: Number.isFinite(triggerStockReturn) ? triggerStockReturn : 0
+  };
+}
+
+function sequenceRiskReserveStateForYear({ scenario, portfolio, plannedSpending, returnByAssetClass, yearIndex }) {
+  const config = sequenceRiskReserveConfig(scenario);
+  if (!config.enabled) {
+    return {
+      enabled: false,
+      mode: config.mode,
+      assetClasses: config.assetClasses,
+      targetValue: 0,
+      currentValue: 0,
+      spendReserveFirst: false,
+      preserveReserve: false
+    };
+  }
+
+  const targetValue = round(Math.max(0, plannedSpending) * config.targetYears, 6);
+  const currentValue = reserveAssetValue(portfolio, config.assetClasses);
+  const inTentWindow = yearIndex < config.tentYears;
+  const stockReturn = Number(returnByAssetClass?.stock);
+  const stressYear = Number.isFinite(stockReturn) && stockReturn <= config.triggerStockReturn;
+  return {
+    enabled: true,
+    mode: config.mode,
+    assetClasses: config.assetClasses,
+    targetValue,
+    currentValue,
+    stockReturn: Number.isFinite(stockReturn) ? round(stockReturn, 6) : null,
+    spendReserveFirst: inTentWindow && stressYear && currentValue > 0,
+    preserveReserve: inTentWindow && !stressYear && currentValue < targetValue
+  };
+}
+
+function reserveAssetClassesForMode(mode) {
+  if (mode === "bond") return ["bond", "tips"];
+  if (mode === "hybrid") return ["cash", "bond", "tips"];
+  return ["cash"];
+}
+
+function reserveAssetValue(portfolio = [], assetClasses = []) {
+  const reserveClasses = new Set(assetClasses);
+  return round(portfolio
+    .filter((asset) => reserveClasses.has(asset.assetClass))
+    .reduce((total, asset) => total + marketValue(asset), 0), 6);
 }
 
 function isLifetimeOptimizerEnabled(scenario) {
@@ -2486,6 +2565,10 @@ function mergeScenario(scenario) {
         ? { mode: scenario.withdrawalStrategy }
         : (scenario.withdrawalStrategy ?? {}))
     },
+    sequenceRiskReserve: {
+      ...DEFAULT_SCENARIO.sequenceRiskReserve,
+      ...(scenario.sequenceRiskReserve ?? {})
+    },
     rothConversion: {
       ...DEFAULT_SCENARIO.rothConversion,
       ...(scenario.rothConversion ?? {})
@@ -2579,6 +2662,8 @@ function taxAwareSaleSort(a, b) {
 }
 
 function optimizedTaxAwareSaleSort(a, b, context = {}) {
+  const reserveCompare = sequenceRiskReserveSaleCompare(a, b, context.sequenceRiskReserve);
+  if (reserveCompare !== 0) return reserveCompare;
   if (a.assetClass === "cash" && b.assetClass !== "cash") return -1;
   if (a.assetClass !== "cash" && b.assetClass === "cash") return 1;
   const aExpectedReturn = expectedReturnForAsset(a, context.returnAssumptions);
@@ -2595,6 +2680,17 @@ function optimizedTaxAwareSaleSort(a, b, context = {}) {
   const bPriority = ROTH_BASIS_ASSET_CLASS_PRIORITY[b.assetClass] ?? 99;
   if (aPriority !== bPriority) return aPriority - bPriority;
   return taxAwareSaleSort(a, b);
+}
+
+function sequenceRiskReserveSaleCompare(a, b, reserveState) {
+  if (!reserveState?.enabled) return 0;
+  const reserveClasses = new Set(reserveState.assetClasses ?? []);
+  const aReserve = reserveClasses.has(a.assetClass);
+  const bReserve = reserveClasses.has(b.assetClass);
+  if (aReserve === bReserve) return 0;
+  if (reserveState.spendReserveFirst) return aReserve ? -1 : 1;
+  if (reserveState.preserveReserve) return aReserve ? 1 : -1;
+  return 0;
 }
 
 function rothDistributionSort(a, b) {
