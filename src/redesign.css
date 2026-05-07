@@ -64,10 +64,9 @@ body[data-screen="results"]   [data-screen-content="results"] {
   display: block;
 }
 
-/* The persona screen always uses the dark theme regardless of toggle. */
+/* Persona-screen surface tokens — overridable per theme below. */
 body[data-screen="persona"] {
-  --persona-bg: #0a0e17;
-  background: var(--persona-bg);
+  background: var(--bg-deep);
 }
 body[data-screen="persona"]::before {
   display: none;
@@ -233,7 +232,7 @@ body[data-screen="persona"]::before {
   padding: 1rem clamp(1rem, 4vw, 3rem) 4rem;
   position: relative;
   z-index: 1;
-  color: #e8ecf4;
+  color: var(--text-primary);
 }
 
 .persona-step {
@@ -267,7 +266,7 @@ body[data-screen="persona"]::before {
   letter-spacing: -0.02em;
 }
 .persona-step .step-sub {
-  color: rgba(168, 180, 200, 0.7);
+  color: var(--text-secondary);
   font-size: 0.95rem;
   margin: 0 0 1.2rem 2.6rem;
 }
@@ -285,23 +284,24 @@ body[data-screen="persona"]::before {
   gap: 0.5rem;
   padding: 1.1rem 1.25rem 1rem;
   border-radius: 18px;
-  background: rgba(22, 26, 36, 0.65);
-  border: 1px solid rgba(255, 255, 255, 0.07);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
   cursor: pointer;
   text-align: left;
   color: inherit;
   font: inherit;
-  transition: transform 0.15s, border-color 0.15s, background 0.15s;
+  transition: transform 0.15s, border-color 0.15s, background 0.15s, box-shadow 0.15s;
+  box-shadow: var(--shadow-sm);
 }
 .persona-card:hover {
   transform: translateY(-2px);
-  border-color: rgba(255, 255, 255, 0.18);
-  background: rgba(28, 32, 48, 0.78);
+  border-color: var(--border-light);
+  box-shadow: var(--shadow-md);
 }
 .persona-card[aria-pressed="true"] {
   border-color: var(--teal);
-  background: rgba(52, 209, 182, 0.08);
-  box-shadow: 0 0 0 1px var(--teal), 0 8px 28px rgba(52, 209, 182, 0.18);
+  background: var(--teal-glow);
+  box-shadow: 0 0 0 1px var(--teal), 0 8px 28px var(--teal-glow);
 }
 .persona-card[aria-pressed="true"]::after {
   content: '✓';
@@ -318,6 +318,7 @@ body[data-screen="persona"]::before {
   font-weight: 700;
   font-size: 1.05rem;
   letter-spacing: -0.01em;
+  color: var(--text-primary);
 }
 .persona-card .persona-dot {
   display: inline-block;
@@ -326,7 +327,7 @@ body[data-screen="persona"]::before {
   border-radius: 50%;
 }
 .persona-card .persona-sub {
-  color: rgba(168, 180, 200, 0.75);
+  color: var(--text-secondary);
   font-size: 0.85rem;
   line-height: 1.45;
 }
@@ -336,18 +337,18 @@ body[data-screen="persona"]::before {
   margin-top: 0.4rem;
   font-family: 'JetBrains Mono', ui-monospace, monospace;
   font-size: 0.78rem;
-  color: rgba(168, 180, 200, 0.85);
+  color: var(--text-secondary);
 }
 .persona-card .persona-stats dt {
   display: inline;
-  color: rgba(168, 180, 200, 0.55);
+  color: var(--text-muted);
   font-weight: 500;
   margin-right: 0.3rem;
 }
 .persona-card .persona-stats dd {
   display: inline;
   margin: 0;
-  color: #e8ecf4;
+  color: var(--text-primary);
   font-weight: 700;
 }
 
@@ -362,16 +363,17 @@ body[data-screen="persona"]::before {
   gap: 0.85rem;
   padding: 0.95rem 1.1rem;
   border-radius: 16px;
-  background: rgba(22, 26, 36, 0.5);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
   cursor: pointer;
   transition: transform 0.12s, border-color 0.12s, background 0.12s;
+  box-shadow: var(--shadow-sm);
 }
-.outcome-card:hover { background: rgba(28, 32, 48, 0.7); border-color: rgba(255, 255, 255, 0.16); }
+.outcome-card:hover { border-color: var(--border-light); box-shadow: var(--shadow-md); }
 .outcome-card.is-selected {
   border-color: var(--teal);
-  background: rgba(52, 209, 182, 0.06);
-  box-shadow: 0 0 0 1px rgba(52, 209, 182, 0.45);
+  background: var(--teal-glow);
+  box-shadow: 0 0 0 1px var(--teal);
 }
 .outcome-radio {
   position: relative;
@@ -379,22 +381,24 @@ body[data-screen="persona"]::before {
   width: 18px;
   height: 18px;
   border-radius: 50%;
-  border: 2px solid rgba(168, 180, 200, 0.45);
+  border: 2px solid var(--text-muted);
   margin-top: 2px;
   transition: border-color 0.12s;
+  background: var(--bg-elevated);
 }
 .outcome-card.is-selected .outcome-radio {
   border-color: var(--teal);
   background: var(--teal);
-  box-shadow: inset 0 0 0 3px rgba(10, 14, 23, 1);
+  box-shadow: inset 0 0 0 3px var(--bg-elevated);
 }
 .outcome-card .outcome-title {
   font-weight: 700;
   font-size: 1rem;
   letter-spacing: -0.01em;
+  color: var(--text-primary);
 }
 .outcome-card .outcome-sub {
-  color: rgba(168, 180, 200, 0.75);
+  color: var(--text-secondary);
   font-size: 0.85rem;
   margin-top: 2px;
 }
@@ -417,19 +421,20 @@ body[data-screen="persona"]::before {
   gap: 0.6rem;
   padding: 1.1rem 1.1rem 1rem;
   border-radius: 16px;
-  background: rgba(22, 26, 36, 0.4);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
   text-align: left;
   cursor: pointer;
-  transition: transform 0.12s, border-color 0.12s, background 0.12s;
+  transition: transform 0.12s, border-color 0.12s, background 0.12s, box-shadow 0.12s;
   color: inherit;
   font: inherit;
+  box-shadow: var(--shadow-sm);
 }
-.intake-card:hover { background: rgba(28, 32, 48, 0.65); border-color: rgba(255, 255, 255, 0.16); transform: translateY(-1px); }
+.intake-card:hover { border-color: var(--border-light); transform: translateY(-1px); box-shadow: var(--shadow-md); }
 .intake-card .intake-icon { font-size: 1.4rem; line-height: 1; }
-.intake-card .intake-title { font-weight: 700; font-size: 0.95rem; }
-.intake-card .intake-sub { color: rgba(168, 180, 200, 0.7); font-size: 0.78rem; line-height: 1.4; }
-.intake-card.is-active { border-color: var(--teal); background: rgba(52, 209, 182, 0.05); }
+.intake-card .intake-title { font-weight: 700; font-size: 0.95rem; color: var(--text-primary); }
+.intake-card .intake-sub   { color: var(--text-secondary); font-size: 0.78rem; line-height: 1.4; }
+.intake-card.is-active { border-color: var(--teal); background: var(--teal-glow); }
 
 /* ─── Workspace screen ────────────────────────────────────────────── */
 
