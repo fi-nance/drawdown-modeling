@@ -354,8 +354,8 @@ function initialize() {
 }
 
 function bindEvents() {
-  els.planTab.addEventListener("click", () => setActiveScreen("plan"));
-  els.setupTab.addEventListener("click", () => setActiveScreen("setup"));
+  els.planTab?.addEventListener("click", () => setActiveScreen("plan"));
+  els.setupTab?.addEventListener("click", () => setActiveScreen("setup"));
   els.runModel.addEventListener("click", runModels);
   els.fillMassConnectorCare.addEventListener("click", applyMassachusettsConnectorCarePreset);
   els.fillMassBackupPlan.addEventListener("click", applyMassachusettsBackupPlanPreset);
@@ -778,11 +778,13 @@ function formatPlanInput(value) {
 }
 
 function setActiveScreen(screen) {
+  // Legacy plan/setup tab toggling. The redesigned UI uses persona/workspace/results
+  // (managed by redesign.mjs), so we no longer rewrite document.body.dataset.screen
+  // here; we just update the legacy tab classes for any pages that still use them.
   const isSetup = screen === "setup";
   activeScreen = isSetup ? "setup" : "plan";
-  document.body.dataset.screen = isSetup ? "setup" : "plan";
-  els.setupTab.classList.toggle("active", isSetup);
-  els.planTab.classList.toggle("active", !isSetup);
+  els.setupTab?.classList.toggle("active", isSetup);
+  els.planTab?.classList.toggle("active", !isSetup);
   saveStoredState();
 }
 
@@ -932,6 +934,12 @@ function renderLatest() {
   renderAssetBreakdown();
   renderScenarioTable();
   renderBacktests();
+  // Expose to the redesign script so it can render KPI strip / bracket fill /
+  // withdrawal mix against the same data without refactoring this module.
+  if (typeof window !== "undefined") {
+    window.__pslLatest = latest;
+    window.dispatchEvent(new CustomEvent("psl:render-latest"));
+  }
 }
 
 function renderKpis() {
