@@ -86,6 +86,16 @@ test("specific and chunked historical modes produce complete plan-length sequenc
   assert.equal(chunks[0].name, "2000-2009 repeated");
 });
 
+test("historical sequences flag padded years when the window is shorter than plan length", () => {
+  // Plan needs 12 years but the chunk only has 10; the last 2 are padded.
+  const chunks = makeHistoricalSequences({ planYears: 12, mode: "chunks", chunkYears: 10, startYear: 2000, endYear: 2025 });
+  assert.equal(chunks[0].paddedYears, 2);
+
+  // A specific window that fits exactly has no padding.
+  const exact = makeHistoricalSequences({ planYears: 5, mode: "specific", startYear: 1973 });
+  assert.equal(exact[0].paddedYears, 0);
+});
+
 test("historical backtests filter to years where portfolio asset classes exist", () => {
   const sequences = makeHistoricalSequences({
     planYears: 8,

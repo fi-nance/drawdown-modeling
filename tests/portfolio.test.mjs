@@ -93,6 +93,74 @@ test("tax loss harvesting realizes losses and resets harvested basis", () => {
   assert.ok(assets.some((asset) => asset.costBasisPerUnit === 80));
 });
 
+test("tax-loss harvesting resets holding period on harvested lots", () => {
+  // After TLH, the harvested lot is effectively re-purchased today: its
+  // holding period must reset to short so a sale within one year of the
+  // harvest is not mistakenly classified as long-term.
+  const assets = [{
+    id: "long-loss",
+    accountType: "taxable",
+    assetClass: "stock",
+    holdingPeriod: "long",
+    units: 10,
+    price: 80,
+    costBasisPerUnit: 100
+  }];
+
+  // Partial harvest: produces a NEW split lot for the harvested portion.
+  harvestTaxLosses(assets, 100);
+  const harvestedLot = assets.find((asset) => asset.costBasisPerUnit === 80);
+  assert.ok(harvestedLot, "expected a new lot at the harvested basis");
+  assert.equal(harvestedLot.holdingPeriod, "short");
+});
+
+test("tax-loss harvesting reports short-term and long-term losses separately", () => {
+  const assets = [
+    {
+      id: "long-loss",
+      accountType: "taxable",
+      assetClass: "stock",
+      holdingPeriod: "long",
+      units: 10,
+      price: 80,
+      costBasisPerUnit: 100
+    },
+    {
+      id: "short-loss",
+      accountType: "taxable",
+      assetClass: "stock",
+      holdingPeriod: "short",
+      units: 10,
+      price: 70,
+      costBasisPerUnit: 100
+    }
+  ];
+
+  const harvested = harvestTaxLosses(assets, 500);
+  assert.equal(harvested.realizedLosses, 500);
+  // First-encountered iterates assets in declaration order. With a $500 cap:
+  // long-loss has up to $200 available; short-loss has up to $300.
+  assert.equal(harvested.longTermLosses, 200);
+  assert.equal(harvested.shortTermLosses, 300);
+});
+
+test("tax-gain harvesting resets holding period on harvested lots", () => {
+  const assets = [{
+    id: "gain-lot",
+    accountType: "taxable",
+    assetClass: "stock",
+    holdingPeriod: "long",
+    units: 10,
+    price: 100,
+    costBasisPerUnit: 50
+  }];
+
+  // Full harvest: in-place basis update + holding-period reset.
+  harvestTaxGains(assets, 500);
+  assert.equal(assets[0].costBasisPerUnit, 100);
+  assert.equal(assets[0].holdingPeriod, "short");
+});
+
 test("tax loss harvesting ignores cash lots", () => {
   const assets = [{
     id: "cash-lot",

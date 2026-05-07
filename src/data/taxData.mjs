@@ -95,6 +95,14 @@ export const FEDERAL_TAX_BY_YEAR = {
   2026: FEDERAL_TAX_2026
 };
 
+export const FPL_2025 = {
+  year: 2025,
+  source: "HHS 2025 poverty guidelines, 90 FR 4481",
+  contiguous: { base: 15650, increment: 5500 },
+  Alaska: { base: 19550, increment: 6870 },
+  Hawaii: { base: 17990, increment: 6330 }
+};
+
 export const FPL_2026 = {
   year: 2026,
   source: "HHS 2026 poverty guidelines, 91 FR 1797",
@@ -104,6 +112,7 @@ export const FPL_2026 = {
 };
 
 export const FEDERAL_POVERTY_GUIDELINES_BY_YEAR = {
+  2025: FPL_2025,
   2026: FPL_2026
 };
 
@@ -339,6 +348,14 @@ export function getFplGuideline({
   return region.base + Math.max(0, size - 1) * region.increment;
 }
 
+// Per Treas. Reg. §1.36B-1(h), PTC uses the FPL "in effect on the first day of
+// the regular enrollment period for coverage." For coverage year Y, that means
+// the HHS guidelines published in year Y-1.
+function ptcFplYear(taxYear) {
+  const priorYear = taxYear - 1;
+  return FEDERAL_POVERTY_GUIDELINES_BY_YEAR[priorYear] ? priorYear : taxYear;
+}
+
 export function getMonthlyBenchmarkPremium({
   taxYear = DEFAULT_TAX_YEAR,
   state = "Florida"
@@ -474,7 +491,7 @@ export function buildAcaConfig({
     marketplaceMembers: members,
     fpl: Number.isFinite(fplOverride)
       ? Math.max(1, fplOverride)
-      : getFplGuideline({ taxYear, state, householdSize }),
+      : getFplGuideline({ taxYear: ptcFplYear(taxYear), state, householdSize }),
     benchmarkPremium: annualBenchmark,
     ageRatedBenchmarkPremium: !hasBenchmarkOverride || shouldAgeRateManualPremiums,
     benchmarkPremiumReferenceAge: referenceAge,

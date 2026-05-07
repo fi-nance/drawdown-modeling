@@ -111,6 +111,8 @@ export function dividendIncome(assets = []) {
 export function harvestTaxLosses(assets = [], maxLoss = Infinity) {
   let remaining = Math.max(0, maxLoss);
   let realizedLosses = 0;
+  let shortTermLosses = 0;
+  let longTermLosses = 0;
   const flows = [];
 
   for (let index = 0; index < assets.length && remaining > EPSILON; index += 1) {
@@ -122,9 +124,12 @@ export function harvestTaxLosses(assets = [], maxLoss = Infinity) {
     const fullLoss = lossPerUnit * asset.units;
     const lossToHarvest = Math.min(fullLoss, remaining);
     const unitsToHarvest = lossToHarvest / lossPerUnit;
+    const isShort = asset.holdingPeriod === "short";
     resetBasisForHarvestedUnits(assets, asset, unitsToHarvest, asset.price, "tlh");
 
     realizedLosses += lossToHarvest;
+    if (isShort) shortTermLosses += lossToHarvest;
+    else longTermLosses += lossToHarvest;
     remaining -= lossToHarvest;
     flows.push({
       from: asset.name ?? asset.id,
@@ -136,6 +141,8 @@ export function harvestTaxLosses(assets = [], maxLoss = Infinity) {
 
   return {
     realizedLosses: round(realizedLosses, 6),
+    shortTermLosses: round(shortTermLosses, 6),
+    longTermLosses: round(longTermLosses, 6),
     flows
   };
 }
@@ -187,7 +194,9 @@ function classifySale(lot, taxableGain, proceeds) {
   if (lot.accountType === "roth" || lot.accountType === "hsa") return "none";
   if (lot.accountType !== "taxable") return "none";
   if (lot.assetClass === "cash" || Math.abs(taxableGain) <= EPSILON) return "none";
-  if (taxableGain < -EPSILON) return "capital-loss";
+  if (taxableGain < -EPSILON) {
+    return lot.holdingPeriod === "short" ? "capital-loss-short" : "capital-loss-long";
+  }
   return lot.holdingPeriod === "short" ? "ordinary" : "capital-gains";
 }
 
@@ -206,8 +215,12 @@ function emptySale(lot) {
 }
 
 function resetBasisForHarvestedUnits(assets, asset, unitsToHarvest, newBasis, suffix) {
+  // After TLH/TGH the harvested units are effectively re-purchased today, so
+  // the holding period clock restarts. Without this reset a sale within one
+  // year of harvesting would still be taxed as long-term gains.
   if (unitsToHarvest >= asset.units - EPSILON) {
     asset.costBasisPerUnit = round(newBasis, 8);
+    asset.holdingPeriod = "short";
     return;
   }
 
@@ -217,6 +230,7 @@ function resetBasisForHarvestedUnits(assets, asset, unitsToHarvest, newBasis, su
     id: `${asset.id}-${suffix}-${assets.length + 1}`,
     name: `${asset.name ?? asset.id} ${suffix.toUpperCase()}`,
     units: round(unitsToHarvest, 8),
-    costBasisPerUnit: round(newBasis, 8)
+    costBasisPerUnit: round(newBasis, 8),
+    holdingPeriod: "short"
   });
 }

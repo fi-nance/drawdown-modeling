@@ -235,7 +235,16 @@ test("Roth conversions move assets and create ordinary income", () => {
   assert.ok(plan.endingAccounts.traditional < 901);
 });
 
-test("automatic Roth conversions stop at the next ACA MAGI band", () => {
+test("automatic Roth conversions cross ACA bands when federal benefit exceeds clawback", () => {
+  // With targetMarginalRate 0.12, the optimizer should admit crossing
+  // intra-table bands whose average marginal subsidy clawback is below 12%
+  // and stop at the band where the clawback first exceeds it.
+  // For this scenario:
+  //   - Band 0–133 (flat 0.02): marginal cost ~2% ✓ cross
+  //   - Band 133–150 (0.03→0.04): marginal cost ~11.8% ✓ cross
+  //   - Band 150–200 (0.04→0.06): marginal cost = 12% (boundary) → admit
+  //   - Band 200–400 (0.06→0.10): marginal cost = 14% ✗ stop
+  // The conversion lands at 200% FPL = MAGI 40000.
   const plan = simulatePlan({
     assets: [{
       id: "ira-bond",
@@ -272,8 +281,51 @@ test("automatic Roth conversions stop at the next ACA MAGI band", () => {
     inflationSequence: [0]
   });
 
-  assert.equal(plan.years[0].rothConversionAmount, 26600);
-  assert.equal(plan.years[0].acaMagiCeilingFplPercent, 133);
+  assert.equal(plan.years[0].rothConversionAmount, 40000);
+  assert.equal(plan.years[0].acaMagiCeilingFplPercent, 200);
+});
+
+test("automatic Roth conversions skip when even the cheapest band is too expensive", () => {
+  // With targetMarginalRate 0.01, even the cheap band 0–133 (flat 0.02 = 2%
+  // marginal) costs more than the 1% federal benefit, so the optimizer
+  // should not initiate any conversion at all.
+  const plan = simulatePlan({
+    assets: [{
+      id: "ira-bond",
+      accountType: "traditional",
+      assetClass: "bond",
+      units: 100000,
+      price: 1,
+      costBasisPerUnit: 1
+    }],
+    scenario: {
+      planYears: 1,
+      targetSpend: 0,
+      targetSpendIncludesTaxes: true,
+      targetSpendIncludesMedical: true,
+      withdrawalOrder: ["traditional"],
+      currentAge: 65,
+      returnAssumptions: { bond: { mean: 0, stdev: 0 } },
+      rothConversion: { enabled: true, mode: "auto", targetMarginalRate: 0.01 },
+      aca: {
+        enabled: true,
+        fpl: 20000,
+        benchmarkPremium: 18000,
+        applicablePercentageTable: [
+          { minFplPercent: 0, maxFplPercent: 133, initialRate: 0.02, finalRate: 0.02 },
+          { minFplPercent: 133, maxFplPercent: 150, initialRate: 0.03, finalRate: 0.04 },
+          { minFplPercent: 150, maxFplPercent: 200, initialRate: 0.04, finalRate: 0.06 },
+          { minFplPercent: 200, maxFplPercent: 400, initialRate: 0.06, finalRate: 0.1 }
+        ],
+        maxEligibleFplPercent: 400
+      }
+    },
+    taxProfile: noTaxProfile,
+    returnSequence: [{ bond: 0 }],
+    inflationSequence: [0]
+  });
+
+  assert.equal(plan.years[0].rothConversionAmount, 0);
 });
 
 test("tax attribution identifies tax created by Roth conversions", () => {
@@ -574,7 +626,8 @@ test("Roth basis is used when ACA savings clear the 50 percent hurdle", () => {
           { minFplPercent: 0, maxFplPercent: 400, initialRate: 0, finalRate: 0 }
         ],
         requiredContributionPercentage: 0.1,
-        maxEligibleFplPercent: 400
+        maxEligibleFplPercent: 400,
+        minEligibleFplPercent: 0
       }
     },
     taxProfile: noTaxProfile,
@@ -657,7 +710,8 @@ test("early Roth basis withdrawals sell low-return Roth assets before growth ass
           { minFplPercent: 0, maxFplPercent: 400, initialRate: 0, finalRate: 0 }
         ],
         requiredContributionPercentage: 0.1,
-        maxEligibleFplPercent: 400
+        maxEligibleFplPercent: 400,
+        minEligibleFplPercent: 0
       }
     },
     taxProfile: noTaxProfile,
@@ -1733,6 +1787,135 @@ test("tax attribution includes multiple tax sources", () => {
   const attributionSources = plan.years[0].taxAttribution.map(a => a.source);
   assert.ok(attributionSources.includes("Roth conversion"));
   assert.ok(attributionSources.includes("Traditional withdrawals"));
+});
+
+test("missing return assumptions for an asset class are filled with safe defaults (no NaN)", () => {
+  // Asset class "private-equity" has no entry in returnAssumptions or
+  // DEFAULT_SCENARIO. The simulator must not propagate NaN into prices.
+  const plan = simulatePlan({
+    assets: [{
+      id: "pe",
+      accountType: "taxable",
+      assetClass: "private-equity",
+      holdingPeriod: "long",
+      units: 100,
+      price: 100,
+      costBasisPerUnit: 100
+    }],
+    scenario: {
+      planYears: 3,
+      targetSpend: 0,
+      targetSpendIncludesTaxes: true,
+      targetSpendIncludesMedical: true,
+      withdrawalOrder: ["taxable"],
+      currentAge: 50,
+      returnAssumptions: { stock: { mean: 0.05, stdev: 0 } },
+      rothConversion: { enabled: false },
+      aca: { enabled: false }
+    },
+    taxProfile: noTaxProfile,
+    inflationSequence: [0, 0, 0]
+  });
+
+  for (const year of plan.years) {
+    assert.ok(Number.isFinite(year.endingPortfolioValue), "endingPortfolioValue must be finite");
+    assert.ok(year.endingPortfolioValue > 0);
+  }
+});
+
+test("historical backtests expose paddedYears for short-window sequences", () => {
+  const sequences = [
+    {
+      name: "short-window",
+      sourceYears: [2000, 2001, 2002, 2003, 2004, 2000, 2001, 2002, 2003, 2004],
+      paddedYears: 5,
+      returns: Array.from({ length: 10 }, () => ({ stock: 0.05, bond: 0.03, cash: 0.02 })),
+      inflation: Array.from({ length: 10 }, () => 0.02)
+    }
+  ];
+  const results = runHistoricalBacktests({
+    assets: [{
+      id: "stock",
+      accountType: "taxable",
+      assetClass: "stock",
+      holdingPeriod: "long",
+      units: 1000,
+      price: 100,
+      costBasisPerUnit: 100
+    }],
+    scenario: {
+      planYears: 10,
+      targetSpend: 0,
+      targetSpendIncludesTaxes: true,
+      targetSpendIncludesMedical: true,
+      withdrawalOrder: ["taxable"],
+      currentAge: 60,
+      returnAssumptions: { stock: { mean: 0.05, stdev: 0 } },
+      rothConversion: { enabled: false },
+      aca: { enabled: false }
+    },
+    taxProfile: noTaxProfile,
+    sequences
+  });
+
+  assert.equal(results.length, 1);
+  assert.equal(results[0].paddedYears, 5);
+  // The last 5 years should be flagged as padded.
+  assert.equal(results[0].years[4].historicalPaddedYear, false);
+  assert.equal(results[0].years[5].historicalPaddedYear, true);
+  assert.equal(results[0].years[9].historicalPaddedYear, true);
+});
+
+test("combined target marginal rate deducts state marginal from federal ceiling", () => {
+  // With combinedTargetMarginalRate=0.20 and a state rate of 0.05, the
+  // optimizer should target the federal bracket boundary at <= 0.15, not
+  // 0.20. With a 0.10/0.20/0.30 ordinary bracket schedule, that means
+  // converting up to the top of the 0.10 bracket — not the 0.20 bracket.
+  const taxProfile = {
+    ...noTaxProfile,
+    ordinaryBrackets: [
+      { upTo: 10000, rate: 0.1 },
+      { upTo: 50000, rate: 0.2 },
+      { upTo: Infinity, rate: 0.3 }
+    ],
+    state: {
+      standardDeduction: 0,
+      brackets: [{ upTo: Infinity, rate: 0.05 }],
+      treatCapitalGainsAsOrdinary: true
+    }
+  };
+  const plan = simulatePlan({
+    assets: [{
+      id: "ira-bond",
+      accountType: "traditional",
+      assetClass: "bond",
+      units: 200000,
+      price: 1,
+      costBasisPerUnit: 1
+    }],
+    scenario: {
+      planYears: 1,
+      targetSpend: 0,
+      targetSpendIncludesTaxes: true,
+      targetSpendIncludesMedical: true,
+      withdrawalOrder: ["traditional"],
+      currentAge: 65,
+      returnAssumptions: { bond: { mean: 0, stdev: 0 } },
+      rothConversion: {
+        enabled: true,
+        mode: "auto",
+        combinedTargetMarginalRate: 0.20
+      },
+      aca: { enabled: false }
+    },
+    taxProfile,
+    returnSequence: [{ bond: 0 }],
+    inflationSequence: [0]
+  });
+
+  // Federal target = 0.20 - 0.05 = 0.15. Highest bracket ≤ 0.15 is the 0.10
+  // bracket whose ceiling is 10000. Conversion ≈ 10000.
+  assert.equal(plan.years[0].rothConversionAmount, 10000);
 });
 
 function round6(value) {

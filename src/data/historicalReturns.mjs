@@ -1659,21 +1659,27 @@ export function assetClassesInPortfolio(assets = []) {
 }
 
 function rollingSequences(rows, planYears, proxies = {}) {
-  if (rows.length <= planYears) return [sequenceFromRows(repeatRowsToLength(rows, planYears), labelForRows(rows, rows.length < planYears), proxies)];
+  if (rows.length <= planYears) {
+    const paddedYears = Math.max(0, planYears - rows.length);
+    return [sequenceFromRows(repeatRowsToLength(rows, planYears), labelForRows(rows, rows.length < planYears), proxies, paddedYears)];
+  }
   const sequences = [];
   for (let index = 0; index <= rows.length - planYears; index += 1) {
     const windowRows = rows.slice(index, index + planYears);
-    sequences.push(sequenceFromRows(windowRows, labelForRows(windowRows), proxies));
+    sequences.push(sequenceFromRows(windowRows, labelForRows(windowRows), proxies, 0));
   }
   return sequences;
 }
 
 function specificSequence(rows, planYears, requestedStartYear, proxies = {}) {
-  if (rows.length <= planYears) return [sequenceFromRows(repeatRowsToLength(rows, planYears), labelForRows(rows, true), proxies)];
+  if (rows.length <= planYears) {
+    const paddedYears = Math.max(0, planYears - rows.length);
+    return [sequenceFromRows(repeatRowsToLength(rows, planYears), labelForRows(rows, true), proxies, paddedYears)];
+  }
   const requestedIndex = rows.findIndex((row) => row.year >= requestedStartYear);
   const boundedIndex = Math.min(Math.max(0, requestedIndex), rows.length - planYears);
   const windowRows = rows.slice(boundedIndex, boundedIndex + planYears);
-  return [sequenceFromRows(windowRows, labelForRows(windowRows), proxies)];
+  return [sequenceFromRows(windowRows, labelForRows(windowRows), proxies, 0)];
 }
 
 function chunkedSequences(rows, planYears, chunkYears, proxies = {}) {
@@ -1685,18 +1691,20 @@ function chunkedSequences(rows, planYears, chunkYears, proxies = {}) {
     if (chunk.length >= planYears) {
       sequences.push(...rollingSequences(chunk, planYears, proxies));
     } else {
-      sequences.push(sequenceFromRows(repeatRowsToLength(chunk, planYears), labelForRows(chunk, true), proxies));
+      const paddedYears = Math.max(0, planYears - chunk.length);
+      sequences.push(sequenceFromRows(repeatRowsToLength(chunk, planYears), labelForRows(chunk, true), proxies, paddedYears));
     }
   }
   return sequences;
 }
 
-function sequenceFromRows(rows, name, proxies = {}) {
+function sequenceFromRows(rows, name, proxies = {}, paddedYears = 0) {
   return {
     name,
     sourceYears: rows.map((row) => row.year),
     startYear: rows[0]?.year ?? null,
     endYear: rows.at(-1)?.year ?? null,
+    paddedYears: Math.max(0, Math.trunc(paddedYears) || 0),
     returns: rows.map((row) => returnObjectForRow(row, proxies)),
     inflation: rows.map((row) => row.inflation)
   };

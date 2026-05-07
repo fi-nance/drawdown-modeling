@@ -76,7 +76,15 @@ export function computeAca({ magi = 0, config = DEFAULT_ACA_CONFIG } = {}) {
   const premiumInputMode = activePlan.premiumInputMode === "net" ? "net" : "gross";
   const benchmarkPremium = Math.max(0, activePlan.benchmarkPremium ?? 0);
   const grossPremium = Math.max(0, activePlan.selectedPlanPremium ?? activePlan.planPremium ?? benchmarkPremium);
-  const eligible = fplPercent <= (config.maxEligibleFplPercent ?? 400);
+  // Per IRC §36B, citizens generally must be at or above 100% FPL to qualify
+  // for PTC (those below typically fall to Medicaid). Allow override via
+  // `minEligibleFplPercent` for users modeling lawfully-present-non-citizen
+  // exceptions or other special cases.
+  const minEligibleFplPercent = Number.isFinite(config.minEligibleFplPercent)
+    ? config.minEligibleFplPercent
+    : 100;
+  const maxEligibleFplPercent = config.maxEligibleFplPercent ?? 400;
+  const eligible = fplPercent >= minEligibleFplPercent && fplPercent <= maxEligibleFplPercent;
   const contributionRate = eligible
     ? contributionRateForFplPercent(
       fplPercent,

@@ -76,6 +76,107 @@ test("capital losses offset gains, then ordinary income, then carry forward", ()
   assert.equal(tax.federalOrdinaryTax, 700);
 });
 
+test("short-term loss carryforward retains character (Schedule D / IRC §1212(b))", () => {
+  // Year 1: $5000 ST loss with no gains → $3000 ordinary offset, $2000 ST
+  // carryforward. Year 2: only a $1500 LT gain, no ST gains. The ST
+  // carryforward must offset the LT gain (cross-character per Schedule D
+  // line 14), then the remaining $500 ST loss offsets ordinary income.
+  const yearOne = computeIncomeTax({
+    ordinaryIncome: 50000,
+    shortTermCapitalLosses: 5000,
+    profile
+  });
+  assert.equal(yearOne.ordinaryLossOffset, 3000);
+  assert.equal(yearOne.lossCarryforwardShort, 2000);
+  assert.equal(yearOne.lossCarryforwardLong, 0);
+
+  const yearTwo = computeIncomeTax({
+    ordinaryIncome: 50000,
+    longTermCapitalGains: 1500,
+    capitalLossCarryforward: { shortTerm: yearOne.lossCarryforwardShort, longTerm: 0 },
+    profile
+  });
+  assert.equal(yearTwo.taxableLongTermCapitalGains, 0);
+  assert.equal(yearTwo.ordinaryLossOffset, 500);
+  assert.equal(yearTwo.lossCarryforwardShort, 0);
+  assert.equal(yearTwo.lossCarryforwardLong, 0);
+});
+
+test("long-term loss carryforward retains character", () => {
+  // Year 1: $5000 LT loss, no gains → $3000 ordinary offset, $2000 LT
+  // carryforward. Year 2: $1500 LT gain, no ST gains. The LT carryforward
+  // offsets LT gain; remaining $500 still has LT character but offsets
+  // ordinary income (after ST is exhausted).
+  const yearOne = computeIncomeTax({
+    ordinaryIncome: 50000,
+    longTermCapitalLosses: 5000,
+    profile
+  });
+  assert.equal(yearOne.ordinaryLossOffset, 3000);
+  assert.equal(yearOne.lossCarryforwardShort, 0);
+  assert.equal(yearOne.lossCarryforwardLong, 2000);
+
+  const yearTwo = computeIncomeTax({
+    ordinaryIncome: 50000,
+    longTermCapitalGains: 1500,
+    capitalLossCarryforward: { shortTerm: 0, longTerm: yearOne.lossCarryforwardLong },
+    profile
+  });
+  assert.equal(yearTwo.taxableLongTermCapitalGains, 0);
+  assert.equal(yearTwo.ordinaryLossOffset, 500);
+  assert.equal(yearTwo.lossCarryforwardLong, 0);
+});
+
+test("state retirement exclusion uses full retirement income, not federal-loss-prorated", () => {
+  // Bug repro: pre-fix, retirementOrdinaryIncome was multiplied by
+  // (ordinaryAfterLossOffset / ordinaryBeforeLossOffset). When capital
+  // losses reduced ordinary income, the state retirement-income exclusion
+  // shrank with it, even though state law applies the exclusion to the
+  // full retirement amount. Use a state with a "type: all" exclusion
+  // (e.g., Illinois): with the fix the retirement portion is fully
+  // excluded regardless of federal losses.
+  const stateProfile = {
+    ...profile,
+    state: {
+      standardDeduction: 0,
+      brackets: [{ upTo: Infinity, rate: 0.05 }],
+      treatCapitalGainsAsOrdinary: true,
+      retirementRules: {
+        retirementIncome: { type: "all" },
+        socialSecurity: { type: "taxable" }
+      }
+    }
+  };
+  // Same ordinaryIncome (50000) which already includes retirement (20000);
+  // with capital losses the retirement portion's exclusion eligibility
+  // should not shrink.
+  const withLoss = computeIncomeTax({
+    ordinaryIncome: 50000,
+    retirementOrdinaryIncome: 20000,
+    capitalLosses: 4000,
+    profile: stateProfile
+  });
+  const withoutLoss = computeIncomeTax({
+    ordinaryIncome: 50000,
+    retirementOrdinaryIncome: 20000,
+    capitalLosses: 0,
+    profile: stateProfile
+  });
+  // Federal ordinary tax DIFFERS (capital losses reduce ordinary by $3k).
+  assert.notEqual(withLoss.federalOrdinaryTax, withoutLoss.federalOrdinaryTax);
+  // State tax = 5% * (ordinaryAfterLossOffset - retirementExclusion).
+  // The fix ensures retirement is fully excluded regardless of federal
+  // loss offset, so the *delta* between the two scenarios reflects ONLY
+  // the change in non-retirement ordinary income, NOT a prorated
+  // shrinkage of the retirement exclusion.
+  // Pre-fix, withLoss.stateTax would have been HIGHER than expected
+  // because retirement exclusion was prorated down.
+  // Post-fix, the state tax difference should equal exactly 5% of the $3k
+  // ordinary loss offset = $150.
+  const stateTaxDelta = Math.round((withoutLoss.stateTax - withLoss.stateTax) * 100) / 100;
+  assert.equal(stateTaxDelta, 150);
+});
+
 test("state tax can apply a separate capital gains rate", () => {
   const tax = computeIncomeTax({
     ordinaryIncome: 10000,

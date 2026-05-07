@@ -167,10 +167,10 @@ export function simulatePlan({
   returnSequence,
   inflationSequence
 }) {
-  const mergedScenario = mergeScenario(scenario);
+  const mergedScenario = ensureReturnAssumptionsForAssets(mergeScenario(scenario), assets);
   const portfolio = clonePortfolio(assets);
   const years = [];
-  let lossCarryforward = 0;
+  let lossCarryforward = { shortTerm: 0, longTerm: 0 };
   let rothBasisRemaining = Math.max(0, mergedScenario.rothBasis ?? 0);
   let success = true;
   let inflationIndex = 1;
@@ -196,10 +196,13 @@ export function simulatePlan({
       magiHistory
     });
 
-    lossCarryforward = result.lossCarryforward;
+    lossCarryforward = result.lossCarryforwardDetail ?? normalizeLossCarryforward(result.lossCarryforward);
     rothBasisRemaining = result.rothBasisRemaining;
     magiHistory.push(result.magi);
-    success = success && result.unfunded <= 1;
+    // Inflation-scale the "fully funded" tolerance: $1 of present-day dollars
+    // shrinks in real terms over a 30+ year plan, so the absolute threshold
+    // would otherwise become unrealistically tight in the late years.
+    success = success && result.unfunded <= Math.max(1, inflationIndex);
     years.push(result);
   }
 
@@ -223,7 +226,7 @@ export function runMonteCarlo({
   runs = 500,
   seed = 42
 }) {
-  const mergedScenario = mergeScenario(scenario);
+  const mergedScenario = ensureReturnAssumptionsForAssets(mergeScenario(scenario), assets);
   const rng = createRng(seed);
   const scenarios = [];
 
@@ -287,28 +290,76 @@ export function runHistoricalBacktests({
       returnSequence: sequence.returns,
       inflationSequence: sequence.inflation
     });
-    const annotatedPlan = withHistoricalSourceYears(plan, sequence.sourceYears ?? []);
+    const annotatedPlan = withHistoricalSourceYears(plan, sequence.sourceYears ?? [], sequence.paddedYears ?? 0);
     const depletion = firstDepletionDetails(annotatedPlan.years);
     return {
       id: sequence.name ?? `Sequence ${index + 1}`,
       sourceYears: sequence.sourceYears ?? [],
       sourceStartYear: sequence.startYear ?? null,
       sourceEndYear: sequence.endYear ?? null,
+      paddedYears: Math.max(0, Math.trunc(sequence.paddedYears) || 0),
       ...depletion,
       ...annotatedPlan
     };
   });
 }
 
-function withHistoricalSourceYears(plan, sourceYears = []) {
+function withHistoricalSourceYears(plan, sourceYears = [], paddedYears = 0) {
   if (!sourceYears.length) return plan;
+  // Mark which year-index is "padded" (re-using earlier source-year data
+  // because the historical window was shorter than the plan horizon).
+  const total = plan.years.length;
+  const firstPaddedIndex = Math.max(0, total - paddedYears);
   return {
     ...plan,
     years: plan.years.map((year, index) => ({
       ...year,
-      historicalSourceYear: sourceYears[index % sourceYears.length] ?? null
+      historicalSourceYear: sourceYears[index % sourceYears.length] ?? null,
+      historicalPaddedYear: paddedYears > 0 && index >= firstPaddedIndex
     }))
   };
+}
+
+// Ensures every asset class present in `assets` has a finite return-assumption
+// entry in the scenario. Missing or non-finite values are filled with a
+// conservative cash-like default (mean: 1%, stdev: 0.5%) so a stray
+// uncategorized class can never produce NaN through `normalRandom`.
+function ensureReturnAssumptionsForAssets(scenario, assets = []) {
+  const assumptions = { ...(scenario.returnAssumptions ?? {}) };
+  const FALLBACK = { mean: 0.01, stdev: 0.005 };
+  for (const asset of assets ?? []) {
+    const cls = asset?.assetClass;
+    if (!cls || cls === "inflation") continue;
+    const current = assumptions[cls];
+    const meanOk = Number.isFinite(Number(current?.mean));
+    const stdevOk = Number.isFinite(Number(current?.stdev));
+    if (!current || !meanOk || !stdevOk) {
+      assumptions[cls] = {
+        mean: meanOk ? Number(current.mean) : FALLBACK.mean,
+        stdev: stdevOk ? Number(current.stdev) : FALLBACK.stdev
+      };
+    }
+  }
+  return { ...scenario, returnAssumptions: assumptions };
+}
+
+function normalizeLossCarryforward(value) {
+  if (typeof value === "object" && value !== null) {
+    return {
+      shortTerm: Math.max(0, value.shortTerm ?? 0),
+      longTerm: Math.max(0, value.longTerm ?? 0)
+    };
+  }
+  // Legacy callers pass a single number; treat it as long-term to preserve
+  // existing behavior (most retirement-era losses are long-term).
+  return { shortTerm: 0, longTerm: Math.max(0, Number(value) || 0) };
+}
+
+function lossCarryforwardTotal(value) {
+  if (typeof value === "object" && value !== null) {
+    return Math.max(0, (value.shortTerm ?? 0) + (value.longTerm ?? 0));
+  }
+  return Math.max(0, Number(value) || 0);
 }
 
 function simulateYear({
@@ -323,6 +374,9 @@ function simulateYear({
   rothBasisRemaining,
   magiHistory = []
 }) {
+  // Accept either a number (legacy: treated as long-term) or
+  // { shortTerm, longTerm } object so callers can preserve §1212(b) character.
+  lossCarryforward = normalizeLossCarryforward(lossCarryforward);
   const calendarYear = scenario.startYear + yearIndex;
   const age = (scenario.currentAge ?? 55) + yearIndex;
   const spouseAge = Number.isFinite(Number(scenario.spouseAge))
@@ -353,19 +407,23 @@ function simulateYear({
   let ordinaryIncome = dividends.ordinaryDividends + earnedIncome.ordinaryIncome + oneOffCashFlows.taxableOrdinaryIncome;
   let qualifiedDividends = dividends.qualifiedDividends;
   let strategyCapitalLosses = 0;
+  let strategyShortTermLosses = 0;
+  let strategyLongTermLosses = 0;
   let strategyLongTermGains = 0;
   const annualPenaltyExceptionAmount = earlyWithdrawalPenaltyExceptionAmountForYear(scenario);
 
   const lossHarvestLimit = strategyLimit({
     strategy: scenario.taxLossHarvesting,
-    autoValue: automaticTaxLossHarvestLimit(portfolio, yearTaxProfile, lossCarryforward),
+    autoValue: automaticTaxLossHarvestLimit(portfolio, yearTaxProfile, lossCarryforwardTotal(lossCarryforward)),
     legacyField: "maxLoss",
     overrideField: "overrideMaxLoss"
   });
   const lossHarvest = scenario.taxLossHarvesting?.enabled
     ? harvestTaxLosses(portfolio, lossHarvestLimit)
-    : { realizedLosses: 0, flows: [] };
+    : { realizedLosses: 0, shortTermLosses: 0, longTermLosses: 0, flows: [] };
   strategyCapitalLosses += lossHarvest.realizedLosses;
+  strategyShortTermLosses += lossHarvest.shortTermLosses ?? 0;
+  strategyLongTermLosses += lossHarvest.longTermLosses ?? 0;
   flows.push(...lossHarvest.flows);
 
   const rmd = requiredMinimumDistributionForYear({
@@ -436,7 +494,19 @@ function simulateYear({
   let medicalEstimate = 0;
   let taxEstimate = 0;
 
-  for (let iteration = 0; iteration < 10; iteration += 1) {
+  // Around ACA / IRMAA cliffs the withdrawal can oscillate between two states.
+  // Track the prior estimate and exit early on convergence; if the loop fails
+  // to converge, fall back to the highest-cost iteration so we don't ship a
+  // silently understated tax/medical estimate.
+  const MAX_FIXED_POINT_ITERATIONS = 10;
+  const FIXED_POINT_TOLERANCE = 1;
+  let prevTax = null;
+  let prevMedical = null;
+  let converged = false;
+  let highestCostPlan = null;
+  let highestCostTotal = -Infinity;
+
+  for (let iteration = 0; iteration < MAX_FIXED_POINT_ITERATIONS; iteration += 1) {
     const cashRequired = plannedSpending
       + (scenario.targetSpendIncludesMedical ? 0 : medicalEstimate)
       + (scenario.targetSpendIncludesTaxes ? 0 : taxEstimate);
@@ -469,6 +539,8 @@ function simulateYear({
         qualifiedDividends,
         strategyLongTermGains,
         strategyCapitalLosses,
+        strategyShortTermLosses,
+        strategyLongTermLosses,
         lossCarryforward,
         socialSecurityBenefits,
         age,
@@ -478,8 +550,16 @@ function simulateYear({
       }
     });
 
-    medicalEstimate = scenario.targetSpendIncludesMedical ? 0 : chosenPlan.medicalTotal;
-    taxEstimate = chosenPlan.taxes.totalTax;
+    const nextMedical = scenario.targetSpendIncludesMedical ? 0 : chosenPlan.medicalTotal;
+    const nextTax = chosenPlan.taxes.totalTax;
+    const totalCost = nextMedical + nextTax;
+    if (totalCost > highestCostTotal) {
+      highestCostTotal = totalCost;
+      highestCostPlan = chosenPlan;
+    }
+
+    medicalEstimate = nextMedical;
+    taxEstimate = nextTax;
 
     finalWithdrawal = chosenPlan.withdrawal;
     finalTaxes = chosenPlan.taxes;
@@ -488,6 +568,26 @@ function simulateYear({
     finalTaxableSocialSecurity = chosenPlan.taxableSocialSecurity;
     finalPortfolio = chosenPlan.portfolio;
     finalRothBasisOptimization = chosenPlan.rothBasisOptimization;
+
+    if (prevTax !== null
+      && Math.abs(nextTax - prevTax) + Math.abs(nextMedical - prevMedical) < FIXED_POINT_TOLERANCE) {
+      converged = true;
+      break;
+    }
+    prevTax = nextTax;
+    prevMedical = nextMedical;
+  }
+
+  if (!converged && highestCostPlan) {
+    finalWithdrawal = highestCostPlan.withdrawal;
+    finalTaxes = highestCostPlan.taxes;
+    finalAca = highestCostPlan.aca;
+    finalMedicare = highestCostPlan.medicare;
+    finalTaxableSocialSecurity = highestCostPlan.taxableSocialSecurity;
+    finalPortfolio = highestCostPlan.portfolio;
+    finalRothBasisOptimization = highestCostPlan.rothBasisOptimization;
+    medicalEstimate = scenario.targetSpendIncludesMedical ? 0 : highestCostPlan.medicalTotal;
+    taxEstimate = highestCostPlan.taxes.totalTax;
   }
 
   if (scenario.taxGainHarvesting?.enabled) {
@@ -503,6 +603,8 @@ function simulateYear({
         qualifiedDividends,
         strategyLongTermGains,
         strategyCapitalLosses,
+        strategyShortTermLosses,
+        strategyLongTermLosses,
         withdrawal: finalWithdrawal,
         socialSecurityBenefits,
         taxProfile: yearTaxProfile,
@@ -532,6 +634,8 @@ function simulateYear({
         qualifiedDividends,
         strategyLongTermGains,
         strategyCapitalLosses,
+        strategyShortTermLosses,
+        strategyLongTermLosses,
         withdrawal: finalWithdrawal,
         socialSecurityBenefits,
         taxProfile: yearTaxProfile,
@@ -586,6 +690,8 @@ function simulateYear({
     qualifiedDividends,
     strategyLongTermGains,
     strategyCapitalLosses,
+    strategyShortTermLosses,
+    strategyLongTermLosses,
     lossCarryforward,
     socialSecurityBenefits,
     age,
@@ -614,6 +720,8 @@ function simulateYear({
     qualifiedDividends,
     strategyLongTermGains,
     strategyCapitalLosses,
+    strategyShortTermLosses,
+    strategyLongTermLosses,
     withdrawal: finalWithdrawal,
     socialSecurityBenefits,
     taxProfile: yearTaxProfile,
@@ -621,10 +729,21 @@ function simulateYear({
   });
   finalTaxableSocialSecurity = reconciledTaxableSocialSecurity;
   const finalMagi = round(estimateMagi(finalIncome), 6);
+  // Use the same net-benefit gate as the conversion sizing so the displayed
+  // ceiling reflects the actual cap the optimizer applied.
   const finalAcaMagiTarget = acaMagiCeiling({
     acaConfig: yearAcaConfig,
     currentMagi: finalMagi,
-    maxFplPercent: scenario.rothConversion?.maxAcaFplPercent ?? 400
+    maxFplPercent: scenario.rothConversion?.maxAcaFplPercent ?? 400,
+    targetRate: scenario.rothConversion?.enabled
+      ? effectiveRothConversionTargetRate({
+          portfolio,
+          scenario,
+          age,
+          taxProfile: yearTaxProfile,
+          ordinaryIncome: finalIncome.ordinaryIncome
+        })
+      : null
   });
   const taxAttribution = estimateTaxAttribution({
     taxProfile: yearTaxProfile,
@@ -743,6 +862,10 @@ function simulateYear({
     realizedShortTermGains: finalWithdrawal.shortTermCapitalGains,
     realizedCapitalLosses: round(strategyCapitalLosses + finalWithdrawal.capitalLosses, 6),
     lossCarryforward: finalTaxes.lossCarryforward,
+    lossCarryforwardDetail: {
+      shortTerm: finalTaxes.lossCarryforwardShort ?? 0,
+      longTerm: finalTaxes.lossCarryforwardLong ?? finalTaxes.lossCarryforward ?? 0
+    },
     rothConversionAmount: round(rothConversionAmount, 6),
     penaltyTax: round(finalTaxes.penaltyTax ?? 0, 6),
     penaltyBase: round(finalWithdrawal.penaltyBase ?? 0, 6),
@@ -783,6 +906,8 @@ function reconcileCashRequirement({
   qualifiedDividends,
   strategyLongTermGains,
   strategyCapitalLosses,
+  strategyShortTermLosses = 0,
+  strategyLongTermLosses = 0,
   lossCarryforward,
   socialSecurityBenefits,
   age,
@@ -837,6 +962,8 @@ function reconcileCashRequirement({
         qualifiedDividends,
         strategyLongTermGains,
         strategyCapitalLosses,
+        strategyShortTermLosses,
+        strategyLongTermLosses,
         lossCarryforward,
         socialSecurityBenefits,
         age,
@@ -985,7 +1112,7 @@ function chooseLifetimeOptimizedWithdrawalPlan({
     modeledSavings: 0,
     requiredSavings: 0
   });
-  let bestScore = lifetimeWithdrawalScore(best, config);
+  let bestScore = lifetimeWithdrawalScore(best, config, evaluationContext.scenario);
 
   const candidates = optimizedWithdrawalCandidates({
     requestedOrder,
@@ -1029,7 +1156,7 @@ function chooseLifetimeOptimizedWithdrawalPlan({
       modeledSavings,
       requiredSavings
     });
-    const score = lifetimeWithdrawalScore(annotated, config);
+    const score = lifetimeWithdrawalScore(annotated, config, evaluationContext.scenario);
     if (score + 0.01 < bestScore) {
       best = annotated;
       bestScore = score;
@@ -1131,10 +1258,13 @@ function uniqueWithdrawalOrders(orders) {
   return result;
 }
 
-function lifetimeWithdrawalScore(plan, config) {
+function lifetimeWithdrawalScore(plan, config, scenario) {
+  const heirTaxRate = scenario?.heirOrdinaryTaxRate ?? 0.24;
+  const heirValue = plan.portfolio ? estimateHeirValue(plan.portfolio, heirTaxRate) : 0;
   return round(
     plan.modeledCost
-      + Math.max(0, plan.withdrawal?.saleOpportunityCost ?? 0) * config.expectedReturnPenaltyYears,
+      + Math.max(0, plan.withdrawal?.saleOpportunityCost ?? 0) * config.expectedReturnPenaltyYears
+      - heirValue,
     6
   );
 }
@@ -1178,6 +1308,8 @@ function evaluateWithdrawalState({
   qualifiedDividends,
   strategyLongTermGains,
   strategyCapitalLosses,
+  strategyShortTermLosses = 0,
+  strategyLongTermLosses = 0,
   lossCarryforward,
   socialSecurityBenefits,
   age,
@@ -1194,6 +1326,8 @@ function evaluateWithdrawalState({
     qualifiedDividends,
     strategyLongTermGains,
     strategyCapitalLosses,
+    strategyShortTermLosses,
+    strategyLongTermLosses,
     withdrawal,
     socialSecurityBenefits,
     taxProfile: yearTaxProfile,
@@ -1380,6 +1514,8 @@ function mergeWithdrawals(base, addition) {
     shortTermCapitalGains: round(base.shortTermCapitalGains + addition.shortTermCapitalGains, 6),
     longTermCapitalGains: round(base.longTermCapitalGains + addition.longTermCapitalGains, 6),
     capitalLosses: round(base.capitalLosses + addition.capitalLosses, 6),
+    shortTermCapitalLosses: round((base.shortTermCapitalLosses ?? 0) + (addition.shortTermCapitalLosses ?? 0), 6),
+    longTermCapitalLosses: round((base.longTermCapitalLosses ?? 0) + (addition.longTermCapitalLosses ?? 0), 6),
     penaltyTax: round(base.penaltyTax + addition.penaltyTax, 6),
     penaltyBase: round(base.penaltyBase + addition.penaltyBase, 6),
     penaltyExceptionUsed: round((base.penaltyExceptionUsed ?? 0) + (addition.penaltyExceptionUsed ?? 0), 6),
@@ -1400,6 +1536,8 @@ function emptyWithdrawal(rothBasisRemaining = 0, penaltyExceptionRemaining = 0) 
     shortTermCapitalGains: 0,
     longTermCapitalGains: 0,
     capitalLosses: 0,
+    shortTermCapitalLosses: 0,
+    longTermCapitalLosses: 0,
     penaltyTax: 0,
     penaltyBase: 0,
     penaltyExceptionUsed: 0,
@@ -1432,6 +1570,8 @@ function withdrawForCash(portfolio, amount, withdrawalOrder = [], context = {}) 
     shortTermCapitalGains: 0,
     longTermCapitalGains: 0,
     capitalLosses: 0,
+    shortTermCapitalLosses: 0,
+    longTermCapitalLosses: 0,
     penaltyTax: 0,
     penaltyBase: 0,
     penaltyExceptionUsed: 0,
@@ -1500,8 +1640,14 @@ function withdrawForCash(portfolio, amount, withdrawalOrder = [], context = {}) 
         result.shortTermCapitalGains += Math.max(0, sale.gain);
       } else if (sale.accountType === "taxable" && sale.taxType === "capital-gains") {
         result.longTermCapitalGains += Math.max(0, sale.gain);
-      } else if (sale.accountType === "taxable" && sale.taxType === "capital-loss") {
-        result.capitalLosses += Math.abs(Math.min(0, sale.gain));
+      } else if (sale.accountType === "taxable" && sale.taxType === "capital-loss-short") {
+        const loss = Math.abs(Math.min(0, sale.gain));
+        result.capitalLosses += loss;
+        result.shortTermCapitalLosses += loss;
+      } else if (sale.accountType === "taxable" && sale.taxType === "capital-loss-long") {
+        const loss = Math.abs(Math.min(0, sale.gain));
+        result.capitalLosses += loss;
+        result.longTermCapitalLosses += loss;
       }
     }
   }
@@ -1511,6 +1657,8 @@ function withdrawForCash(portfolio, amount, withdrawalOrder = [], context = {}) 
   result.shortTermCapitalGains = round(result.shortTermCapitalGains, 6);
   result.longTermCapitalGains = round(result.longTermCapitalGains, 6);
   result.capitalLosses = round(result.capitalLosses, 6);
+  result.shortTermCapitalLosses = round(result.shortTermCapitalLosses, 6);
+  result.longTermCapitalLosses = round(result.longTermCapitalLosses, 6);
   result.penaltyTax = round(result.penaltyTax, 6);
   result.penaltyBase = round(result.penaltyBase, 6);
   result.penaltyExceptionUsed = round(result.penaltyExceptionUsed, 6);
@@ -1658,6 +1806,8 @@ function combineIncome({
   qualifiedDividends,
   strategyLongTermGains,
   strategyCapitalLosses,
+  strategyShortTermLosses = 0,
+  strategyLongTermLosses = 0,
   withdrawal,
   taxableSocialSecurity = 0,
   socialSecurityBenefits = 0
@@ -1676,7 +1826,9 @@ function combineIncome({
     shortTermCapitalGains: withdrawal.shortTermCapitalGains,
     longTermCapitalGains: strategyLongTermGains + withdrawal.longTermCapitalGains,
     qualifiedDividends,
-    capitalLosses: strategyCapitalLosses + withdrawal.capitalLosses
+    capitalLosses: strategyCapitalLosses + withdrawal.capitalLosses,
+    shortTermCapitalLosses: strategyShortTermLosses + (withdrawal.shortTermCapitalLosses ?? 0),
+    longTermCapitalLosses: strategyLongTermLosses + (withdrawal.longTermCapitalLosses ?? 0)
   };
 }
 
@@ -1688,6 +1840,8 @@ function incomeForYear({
   qualifiedDividends,
   strategyLongTermGains,
   strategyCapitalLosses,
+  strategyShortTermLosses = 0,
+  strategyLongTermLosses = 0,
   withdrawal,
   socialSecurityBenefits,
   taxProfile,
@@ -1701,6 +1855,8 @@ function incomeForYear({
     qualifiedDividends,
     strategyLongTermGains,
     strategyCapitalLosses,
+    strategyShortTermLosses,
+    strategyLongTermLosses,
     withdrawal,
     socialSecurityBenefits: 0,
     taxableSocialSecurity: 0
@@ -1722,6 +1878,8 @@ function incomeForYear({
       qualifiedDividends,
       strategyLongTermGains,
       strategyCapitalLosses,
+      strategyShortTermLosses,
+      strategyLongTermLosses,
       withdrawal,
       socialSecurityBenefits,
       taxableSocialSecurity
@@ -2341,7 +2499,13 @@ function rothConversionAmountForYear({
       : null;
   if (requested !== null && requested >= 0) return requested;
 
-  const targetRate = effectiveRothConversionTargetRate({ portfolio, scenario, age });
+  const targetRate = effectiveRothConversionTargetRate({
+    portfolio,
+    scenario,
+    age,
+    taxProfile,
+    ordinaryIncome
+  });
   const targetCeiling = bracketCeilingForRate(taxProfile.ordinaryBrackets, targetRate);
   const federalRoom = Math.max(0, targetCeiling + (taxProfile.standardDeduction ?? 0) - ordinaryIncome);
   const magiBeforeConversion = Math.max(0, ordinaryIncome + qualifiedDividends);
@@ -2352,7 +2516,8 @@ function rothConversionAmountForYear({
     : acaMagiCeiling({
         acaConfig,
         currentMagi: magiBeforeConversion,
-        maxFplPercent: scenario.rothConversion?.maxAcaFplPercent ?? 400
+        maxFplPercent: scenario.rothConversion?.maxAcaFplPercent ?? 400,
+        targetRate
       });
   const acaRoom = acaConfig?.enabled
     ? Math.max(0, acaTarget.amount - magiBeforeConversion)
@@ -2362,15 +2527,29 @@ function rothConversionAmountForYear({
     taxProfile,
     age,
     inflationIndex,
-    magiBeforeConversion
+    magiBeforeConversion,
+    targetRate
   });
 
   return round(Math.min(federalRoom, acaRoom, irmaaRoom, traditionalAccountValue(portfolio)), 6);
 }
 
-function effectiveRothConversionTargetRate({ portfolio, scenario, age }) {
-  const configured = scenario.rothConversion?.targetMarginalRate ?? 0.12;
-  if (!isLifetimeOptimizerEnabled(scenario) || scenario.rothConversion?.mode === "manual") return configured;
+function effectiveRothConversionTargetRate({ portfolio, scenario, age, taxProfile, ordinaryIncome = 0 }) {
+  const config = scenario.rothConversion ?? {};
+  // If the user supplies `combinedTargetMarginalRate`, treat it as the
+  // combined federal+state rate ceiling and back out the federal target by
+  // subtracting an approximation of the state marginal rate. This avoids the
+  // common gotcha of declaring "I'll convert up to 12%" but actually paying
+  // ~21% combined in a high-tax state.
+  let configured = config.targetMarginalRate ?? 0.12;
+  if (Number.isFinite(Number(config.combinedTargetMarginalRate))) {
+    const combined = Math.max(0, Number(config.combinedTargetMarginalRate));
+    const stateMarginal = taxProfile
+      ? approximateStateMarginalRate({ taxProfile, ordinaryIncome })
+      : 0;
+    configured = Math.max(0, combined - stateMarginal);
+  }
+  if (!isLifetimeOptimizerEnabled(scenario) || config.mode === "manual") return configured;
   const rmdStartAge = scenario.rmd?.startAge != null && Number.isFinite(Number(scenario.rmd.startAge))
     ? Number(scenario.rmd.startAge)
     : defaultRmdStartAge(scenario);
@@ -2381,18 +2560,61 @@ function effectiveRothConversionTargetRate({ portfolio, scenario, age }) {
   return rmdPressure && configured <= 0.12 ? 0.22 : configured;
 }
 
-function irmaaMagiRoomForConversion({ scenario, taxProfile, age, inflationIndex, magiBeforeConversion }) {
+function approximateStateMarginalRate({ taxProfile, ordinaryIncome = 0 }) {
+  const state = taxProfile?.state;
+  if (!state || !Array.isArray(state.brackets) || state.brackets.length === 0) return 0;
+  const taxable = Math.max(0, ordinaryIncome - (state.standardDeduction ?? 0));
+  let previous = 0;
+  for (const bracket of state.brackets) {
+    if (taxable <= (bracket.upTo ?? Infinity)) return Math.max(0, bracket.rate ?? 0);
+    previous = bracket.upTo;
+  }
+  // taxable income exceeds all bracket ceilings — return the top bracket rate.
+  return Math.max(0, state.brackets.at(-1)?.rate ?? 0);
+}
+
+function irmaaMagiRoomForConversion({ scenario, taxProfile, age, inflationIndex, magiBeforeConversion, targetRate = 0.12 }) {
   if (!isLifetimeOptimizerEnabled(scenario) || scenario.medicare?.irmaaEnabled === false || !(age >= 63)) return Infinity;
   const config = getMedicareIrmaaConfig({ taxYear: scenario.taxYear, inflationIndex });
   const key = medicareIrmaaBracketKey({
     filingStatus: taxProfile.filingStatus,
     marriedFilingSeparatelyLivedTogether: scenario.medicare?.marriedFilingSeparatelyLivedTogether
   });
-  const firstThreshold = config.brackets?.[key]?.[0]?.upTo;
-  return Number.isFinite(firstThreshold) ? Math.max(0, firstThreshold - magiBeforeConversion) : Infinity;
+  const brackets = config.brackets?.[key] ?? [];
+  if (!brackets.length) return Infinity;
+
+  // User-configurable hard cap on tier index (0-indexed). When unset we let
+  // the per-bracket net-benefit gate decide.
+  const maxTier = Number.isFinite(Number(scenario.medicare?.maxIrmaaTier))
+    ? Math.max(0, Math.trunc(Number(scenario.medicare.maxIrmaaTier)))
+    : brackets.length - 1;
+  const enrollees = Math.max(1, Math.trunc(Number(scenario.medicare?.householdEnrollees) || 1));
+
+  // Locate the bracket the household sits in before conversion.
+  let currentIndex = brackets.findIndex((row) => magiBeforeConversion <= (row.upTo ?? Infinity) + 0.000001);
+  if (currentIndex < 0) currentIndex = brackets.length - 1;
+
+  // Walk forward and admit each next bracket only if the federal tax savings
+  // on the conversion within the bracket's MAGI width exceed the additional
+  // annual IRMAA surcharge that crossing the threshold imposes.
+  let lastAdmittedUpTo = brackets[currentIndex]?.upTo ?? Infinity;
+  for (let nextIndex = currentIndex + 1; nextIndex <= maxTier && nextIndex < brackets.length; nextIndex += 1) {
+    const prevUpTo = brackets[nextIndex - 1]?.upTo ?? 0;
+    const nextUpTo = brackets[nextIndex]?.upTo ?? Infinity;
+    const additionalAnnualSurcharge = (
+      ((brackets[nextIndex].partBMonthlyAdjustment ?? 0) - (brackets[nextIndex - 1].partBMonthlyAdjustment ?? 0))
+      + ((brackets[nextIndex].partDMonthlyAdjustment ?? 0) - (brackets[nextIndex - 1].partDMonthlyAdjustment ?? 0))
+    ) * 12 * enrollees;
+    const widthInBracket = Number.isFinite(nextUpTo) ? Math.max(0, nextUpTo - prevUpTo) : Infinity;
+    const federalBenefit = widthInBracket * Math.max(0, targetRate);
+    if (federalBenefit + 0.01 < additionalAnnualSurcharge) break;
+    lastAdmittedUpTo = nextUpTo;
+  }
+
+  return Number.isFinite(lastAdmittedUpTo) ? Math.max(0, lastAdmittedUpTo - magiBeforeConversion) : Infinity;
 }
 
-function acaMagiCeiling({ acaConfig, currentMagi = 0, maxFplPercent = 400 } = {}) {
+function acaMagiCeiling({ acaConfig, currentMagi = 0, maxFplPercent = 400, targetRate = null } = {}) {
   if (!acaConfig?.enabled || !(acaConfig.fpl > 0)) {
     return { amount: Infinity, fplPercent: Infinity };
   }
@@ -2400,18 +2622,81 @@ function acaMagiCeiling({ acaConfig, currentMagi = 0, maxFplPercent = 400 } = {}
   const fpl = acaConfig.fpl;
   const currentFplPercent = Math.max(0, currentMagi / fpl * 100);
   const cappedMax = Math.max(0, Math.min(maxFplPercent, acaConfig.maxEligibleFplPercent ?? maxFplPercent));
-  const thresholds = [
-    ...(acaConfig.applicablePercentageTable ?? []).map((row) => row.maxFplPercent),
-    cappedMax
-  ]
-    .filter((value) => Number.isFinite(value) && value > 0 && value <= cappedMax)
-    .sort((a, b) => a - b);
-  const targetPercent = thresholds.find((threshold) => currentFplPercent <= threshold + 0.0001) ?? cappedMax;
+
+  // Sort intra-table band boundaries above currentFplPercent, capped by
+  // cappedMax. Always include cappedMax itself as a candidate boundary.
+  const bands = (acaConfig.applicablePercentageTable ?? [])
+    .filter((row) => Number.isFinite(row.maxFplPercent) && row.maxFplPercent > currentFplPercent + 0.0001 && row.maxFplPercent <= cappedMax + 0.0001)
+    .sort((a, b) => (a.minFplPercent ?? 0) - (b.minFplPercent ?? 0));
+
+  // Legacy "blind cap" path: when `targetRate` isn't supplied (e.g., the
+  // post-conversion display call), preserve the original conservative
+  // behavior of stopping at the next intra-table boundary.
+  if (!Number.isFinite(targetRate)) {
+    const nextBoundary = bands[0]?.maxFplPercent;
+    const targetPercent = Number.isFinite(nextBoundary) ? Math.min(cappedMax, nextBoundary) : cappedMax;
+    return {
+      amount: round(fpl * targetPercent / 100, 6),
+      fplPercent: round(targetPercent, 6)
+    };
+  }
+
+  // Net-benefit path: admit crossing each next band only if the band's
+  // average marginal subsidy clawback per dollar of MAGI does not exceed
+  // `targetRate` (the federal tax savings rate the optimizer hopes to lock
+  // in via the conversion). The configured `cappedMax` is treated as a
+  // hard cliff.
+  let admittedPercent = currentFplPercent;
+  let prevPercent = currentFplPercent;
+  const tolerance = Math.max(0, targetRate) + 0.0001;
+  for (const band of bands) {
+    const boundary = Math.min(band.maxFplPercent, cappedMax);
+    if (boundary <= prevPercent + 0.0001) continue;
+    const marginalClawback = bandAverageMarginalAcaCost({
+      acaConfig,
+      band,
+      lowerFplPercent: prevPercent,
+      upperFplPercent: boundary
+    });
+    if (marginalClawback > tolerance) break;
+    admittedPercent = boundary;
+    prevPercent = boundary;
+    if (boundary >= cappedMax - 0.0001) break;
+  }
+  const targetPercent = Math.min(cappedMax, admittedPercent);
 
   return {
     amount: round(fpl * targetPercent / 100, 6),
     fplPercent: round(targetPercent, 6)
   };
+}
+
+// Average marginal cost-per-MAGI-dollar of traversing the FPL% range
+// [lower, upper] inside a single applicable-percentage band, computed as
+// (contribution_at_upper - contribution_at_lower) / (MAGI_upper - MAGI_lower).
+// This collapses to the band's flat rate when initial == final, and captures
+// both the linear slope and any rate-jump at the band entry.
+function bandAverageMarginalAcaCost({ acaConfig, band, lowerFplPercent, upperFplPercent }) {
+  if (!acaConfig?.enabled || !(acaConfig.fpl > 0)) return 0;
+  if (upperFplPercent <= lowerFplPercent + 0.0001) return 0;
+  const fpl = acaConfig.fpl;
+  const bandLower = band.minFplPercent ?? 0;
+  const bandUpper = band.maxFplPercent ?? Infinity;
+  const initialRate = band.initialRate ?? 0;
+  const finalRate = band.finalRate ?? initialRate;
+  const positionLower = Number.isFinite(bandUpper) && bandUpper > bandLower
+    ? Math.max(0, Math.min(1, (lowerFplPercent - bandLower) / (bandUpper - bandLower)))
+    : 0;
+  const positionUpper = Number.isFinite(bandUpper) && bandUpper > bandLower
+    ? Math.max(0, Math.min(1, (upperFplPercent - bandLower) / (bandUpper - bandLower)))
+    : 1;
+  const rateLower = initialRate + (finalRate - initialRate) * positionLower;
+  const rateUpper = initialRate + (finalRate - initialRate) * positionUpper;
+  const magiLower = fpl * lowerFplPercent / 100;
+  const magiUpper = fpl * upperFplPercent / 100;
+  const denom = magiUpper - magiLower;
+  if (denom <= 0) return 0;
+  return (rateUpper * magiUpper - rateLower * magiLower) / denom;
 }
 
 function bracketCeilingForRate(brackets = [], targetRate = 0.12) {
@@ -2490,7 +2775,12 @@ function assetSnapshot(portfolio) {
 }
 
 function firstDepletionDetails(years) {
-  const depleted = years.find((year) => year.unfunded > 1 || year.endingPortfolioValue <= 1);
+  // Inflation-scale the depletion threshold so $1 in late-plan years (when
+  // inflationIndex is e.g. 2.5) is treated equivalently to $1 in year 1.
+  const depleted = years.find((year) => {
+    const tolerance = Math.max(1, year.inflationIndex ?? 1);
+    return year.unfunded > tolerance || year.endingPortfolioValue <= tolerance;
+  });
   return {
     depletionYear: depleted?.year ?? null,
     depletionYearIndex: depleted?.yearIndex ?? null,

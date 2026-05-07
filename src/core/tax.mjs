@@ -54,34 +54,73 @@ export function computeIncomeTax({
   selfEmploymentIncome = 0,
   rrtaCompensation = 0,
   capitalLosses = 0,
+  shortTermCapitalLosses,
+  longTermCapitalLosses,
   capitalLossCarryforward = 0,
   profile = DEFAULT_TAX_PROFILE
 } = {}) {
+  // Schedule D / IRC §1212(b) netting: short-term and long-term losses retain
+  // their character when carried forward. Within-character losses offset
+  // within-character gains first; any remaining loss may then offset gains of
+  // the other character; any remaining loss offsets up to $3,000 of ordinary
+  // income (ST first, then LT per the Capital Loss Carryover Worksheet);
+  // the rest carries forward by character.
+  const carryforwardShort = typeof capitalLossCarryforward === "object" && capitalLossCarryforward !== null
+    ? Math.max(0, capitalLossCarryforward.shortTerm ?? 0)
+    : 0;
+  // Legacy callers pass `capitalLossCarryforward` as a single number with no
+  // character info; treat that number as long-term to match the long-standing
+  // (and dominant in retirement) case.
+  const carryforwardLong = typeof capitalLossCarryforward === "object" && capitalLossCarryforward !== null
+    ? Math.max(0, capitalLossCarryforward.longTerm ?? 0)
+    : Math.max(0, capitalLossCarryforward);
+  const hasCharacterizedLosses = Number.isFinite(shortTermCapitalLosses) || Number.isFinite(longTermCapitalLosses);
+  const currentShortLosses = hasCharacterizedLosses
+    ? Math.max(0, shortTermCapitalLosses ?? 0)
+    : 0;
+  const currentLongLosses = hasCharacterizedLosses
+    ? Math.max(0, longTermCapitalLosses ?? 0)
+    : Math.max(0, capitalLosses);
+
   const shortGains = Math.max(0, shortTermCapitalGains);
   let longGains = Math.max(0, longTermCapitalGains);
   const dividendPreferentialIncome = Math.max(0, qualifiedDividends);
-  let lossPool = Math.max(0, capitalLosses) + Math.max(0, capitalLossCarryforward);
+  let shortLossPool = currentShortLosses + carryforwardShort;
+  let longLossPool = currentLongLosses + carryforwardLong;
 
-  const shortGainOffset = Math.min(shortGains, lossPool);
-  const netShortGains = shortGains - shortGainOffset;
-  lossPool -= shortGainOffset;
+  // Step 1: same-character netting.
+  const shortGainOffset = Math.min(shortGains, shortLossPool);
+  let netShortGains = shortGains - shortGainOffset;
+  shortLossPool -= shortGainOffset;
 
-  const longGainOffset = Math.min(longGains, lossPool);
+  const longGainOffset = Math.min(longGains, longLossPool);
   longGains -= longGainOffset;
-  lossPool -= longGainOffset;
+  longLossPool -= longGainOffset;
 
+  // Step 2: cross-character netting (ST loss vs LT gain, LT loss vs ST gain).
+  const stLossVsLtGain = Math.min(shortLossPool, longGains);
+  shortLossPool -= stLossVsLtGain;
+  longGains -= stLossVsLtGain;
+
+  const ltLossVsStGain = Math.min(longLossPool, netShortGains);
+  longLossPool -= ltLossVsStGain;
+  netShortGains -= ltLossVsStGain;
+
+  // Step 3: offset against ordinary income (ST loss first, then LT, capped at
+  // §1211(b) threshold — $3,000 for MFJ/Single, $1,500 for MFS).
   const ordinaryBeforeLossOffset = Math.max(0, ordinaryIncome + netShortGains);
-  const ordinaryLossOffset = Math.min(
+  const ordinaryOffsetCap = Math.min(
     profile.capitalLossOrdinaryIncomeOffset ?? 3000,
-    ordinaryBeforeLossOffset,
-    lossPool
+    ordinaryBeforeLossOffset
   );
-  lossPool -= ordinaryLossOffset;
+  const shortOrdOffset = Math.min(shortLossPool, ordinaryOffsetCap);
+  shortLossPool -= shortOrdOffset;
+  const longOrdOffset = Math.min(longLossPool, ordinaryOffsetCap - shortOrdOffset);
+  longLossPool -= longOrdOffset;
+  const ordinaryLossOffset = shortOrdOffset + longOrdOffset;
+  const lossPool = shortLossPool + longLossPool;
 
   const ordinaryAfterLossOffset = Math.max(0, ordinaryBeforeLossOffset - ordinaryLossOffset);
-  const ordinaryIncomeScale = ordinaryBeforeLossOffset > 0
-    ? ordinaryAfterLossOffset / ordinaryBeforeLossOffset
-    : 0;
   const federalDeduction = (profile.standardDeduction ?? 0) + (profile.additionalDeduction ?? 0);
   const taxableOrdinaryIncome = Math.max(0, ordinaryAfterLossOffset - federalDeduction);
   const remainingDeduction = Math.max(0, federalDeduction - ordinaryAfterLossOffset);
@@ -122,10 +161,14 @@ export function computeIncomeTax({
   const federalCreditsUsed = round(Math.min(federalIncomeTaxBeforeCredits, requestedFederalCredits), 6);
   const federalIncomeTax = round(federalIncomeTaxBeforeCredits - federalCreditsUsed, 6);
 
+  // Pass the full retirement-income amounts to the state tax computation;
+  // state retirement-income exclusions and taxable-SS adjustments operate on
+  // the raw retirement components, not on a federal-loss-offset prorated
+  // amount. The state computation will apply its own deductions/exclusions.
   const stateTax = computeStateTax({
     ordinaryIncome: ordinaryAfterLossOffset,
-    retirementOrdinaryIncome: Math.max(0, retirementOrdinaryIncome) * ordinaryIncomeScale,
-    taxableSocialSecurity: Math.max(0, taxableSocialSecurity) * ordinaryIncomeScale,
+    retirementOrdinaryIncome: Math.max(0, retirementOrdinaryIncome),
+    taxableSocialSecurity: Math.max(0, taxableSocialSecurity),
     longTermCapitalGains: longGains,
     qualifiedDividends: dividendPreferentialIncome,
     profile: profile.state
@@ -165,7 +208,9 @@ export function computeIncomeTax({
     additionalMedicareThreshold: additionalMedicare.threshold,
     stateTax,
     totalTax: round(federalIncomeTax + niitTax + additionalMedicare.tax + stateTax, 6),
-    lossCarryforward: round(lossPool, 6)
+    lossCarryforward: round(lossPool, 6),
+    lossCarryforwardShort: round(shortLossPool, 6),
+    lossCarryforwardLong: round(longLossPool, 6)
   };
 }
 

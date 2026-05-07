@@ -46,6 +46,64 @@ test("2026 FPL is calculated from household size and state", () => {
   assert.equal(getFplGuideline({ taxYear: 2026, state: "Hawaii", householdSize: 9 }), 70600);
 });
 
+test("2025 FPL is available for prior-year ACA lookups (Treas. Reg. §1.36B-1(h))", () => {
+  // PTC for 2026 coverage uses the FPL "in effect on the first day of the
+  // regular enrollment period for coverage" — i.e. the 2025 HHS guidelines.
+  assert.equal(getFplGuideline({ taxYear: 2025, state: "Florida", householdSize: 2 }), 21150);
+  assert.equal(getFplGuideline({ taxYear: 2025, state: "Alaska", householdSize: 1 }), 19550);
+  assert.equal(getFplGuideline({ taxYear: 2025, state: "Hawaii", householdSize: 4 }), 36980);
+});
+
+test("buildAcaConfig uses prior-year FPL for PTC", () => {
+  // For 2026 coverage, the config's FPL should be the 2025 HHS value.
+  const config = buildAcaConfig({
+    taxYear: 2026,
+    state: "Florida",
+    householdSize: 2,
+    marketplaceMembers: 2
+  });
+  assert.equal(config.fpl, 21150);
+});
+
+test("ACA is ineligible below 100% FPL by default (IRC §36B)", () => {
+  const config = {
+    enabled: true,
+    fpl: 25000,
+    benchmarkPremium: 12000,
+    selectedPlanPremium: 12000,
+    applicablePercentageTable: [
+      { minFplPercent: 0, maxFplPercent: 400, initialRate: 0.05, finalRate: 0.05 }
+    ],
+    requiredContributionPercentage: 0.0996,
+    maxEligibleFplPercent: 400
+  };
+  // Below 100% FPL → ineligible (Medicaid territory).
+  const below = computeAca({ magi: 20000, config });
+  assert.equal(below.eligible, false);
+  assert.equal(below.subsidy, 0);
+
+  // Just at 100% FPL → eligible.
+  const at = computeAca({ magi: 25000, config });
+  assert.equal(at.eligible, true);
+});
+
+test("ACA min eligibility floor is configurable for non-citizen exceptions", () => {
+  const config = {
+    enabled: true,
+    fpl: 25000,
+    benchmarkPremium: 12000,
+    selectedPlanPremium: 12000,
+    applicablePercentageTable: [
+      { minFplPercent: 0, maxFplPercent: 400, initialRate: 0.05, finalRate: 0.05 }
+    ],
+    requiredContributionPercentage: 0.0996,
+    maxEligibleFplPercent: 400,
+    minEligibleFplPercent: 0
+  };
+  const below = computeAca({ magi: 20000, config });
+  assert.equal(below.eligible, true);
+});
+
 test("2026 ACA benchmark and applicable percentages are versioned", () => {
   const config = buildAcaConfig({
     taxYear: 2026,
@@ -54,7 +112,8 @@ test("2026 ACA benchmark and applicable percentages are versioned", () => {
     marketplaceMembers: 2
   });
 
-  assert.equal(config.fpl, 21640);
+  // PTC uses prior-year HHS guidelines (2025 for 2026 coverage)
+  assert.equal(config.fpl, 21150);
   assert.equal(config.benchmarkPremium, 16392);
   assert.equal(config.oopMaximum, 21200);
   assert.equal(contributionRateForFplPercent(200, config.applicablePercentageTable), 0.066);
