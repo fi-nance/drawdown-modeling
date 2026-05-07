@@ -770,6 +770,53 @@ test("lifetime optimizer can harvest gains beyond the zero percent bracket", () 
   assert.equal(optimized.years[0].taxes.federalPreferentialTax, 1500);
 });
 
+test("lifetime optimizer Roth conversion pressure uses default RMD age", () => {
+  const plan = simulatePlan({
+    assets: [{
+      id: "large-traditional",
+      accountType: "traditional",
+      assetClass: "bond",
+      units: 500000,
+      price: 1,
+      costBasisPerUnit: 1
+    }],
+    scenario: {
+      startYear: 2026,
+      planYears: 1,
+      currentAge: 60,
+      targetSpend: 10000,
+      targetSpendIncludesTaxes: true,
+      targetSpendIncludesMedical: true,
+      withdrawalOrder: ["traditional"],
+      withdrawalStrategy: { mode: "lifetime" },
+      taxGainHarvesting: { enabled: false },
+      taxLossHarvesting: { enabled: false },
+      rothConversion: {
+        enabled: true,
+        mode: "auto",
+        targetMarginalRate: 0.12,
+        optimizeForAca: true
+      },
+      returnAssumptions: { bond: { mean: 0, stdev: 0 } },
+      aca: { enabled: false }
+    },
+    taxProfile: {
+      ...noTaxProfile,
+      standardDeduction: 0,
+      ordinaryBrackets: [
+        { upTo: 20000, rate: 0.1 },
+        { upTo: 80000, rate: 0.22 },
+        { upTo: Infinity, rate: 0.24 }
+      ]
+    },
+    returnSequence: [{ bond: 0 }],
+    inflationSequence: [0]
+  });
+
+  assert.equal(plan.years[0].rmdStartAge, 75);
+  assert.equal(plan.years[0].rothConversionAmount, 80000);
+});
+
 test("Roth earnings above contribution basis are taxable and penalized when withdrawn early", () => {
   const plan = simulatePlan({
     assets: [{

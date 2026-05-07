@@ -2292,7 +2292,9 @@ function rothConversionAmountForYear({
 function effectiveRothConversionTargetRate({ portfolio, scenario, age }) {
   const configured = scenario.rothConversion?.targetMarginalRate ?? 0.12;
   if (!isLifetimeOptimizerEnabled(scenario) || scenario.rothConversion?.mode === "manual") return configured;
-  const rmdStartAge = scenario.rmd?.startAge ?? rmdStartAgeForScenario(scenario);
+  const rmdStartAge = scenario.rmd?.startAge != null && Number.isFinite(Number(scenario.rmd.startAge))
+    ? Number(scenario.rmd.startAge)
+    : defaultRmdStartAge(scenario);
   const yearsUntilRmd = Number.isFinite(age) ? Math.max(0, rmdStartAge - age) : Infinity;
   const traditionalValue = traditionalAccountValue(portfolio);
   const annualSpend = Math.max(0, Number(scenario.targetSpend) || 0);
