@@ -738,7 +738,19 @@
           </section>
 
           <section class="r-panel">
-            <div class="r-panel-head"><h2>Year-by-year breakdown</h2></div>
+            <div class="r-panel-head">
+              <h2>Year-by-year breakdown</h2>
+              <div class="inline-controls">
+                <label>
+                  <span>MAGI column</span>
+                  <select id="magiDisplayMode">
+                    <option value="aca">ACA MAGI</option>
+                    <option value="irmaa">IRMAA MAGI</option>
+                    <option value="agi">Federal AGI</option>
+                  </select>
+                </label>
+              </div>
+            </div>
             <div id="yearTable" class="table-wrap"></div>
           </section>
 

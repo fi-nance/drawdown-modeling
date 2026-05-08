@@ -30,6 +30,13 @@ const flatOrdinaryTaxProfile = {
   ordinaryBrackets: [{ upTo: Infinity, rate: 0.1 }]
 };
 
+function assertNear(actual, expected, tolerance = 0.01) {
+  assert.ok(
+    Math.abs(actual - expected) <= tolerance,
+    `expected ${actual} to be within ${tolerance} of ${expected}`
+  );
+}
+
 test("withdrawal engine grosses up spending when taxes are excluded from target spend", () => {
   const plan = simulatePlan({
     assets: [{
@@ -201,6 +208,116 @@ test("yearly cash flow aggregates taxable dividend inputs", () => {
   assert.equal(dividendInputs[0].to, "Spending reserve");
   assert.equal(dividendInputs[0].amount, 40);
   assert.equal(plan.years[0].taxableDividendDetails.length, 2);
+});
+
+test("taxable dividend yield is split out of total return without double counting", () => {
+  const plan = simulatePlan({
+    assets: [{
+      id: "stock",
+      accountType: "taxable",
+      assetClass: "stock",
+      holdingPeriod: "long",
+      units: 1,
+      price: 100,
+      costBasisPerUnit: 100,
+      dividendYield: 0.05,
+      qualifiedDividendShare: 1
+    }],
+    scenario: {
+      planYears: 1,
+      targetSpend: 0,
+      targetSpendIncludesTaxes: true,
+      targetSpendIncludesMedical: true,
+      withdrawalOrder: ["taxable"],
+      returnAssumptions: { stock: { mean: 0, stdev: 0 } },
+      taxLossHarvesting: { enabled: false },
+      taxGainHarvesting: { enabled: false },
+      rothConversion: { enabled: false },
+      aca: { enabled: false }
+    },
+    taxProfile: noTaxProfile,
+    returnSequence: [{ stock: 0.1 }],
+    inflationSequence: [0]
+  });
+
+  const stock = plan.years[0].assets.find((asset) => asset.id === "stock");
+  assertNear(plan.years[0].taxableDividendsCash, 5);
+  assertNear(plan.years[0].afterReturnPortfolioValue, 105);
+  assertNear(stock.price, 105);
+  assertNear(plan.years[0].endingPortfolioValue, 110);
+});
+
+test("non-taxable dividends reinvest while preserving the total return path", () => {
+  const plan = simulatePlan({
+    assets: [{
+      id: "roth-stock",
+      accountType: "roth",
+      assetClass: "stock",
+      holdingPeriod: "long",
+      units: 1,
+      price: 100,
+      costBasisPerUnit: 100,
+      dividendYield: 0.05,
+      qualifiedDividendShare: 1
+    }],
+    scenario: {
+      planYears: 1,
+      targetSpend: 0,
+      targetSpendIncludesTaxes: true,
+      targetSpendIncludesMedical: true,
+      withdrawalOrder: ["roth"],
+      returnAssumptions: { stock: { mean: 0, stdev: 0 } },
+      taxLossHarvesting: { enabled: false },
+      taxGainHarvesting: { enabled: false },
+      rothConversion: { enabled: false },
+      aca: { enabled: false }
+    },
+    taxProfile: noTaxProfile,
+    returnSequence: [{ stock: 0.1 }],
+    inflationSequence: [0]
+  });
+
+  const stock = plan.years[0].assets.find((asset) => asset.id === "roth-stock");
+  assert.equal(plan.years[0].taxableDividendsCash, 0);
+  assertNear(stock.price, 105);
+  assertNear(stock.units, 1.04761905, 0.000001);
+  assertNear(plan.years[0].endingPortfolioValue, 110);
+});
+
+test("income split caps dividends when a severe total loss would imply a negative price", () => {
+  const plan = simulatePlan({
+    assets: [{
+      id: "stock",
+      accountType: "taxable",
+      assetClass: "stock",
+      holdingPeriod: "long",
+      units: 1,
+      price: 100,
+      costBasisPerUnit: 100,
+      dividendYield: 0.1,
+      qualifiedDividendShare: 1
+    }],
+    scenario: {
+      planYears: 1,
+      targetSpend: 0,
+      targetSpendIncludesTaxes: true,
+      targetSpendIncludesMedical: true,
+      withdrawalOrder: ["taxable"],
+      returnAssumptions: { stock: { mean: 0, stdev: 0 } },
+      taxLossHarvesting: { enabled: false },
+      taxGainHarvesting: { enabled: false },
+      rothConversion: { enabled: false },
+      aca: { enabled: false }
+    },
+    taxProfile: noTaxProfile,
+    returnSequence: [{ stock: -0.95 }],
+    inflationSequence: [0]
+  });
+
+  const stock = plan.years[0].assets.find((asset) => asset.id === "stock");
+  assert.ok(stock.price >= 0);
+  assertNear(plan.years[0].taxableDividendsCash, 5);
+  assertNear(plan.years[0].endingPortfolioValue, 5);
 });
 
 test("Roth conversions move assets and create ordinary income", () => {
@@ -537,7 +654,54 @@ test("Roth withdrawals after penalty-free age default to qualified distributions
   assert.equal(plan.years[0].rothFiveYearRuleSatisfied, true);
 });
 
-test("Roth basis is preserved when modeled savings are below the hurdle", () => {
+test("Roth basis is preserved when only income-tax savings are below the hurdle", () => {
+  const plan = simulatePlan({
+    assets: [
+      {
+        id: "traditional",
+        accountType: "traditional",
+        assetClass: "bond",
+        units: 1000,
+        price: 1,
+        costBasisPerUnit: 1
+      },
+      {
+        id: "roth",
+        accountType: "roth",
+        assetClass: "bond",
+        units: 1000,
+        price: 1,
+        costBasisPerUnit: 1
+      }
+    ],
+    scenario: {
+      planYears: 1,
+      targetSpend: 100,
+      targetSpendIncludesTaxes: true,
+      targetSpendIncludesMedical: true,
+      withdrawalOrder: ["roth", "traditional"],
+      currentAge: 65,
+      rothBasis: 500,
+      returnAssumptions: { bond: { mean: 0, stdev: 0 } },
+      rothConversion: { enabled: false },
+      aca: { enabled: false }
+    },
+    taxProfile: flatOrdinaryTaxProfile,
+    returnSequence: [{ bond: 0 }],
+    inflationSequence: [0]
+  });
+
+  assert.equal(Math.round(plan.years[0].cashRaised), 100);
+  assert.equal(Math.round(plan.years[0].magi), 100);
+  assert.equal(Math.round(plan.years[0].taxes.totalTax), 10);
+  assert.equal(Math.round(plan.years[0].rothWithdrawals), 0);
+  assert.equal(Math.round(plan.years[0].rothBasisUsed), 0);
+  assert.equal(plan.years[0].rothBasisOptimization.accepted, false);
+  assert.equal(Math.round(plan.years[0].rothBasisOptimization.modeledSavings), 10);
+  assert.equal(Math.round(plan.years[0].rothBasisOptimization.requiredSavings), 50);
+});
+
+test("Roth basis is used before an avoidable early traditional withdrawal penalty", () => {
   const plan = simulatePlan({
     assets: [
       {
@@ -575,13 +739,176 @@ test("Roth basis is preserved when modeled savings are below the hurdle", () => 
   });
 
   assert.equal(Math.round(plan.years[0].cashRaised), 100);
-  assert.equal(Math.round(plan.years[0].magi), 100);
-  assert.equal(Math.round(plan.years[0].taxes.totalTax), 20);
-  assert.equal(Math.round(plan.years[0].rothWithdrawals), 0);
+  assert.equal(Math.round(plan.years[0].magi), 0);
+  assert.equal(Math.round(plan.years[0].taxes.totalTax), 0);
+  assert.equal(Math.round(plan.years[0].penaltyTax), 0);
+  assert.equal(Math.round(plan.years[0].rothWithdrawals), 100);
+  assert.equal(Math.round(plan.years[0].rothBasisUsed), 100);
+  assert.equal(plan.years[0].rothBasisOptimization.accepted, true);
+  assert.equal(plan.years[0].rothBasisOptimization.reason, "early-penalty-avoidance");
+});
+
+test("early penalty avoidance sells taxable room before Roth basis", () => {
+  const plan = simulatePlan({
+    assets: [
+      {
+        id: "taxable-cash",
+        accountType: "taxable",
+        assetClass: "cash",
+        holdingPeriod: "long",
+        units: 50,
+        price: 1,
+        costBasisPerUnit: 1
+      },
+      {
+        id: "traditional",
+        accountType: "traditional",
+        assetClass: "cash",
+        units: 100,
+        price: 1,
+        costBasisPerUnit: 1
+      },
+      {
+        id: "roth",
+        accountType: "roth",
+        assetClass: "cash",
+        units: 100,
+        price: 1,
+        costBasisPerUnit: 1
+      }
+    ],
+    scenario: {
+      planYears: 1,
+      targetSpend: 100,
+      targetSpendIncludesTaxes: true,
+      targetSpendIncludesMedical: true,
+      withdrawalOrder: ["taxable", "traditional", "roth"],
+      currentAge: 50,
+      rothBasis: 100,
+      returnAssumptions: { cash: { mean: 0, stdev: 0 } },
+      taxLossHarvesting: { enabled: false },
+      taxGainHarvesting: { enabled: false },
+      rothConversion: { enabled: false },
+      aca: { enabled: false }
+    },
+    taxProfile: flatOrdinaryTaxProfile,
+    returnSequence: [{ cash: 0 }],
+    inflationSequence: [0]
+  });
+
+  assert.equal(Math.round(plan.years[0].penaltyTax), 0);
+  assert.equal(Math.round(plan.years[0].rothBasisUsed), 50);
+  assert.deepEqual(plan.years[0].sales.map((sale) => [sale.assetId, sale.accountType, Math.round(sale.proceeds)]), [
+    ["taxable-cash", "taxable", 50],
+    ["roth", "roth", 50]
+  ]);
+  assert.equal(plan.years[0].rothBasisOptimization.reason, "early-penalty-avoidance");
+});
+
+test("taxable sales stay ahead of Roth basis when they cover spending within MAGI room", () => {
+  const plan = simulatePlan({
+    assets: [
+      {
+        id: "taxable-cash",
+        accountType: "taxable",
+        assetClass: "cash",
+        holdingPeriod: "long",
+        units: 150,
+        price: 1,
+        costBasisPerUnit: 1
+      },
+      {
+        id: "traditional",
+        accountType: "traditional",
+        assetClass: "cash",
+        units: 100,
+        price: 1,
+        costBasisPerUnit: 1
+      },
+      {
+        id: "roth",
+        accountType: "roth",
+        assetClass: "cash",
+        units: 100,
+        price: 1,
+        costBasisPerUnit: 1
+      }
+    ],
+    scenario: {
+      planYears: 1,
+      targetSpend: 100,
+      targetSpendIncludesTaxes: true,
+      targetSpendIncludesMedical: true,
+      withdrawalOrder: ["taxable", "traditional", "roth"],
+      currentAge: 50,
+      rothBasis: 100,
+      returnAssumptions: { cash: { mean: 0, stdev: 0 } },
+      taxLossHarvesting: { enabled: false },
+      taxGainHarvesting: { enabled: false },
+      rothConversion: { enabled: false },
+      aca: { enabled: false }
+    },
+    taxProfile: flatOrdinaryTaxProfile,
+    returnSequence: [{ cash: 0 }],
+    inflationSequence: [0]
+  });
+
+  assert.equal(Math.round(plan.years[0].penaltyTax), 0);
   assert.equal(Math.round(plan.years[0].rothBasisUsed), 0);
-  assert.equal(plan.years[0].rothBasisOptimization.accepted, false);
-  assert.equal(Math.round(plan.years[0].rothBasisOptimization.modeledSavings), 20);
-  assert.equal(Math.round(plan.years[0].rothBasisOptimization.requiredSavings), 50);
+  assert.deepEqual(plan.years[0].sales.map((sale) => [sale.assetId, sale.accountType, Math.round(sale.proceeds)]), [
+    ["taxable-cash", "taxable", 100]
+  ]);
+});
+
+test("Roth basis can replace taxable sales when taxable room is too expensive", () => {
+  const plan = simulatePlan({
+    assets: [
+      {
+        id: "taxable-gain",
+        accountType: "taxable",
+        assetClass: "stock",
+        holdingPeriod: "long",
+        units: 1,
+        price: 100,
+        costBasisPerUnit: 0
+      },
+      {
+        id: "roth",
+        accountType: "roth",
+        assetClass: "cash",
+        units: 100,
+        price: 1,
+        costBasisPerUnit: 1
+      }
+    ],
+    scenario: {
+      planYears: 1,
+      targetSpend: 100,
+      targetSpendIncludesTaxes: true,
+      targetSpendIncludesMedical: true,
+      withdrawalOrder: ["taxable", "roth"],
+      currentAge: 50,
+      rothBasis: 100,
+      returnAssumptions: { stock: { mean: 0, stdev: 0 }, cash: { mean: 0, stdev: 0 } },
+      taxLossHarvesting: { enabled: false },
+      taxGainHarvesting: { enabled: false },
+      rothConversion: { enabled: false },
+      aca: { enabled: false }
+    },
+    taxProfile: {
+      ...noTaxProfile,
+      capitalGainsBrackets: [{ upTo: Infinity, rate: 1 }]
+    },
+    returnSequence: [{ stock: 0, cash: 0 }],
+    inflationSequence: [0]
+  });
+
+  assert.equal(Math.round(plan.years[0].taxes.totalTax), 0);
+  assert.equal(Math.round(plan.years[0].rothBasisUsed), 100);
+  assert.deepEqual(plan.years[0].sales.map((sale) => [sale.assetId, sale.accountType, Math.round(sale.proceeds)]), [
+    ["roth", "roth", 100]
+  ]);
+  assert.equal(plan.years[0].rothBasisOptimization.accepted, true);
 });
 
 test("Roth basis is used when ACA savings clear the 50 percent hurdle", () => {
@@ -768,6 +1095,68 @@ test("lifetime optimizer sells lower expected return taxable assets first", () =
   });
 
   assert.equal(plan.years[0].sales[0].assetId, "bond-low-return");
+});
+
+test("lifetime optimizer does not preserve Roth basis by taking avoidable early penalties", () => {
+  const plan = simulatePlan({
+    assets: [
+      {
+        id: "taxable-cash",
+        accountType: "taxable",
+        assetClass: "cash",
+        holdingPeriod: "long",
+        units: 50,
+        price: 1,
+        costBasisPerUnit: 1
+      },
+      {
+        id: "traditional",
+        accountType: "traditional",
+        assetClass: "cash",
+        units: 100,
+        price: 1,
+        costBasisPerUnit: 1
+      },
+      {
+        id: "roth-growth",
+        accountType: "roth",
+        assetClass: "stock",
+        units: 100,
+        price: 1,
+        costBasisPerUnit: 1,
+        expectedReturn: 0.12
+      }
+    ],
+    scenario: {
+      planYears: 1,
+      targetSpend: 100,
+      targetSpendIncludesTaxes: true,
+      targetSpendIncludesMedical: true,
+      withdrawalOrder: ["taxable", "traditional", "roth"],
+      withdrawalStrategy: { mode: "lifetime", expectedReturnPenaltyYears: 25 },
+      currentAge: 50,
+      rothBasis: 100,
+      returnAssumptions: {
+        cash: { mean: 0, stdev: 0 },
+        stock: { mean: 0, stdev: 0 }
+      },
+      taxLossHarvesting: { enabled: false },
+      taxGainHarvesting: { enabled: false },
+      rothConversion: { enabled: false },
+      aca: { enabled: false }
+    },
+    taxProfile: flatOrdinaryTaxProfile,
+    returnSequence: [{ cash: 0, stock: 0 }],
+    inflationSequence: [0]
+  });
+
+  assert.equal(Math.round(plan.years[0].penaltyTax), 0);
+  assert.equal(Math.round(plan.years[0].rothBasisUsed), 50);
+  assert.deepEqual(plan.years[0].sales.map((sale) => [sale.assetId, sale.accountType, Math.round(sale.proceeds)]), [
+    ["taxable-cash", "taxable", 50],
+    ["roth-growth", "roth", 50]
+  ]);
+  assert.equal(plan.years[0].rothBasisOptimization.reason, "early-penalty-avoidance");
 });
 
 test("lifetime optimizer can harvest gains beyond the zero percent bracket", () => {
@@ -1532,6 +1921,68 @@ test("Medicare IRMAA uses two-year lookback MAGI once Medicare age starts", () =
   assert.equal(plan.years[0].medicare.lookbackMagi, 300000);
   assert.equal(Math.round(plan.years[0].medicare.totalAnnualPremium), 10639);
   assert.equal(Math.round(plan.years[0].medicalCost), 10639);
+});
+
+test("Social Security separates ACA MAGI from IRMAA MAGI for Medicare lookback", () => {
+  const plan = simulatePlan({
+    assets: [{
+      id: "cash",
+      accountType: "taxable",
+      assetClass: "cash",
+      holdingPeriod: "long",
+      units: 200000,
+      price: 1,
+      costBasisPerUnit: 1
+    }],
+    scenario: {
+      planYears: 1,
+      targetSpend: 0,
+      targetSpendIncludesTaxes: true,
+      targetSpendIncludesMedical: false,
+      withdrawalOrder: ["taxable"],
+      currentAge: 65,
+      medicalExpensesBase: 0,
+      expectedOopMaxUsePercent: 0,
+      oopMaxOverride: 0,
+      socialSecurityAnnualBenefit: 20000,
+      socialSecurityStartAge: 65,
+      socialSecurityInflationAdjusted: false,
+      oneOffExpenses: [{
+        name: "Consulting",
+        cashFlowType: "taxableOrdinaryIncome",
+        startYear: 1,
+        endYear: 1,
+        amount: 89500,
+        inflationAdjusted: false
+      }],
+      returnAssumptions: { cash: { mean: 0, stdev: 0 } },
+      taxLossHarvesting: { enabled: false },
+      taxGainHarvesting: { enabled: false },
+      rothConversion: { enabled: false },
+      aca: { enabled: false },
+      medicare: { irmaaEnabled: true }
+    },
+    taxProfile: {
+      ...noTaxProfile,
+      filingStatus: "single",
+      socialSecurityTaxation: {
+        baseAmounts: { single: 25000 },
+        adjustedBaseAmounts: { single: 34000 },
+        taxableShareLow: 0.5,
+        taxableShareHigh: 0.85
+      }
+    },
+    returnSequence: [{ cash: 0 }],
+    inflationSequence: [0]
+  });
+
+  assert.equal(plan.years[0].taxableSocialSecurity, 17000);
+  assert.equal(plan.years[0].federalAgi, 106500);
+  assert.equal(plan.years[0].irmaaMagi, 106500);
+  assert.equal(plan.years[0].acaMagi, 109500);
+  assert.equal(plan.years[0].magi, plan.years[0].acaMagi);
+  assert.equal(plan.years[0].medicare.lookbackMagi, 106500);
+  assert.equal(plan.years[0].medicare.partBMonthlyIrmaa, 0);
 });
 
 test("yearly results include beginning and ending asset snapshots", () => {

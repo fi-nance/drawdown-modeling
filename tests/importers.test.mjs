@@ -111,7 +111,28 @@ test("CSV importer defaults blank optional numeric fields safely", () => {
 
   assert.equal(result[0].costBasisPerUnit, 1);
   assert.equal(result[0].dividendYield, 0);
-  assert.equal(result[0].qualifiedDividendShare, 1);
+  assert.equal(result[0].qualifiedDividendShare, 0);
+});
+
+test("importer defaults missing qualified dividend shares by asset class", () => {
+  const result = parsePortfolioCsv([
+    "name,accountType,assetClass,units,price,qualifiedDividendShare",
+    "Stock,taxable,stock,1,100,",
+    "Bond,taxable,bond,1,100,",
+    "Cash,taxable,cash,1,1,",
+    "TIPS,taxable,tips,1,100,",
+    "REIT,taxable,realEstate,1,100,",
+    "Crypto,taxable,crypto,1,100,",
+    "Explicit Bond,taxable,bond,1,100,25%"
+  ].join("\n"));
+
+  assert.equal(result.find((asset) => asset.name === "Stock").qualifiedDividendShare, 1);
+  assert.equal(result.find((asset) => asset.name === "Bond").qualifiedDividendShare, 0);
+  assert.equal(result.find((asset) => asset.name === "Cash").qualifiedDividendShare, 0);
+  assert.equal(result.find((asset) => asset.name === "TIPS").qualifiedDividendShare, 0);
+  assert.equal(result.find((asset) => asset.name === "REIT").qualifiedDividendShare, 0);
+  assert.equal(result.find((asset) => asset.name === "Crypto").qualifiedDividendShare, 0);
+  assert.equal(result.find((asset) => asset.name === "Explicit Bond").qualifiedDividendShare, 0.25);
 });
 
 test("CSV importer rejects non-portfolio CSV headers clearly", () => {

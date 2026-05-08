@@ -1044,6 +1044,48 @@ function chooseWithdrawalPlan({
     evaluationContext
   });
 
+  if (optimization.enabled && amount > 0 && requestedOrder.includes("roth") && isBeforePenaltyAge(withdrawalContext)) {
+    let penaltyCandidate = null;
+    const penaltyOrders = uniqueWithdrawalOrders([
+      earlyPenaltyAvoidanceWithdrawalOrder(requestedOrder),
+      rothFirstWithdrawalOrder(requestedOrder)
+    ]);
+    for (const order of penaltyOrders) {
+      if (sameWithdrawalOrder(order, baselineOrder)) continue;
+      const candidate = evaluateWithdrawalPlan({
+        portfolio,
+        amount,
+        baseWithdrawal,
+        withdrawalOrder: order,
+        withdrawalContext: {
+          ...withdrawalContext,
+          maxRothProceeds: optimizedRothProceedsLimit(withdrawalContext)
+        },
+        evaluationContext
+      });
+      if (hasLowerPenaltyBurden(candidate.withdrawal, baseline.withdrawal)
+        && betterPenaltyAvoidancePlan(candidate, penaltyCandidate)) {
+        penaltyCandidate = candidate;
+      }
+    }
+    if (penaltyCandidate) {
+      const baselineRoth = rothWithdrawalProceeds(baseline.withdrawal) - rothWithdrawalProceeds(baseWithdrawal);
+      const candidateRoth = rothWithdrawalProceeds(penaltyCandidate.withdrawal) - rothWithdrawalProceeds(baseWithdrawal);
+      const extraRothWithdrawal = round(Math.max(0, candidateRoth - Math.max(0, baselineRoth)), 6);
+      const modeledSavings = round(Math.max(0, baseline.modeledCost - penaltyCandidate.modeledCost), 6);
+      const requiredSavings = round(extraRothWithdrawal * optimization.minSavingsRate, 6);
+      return withRothOptimizationDecision(penaltyCandidate, {
+        enabled: true,
+        accepted: true,
+        reason: "early-penalty-avoidance",
+        minSavingsRate: optimization.minSavingsRate,
+        extraRothWithdrawal,
+        modeledSavings,
+        requiredSavings
+      });
+    }
+  }
+
   if (!optimization.enabled || amount <= 0 || !requestedOrder.includes("roth")) {
     return withRothOptimizationDecision(baseline, {
       enabled: optimization.enabled,
@@ -1159,22 +1201,32 @@ function chooseLifetimeOptimizedWithdrawalPlan({
     const extraRothWithdrawal = round(Math.max(0, candidateRoth - Math.max(0, baselineRoth)), 6);
     const modeledSavings = round(Math.max(0, baseline.modeledCost - candidate.modeledCost), 6);
     const requiredSavings = round(extraRothWithdrawal * rothOptimization.minSavingsRate, 6);
+    const avoidsEarlyPenalty = hasLowerPenaltyBurden(candidate.withdrawal, baseline.withdrawal);
 
-    if (extraRothWithdrawal > 0.000001 && (!rothOptimization.enabled || modeledSavings + 0.01 < requiredSavings)) {
+    if (extraRothWithdrawal > 0.000001
+      && !avoidsEarlyPenalty
+      && (!rothOptimization.enabled || modeledSavings + 0.01 < requiredSavings)) {
       continue;
     }
 
     const annotated = withRothOptimizationDecision(candidate, {
       enabled: rothOptimization.enabled,
       accepted: extraRothWithdrawal > 0.000001,
-      reason: extraRothWithdrawal > 0.000001 ? "lifetime-savings-hurdle-met" : "lifetime-lower-cost-source",
+      reason: avoidsEarlyPenalty
+        ? "early-penalty-avoidance"
+        : extraRothWithdrawal > 0.000001 ? "lifetime-savings-hurdle-met" : "lifetime-lower-cost-source",
       minSavingsRate: rothOptimization.minSavingsRate,
       extraRothWithdrawal,
       modeledSavings,
       requiredSavings
     });
     const score = lifetimeWithdrawalScore(annotated, config, evaluationContext.scenario);
-    if (score + 0.01 < bestScore) {
+    const candidatePenalty = withdrawalPenaltyBurden(annotated.withdrawal);
+    const bestPenalty = withdrawalPenaltyBurden(best.withdrawal);
+    if (candidatePenalty + 0.01 < bestPenalty) {
+      best = annotated;
+      bestScore = score;
+    } else if (candidatePenalty <= bestPenalty + 0.01 && score + 0.01 < bestScore) {
       best = annotated;
       bestScore = score;
     }
@@ -1209,6 +1261,13 @@ function optimizedWithdrawalCandidates({
   const uniqueOrders = uniqueWithdrawalOrders(orders)
     .filter((order) => order.length > 0);
   const candidates = uniqueOrders.map((order) => ({ order }));
+
+  if (rothOptimization.enabled && isBeforePenaltyAge(withdrawalContext) && requestedOrder.includes("roth")) {
+    candidates.push({
+      order: earlyPenaltyAvoidanceWithdrawalOrder(requestedOrder),
+      maxRothProceeds: optimizedRothProceedsLimit(withdrawalContext)
+    });
+  }
 
   if (rothOptimization.enabled && requestedOrder.includes("roth") && amount > 0) {
     const rothOrder = rothFirstWithdrawalOrder(requestedOrder);
@@ -1514,8 +1573,40 @@ function rothFirstWithdrawalOrder(withdrawalOrder) {
   ];
 }
 
+function earlyPenaltyAvoidanceWithdrawalOrder(withdrawalOrder) {
+  const normalized = normalizedWithdrawalOrder(withdrawalOrder);
+  return [
+    ...normalized.filter((accountType) => accountType !== "traditional" && accountType !== "roth"),
+    ...normalized.filter((accountType) => accountType === "roth"),
+    ...normalized.filter((accountType) => accountType === "traditional")
+  ];
+}
+
 function sameWithdrawalOrder(left, right) {
   return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+function isBeforePenaltyAge(withdrawalContext = {}) {
+  return (withdrawalContext.age ?? 99) < (withdrawalContext.penaltyAge ?? 59.5);
+}
+
+function withdrawalPenaltyBurden(withdrawal) {
+  return Math.max(0, withdrawal?.penaltyTax ?? 0);
+}
+
+function hasLowerPenaltyBurden(candidateWithdrawal, baselineWithdrawal) {
+  return withdrawalPenaltyBurden(candidateWithdrawal) + 0.01 < withdrawalPenaltyBurden(baselineWithdrawal);
+}
+
+function betterPenaltyAvoidancePlan(candidate, incumbent) {
+  if (!incumbent) return true;
+  const candidatePenalty = withdrawalPenaltyBurden(candidate.withdrawal);
+  const incumbentPenalty = withdrawalPenaltyBurden(incumbent.withdrawal);
+  if (candidatePenalty + 0.01 < incumbentPenalty) return true;
+  if (candidatePenalty > incumbentPenalty + 0.01) return false;
+  if (candidate.modeledCost + 0.01 < incumbent.modeledCost) return true;
+  if (candidate.modeledCost > incumbent.modeledCost + 0.01) return false;
+  return rothWithdrawalProceeds(candidate.withdrawal) + 0.000001 < rothWithdrawalProceeds(incumbent.withdrawal);
 }
 
 function optimizedRothProceedsLimit(withdrawalContext) {

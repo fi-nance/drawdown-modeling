@@ -214,9 +214,13 @@ export function normalizeImportedAsset(asset, index = 0) {
     price: numberOrNull(asset.price),
     costBasisPerUnit: firstFiniteNumber(asset.costBasisPerUnit, asset.costBasis, asset.price),
     dividendYield: firstFiniteNumber(asset.dividendYield, 0),
-    qualifiedDividendShare: firstFiniteNumber(asset.qualifiedDividendShare, 1),
+    qualifiedDividendShare: firstFiniteNumber(asset.qualifiedDividendShare, defaultQualifiedDividendShare(assetClass)),
     holdingPeriod: canonicalHoldingPeriod(asset.holdingPeriod ?? "long")
   };
+}
+
+function defaultQualifiedDividendShare(assetClass) {
+  return assetClass === "stock" ? 1 : 0;
 }
 
 function rowsToAssets(rows = []) {

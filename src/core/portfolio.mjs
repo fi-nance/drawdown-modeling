@@ -1,5 +1,7 @@
 import { EPSILON, round, sumBy } from "./utils.mjs";
 
+const MIN_PRICE_FACTOR_AFTER_INCOME_SPLIT = 1e-8;
+
 export function clonePortfolio(assets = []) {
   return assets.map((asset) => ({ ...asset }));
 }
@@ -21,9 +23,39 @@ export function accountBreakdown(assets = []) {
 
 export function applyReturns(assets = [], returnsByAssetClass = {}) {
   for (const asset of assets) {
-    const annualReturn = returnsByAssetClass[asset.assetClass] ?? returnsByAssetClass.default ?? 0;
-    asset.price = round(Math.max(0, asset.price * (1 + annualReturn)), 8);
+    const annualReturn = totalReturnForAsset(asset, returnsByAssetClass);
+    asset.price = round(Math.max(0, Math.max(0, asset.price ?? 0) * (1 + annualReturn)), 8);
   }
+}
+
+export function applyTotalReturnsWithIncome(assets = [], returnsByAssetClass = {}) {
+  const result = emptyDividendResult();
+
+  for (const asset of assets) {
+    const startingPrice = Math.max(0, asset.price ?? 0);
+    const startingUnits = Math.max(0, asset.units ?? 0);
+    const totalReturn = totalReturnForAsset(asset, returnsByAssetClass);
+
+    if (startingPrice <= EPSILON || startingUnits <= EPSILON) {
+      asset.price = round(Math.max(0, startingPrice * (1 + totalReturn)), 8);
+      continue;
+    }
+
+    const incomeReturn = incomeReturnForTotalReturn(asset, totalReturn);
+    const priceReturn = totalReturn - incomeReturn;
+    asset.price = round(Math.max(0, startingPrice * (1 + priceReturn)), 8);
+
+    const dividend = round(startingPrice * startingUnits * incomeReturn, 6);
+    if (dividend <= EPSILON) continue;
+
+    if (asset.accountType === "taxable") {
+      addTaxableDividend(result, asset, dividend);
+    } else if (asset.price > EPSILON) {
+      asset.units = round(asset.units + dividend / asset.price, 8);
+    }
+  }
+
+  return finalizeDividendResult(result);
 }
 
 export function sellFromLot(lot, requestedProceeds) {
@@ -63,37 +95,65 @@ export function sellFromLot(lot, requestedProceeds) {
 }
 
 export function dividendIncome(assets = []) {
-  const result = {
-    cash: 0,
-    ordinaryDividends: 0,
-    qualifiedDividends: 0,
-    flows: [],
-    details: []
-  };
+  const result = emptyDividendResult();
 
   for (const asset of assets) {
     const dividend = marketValue(asset) * (asset.dividendYield ?? 0);
     if (dividend <= EPSILON) continue;
 
     if (asset.accountType === "taxable") {
-      const qualified = dividend * (asset.qualifiedDividendShare ?? 0);
-      const ordinary = dividend - qualified;
-      result.cash += dividend;
-      result.ordinaryDividends += ordinary;
-      result.qualifiedDividends += qualified;
-      result.details.push({
-        assetId: asset.id,
-        name: asset.name ?? asset.id,
-        accountType: asset.accountType,
-        dividend: round(dividend, 6),
-        ordinaryDividends: round(ordinary, 6),
-        qualifiedDividends: round(qualified, 6)
-      });
-    } else {
+      addTaxableDividend(result, asset, dividend);
+    } else if ((asset.price ?? 0) > EPSILON) {
       asset.units += dividend / asset.price;
     }
   }
 
+  return finalizeDividendResult(result);
+}
+
+function totalReturnForAsset(asset, returnsByAssetClass) {
+  return returnsByAssetClass[asset.assetClass] ?? returnsByAssetClass.default ?? 0;
+}
+
+function incomeReturnForTotalReturn(asset, totalReturn) {
+  const rawIncomeReturn = Math.max(0, Number(asset.dividendYield) || 0);
+  if (rawIncomeReturn <= EPSILON) return 0;
+  if (1 + totalReturn <= 0) return 0;
+  const maxIncomeReturn = Math.max(0, 1 + totalReturn - MIN_PRICE_FACTOR_AFTER_INCOME_SPLIT);
+  return Math.min(rawIncomeReturn, maxIncomeReturn);
+}
+
+function emptyDividendResult() {
+  return {
+    cash: 0,
+    ordinaryDividends: 0,
+    qualifiedDividends: 0,
+    flows: [],
+    details: []
+  };
+}
+
+function addTaxableDividend(result, asset, dividend) {
+  const qualified = dividend * qualifiedDividendShareFor(asset);
+  const ordinary = dividend - qualified;
+  result.cash += dividend;
+  result.ordinaryDividends += ordinary;
+  result.qualifiedDividends += qualified;
+  result.details.push({
+    assetId: asset.id,
+    name: asset.name ?? asset.id,
+    accountType: asset.accountType,
+    dividend: round(dividend, 6),
+    ordinaryDividends: round(ordinary, 6),
+    qualifiedDividends: round(qualified, 6)
+  });
+}
+
+function qualifiedDividendShareFor(asset) {
+  return Math.max(0, Math.min(1, Number(asset.qualifiedDividendShare ?? 0) || 0));
+}
+
+function finalizeDividendResult(result) {
   result.cash = round(result.cash, 6);
   result.ordinaryDividends = round(result.ordinaryDividends, 6);
   result.qualifiedDividends = round(result.qualifiedDividends, 6);

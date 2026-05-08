@@ -139,6 +139,7 @@ const CONTROL_IDS = [
   "oneOffAmount",
   "oneOffInflation",
   "flowMode",
+  "magiDisplayMode",
   "yearRange",
   "sheetUrl",
   "googleClientId",
@@ -266,6 +267,7 @@ const els = {
   oneOffList: document.querySelector("#oneOffList"),
   kpis: document.querySelector("#kpis"),
   flowMode: document.querySelector("#flowMode"),
+  magiDisplayMode: document.querySelector("#magiDisplayMode"),
   yearRange: document.querySelector("#yearRange"),
   yearLabel: document.querySelector("#yearLabel"),
   sankeySvg: document.querySelector("#sankeySvg"),
@@ -355,6 +357,10 @@ function bindEvents() {
   els.marketplacePlanResults.addEventListener("click", handleMarketplacePlanSelection);
   els.viewMode.addEventListener("change", renderLatest);
   els.flowMode.addEventListener("change", renderFlowAndSales);
+  els.magiDisplayMode?.addEventListener("change", () => {
+    saveStoredState();
+    renderYearTable();
+  });
   CONTROL_IDS.forEach((id) => {
     const input = document.querySelector(`#${id}`);
     if (!input) return;
@@ -984,7 +990,8 @@ function acaPlanLabel(year) {
 
 function renderYearTable() {
   const years = activeVisibleYears();
-  const headers = ["Year", "Age", "Stock", "Bond", "Real estate", "TIPS", "Crypto", "Inflation", "Start value", "End value", "Sales / withdrawals", "Dividends", "Social Security", "Earned income", "One-off income", "RMD", "Total cash", "Total need", "Tax", "Fed income tax", "CG/QD tax", "NIIT", "Addl Medicare", "Credits", "State tax", "MAGI", "Taxable SS", "65+ deduction", "CTC children", "ACA plan", "ACA SLCSP", "ACA gross", "ACA subsidy", "ACA net", "Medicare", "Spend", "Medical", "Tax gain harvest", "Roth conv.", "Roth basis left", "Penalty", "Loss carry"];
+  const magiColumn = selectedMagiColumn();
+  const headers = ["Year", "Age", "Stock", "Bond", "Real estate", "TIPS", "Crypto", "Inflation", "Start value", "End value", "Sales / withdrawals", "Dividends", "Social Security", "Earned income", "One-off income", "RMD", "Total cash", "Total need", "Tax", "Fed income tax", "CG/QD tax", "NIIT", "Addl Medicare", "Credits", "State tax", magiColumn.header, "Taxable SS", "65+ deduction", "CTC children", "ACA plan", "ACA SLCSP", "ACA gross", "ACA subsidy", "ACA net", "Medicare", "Spend", "Medical", "Tax gain harvest", "Roth conv.", "Roth basis left", "Penalty", "Loss carry"];
   const rows = years.map((year) => [
     yearDisplayLabel(year),
     ageLabel(year.age),
@@ -1011,7 +1018,7 @@ function renderYearTable() {
     money(year.taxes.additionalMedicareTax ?? 0, year),
     money(year.taxes.federalCreditsUsed ?? 0, year),
     money(year.taxes.stateTax ?? 0, year),
-    money(year.magi, year),
+    money(magiColumn.value(year), year),
     money(year.taxableSocialSecurity ?? 0, year),
     money(year.age65AdditionalDeduction ?? 0, year),
     year.qualifyingChildren ?? 0,
@@ -1050,6 +1057,17 @@ function renderYearTable() {
   bindPinToggles(els.yearTable, pinnedYearColumns, ALWAYS_PINNED_YEAR, PINNED_YEAR_STORAGE_KEY, () => renderYearTable());
   bindResizeObserver(els.yearTable, "yearTable");
   addStickyHorizontalScrollbar(els.yearTable);
+}
+
+function selectedMagiColumn() {
+  const mode = els.magiDisplayMode?.value ?? "aca";
+  if (mode === "irmaa") {
+    return { header: "IRMAA MAGI", value: (year) => year.irmaaMagi ?? year.magi };
+  }
+  if (mode === "agi") {
+    return { header: "Federal AGI", value: (year) => year.federalAgi ?? year.magi };
+  }
+  return { header: "ACA MAGI", value: (year) => year.acaMagi ?? year.magi };
 }
 
 function yearDisplayLabel(year) {
