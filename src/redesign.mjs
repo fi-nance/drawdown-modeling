@@ -16,6 +16,7 @@ const STORAGE_OUTCOME = "psl:redesign:outcome";
 const STORAGE_DETAIL = "psl:redesign:detail";
 const STORAGE_MODULES = "psl:redesign:modules";
 const STORAGE_SCENARIOS = "psl:redesign:scenarios";
+const STORAGE_COLLAPSED = "psl:redesign:collapsedModules";
 
 // Persona presets — what each card pre-fills in the workspace.
 const PERSONAS = [
@@ -163,6 +164,7 @@ function boot() {
   buildPersonaCards();
   buildOutcomeCards();
   buildModuleLibrary();
+  wireModuleCollapse();
   bindRouter();
   bindTheme();
   bindIntakes();
@@ -429,6 +431,73 @@ function syncModuleVisibility() {
     const enabled = state.enabledModules.has(id);
     card.hidden = !enabled;
   });
+}
+
+// ─── Module collapse / expand ─────────────────────────────────────
+
+function wireModuleCollapse() {
+  const grid = document.getElementById("moduleGrid");
+  if (!grid) return;
+
+  const persisted = readJsonStorage(STORAGE_COLLAPSED, []);
+  const collapsedIds = new Set(Array.isArray(persisted) ? persisted : []);
+
+  grid.querySelectorAll(".module-card[data-module]").forEach(card => {
+    const actions = card.querySelector(".module-actions");
+    if (actions && !actions.querySelector(".module-collapse")) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "module-collapse";
+      btn.setAttribute("aria-label", "Collapse module");
+      btn.setAttribute("aria-expanded", "true");
+      btn.innerHTML = `<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="2 4 6 8 10 4"></polyline></svg>`;
+      actions.appendChild(btn);
+    }
+    if (collapsedIds.has(card.dataset.module)) setCardCollapsed(card, true);
+  });
+
+  // Toggle on header click — but ignore clicks on inputs, links, and other
+  // buttons inside the header (the chevron itself is allowed).
+  grid.addEventListener("click", (ev) => {
+    const header = ev.target.closest(".module-header");
+    if (!header) return;
+    const card = header.closest(".module-card[data-module]");
+    if (!card) return;
+    const onChevron = !!ev.target.closest(".module-collapse");
+    const onOther = !!ev.target.closest("a, input, select, textarea, .module-remove");
+    if (onOther && !onChevron) return;
+    setCardCollapsed(card, card.dataset.collapsed !== "true");
+    persistCollapsedModules();
+  });
+
+  document.querySelectorAll('[data-modules-action]').forEach(btn => {
+    btn.addEventListener("click", () => {
+      const collapse = btn.dataset.modulesAction === "collapse-all";
+      grid.querySelectorAll(".module-card[data-module]").forEach(card => {
+        if (card.hidden) return;
+        setCardCollapsed(card, collapse);
+      });
+      persistCollapsedModules();
+    });
+  });
+}
+
+function setCardCollapsed(card, collapsed) {
+  card.dataset.collapsed = collapsed ? "true" : "false";
+  const btn = card.querySelector(".module-collapse");
+  if (btn) {
+    btn.setAttribute("aria-expanded", collapsed ? "false" : "true");
+    btn.setAttribute("aria-label", collapsed ? "Expand module" : "Collapse module");
+  }
+}
+
+function persistCollapsedModules() {
+  const grid = document.getElementById("moduleGrid");
+  if (!grid) return;
+  const ids = [...grid.querySelectorAll('.module-card[data-collapsed="true"]')]
+    .map(c => c.dataset.module)
+    .filter(Boolean);
+  writeJsonStorage(STORAGE_COLLAPSED, ids);
 }
 
 // ─── Router ────────────────────────────────────────────────────────

@@ -7,8 +7,8 @@
     <meta name="description" content="Tax-aware retirement decumulation forecasting with Monte Carlo simulation, historical backtesting, and Sankey cash flow visualization.">
     <link rel="icon" href="./favicon.svg?v=20260505-favicon" type="image/svg+xml">
     <meta name="theme-color" content="#07111f">
-    <link rel="stylesheet" href="./src/v2ui-styles.css?v=20260507-redesign">
-    <link rel="stylesheet" href="./src/redesign.css?v=20260507-redesign">
+    <link rel="stylesheet" href="./src/v2ui-styles.css?v=20260508-collapse">
+    <link rel="stylesheet" href="./src/redesign.css?v=20260508-collapse">
     <script src="https://accounts.google.com/gsi/client" async defer></script>
   </head>
   <body data-screen="persona" data-theme="dark">
@@ -175,6 +175,12 @@
           </div>
 
           <div id="status" class="status">Ready</div>
+
+          <div class="module-toolbar" id="moduleToolbar">
+            <button type="button" class="link-button" data-modules-action="expand-all">Expand all</button>
+            <span class="link-button-sep" aria-hidden="true">·</span>
+            <button type="button" class="link-button" data-modules-action="collapse-all">Collapse all</button>
+          </div>
 
           <div class="module-grid" id="moduleGrid">
             <!-- ─── Module: The basics (required) ─── -->
@@ -768,7 +774,7 @@
       <select id="viewMode"><option value="nominal">Today's $</option><option value="real">Real $</option></select>
     </div>
 
-    <script type="module" src="./src/v2ui-app.mjs?v=20260507-redesign"></script>
-    <script type="module" src="./src/redesign.mjs?v=20260507-redesign"></script>
+    <script type="module" src="./src/v2ui-app.mjs?v=20260508-collapse"></script>
+    <script type="module" src="./src/redesign.mjs?v=20260508-collapse"></script>
   </body>
 </html>
