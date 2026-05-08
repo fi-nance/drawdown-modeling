@@ -522,38 +522,32 @@ function bindRouter() {
   const back = document.getElementById("resultsBackToWorkspace");
   back?.addEventListener("click", () => setScreen("workspace"));
 
-  // Wrap the synchronous runModels (from v2ui-app) with a loading overlay
-  // that paints BEFORE the main thread freezes. We intercept #runModel
-  // clicks in the capture phase, show the overlay, and yield the event
-  // loop twice (rAF→rAF→setTimeout) to guarantee a paint before
-  // re-dispatching the click for the actual handler.
+  // Show the loading overlay as soon as the user clicks Run model. The
+  // simulation now runs in a Web Worker, so the main thread stays responsive
+  // and we just need the overlay to appear before the (much shorter) main-
+  // thread setup work completes. Capture-phase listener runs before
+  // v2ui-app's click handler.
   const runModel = document.getElementById("runModel");
   if (runModel) {
-    let isWrapping = false;
-    runModel.addEventListener("click", (ev) => {
-      if (isWrapping) return;            // re-entry from our re-dispatch — let it through
-      ev.stopImmediatePropagation();     // block v2ui-app's handler this turn
-      ev.preventDefault();
+    runModel.addEventListener("click", () => {
       flagPendingRun();
       showRunOverlay();
-      // Yield twice + a setTimeout to ensure the browser actually paints
-      // the overlay before the synchronous simulation work begins.
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          setTimeout(() => {
-            isWrapping = true;
-            try {
-              runModel.click();          // re-dispatch; v2ui-app handler now runs
-            } finally {
-              isWrapping = false;
-            }
-            // The MutationObserver in hookRunCompletion will fire when
-            // #yearTable repaints — that's our cue to hide.
-          }, 0);
-        });
-      });
-    }, true);                            // capture phase
+    }, true);
   }
+
+  // Live progress updates from v2ui-app while the worker runs.
+  window.addEventListener("psl:run-progress", (ev) => {
+    const detail = ev.detail || {};
+    if (detail.error) { hideRunOverlay(); return; }
+    const sub = document.getElementById("runOverlaySub");
+    if (sub && Number.isFinite(detail.done) && Number.isFinite(detail.total) && detail.total > 0) {
+      const pct = Math.min(100, Math.round((detail.done / detail.total) * 100));
+      sub.textContent = `Monte Carlo ${detail.done.toLocaleString()} / ${detail.total.toLocaleString()} (${pct}%)`;
+    }
+    // Reset the safety timer while we're still receiving progress.
+    clearTimeout(showRunOverlay._timer);
+    showRunOverlay._timer = setTimeout(() => hideRunOverlay(), 60000);
+  });
 }
 
 function showRunOverlay(message) {

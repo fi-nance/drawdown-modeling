@@ -2,9 +2,8 @@ import { computeAca, DEFAULT_ACA_CONFIG, inflateAcaConfig } from "./aca.mjs";
 import {
   accountBreakdown,
   ageHoldingPeriods,
-  applyReturns,
+  applyTotalReturnsWithIncome,
   clonePortfolio,
-  dividendIncome,
   harvestTaxGains,
   harvestTaxLosses,
   marketValue,
@@ -175,7 +174,7 @@ export function simulatePlan({
   let rothBasisRemaining = Math.max(0, mergedScenario.rothBasis ?? 0);
   let success = true;
   let inflationIndex = 1;
-  const magiHistory = [];
+  const irmaaMagiHistory = [];
 
   for (let yearIndex = 0; yearIndex < mergedScenario.planYears; yearIndex += 1) {
     if (yearIndex > 0) {
@@ -194,12 +193,12 @@ export function simulatePlan({
       annualInflationRate: currentInflationRate,
       lossCarryforward,
       rothBasisRemaining,
-      magiHistory
+      magiHistory: irmaaMagiHistory
     });
 
     lossCarryforward = result.lossCarryforwardDetail ?? normalizeLossCarryforward(result.lossCarryforward);
     rothBasisRemaining = result.rothBasisRemaining;
-    magiHistory.push(result.magi);
+    irmaaMagiHistory.push(result.irmaaMagi);
     // Inflation-scale the "fully funded" tolerance: $1 of present-day dollars
     // shrinks in real terms over a 30+ year plan, so the absolute threshold
     // would otherwise become unrealistically tight in the late years.
@@ -225,11 +224,14 @@ export function runMonteCarlo({
   scenario = {},
   taxProfile = DEFAULT_TAX_PROFILE,
   runs = 500,
-  seed = 42
+  seed = 42,
+  onProgress = null,
+  progressInterval = 25
 }) {
   const mergedScenario = ensureReturnAssumptionsForAssets(mergeScenario(scenario), assets);
   const rng = createRng(seed);
   const scenarios = [];
+  const reportEvery = Math.max(1, Math.trunc(progressInterval) || 25);
 
   for (let run = 0; run < runs; run += 1) {
     const returnSequence = [];
@@ -260,6 +262,10 @@ export function runMonteCarlo({
       ...depletion,
       years: plan.years
     });
+
+    if (typeof onProgress === "function" && ((run + 1) % reportEvery === 0 || run + 1 === runs)) {
+      onProgress({ done: run + 1, total: runs });
+    }
   }
 
   const endingValues = scenarios.map((scenarioResult) => scenarioResult.endingValue);
@@ -400,10 +406,9 @@ function simulateYear({
   const beginningPortfolioValue = portfolioValue(portfolio);
   const beginningTraditionalValue = traditionalAccountValue(portfolio);
   const beginningAssets = assetSnapshot(portfolio);
-  applyReturns(portfolio, returnByAssetClass);
+  const dividends = applyTotalReturnsWithIncome(portfolio, returnByAssetClass);
   const afterReturnPortfolioValue = portfolioValue(portfolio);
 
-  const dividends = dividendIncome(portfolio);
   const flows = [...dividends.flows];
   const oneOffCashFlows = oneOffCashFlowsForYear(scenario, yearIndex + 1, inflationIndex);
   const recurringEarnedIncome = earnedIncomeForYear(scenario, inflationIndex);
@@ -600,7 +605,7 @@ function simulateYear({
       taxes: finalTaxes,
       taxProfile: yearTaxProfile,
       acaConfig: yearAcaConfig,
-      currentMagi: estimateMagi(incomeForYear({
+      currentMagi: acaMagiForIncome(incomeForYear({
         ordinaryIncome,
         earnedIncome,
         retirementOrdinaryIncome: rothConversionAmount,
@@ -652,8 +657,9 @@ function simulateYear({
         profile: yearTaxProfile
       });
       finalTaxes = addPenaltyTax(finalTaxes, finalWithdrawal.penaltyTax);
-      const magi = estimateMagi(income);
-      finalAca = computeAcaForYear({ age, magi, config: yearAcaConfig });
+      const acaMagi = acaMagiForIncome(income);
+      const irmaaMagi = irmaaMagiForIncome(income);
+      finalAca = computeAcaForYear({ age, magi: acaMagi, config: yearAcaConfig });
       if (!scenario.targetSpendIncludesMedical) {
         const medical = medicalCostForYear({
           scenario,
@@ -664,7 +670,7 @@ function simulateYear({
           spouseAge,
           yearIndex,
           filingStatus: yearTaxProfile.filingStatus,
-          magi,
+          irmaaMagi,
           magiHistory
         });
         medicalEstimate = medical.total;
@@ -733,7 +739,10 @@ function simulateYear({
     scenario
   });
   finalTaxableSocialSecurity = reconciledTaxableSocialSecurity;
-  const finalMagi = round(estimateMagi(finalIncome), 6);
+  const finalFederalAgi = round(federalAgiForIncome(finalIncome), 6);
+  const finalAcaMagi = round(acaMagiForIncome(finalIncome), 6);
+  const finalIrmaaMagi = round(irmaaMagiForIncome(finalIncome), 6);
+  const finalMagi = finalAcaMagi;
   // Use the same net-benefit gate as the conversion sizing so the displayed
   // ceiling reflects the actual cap the optimizer applied.
   const finalAcaMagiTarget = acaMagiCeiling({
@@ -861,6 +870,9 @@ function simulateYear({
     aca: finalAca,
     acaMagiCeiling: Number.isFinite(finalAcaMagiTarget.amount) ? finalAcaMagiTarget.amount : null,
     acaMagiCeilingFplPercent: Number.isFinite(finalAcaMagiTarget.fplPercent) ? finalAcaMagiTarget.fplPercent : null,
+    federalAgi: finalFederalAgi,
+    acaMagi: finalAcaMagi,
+    irmaaMagi: finalIrmaaMagi,
     magi: finalMagi,
     realizedLongTermGains: round(strategyLongTermGains + finalWithdrawal.longTermCapitalGains, 6),
     taxGainHarvested: round(strategyLongTermGains, 6),
@@ -1344,8 +1356,10 @@ function evaluateWithdrawalState({
     profile: yearTaxProfile
   });
   const taxesWithPenalties = addPenaltyTax(taxes, withdrawal.penaltyTax);
-  const magi = estimateMagi(income);
-  const aca = computeAcaForYear({ age, magi, config: yearAcaConfig });
+  const federalAgi = round(federalAgiForIncome(income), 6);
+  const acaMagi = round(acaMagiForIncome(income), 6);
+  const irmaaMagi = round(irmaaMagiForIncome(income), 6);
+  const aca = computeAcaForYear({ age, magi: acaMagi, config: yearAcaConfig });
   const medical = medicalCostForYear({
     scenario,
     aca,
@@ -1355,7 +1369,7 @@ function evaluateWithdrawalState({
     spouseAge,
     yearIndex,
     filingStatus: yearTaxProfile.filingStatus,
-    magi,
+    irmaaMagi,
     magiHistory
   });
 
@@ -1367,7 +1381,10 @@ function evaluateWithdrawalState({
     medicare: medical.medicare,
     medicalTotal: medical.total,
     modeledCost: round(taxesWithPenalties.totalTax + medical.total, 6),
-    magi
+    federalAgi,
+    acaMagi,
+    irmaaMagi,
+    magi: acaMagi
   };
 }
 
@@ -1868,7 +1885,7 @@ function incomeForYear({
   });
   const taxableSocialSecurity = computeTaxableSocialSecurityBenefits({
     benefits: socialSecurityBenefits,
-    otherIncome: estimateMagi(incomeBeforeSocialSecurity),
+    otherIncome: federalAgiForIncome(incomeBeforeSocialSecurity),
     filingStatus: taxProfile.filingStatus,
     marriedFilingSeparatelyLivedTogether: scenario.medicare?.marriedFilingSeparatelyLivedTogether,
     profile: taxProfile
@@ -1892,14 +1909,21 @@ function incomeForYear({
   };
 }
 
-function estimateMagi(income) {
+function federalAgiForIncome(income) {
   return Math.max(0,
     income.ordinaryIncome
     + Math.max(0, income.shortTermCapitalGains)
     + Math.max(0, income.longTermCapitalGains)
     + Math.max(0, income.qualifiedDividends)
-    + Math.max(0, income.nonTaxableSocialSecurity ?? 0)
   );
+}
+
+function acaMagiForIncome(income) {
+  return Math.max(0, federalAgiForIncome(income) + Math.max(0, income.nonTaxableSocialSecurity ?? 0));
+}
+
+function irmaaMagiForIncome(income) {
+  return federalAgiForIncome(income);
 }
 
 function taxProfileForSimulationYear({
@@ -2034,7 +2058,7 @@ function medicalCostForYear({
   spouseAge,
   yearIndex,
   filingStatus,
-  magi,
+  irmaaMagi,
   magiHistory
 }) {
   const baseMedical = medicalCostForScenario(scenario, yearAcaConfig, inflationIndex, aca);
@@ -2044,7 +2068,7 @@ function medicalCostForYear({
     spouseAge,
     yearIndex,
     filingStatus,
-    magi,
+    irmaaMagi,
     magiHistory,
     inflationIndex
   });
@@ -2060,7 +2084,7 @@ function computeMedicareCostForYear({
   spouseAge,
   yearIndex,
   filingStatus,
-  magi,
+  irmaaMagi,
   magiHistory,
   inflationIndex
 }) {
@@ -2071,7 +2095,7 @@ function computeMedicareCostForYear({
   const lookbackMagi = medicareLookbackMagi({
     scenario,
     yearIndex,
-    currentMagi: magi,
+    currentMagi: irmaaMagi,
     magiHistory
   });
   const bracket = medicareIrmaaBracket({
@@ -2109,9 +2133,17 @@ function computeMedicareCostForYear({
 function medicareLookbackMagi({ scenario, yearIndex, currentMagi, magiHistory }) {
   const medicare = scenario.medicare ?? {};
   if (yearIndex >= 2 && Number.isFinite(magiHistory?.[yearIndex - 2])) return magiHistory[yearIndex - 2];
-  if (yearIndex === 1 && Number.isFinite(Number(medicare.priorYearMagi))) return Number(medicare.priorYearMagi);
-  if (yearIndex === 0 && Number.isFinite(Number(medicare.twoYearsPriorMagi))) return Number(medicare.twoYearsPriorMagi);
+  const priorYearMagi = optionalFiniteNumber(medicare.priorYearMagi);
+  const twoYearsPriorMagi = optionalFiniteNumber(medicare.twoYearsPriorMagi);
+  if (yearIndex === 1 && priorYearMagi !== null) return priorYearMagi;
+  if (yearIndex === 0 && twoYearsPriorMagi !== null) return twoYearsPriorMagi;
   return Math.max(0, Number(currentMagi) || 0);
+}
+
+function optionalFiniteNumber(value) {
+  if (value == null || String(value).trim?.() === "") return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
 }
 
 function medicareIrmaaBracket({

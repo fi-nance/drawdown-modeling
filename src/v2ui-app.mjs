@@ -139,6 +139,7 @@ const CONTROL_IDS = [
   "oneOffAmount",
   "oneOffInflation",
   "flowMode",
+  "magiDisplayMode",
   "yearRange",
   "sheetUrl",
   "googleClientId",
@@ -266,6 +267,7 @@ const els = {
   oneOffList: document.querySelector("#oneOffList"),
   kpis: document.querySelector("#kpis"),
   flowMode: document.querySelector("#flowMode"),
+  magiDisplayMode: document.querySelector("#magiDisplayMode"),
   yearRange: document.querySelector("#yearRange"),
   yearLabel: document.querySelector("#yearLabel"),
   sankeySvg: document.querySelector("#sankeySvg"),
@@ -363,6 +365,10 @@ function bindEvents() {
   els.marketplacePlanResults.addEventListener("click", handleMarketplacePlanSelection);
   els.viewMode.addEventListener("change", renderLatest);
   els.flowMode.addEventListener("change", renderFlowAndSales);
+  els.magiDisplayMode?.addEventListener("change", () => {
+    saveStoredState();
+    renderYearTable();
+  });
   CONTROL_IDS.forEach((id) => {
     const input = document.querySelector(`#${id}`);
     if (!input) return;
@@ -864,7 +870,69 @@ function downloadJsonText(text, filename) {
   URL.revokeObjectURL(url);
 }
 
-function runModels() {
+// ─── Simulation worker plumbing ──────────────────────────────────────
+// Heavy work (Monte Carlo + backtests) runs off the main thread so the
+// page stays responsive. We lazy-create one worker and reuse it; in-flight
+// requests are tagged with an id so a stale response from a superseded run
+// is ignored.
+let simulationWorker = null;
+let simulationRequestId = 0;
+let activeSimulationRequestId = 0;
+let runModelsBusy = false;
+
+function getSimulationWorker() {
+  if (!simulationWorker) {
+    simulationWorker = new Worker(
+      new URL("./core/simulation.worker.mjs", import.meta.url),
+      { type: "module" }
+    );
+    simulationWorker.addEventListener("error", (ev) => {
+      console.error("Simulation worker error:", ev.message || ev);
+    });
+  }
+  return simulationWorker;
+}
+
+function runSimulationsInWorker({ assets, scenario, taxProfile, runs, seed, sequences, onProgress }) {
+  const worker = getSimulationWorker();
+  const id = ++simulationRequestId;
+  activeSimulationRequestId = id;
+  return new Promise((resolve, reject) => {
+    function cleanup() {
+      worker.removeEventListener("message", onMessage);
+      worker.removeEventListener("error", onError);
+    }
+    function onMessage(ev) {
+      const msg = ev.data;
+      if (!msg || msg.id !== id) return;
+      if (msg.type === "progress") {
+        if (id !== activeSimulationRequestId) return;
+        onProgress?.(msg);
+      } else if (msg.type === "result") {
+        cleanup();
+        if (id !== activeSimulationRequestId) return;
+        resolve({ plan: msg.plan, monteCarlo: msg.monteCarlo, backtests: msg.backtests });
+      } else if (msg.type === "error") {
+        cleanup();
+        const err = new Error(msg.message || "Simulation worker failed");
+        if (msg.stack) err.stack = msg.stack;
+        reject(err);
+      }
+    }
+    function onError(ev) {
+      cleanup();
+      reject(new Error(ev.message || "Simulation worker crashed"));
+    }
+    worker.addEventListener("message", onMessage);
+    worker.addEventListener("error", onError);
+    worker.postMessage({ type: "run", id, payload: { assets, scenario, taxProfile, runs, seed, sequences } });
+  });
+}
+
+async function runModels() {
+  if (runModelsBusy) return;
+  runModelsBusy = true;
+  if (els.runModel) els.runModel.disabled = true;
   try {
     const started = performance.now();
     saveStoredState();
@@ -891,6 +959,24 @@ function runModels() {
     });
 
     setStatus("Running projections...");
+    window.dispatchEvent(new CustomEvent("psl:run-progress", {
+      detail: { phase: "monteCarlo", done: 0, total: runs }
+    }));
+
+    const result = await runSimulationsInWorker({
+      assets,
+      scenario,
+      taxProfile,
+      runs,
+      seed,
+      sequences: historicalSequences,
+      onProgress: ({ phase, done, total }) => {
+        window.dispatchEvent(new CustomEvent("psl:run-progress", {
+          detail: { phase, done, total }
+        }));
+      }
+    });
+
     latest = {
       scenario,
       taxProfile,
@@ -900,14 +986,9 @@ function runModels() {
       historicalDataSource,
       historicalRange,
       historicalMode: els.backtestMode.value,
-      plan: simulatePlan({ assets, scenario, taxProfile }),
-      monteCarlo: runMonteCarlo({ assets, scenario, taxProfile, runs, seed }),
-      backtests: runHistoricalBacktests({
-        assets,
-        scenario,
-        taxProfile,
-        sequences: historicalSequences
-      })
+      plan: result.plan,
+      monteCarlo: result.monteCarlo,
+      backtests: result.backtests
     };
 
     selectedYearIndex = Math.min(selectedYearIndex, scenario.planYears - 1);
@@ -920,6 +1001,10 @@ function runModels() {
   } catch (error) {
     console.error(error);
     setStatus(error.message, true);
+    window.dispatchEvent(new CustomEvent("psl:run-progress", { detail: { error: true } }));
+  } finally {
+    runModelsBusy = false;
+    if (els.runModel) els.runModel.disabled = false;
   }
 }
 
@@ -1000,7 +1085,8 @@ function acaPlanLabel(year) {
 
 function renderYearTable() {
   const years = activeVisibleYears();
-  const headers = ["Year", "Age", "Stock", "Bond", "Real estate", "TIPS", "Crypto", "Inflation", "Start value", "End value", "Sales / withdrawals", "Dividends", "Social Security", "Earned income", "One-off income", "RMD", "Total cash", "Total need", "Tax", "Fed income tax", "CG/QD tax", "NIIT", "Addl Medicare", "Credits", "State tax", "MAGI", "Taxable SS", "65+ deduction", "CTC children", "ACA plan", "ACA SLCSP", "ACA gross", "ACA subsidy", "ACA net", "Medicare", "Spend", "Medical", "Tax gain harvest", "Roth conv.", "Roth basis left", "Penalty", "Loss carry"];
+  const magiColumn = selectedMagiColumn();
+  const headers = ["Year", "Age", "Stock", "Bond", "Real estate", "TIPS", "Crypto", "Inflation", "Start value", "End value", "Sales / withdrawals", "Dividends", "Social Security", "Earned income", "One-off income", "RMD", "Total cash", "Total need", "Tax", "Fed income tax", "CG/QD tax", "NIIT", "Addl Medicare", "Credits", "State tax", magiColumn.header, "Taxable SS", "65+ deduction", "CTC children", "ACA plan", "ACA SLCSP", "ACA gross", "ACA subsidy", "ACA net", "Medicare", "Spend", "Medical", "Tax gain harvest", "Roth conv.", "Roth basis left", "Penalty", "Loss carry"];
   const rows = years.map((year) => [
     yearDisplayLabel(year),
     ageLabel(year.age),
@@ -1027,7 +1113,7 @@ function renderYearTable() {
     money(year.taxes.additionalMedicareTax ?? 0, year),
     money(year.taxes.federalCreditsUsed ?? 0, year),
     money(year.taxes.stateTax ?? 0, year),
-    money(year.magi, year),
+    money(magiColumn.value(year), year),
     money(year.taxableSocialSecurity ?? 0, year),
     money(year.age65AdditionalDeduction ?? 0, year),
     year.qualifyingChildren ?? 0,
@@ -1066,6 +1152,17 @@ function renderYearTable() {
   bindPinToggles(els.yearTable, pinnedYearColumns, ALWAYS_PINNED_YEAR, PINNED_YEAR_STORAGE_KEY, () => renderYearTable());
   bindResizeObserver(els.yearTable, "yearTable");
   addStickyHorizontalScrollbar(els.yearTable);
+}
+
+function selectedMagiColumn() {
+  const mode = els.magiDisplayMode?.value ?? "aca";
+  if (mode === "irmaa") {
+    return { header: "IRMAA MAGI", value: (year) => year.irmaaMagi ?? year.magi };
+  }
+  if (mode === "agi") {
+    return { header: "Federal AGI", value: (year) => year.federalAgi ?? year.magi };
+  }
+  return { header: "ACA MAGI", value: (year) => year.acaMagi ?? year.magi };
 }
 
 function yearDisplayLabel(year) {
