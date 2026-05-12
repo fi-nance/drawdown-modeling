@@ -178,6 +178,19 @@ function boot() {
   if (window.__pslLatest) {
     rerenderResults();
     syncWorkspaceSummary();
+  } else if (state.screen === "results") {
+    // Refreshed straight onto the results screen with no cached results.
+    // v2ui-app's initialize() auto-runs the model on load, so a worker run is
+    // already in-flight — show the overlay so the user sees progress instead
+    // of an empty page. The MutationObserver / psl:render-latest listener in
+    // hookRunCompletion will hide it once results paint.
+    flagPendingRun();
+    showRunOverlay();
+    // Safety net: if the auto-run somehow didn't fire (e.g. it errored before
+    // dispatching), kick it off explicitly.
+    setTimeout(() => {
+      if (!window.__pslLatest) document.getElementById("runModel")?.click();
+    }, 250);
   }
   // Also listen for future render-latest events (in case the user changes
   // inflation view, etc., without firing the yearTable mutation observer).
