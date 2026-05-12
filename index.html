@@ -7,8 +7,8 @@
     <meta name="description" content="Tax-aware retirement decumulation forecasting with Monte Carlo simulation, historical backtesting, and Sankey cash flow visualization.">
     <link rel="icon" href="./favicon.svg?v=20260505-favicon" type="image/svg+xml">
     <meta name="theme-color" content="#07111f">
-    <link rel="stylesheet" href="./src/v2ui-styles.css?v=20260511-guard">
-    <link rel="stylesheet" href="./src/redesign.css?v=20260511-guard">
+    <link rel="stylesheet" href="./src/v2ui-styles.css?v=20260511-trustengage">
+    <link rel="stylesheet" href="./src/redesign.css?v=20260511-trustengage">
     <script src="https://accounts.google.com/gsi/client" async defer></script>
   </head>
   <body data-screen="persona" data-theme="dark">
@@ -215,7 +215,7 @@
                     </select>
                   </label>
                   <label><span>Household size</span><input id="householdSize" type="number" min="1" max="12" value="2"></label>
-                  <label><span>Monte Carlo runs</span><input id="runs" type="number" min="10" max="5000" value="250"></label>
+                  <label><span>Monte Carlo runs</span><input id="runs" type="number" min="10" max="5000" value="250"><small id="runsHint" data-warning="false">1000 max for instant refresh-from-cache. Higher values still run, but cached results won't survive a refresh.</small></label>
                   <label><span>Random seed</span><input id="seed" type="number" value="42"><small>Same value repeats the same paths.</small></label>
                   <label>
                     <span>Tax year</span>
@@ -787,7 +787,7 @@
       <select id="viewMode"><option value="nominal">Today's $</option><option value="real">Real $</option></select>
     </div>
 
-    <script type="module" src="./src/v2ui-app.mjs?v=20260511-guard"></script>
-    <script type="module" src="./src/redesign.mjs?v=20260511-guard"></script>
+    <script type="module" src="./src/v2ui-app.mjs?v=20260511-trustengage"></script>
+    <script type="module" src="./src/redesign.mjs?v=20260511-trustengage"></script>
   </body>
 </html>

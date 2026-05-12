@@ -7,6 +7,7 @@ import {
 } from "./core/importers.mjs";
 import { portfolioValue } from "./core/portfolio.mjs";
 import { createSetupBackup, parseSetupBackup } from "./core/setupBackup.mjs";
+import { cacheLatestResults, restoreCachedLatest } from "./core/resultsCache.mjs";
 import { DEFAULT_SCENARIO, runHistoricalBacktests, runMonteCarlo, simulatePlan } from "./core/simulation.mjs";
 import { round } from "./core/utils.mjs";
 import { defaultOneOffExpenses, sampleAssets } from "./data/sample.mjs";
@@ -352,6 +353,22 @@ function initialize() {
   renderOneOffs();
   bindEvents();
   setActiveScreen(activeScreen);
+  // Restore previously-rendered results from sessionStorage so a refresh paints
+  // the page immediately (instead of staring at empty panels while the worker
+  // re-runs). The runModels() call below kicks off a fresh background run that
+  // overwrites these results when it finishes.
+  const cached = restoreCachedLatest();
+  if (cached) {
+    latest = cached;
+    selectedScenarioId = latest.monteCarlo?.scenarios?.[0]?.id ?? null;
+    const planYears = latest.scenario?.planYears ?? 35;
+    selectedYearIndex = Math.min(Math.max(0, selectedYearIndex), planYears - 1);
+    if (els.yearRange) {
+      els.yearRange.max = String(planYears);
+      els.yearRange.value = String(selectedYearIndex + 1);
+    }
+    renderLatest();
+  }
   runModels();
 }
 
@@ -879,6 +896,7 @@ let simulationWorker = null;
 let simulationRequestId = 0;
 let activeSimulationRequestId = 0;
 let runModelsBusy = false;
+let pendingRerunRequested = false;
 
 function getSimulationWorker() {
   if (!simulationWorker) {
@@ -930,9 +948,15 @@ function runSimulationsInWorker({ assets, scenario, taxProfile, runs, seed, sequ
 }
 
 async function runModels() {
-  if (runModelsBusy) return;
+  // If a run is already in flight (typically the silent background re-run
+  // kicked off by initialize() after a cache restore), queue another so the
+  // user's click is honored once the in-flight run finishes — otherwise
+  // their freshly-edited inputs would be silently dropped.
+  if (runModelsBusy) {
+    pendingRerunRequested = true;
+    return;
+  }
   runModelsBusy = true;
-  if (els.runModel) els.runModel.disabled = true;
   try {
     const started = performance.now();
     saveStoredState();
@@ -1004,7 +1028,14 @@ async function runModels() {
     window.dispatchEvent(new CustomEvent("psl:run-progress", { detail: { error: true } }));
   } finally {
     runModelsBusy = false;
-    if (els.runModel) els.runModel.disabled = false;
+    if (pendingRerunRequested) {
+      pendingRerunRequested = false;
+      // Re-show the overlay because the just-completed run hid it via the
+      // psl:render-latest listener. Yield the event loop first so the worker
+      // can pick up the new postMessage.
+      window.dispatchEvent(new CustomEvent("psl:run-start"));
+      setTimeout(() => runModels(), 0);
+    }
   }
 }
 
@@ -1019,13 +1050,19 @@ function renderLatest() {
   renderAssetBreakdown();
   renderScenarioTable();
   renderBacktests();
-  // Expose to the redesign script so it can render KPI strip / bracket fill /
-  // withdrawal mix against the same data without refactoring this module.
+  // Cache so a refresh paints these same results instantly instead of an
+  // empty page while the next worker run is in flight. cacheLatestResults
+  // returns false if the compact blob still exceeded sessionStorage's quota
+  // — fire an event so the UI can flag that a refresh will fall back to a
+  // fresh recompute.
+  const cacheOk = cacheLatestResults(latest);
   if (typeof window !== "undefined") {
     window.__pslLatest = latest;
+    window.dispatchEvent(new CustomEvent("psl:cache-status", { detail: { cached: cacheOk } }));
     window.dispatchEvent(new CustomEvent("psl:render-latest"));
   }
 }
+
 
 function renderKpis() {
   const years = activeVisibleYears();
@@ -1220,13 +1257,18 @@ function renderAssetBreakdown() {
 }
 
 function renderScenarioTable() {
-  const rows = latest.monteCarlo.scenarios.map((scenarioResult) => [
-    scenarioResult.id,
-    scenarioResult.success ? `<span class="positive">Yes</span>` : `<span class="negative">No</span>`,
-    money(scenarioResult.endingValue, scenarioResult.years.at(-1)),
-    money(scenarioResult.heirValue, scenarioResult.years.at(-1)),
-    escapeHtml(failureSummary(scenarioResult))
-  ]);
+  const rows = latest.monteCarlo.scenarios.map((scenarioResult) => {
+    // After a cached-latest restore, scenarios may not carry full year
+    // arrays; fall back to the compact lastYear thumbnail.
+    const finalYear = scenarioResult.years?.at?.(-1) ?? scenarioResult.lastYear ?? null;
+    return [
+      scenarioResult.id,
+      scenarioResult.success ? `<span class="positive">Yes</span>` : `<span class="negative">No</span>`,
+      money(scenarioResult.endingValue, finalYear),
+      money(scenarioResult.heirValue, finalYear),
+      escapeHtml(failureSummary(scenarioResult))
+    ];
+  });
 
   els.scenarioTable.innerHTML = tableHtml(
     ["Run", "Success", "Ending", "Heirs", "Failure year"],
@@ -1268,13 +1310,16 @@ function renderBacktests() {
   const note = coverage
     ? `Historical success ${percentFormatter.format(successRate)} across ${latest.backtests.length} paths. ${sourceLabel}; data version ${HISTORICAL_RETURN_DATA_VERSION}; ${coverage.startYear}-${coverage.endYear} available for this asset mix.${proxyNote}${rangeNote}`
     : `Historical success ${percentFormatter.format(successRate)} across ${latest.backtests.length} paths.`;
-  const rows = latest.backtests.map((backtest) => [
-    escapeHtml(backtest.id),
-    backtest.success ? `<span class="positive">Yes</span>` : `<span class="negative">No</span>`,
-    money(backtest.endingValue, backtest.years.at(-1)),
-    money(backtest.heirValue, backtest.years.at(-1)),
-    backtest.depletionYear ?? firstFailureYear(backtest.years) ?? ""
-  ]);
+  const rows = latest.backtests.map((backtest) => {
+    const finalYear = backtest.years?.at?.(-1) ?? backtest.lastYear ?? null;
+    return [
+      escapeHtml(backtest.id),
+      backtest.success ? `<span class="positive">Yes</span>` : `<span class="negative">No</span>`,
+      money(backtest.endingValue, finalYear),
+      money(backtest.heirValue, finalYear),
+      backtest.depletionYear ?? (backtest.years ? firstFailureYear(backtest.years) : null) ?? ""
+    ];
+  });
 
   els.backtestTable.innerHTML = `
     <p class="table-note">${escapeHtml(note)}</p>
@@ -1938,7 +1983,7 @@ function drawDistribution() {
   const height = 320;
   const margin = { top: 28, right: 28, bottom: 52, left: 60 };
   const scenarios = latest.monteCarlo.scenarios;
-  const values = scenarios.map((s) => adjustAmount(s.endingValue, s.years.at(-1)));
+  const values = scenarios.map((s) => adjustAmount(s.endingValue, s.years?.at?.(-1) ?? s.lastYear));
   const sorted = [...values].sort((a, b) => a - b);
   const min = Math.min(...values);
   const max = Math.max(...values);

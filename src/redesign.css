@@ -770,6 +770,10 @@ body[data-screen="persona"]::before {
   color: var(--text-primary);
 }
 .module-card .check-row { font-size: 0.85rem; }
+.module-card label small[data-warning="true"] {
+  color: var(--coral);
+  font-weight: 600;
+}
 .module-card details.advanced {
   margin: 0;
   border-top: 1px dashed var(--border);
@@ -1075,7 +1079,38 @@ body[data-screen="persona"]::before {
   gap: 0.55rem;
   align-items: end;
 }
-.mix-col { display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 0; }
+.mix-col {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  padding: 4px 2px 6px;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  cursor: pointer;
+  border-radius: 12px;
+  transition: background 0.15s, transform 0.12s ease;
+}
+.mix-col:hover { background: var(--bg-glass-2); }
+.mix-col:hover .mix-stack { border-color: var(--border-focus); }
+.mix-col:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 2px;
+  background: var(--bg-glass-2);
+}
+.mix-col[data-selected="true"] {
+  background: var(--bg-glass-2);
+}
+.mix-col[data-selected="true"] .mix-stack {
+  border-color: var(--teal);
+  box-shadow: 0 0 0 2px rgba(52, 209, 182, 0.35);
+}
+.mix-col[data-selected="true"] .mix-year { color: var(--teal); }
 .mix-stack {
   width: 100%;
   height: 130px;

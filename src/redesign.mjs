@@ -170,6 +170,8 @@ function boot() {
   bindIntakes();
   bindResultsScenarioPanel();
   bindWorkspaceSummary();
+  bindWithdrawalMix();
+  bindRunsHint();
   applyAll();
   // Wait for v2ui-app to settle before painting the new visuals; it dispatches
   // a custom event whenever a new run completes (we hook it below).
@@ -214,16 +216,29 @@ function hydrateState() {
   const queryScreen = url.searchParams.get("screen");
   if (queryScreen && SCREENS.includes(queryScreen)) state.screen = queryScreen;
 
-  // If we'd land on results but no workspace data has been entered yet, bounce
-  // back to step 1 — otherwise the user would see results computed from the
-  // sample-data fallback, which looks broken (it isn't theirs). Also strip the
-  // ?screen=results param so a subsequent reload doesn't redirect again.
-  if (state.screen === "results" && !hasStoredWorkspaceData()) {
-    state.screen = "persona";
-    writeStorage(STORAGE_SCREEN, "persona");
-    if (queryScreen) {
-      url.searchParams.delete("screen");
-      window.history.replaceState(null, "", url.toString());
+  // Only redirect a results-screen visit back to step 1 when the user has
+  // *never* engaged with the app. Earlier we were checking just two signals
+  // (the v2ui-app setup-state key and the cached results blob) and yanking
+  // people to persona whenever both happened to be missing — too aggressive
+  // when storage is partial or being cleared between sessions. Now we also
+  // honour the persisted screen pointer: if the user has previously been to
+  // results, trust that and let the results screen render whatever it can.
+  if (state.screen === "results") {
+    const diag = describeStorageState();
+    console.debug("[PSL] results-screen refresh guard:", JSON.stringify(diag));
+    const hasAnyEngagement =
+      diag.hasSetupState ||
+      diag.hasCachedResults ||
+      diag.persistedScreen === "results" ||
+      diag.persistedScreen === "workspace";
+    if (!hasAnyEngagement) {
+      console.debug("[PSL] no prior engagement found — redirecting to persona");
+      state.screen = "persona";
+      writeStorage(STORAGE_SCREEN, "persona");
+      if (queryScreen) {
+        url.searchParams.delete("screen");
+        window.history.replaceState(null, "", url.toString());
+      }
     }
   }
 
@@ -561,6 +576,15 @@ function bindRouter() {
     }, true);
   }
 
+  // v2ui-app dispatches this when it kicks off a queued re-run that was
+  // requested while a prior run was still in flight. The just-completed run
+  // hid the overlay via psl:render-latest, so we re-show it for the queued
+  // run so the user keeps seeing progress.
+  window.addEventListener("psl:run-start", () => {
+    flagPendingRun();
+    showRunOverlay();
+  });
+
   // Live progress updates from v2ui-app while the worker runs.
   window.addEventListener("psl:run-progress", (ev) => {
     const detail = ev.detail || {};
@@ -598,6 +622,7 @@ function hideRunOverlay() {
 
 function setScreen(screen) {
   if (!SCREENS.includes(screen)) return;
+  const fromScreen = state.screen;
   state.screen = screen;
   writeStorage(STORAGE_SCREEN, screen);
   document.body.dataset.screen = screen;
@@ -612,6 +637,7 @@ function setScreen(screen) {
   const url = new URL(window.location.href);
   url.searchParams.set("screen", screen);
   window.history.replaceState({}, "", url);
+  console.debug(`[PSL] setScreen: ${fromScreen} → ${screen} · url now ${window.location.search || "(no query)"}`);
 }
 
 function scrollOutcomeIntoFocus() {
@@ -915,6 +941,8 @@ function renderWithdrawalMix() {
   for (let i = 0; i < years.length; i += stride) picked.push(years[i]);
   if (picked[picked.length - 1] !== years[years.length - 1]) picked.push(years[years.length - 1]);
 
+  const selectedYearIndex = currentSelectedYearIndex();
+
   root.innerHTML = picked.map(y => {
     const tax  = y.sales?.filter(s => s.accountType === "taxable").reduce((t, s) => t + (s.proceeds ?? 0), 0) ?? 0;
     const trad = y.sales?.filter(s => s.accountType === "traditional").reduce((t, s) => t + (s.proceeds ?? 0), 0) ?? 0;
@@ -931,14 +959,15 @@ function renderWithdrawalMix() {
       { cls: "mix-rmd",  v: rmd,  label: "RMD" },
       { cls: "mix-ss",   v: ss,   label: "SS" }
     ].filter(s => s.v > 0);
+    const isSelected = y.yearIndex === selectedYearIndex;
     return `
-      <div class="mix-col">
+      <button type="button" class="mix-col" data-year-index="${y.yearIndex}" data-selected="${isSelected ? "true" : "false"}" aria-pressed="${isSelected ? "true" : "false"}" aria-label="Year ${y.yearIndex + 1}${y.age ? `, age ${Math.round(y.age)}` : ""} — click to inspect">
         <div class="mix-stack">
           ${segs.map(s => `<span class="${s.cls}" style="flex-basis:${(s.v/total*100).toFixed(2)}%">${s.v/total > 0.12 ? s.label : ""}</span>`).join("")}
         </div>
         <span class="mix-year">Y${y.yearIndex+1}</span>
         <span class="mix-age">${y.age ? Math.round(y.age) : ""}</span>
-      </div>`;
+      </button>`;
   }).join("");
   if (legend) legend.innerHTML = `
     <span><span class="swatch" style="background:#117a4d"></span>Taxable</span>
@@ -947,6 +976,92 @@ function renderWithdrawalMix() {
     <span><span class="swatch" style="background:#0e7da6"></span>HSA</span>
     <span><span class="swatch" style="background:#c43838"></span>RMD</span>
     <span><span class="swatch" style="background:#117a4d;opacity:.55"></span>Soc Sec</span>`;
+}
+
+function currentSelectedYearIndex() {
+  const slider = document.getElementById("yearRange");
+  const raw = Number(slider?.value);
+  return Number.isFinite(raw) ? raw - 1 : 0;
+}
+
+function selectYearAcrossViews(yearIndex) {
+  const slider = document.getElementById("yearRange");
+  if (!slider) return;
+  const max = Number(slider.max) || 1;
+  const clamped = Math.max(0, Math.min(max - 1, yearIndex));
+  slider.value = String(clamped + 1);
+  // Drive v2ui-app's existing input listener so KPIs, year table, asset
+  // breakdown, flow/sales, etc. all re-render against the picked year.
+  slider.dispatchEvent(new Event("input", { bubbles: true }));
+  syncMixSelectedHighlight(clamped);
+}
+
+function syncMixSelectedHighlight(yearIndex) {
+  const root = document.getElementById("withdrawalMix");
+  if (!root) return;
+  root.querySelectorAll(".mix-col[data-year-index]").forEach(col => {
+    const idx = Number(col.dataset.yearIndex);
+    const on = idx === yearIndex;
+    col.dataset.selected = on ? "true" : "false";
+    col.setAttribute("aria-pressed", on ? "true" : "false");
+  });
+}
+
+// Cache-friendly Monte Carlo run cap. Above this, the compact cache may still
+// fit, but we'd rather warn proactively than have refresh-from-cache silently
+// fall through to recompute.
+const RUNS_CACHE_THRESHOLD = 1000;
+
+// Outcome of the most recent v2ui-app cacheLatestResults() call. null until
+// the first run completes; true on success, false if sessionStorage rejected
+// the compact blob. Drives the post-run warning state on #runsHint and the
+// "not cached for refresh" suffix in the results topbar.
+let lastCacheOk = null;
+
+function bindRunsHint() {
+  const input = document.getElementById("runs");
+  const hint = document.getElementById("runsHint");
+  if (!input || !hint) return;
+  const defaultText = hint.textContent;
+  const warnText = `Above ${RUNS_CACHE_THRESHOLD.toLocaleString()} runs: results may not fit in the refresh-from-cache, so reloading the page will trigger a fresh recompute instead of an instant restore.`;
+  const failedText = `The last run was too large to cache — a page reload will re-run the model instead of restoring instantly. Lower runs to ${RUNS_CACHE_THRESHOLD.toLocaleString()} or below to enable refresh-from-cache.`;
+  const update = () => {
+    if (lastCacheOk === false) {
+      hint.dataset.warning = "true";
+      hint.textContent = failedText;
+      return;
+    }
+    const value = Number(input.value);
+    const tooMany = Number.isFinite(value) && value > RUNS_CACHE_THRESHOLD;
+    hint.dataset.warning = tooMany ? "true" : "false";
+    hint.textContent = tooMany ? warnText : defaultText;
+  };
+  input.addEventListener("input", () => { lastCacheOk = null; update(); });
+  input.addEventListener("change", () => { lastCacheOk = null; update(); });
+  window.addEventListener("psl:cache-status", (ev) => {
+    lastCacheOk = ev.detail?.cached !== false;
+    if (lastCacheOk === false) {
+      console.warn("[PSL] Results too large to save in sessionStorage; refresh will trigger a recompute.");
+    }
+    update();
+  });
+  update();
+}
+
+function bindWithdrawalMix() {
+  const root = document.getElementById("withdrawalMix");
+  if (!root) return;
+  root.addEventListener("click", (ev) => {
+    const col = ev.target.closest(".mix-col[data-year-index]");
+    if (!col) return;
+    selectYearAcrossViews(Number(col.dataset.yearIndex));
+  });
+  // Keep the highlight in sync when the year is changed elsewhere (slider,
+  // year-table row click). v2ui-app already handles those; we just listen for
+  // the same input event and re-mark the selected column.
+  document.getElementById("yearRange")?.addEventListener("input", () => {
+    syncMixSelectedHighlight(currentSelectedYearIndex());
+  });
 }
 
 // ─── Sensitivity tornado ───────────────────────────────────────────
@@ -1074,7 +1189,9 @@ function rerenderResults() {
   if (meta && window.__pslLatest) {
     const runs = window.__pslLatest?.monteCarlo?.summary?.runs ?? "—";
     const years = planYears(window.__pslLatest).length || "—";
-    meta.textContent = `Updated just now · ${runs} sims · ${years} years`;
+    const cacheNote = lastCacheOk === false ? " · not cached for refresh" : "";
+    meta.textContent = `Updated just now · ${runs} sims · ${years} years${cacheNote}`;
+    meta.dataset.cacheOk = lastCacheOk === false ? "false" : "true";
   }
 }
 
@@ -1118,6 +1235,46 @@ function hasStoredWorkspaceData() {
   } catch {
     return false;
   }
+}
+
+// True if v2ui-app has cached the last run's results in sessionStorage. The
+// results-screen refresh guard treats this as "usable data" — if cached
+// results exist we'd rather restore them than punt the user back to step 1,
+// even if the setup-state localStorage key happens to be missing.
+function hasCachedResults() {
+  try {
+    return !!sessionStorage.getItem("portfolio-success-lab:results-cache:v1");
+  } catch {
+    return false;
+  }
+}
+
+// Diagnostic snapshot of every storage key the app touches. Printed to the
+// console when the refresh guard runs so it's possible to tell at a glance
+// which storage entry is missing when the guard misfires.
+function describeStorageState() {
+  let setupRaw = null, setupAssets = 0, setupBytes = 0;
+  try {
+    setupRaw = localStorage.getItem("portfolio-success-lab:v3");
+    setupBytes = setupRaw?.length ?? 0;
+    if (setupRaw) {
+      const parsed = JSON.parse(setupRaw);
+      setupAssets = Array.isArray(parsed?.assets) ? parsed.assets.length : 0;
+    }
+  } catch { /* ignore */ }
+  let cacheBytes = 0;
+  try {
+    cacheBytes = sessionStorage.getItem("portfolio-success-lab:results-cache:v1")?.length ?? 0;
+  } catch { /* ignore */ }
+  return {
+    hasSetupState: setupBytes > 0 && setupAssets > 0,
+    setupStateBytes: setupBytes,
+    setupAssetCount: setupAssets,
+    hasCachedResults: cacheBytes > 0,
+    cacheBytes,
+    persistedScreen: (() => { try { return localStorage.getItem("psl:redesign:screen"); } catch { return null; } })(),
+    queryScreen: new URL(window.location.href).searchParams.get("screen")
+  };
 }
 
 function planYears(latest) {
