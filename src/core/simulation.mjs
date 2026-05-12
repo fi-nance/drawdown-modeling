@@ -199,10 +199,7 @@ export function simulatePlan({
     lossCarryforward = result.lossCarryforwardDetail ?? normalizeLossCarryforward(result.lossCarryforward);
     rothBasisRemaining = result.rothBasisRemaining;
     irmaaMagiHistory.push(result.irmaaMagi);
-    // Inflation-scale the "fully funded" tolerance: $1 of present-day dollars
-    // shrinks in real terms over a 30+ year plan, so the absolute threshold
-    // would otherwise become unrealistically tight in the late years.
-    success = success && result.unfunded <= Math.max(1, inflationIndex);
+    success = success && !isPortfolioDepleted(result);
     years.push(result);
   }
 
@@ -2903,17 +2900,16 @@ function assetSnapshot(portfolio) {
 }
 
 function firstDepletionDetails(years) {
-  // Inflation-scale the depletion threshold so $1 in late-plan years (when
-  // inflationIndex is e.g. 2.5) is treated equivalently to $1 in year 1.
-  const depleted = years.find((year) => {
-    const tolerance = Math.max(1, year.inflationIndex ?? 1);
-    return year.unfunded > tolerance || year.endingPortfolioValue <= tolerance;
-  });
+  const depleted = years.find(isPortfolioDepleted);
   return {
     depletionYear: depleted?.year ?? null,
     depletionYearIndex: depleted?.yearIndex ?? null,
     depletionAge: depleted?.age ?? null
   };
+}
+
+function isPortfolioDepleted(year) {
+  return (year?.endingPortfolioValue ?? 0) <= 0;
 }
 
 function annualReturns(scenario, returnSequence, yearIndex) {

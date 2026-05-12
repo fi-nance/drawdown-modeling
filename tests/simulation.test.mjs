@@ -2125,6 +2125,61 @@ test("Monte Carlo depletion metadata includes failure year index and age", () =>
   assert.equal(scenario.depletionAge, 61);
 });
 
+test("cash shortfalls do not mark a path failed while portfolio value remains positive", () => {
+  const input = {
+    assets: [
+      {
+        id: "taxable-cash",
+        accountType: "taxable",
+        assetClass: "cash",
+        holdingPeriod: "long",
+        units: 100,
+        price: 1,
+        costBasisPerUnit: 1
+      },
+      {
+        id: "traditional-bond",
+        accountType: "traditional",
+        assetClass: "bond",
+        holdingPeriod: "long",
+        units: 1000,
+        price: 1,
+        costBasisPerUnit: 1
+      }
+    ],
+    scenario: {
+      planYears: 2,
+      startYear: 2030,
+      currentAge: 60,
+      targetSpend: 200,
+      targetSpendInflationAdjusted: false,
+      targetSpendIncludesTaxes: true,
+      targetSpendIncludesMedical: true,
+      withdrawalOrder: ["taxable"],
+      returnAssumptions: {
+        cash: { mean: 0, stdev: 0 },
+        bond: { mean: 0, stdev: 0 },
+        inflation: { mean: 0, stdev: 0 }
+      },
+      aca: { enabled: false }
+    },
+    taxProfile: noTaxProfile
+  };
+
+  const plan = simulatePlan({
+    ...input,
+    returnSequence: [{ cash: 0, bond: 0 }, { cash: 0, bond: 0 }],
+    inflationSequence: [0, 0]
+  });
+  assert.equal(plan.years[0].unfunded, 100);
+  assert.equal(plan.endingValue, 1000);
+  assert.equal(plan.success, true);
+
+  const monteCarlo = runMonteCarlo({ ...input, runs: 1, seed: 1 });
+  assert.equal(monteCarlo.scenarios[0].success, true);
+  assert.equal(monteCarlo.scenarios[0].depletionYear, null);
+});
+
 test("Roth conversion with earnings withdrawn inside five years is penalized and earnings are taxable", () => {
   const plan = simulatePlan({
     assets: [{

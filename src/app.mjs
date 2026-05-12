@@ -1535,7 +1535,7 @@ function depletionDetailsForResult(result) {
 }
 
 function isFailureYear(year) {
-  return year.unfunded > 1 || year.endingPortfolioValue <= 1;
+  return (year?.endingPortfolioValue ?? 0) <= 0;
 }
 
 function addStickyHorizontalScrollbar(container) {
