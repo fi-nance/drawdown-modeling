@@ -24,6 +24,38 @@ const CASH_GAP_TOLERANCE = 0.01;
 const CASH_RAISED_EPSILON = 0.000001;
 const FULL_WITHDRAWAL_ORDER = ["taxable", "traditional", "hsa", "roth"];
 
+export const MONTE_CARLO_ASSUMPTION_PRESETS = Object.freeze({
+  planning: Object.freeze({
+    stock: Object.freeze({ mean: 0.065, stdev: 0.18 }),
+    bond: Object.freeze({ mean: 0.028, stdev: 0.06 }),
+    cash: Object.freeze({ mean: 0.015, stdev: 0.015 }),
+    realEstate: Object.freeze({ mean: 0.05, stdev: 0.14 }),
+    tips: Object.freeze({ mean: 0.025, stdev: 0.07 }),
+    crypto: Object.freeze({ mean: 0.12, stdev: 0.65 }),
+    inflation: Object.freeze({ mean: 0.025, stdev: 0.012 })
+  }),
+  historical: Object.freeze({
+    stock: Object.freeze({ mean: 0.1186, stdev: 0.193 }),
+    bond: Object.freeze({ mean: 0.0482, stdev: 0.0786 }),
+    cash: Object.freeze({ mean: 0.0342, stdev: 0.0302 }),
+    realEstate: Object.freeze({ mean: 0.0438, stdev: 0.0615 }),
+    tips: Object.freeze({ mean: 0.0372, stdev: 0.0621 }),
+    // Crypto's short, regime-heavy series is too unstable to use raw as a
+    // planning preset, so keep the tempered forward-looking assumption here.
+    crypto: Object.freeze({ mean: 0.12, stdev: 0.65 }),
+    inflation: Object.freeze({ mean: 0.0308, stdev: 0.0387 })
+  })
+});
+
+const MONTE_CARLO_FACTOR_LOADINGS = Object.freeze({
+  stock: Object.freeze({ market: 0.65, rates: 0.05 }),
+  bond: Object.freeze({ market: 0.15, rates: 0.6 }),
+  cash: Object.freeze({ market: 0.05, rates: 0.45 }),
+  realEstate: Object.freeze({ market: 0.55, rates: 0.15 }),
+  tips: Object.freeze({ market: 0.1, rates: 0.6 }),
+  crypto: Object.freeze({ market: 0.6, rates: 0.05 })
+});
+
 export const DEFAULT_SCENARIO = {
   planYears: 35,
   startYear: 2026,
@@ -79,15 +111,11 @@ export const DEFAULT_SCENARIO = {
     priorYearMagi: null,
     marriedFilingSeparatelyLivedTogether: false
   },
-  returnAssumptions: {
-    stock: { mean: 0.065, stdev: 0.18 },
-    bond: { mean: 0.028, stdev: 0.06 },
-    cash: { mean: 0.015, stdev: 0.015 },
-    realEstate: { mean: 0.05, stdev: 0.14 },
-    tips: { mean: 0.025, stdev: 0.07 },
-    crypto: { mean: 0.12, stdev: 0.65 },
-    inflation: { mean: 0.025, stdev: 0.012 }
+  monteCarlo: {
+    assumptionPreset: "planning",
+    samplingMode: "independent"
   },
+  returnAssumptions: cloneReturnAssumptions(MONTE_CARLO_ASSUMPTION_PRESETS.planning),
   taxLossHarvesting: { enabled: true, mode: "auto", overrideMaxLoss: null },
   taxGainHarvesting: { enabled: true, mode: "auto", overrideMaxGain: null },
   rothConversion: {
@@ -3000,11 +3028,38 @@ function annualInflation(scenario, inflationSequence, yearIndex) {
 
 function sampleReturnsForYear(scenario, rng) {
   const result = {};
+  const correlated = scenario.monteCarlo?.samplingMode === "correlated";
+  const factorShocks = correlated
+    ? {
+        market: standardNormal(rng),
+        rates: standardNormal(rng)
+      }
+    : null;
   for (const [assetClass, assumption] of Object.entries(scenario.returnAssumptions ?? {})) {
     if (assetClass === "inflation") continue;
-    result[assetClass] = Math.max(-0.95, normalRandom(rng, assumption.mean ?? 0, assumption.stdev ?? 0));
+    const mean = assumption.mean ?? 0;
+    const stdev = assumption.stdev ?? 0;
+    const sampledReturn = correlated
+      ? mean + (stdev * correlatedStandardNormal(rng, assetClass, factorShocks))
+      : normalRandom(rng, mean, stdev);
+    result[assetClass] = Math.max(-0.95, sampledReturn);
   }
   return result;
+}
+
+function correlatedStandardNormal(rng, assetClass, factorShocks) {
+  const loadings = MONTE_CARLO_FACTOR_LOADINGS[assetClass];
+  if (!loadings) return standardNormal(rng);
+  const market = loadings.market ?? 0;
+  const rates = loadings.rates ?? 0;
+  const idiosyncraticWeight = Math.sqrt(Math.max(0, 1 - (market ** 2) - (rates ** 2)));
+  return (market * factorShocks.market)
+    + (rates * factorShocks.rates)
+    + (idiosyncraticWeight * standardNormal(rng));
+}
+
+function standardNormal(rng) {
+  return normalRandom(rng, 0, 1);
 }
 
 function summarizeAssetClassReturns(returnsByAssetClass = {}, inflationRate = null) {
@@ -3032,6 +3087,10 @@ function mergeScenario(scenario) {
   return {
     ...DEFAULT_SCENARIO,
     ...scenario,
+    monteCarlo: {
+      ...DEFAULT_SCENARIO.monteCarlo,
+      ...(scenario.monteCarlo ?? {})
+    },
     returnAssumptions: {
       ...DEFAULT_SCENARIO.returnAssumptions,
       ...(scenario.returnAssumptions ?? {})
@@ -3073,6 +3132,15 @@ function mergeScenario(scenario) {
     aca: mergeAcaScenario(scenario.aca),
     oneOffExpenses: scenario.oneOffExpenses ?? DEFAULT_SCENARIO.oneOffExpenses
   };
+}
+
+function cloneReturnAssumptions(assumptions = {}) {
+  return Object.fromEntries(
+    Object.entries(assumptions).map(([assetClass, assumption]) => [
+      assetClass,
+      { mean: assumption.mean, stdev: assumption.stdev }
+    ])
+  );
 }
 
 function mergeAcaScenario(aca) {

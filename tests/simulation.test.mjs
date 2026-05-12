@@ -2087,6 +2087,75 @@ test("Monte Carlo scenarios are deterministic with the same seed", () => {
   assert.equal(first.scenarios.length, 5);
 });
 
+test("Monte Carlo correlated sampling stays deterministic and changes the sampled path", () => {
+  const baseInput = {
+    assets: [
+      {
+        id: "stock",
+        accountType: "taxable",
+        assetClass: "stock",
+        holdingPeriod: "long",
+        units: 100,
+        price: 100,
+        costBasisPerUnit: 100
+      },
+      {
+        id: "bond",
+        accountType: "taxable",
+        assetClass: "bond",
+        holdingPeriod: "long",
+        units: 100,
+        price: 100,
+        costBasisPerUnit: 100
+      }
+    ],
+    scenario: {
+      planYears: 2,
+      targetSpend: 0,
+      targetSpendIncludesTaxes: true,
+      targetSpendIncludesMedical: true,
+      withdrawalOrder: ["taxable"],
+      returnAssumptions: {
+        stock: { mean: 0.05, stdev: 0.1 },
+        bond: { mean: 0.02, stdev: 0.04 },
+        inflation: { mean: 0.02, stdev: 0.01 }
+      },
+      aca: { enabled: false }
+    },
+    taxProfile: noTaxProfile,
+    runs: 2,
+    seed: 91
+  };
+
+  const correlated = runMonteCarlo({
+    ...baseInput,
+    scenario: {
+      ...baseInput.scenario,
+      monteCarlo: { samplingMode: "correlated" }
+    }
+  });
+  const correlatedAgain = runMonteCarlo({
+    ...baseInput,
+    scenario: {
+      ...baseInput.scenario,
+      monteCarlo: { samplingMode: "correlated" }
+    }
+  });
+  const independent = runMonteCarlo({
+    ...baseInput,
+    scenario: {
+      ...baseInput.scenario,
+      monteCarlo: { samplingMode: "independent" }
+    }
+  });
+
+  assert.deepEqual(correlated, correlatedAgain);
+  assert.notDeepEqual(
+    correlated.scenarios[0].years[0].assetClassReturns,
+    independent.scenarios[0].years[0].assetClassReturns
+  );
+});
+
 test("Monte Carlo depletion metadata includes failure year index and age", () => {
   const result = runMonteCarlo({
     assets: [{

@@ -137,6 +137,7 @@ const MODULES = [
   { id: "other-income",  label: "Other income",   desc: "Social Security, work, SE",               controls: 7,  required: false, enabledByDefault: false },
   { id: "strategy",      label: "Strategy toolkit", desc: "TLH, TGH, Roth conversions",            controls: 9,  required: false, enabledByDefault: true  },
   { id: "reserve",       label: "Cash reserve",   desc: "Bucket strategy",                          controls: 4,  required: false, enabledByDefault: false },
+  { id: "monte-carlo",   label: "Monte Carlo",    desc: "Return model and sampling",                controls: 16, required: false, enabledByDefault: true  },
   { id: "history",       label: "History test",   desc: "How would you have done?",                controls: 7,  required: false, enabledByDefault: false },
   { id: "what-ifs",      label: "What ifs",       desc: "Future expenses or income",                controls: 3,  required: false, enabledByDefault: true  },
   { id: "tax-overrides", label: "Tax overrides",  desc: "Power-user tax tweaks",                    controls: 12, required: false, enabledByDefault: false }

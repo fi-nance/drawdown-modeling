@@ -7,8 +7,8 @@
     <meta name="description" content="Tax-aware retirement decumulation forecasting with Monte Carlo simulation, historical backtesting, and Sankey cash flow visualization.">
     <link rel="icon" href="./favicon.svg?v=20260505-favicon" type="image/svg+xml">
     <meta name="theme-color" content="#07111f">
-    <link rel="stylesheet" href="./src/v2ui-styles.css?v=20260511-failureyearfix">
-    <link rel="stylesheet" href="./src/redesign.css?v=20260511-failureyearfix">
+    <link rel="stylesheet" href="./src/v2ui-styles.css?v=20260511-mcconfig">
+    <link rel="stylesheet" href="./src/redesign.css?v=20260511-mcconfig">
     <script src="https://accounts.google.com/gsi/client" async defer></script>
   </head>
   <body data-screen="persona" data-theme="dark">
@@ -484,6 +484,55 @@
               </div>
             </section>
 
+            <!-- ─── Module: Monte Carlo model ─── -->
+            <section class="module-card" data-module="monte-carlo">
+              <div class="module-header">
+                <div class="module-title">
+                  <span class="module-icon">🎲</span>
+                  <div>
+                    <h3>Monte Carlo model</h3>
+                    <span class="module-sub">Return assumptions and sampling</span>
+                  </div>
+                </div>
+                <div class="module-actions"><span class="controls-pill">16 controls</span></div>
+              </div>
+              <div class="module-body">
+                <div class="control-grid">
+                  <label>
+                    <span>Assumption preset</span>
+                    <select id="mcPreset">
+                      <option value="planning">Planning conservative</option>
+                      <option value="historical">Historical-fit</option>
+                      <option value="custom">Custom</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>Sampling mode</span>
+                    <select id="mcSamplingMode">
+                      <option value="independent">Independent annual draws</option>
+                      <option value="correlated">Correlated annual factors</option>
+                    </select>
+                  </label>
+                </div>
+                <div class="control-grid">
+                  <label><span>Stock mean %</span><input id="mcStockMean" type="number" min="-100" max="500" step="0.1" value="6.5"></label>
+                  <label><span>Stock volatility %</span><input id="mcStockStdev" type="number" min="0" max="500" step="0.1" value="18"></label>
+                  <label><span>Bond mean %</span><input id="mcBondMean" type="number" min="-100" max="500" step="0.1" value="2.8"></label>
+                  <label><span>Bond volatility %</span><input id="mcBondStdev" type="number" min="0" max="500" step="0.1" value="6"></label>
+                  <label><span>Cash mean %</span><input id="mcCashMean" type="number" min="-100" max="500" step="0.1" value="1.5"></label>
+                  <label><span>Cash volatility %</span><input id="mcCashStdev" type="number" min="0" max="500" step="0.1" value="1.5"></label>
+                  <label><span>Real estate mean %</span><input id="mcRealEstateMean" type="number" min="-100" max="500" step="0.1" value="5"></label>
+                  <label><span>Real estate volatility %</span><input id="mcRealEstateStdev" type="number" min="0" max="500" step="0.1" value="14"></label>
+                  <label><span>TIPS mean %</span><input id="mcTipsMean" type="number" min="-100" max="500" step="0.1" value="2.5"></label>
+                  <label><span>TIPS volatility %</span><input id="mcTipsStdev" type="number" min="0" max="500" step="0.1" value="7"></label>
+                  <label><span>Crypto mean %</span><input id="mcCryptoMean" type="number" min="-100" max="500" step="0.1" value="12"></label>
+                  <label><span>Crypto volatility %</span><input id="mcCryptoStdev" type="number" min="0" max="500" step="0.1" value="65"></label>
+                  <label><span>Inflation mean %</span><input id="mcInflationMean" type="number" min="-100" max="500" step="0.1" value="2.5"></label>
+                  <label><span>Inflation volatility %</span><input id="mcInflationStdev" type="number" min="0" max="500" step="0.1" value="1.2"></label>
+                </div>
+              </div>
+            </section>
+
             <!-- ─── Module: History test ─── -->
             <section class="module-card" data-module="history">
               <div class="module-header">
@@ -780,7 +829,7 @@
       <select id="viewMode"><option value="nominal">Today's $</option><option value="real">Real $</option></select>
     </div>
 
-    <script type="module" src="./src/v2ui-app.mjs?v=20260511-failureyearfix"></script>
-    <script type="module" src="./src/redesign.mjs?v=20260511-failureyearfix"></script>
+    <script type="module" src="./src/v2ui-app.mjs?v=20260511-mcconfig"></script>
+    <script type="module" src="./src/redesign.mjs?v=20260511-mcconfig"></script>
   </body>
 </html>

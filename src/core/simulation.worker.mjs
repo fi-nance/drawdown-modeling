@@ -7,7 +7,7 @@ import {
   runHistoricalBacktests,
   runMonteCarlo,
   simulatePlan
-} from "./simulation.mjs";
+} from "./simulation.mjs?v=20260511-mcconfig";
 
 self.addEventListener("message", (ev) => {
   const msg = ev.data;

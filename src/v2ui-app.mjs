@@ -8,7 +8,13 @@ import {
 import { portfolioValue } from "./core/portfolio.mjs";
 import { createSetupBackup, parseSetupBackup } from "./core/setupBackup.mjs";
 import { cacheLatestResults, restoreCachedLatest } from "./core/resultsCache.mjs";
-import { DEFAULT_SCENARIO, runHistoricalBacktests, runMonteCarlo, simulatePlan } from "./core/simulation.mjs";
+import {
+  DEFAULT_SCENARIO,
+  MONTE_CARLO_ASSUMPTION_PRESETS,
+  runHistoricalBacktests,
+  runMonteCarlo,
+  simulatePlan
+} from "./core/simulation.mjs?v=20260511-mcconfig";
 import { round } from "./core/utils.mjs";
 import { defaultOneOffExpenses, sampleAssets } from "./data/sample.mjs";
 import {
@@ -44,6 +50,15 @@ const percentFormatter = new Intl.NumberFormat("en-US", {
 const GOOGLE_IDENTITY_SCRIPT_URL = "https://accounts.google.com/gsi/client";
 const GOOGLE_SHEETS_READONLY_SCOPE = "https://www.googleapis.com/auth/spreadsheets.readonly";
 const FEDERAL_MARKETPLACE_UNSUPPORTED_STATES = new Set(["Massachusetts"]);
+const MONTE_CARLO_ASSUMPTION_FIELD_IDS = Object.freeze({
+  stock: Object.freeze({ mean: "mcStockMean", stdev: "mcStockStdev" }),
+  bond: Object.freeze({ mean: "mcBondMean", stdev: "mcBondStdev" }),
+  cash: Object.freeze({ mean: "mcCashMean", stdev: "mcCashStdev" }),
+  realEstate: Object.freeze({ mean: "mcRealEstateMean", stdev: "mcRealEstateStdev" }),
+  tips: Object.freeze({ mean: "mcTipsMean", stdev: "mcTipsStdev" }),
+  crypto: Object.freeze({ mean: "mcCryptoMean", stdev: "mcCryptoStdev" }),
+  inflation: Object.freeze({ mean: "mcInflationMean", stdev: "mcInflationStdev" })
+});
 
 const STORAGE_KEY = "portfolio-success-lab:v3";
 const CONTROL_IDS = [
@@ -51,6 +66,22 @@ const CONTROL_IDS = [
   "planYears",
   "runs",
   "seed",
+  "mcPreset",
+  "mcSamplingMode",
+  "mcStockMean",
+  "mcStockStdev",
+  "mcBondMean",
+  "mcBondStdev",
+  "mcCashMean",
+  "mcCashStdev",
+  "mcRealEstateMean",
+  "mcRealEstateStdev",
+  "mcTipsMean",
+  "mcTipsStdev",
+  "mcCryptoMean",
+  "mcCryptoStdev",
+  "mcInflationMean",
+  "mcInflationStdev",
   "targetSpend",
   "historicalDataSource",
   "backtestMode",
@@ -171,6 +202,8 @@ const els = {
   planYears: document.querySelector("#planYears"),
   runs: document.querySelector("#runs"),
   seed: document.querySelector("#seed"),
+  mcPreset: document.querySelector("#mcPreset"),
+  mcSamplingMode: document.querySelector("#mcSamplingMode"),
   targetSpend: document.querySelector("#targetSpend"),
   historicalDataSource: document.querySelector("#historicalDataSource"),
   backtestMode: document.querySelector("#backtestMode"),
@@ -397,6 +430,7 @@ function bindEvents() {
     input.addEventListener("change", saveStoredState);
     input.addEventListener("input", saveStoredState);
   });
+  bindMonteCarloControls();
   els.historicalDataSource?.addEventListener("change", resetHistoricalRangeControlsForCurrentSource);
   els.yearRange.addEventListener("input", () => {
     selectedYearIndex = Number(els.yearRange.value) - 1;
@@ -803,6 +837,65 @@ async function marketplaceResponseError(response, fallback) {
 
 function formatPlanInput(value) {
   return Number.isFinite(value) ? String(round(value, 2)) : "";
+}
+
+function bindMonteCarloControls() {
+  if (!els.mcPreset) return;
+
+  els.mcPreset.addEventListener("change", () => {
+    if (els.mcPreset.value === "planning" || els.mcPreset.value === "historical") {
+      applyMonteCarloPreset(els.mcPreset.value);
+      saveStoredState();
+    }
+  });
+
+  for (const fields of Object.values(MONTE_CARLO_ASSUMPTION_FIELD_IDS)) {
+    for (const id of [fields.mean, fields.stdev]) {
+      document.querySelector(`#${id}`)?.addEventListener("input", () => {
+        if (els.mcPreset.value !== "custom") {
+          els.mcPreset.value = "custom";
+          saveStoredState();
+        }
+      });
+    }
+  }
+}
+
+function applyMonteCarloPreset(presetId) {
+  const preset = MONTE_CARLO_ASSUMPTION_PRESETS[presetId];
+  if (!preset) return;
+  for (const [assetClass, fields] of Object.entries(MONTE_CARLO_ASSUMPTION_FIELD_IDS)) {
+    const assumption = preset[assetClass];
+    if (!assumption) continue;
+    setPercentInputValue(fields.mean, assumption.mean);
+    setPercentInputValue(fields.stdev, assumption.stdev);
+  }
+}
+
+function setPercentInputValue(id, decimalValue) {
+  const input = document.querySelector(`#${id}`);
+  if (!input || !Number.isFinite(decimalValue)) return;
+  input.value = String(round(decimalValue * 100, 2));
+}
+
+function readMonteCarloReturnAssumptions() {
+  return Object.fromEntries(
+    Object.entries(MONTE_CARLO_ASSUMPTION_FIELD_IDS).map(([assetClass, fields]) => {
+      const fallback = DEFAULT_SCENARIO.returnAssumptions[assetClass] ?? { mean: 0, stdev: 0 };
+      return [
+        assetClass,
+        {
+          mean: readPercentInput(fields.mean, fallback.mean),
+          stdev: Math.max(0, readPercentInput(fields.stdev, fallback.stdev))
+        }
+      ];
+    })
+  );
+}
+
+function readPercentInput(id, fallback) {
+  const value = Number(document.querySelector(`#${id}`)?.value);
+  return Number.isFinite(value) ? value / 100 : fallback;
 }
 
 function setActiveScreen(screen) {
@@ -2657,6 +2750,13 @@ function readScenario() {
       tentYears: Math.max(1, Number(els.sequenceReserveTentYears?.value) || 10),
       triggerStockReturn: 0
     },
+    monteCarlo: {
+      assumptionPreset: ["planning", "historical", "custom"].includes(els.mcPreset?.value)
+        ? els.mcPreset.value
+        : DEFAULT_SCENARIO.monteCarlo.assumptionPreset,
+      samplingMode: els.mcSamplingMode?.value === "correlated" ? "correlated" : "independent"
+    },
+    returnAssumptions: readMonteCarloReturnAssumptions(),
     oneOffExpenses,
     taxLossHarvesting: {
       enabled: els.taxLossHarvesting.checked,
