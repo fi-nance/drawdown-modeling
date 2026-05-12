@@ -196,6 +196,27 @@ test("compactLatestForCache strips per-scenario years but keeps lastYear thumbna
   assert.equal(compact.plan.years.length, 5);
 });
 
+test("compactLatestForCache preserves restored thumbnails and depletion metadata", () => {
+  const latest = makeLatest({ runs: 1, planYears: 5 });
+  const failureYear = latest.plan.years[2];
+  latest.monteCarlo.scenarios[0] = {
+    ...latest.monteCarlo.scenarios[0],
+    success: false,
+    depletionYear: failureYear.year,
+    depletionYearIndex: failureYear.yearIndex,
+    depletionAge: failureYear.age
+  };
+
+  const firstCompact = compactLatestForCache(latest);
+  const secondCompact = compactLatestForCache(firstCompact);
+  const scenario = secondCompact.monteCarlo.scenarios[0];
+
+  assert.deepEqual(scenario.lastYear, firstCompact.monteCarlo.scenarios[0].lastYear);
+  assert.equal(scenario.depletionYear, failureYear.year);
+  assert.equal(scenario.depletionYearIndex, failureYear.yearIndex);
+  assert.equal(scenario.depletionAge, failureYear.age);
+});
+
 test("cached blob shrinks dramatically after compaction (fits under sessionStorage quota)", () => {
   // The whole point: real MC blobs (250 runs × 35 years) exceed the ~5 MB
   // sessionStorage quota by ~17×. The compact form must come in well under.

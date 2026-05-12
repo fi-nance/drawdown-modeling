@@ -293,6 +293,11 @@ let googleSheetsAccessToken = null;
 let googleSheetsTokenExpiresAt = 0;
 let marketplacePlanChoices = [];
 let marketplaceSlcspMonthly = null;
+let simulationWorker = null;
+let simulationRequestId = 0;
+let activeSimulationRequestId = 0;
+let runModelsBusy = false;
+let pendingRerunRequested = false;
 
 const PINNED_YEAR_STORAGE_KEY = "portfolio-success-lab:pinned-year-columns";
 const PINNED_ASSET_STORAGE_KEY = "portfolio-success-lab:pinned-asset-columns";
@@ -360,7 +365,7 @@ function initialize() {
   const cached = restoreCachedLatest();
   if (cached) {
     latest = cached;
-    selectedScenarioId = latest.monteCarlo?.scenarios?.[0]?.id ?? null;
+    selectedScenarioId = firstResultWithYears(latest.monteCarlo?.scenarios)?.id ?? null;
     const planYears = latest.scenario?.planYears ?? 35;
     selectedYearIndex = Math.min(Math.max(0, selectedYearIndex), planYears - 1);
     if (els.yearRange) {
@@ -892,12 +897,6 @@ function downloadJsonText(text, filename) {
 // page stays responsive. We lazy-create one worker and reuse it; in-flight
 // requests are tagged with an id so a stale response from a superseded run
 // is ignored.
-let simulationWorker = null;
-let simulationRequestId = 0;
-let activeSimulationRequestId = 0;
-let runModelsBusy = false;
-let pendingRerunRequested = false;
-
 function getSimulationWorker() {
   if (!simulationWorker) {
     simulationWorker = new Worker(
@@ -1274,8 +1273,17 @@ function renderScenarioTable() {
     ["Run", "Success", "Ending", "Heirs", "Failure year"],
     rows,
     (index) => {
-      const id = latest.monteCarlo.scenarios[index].id;
-      return `data-scenario="${id}" class="${selectedBacktestIndex == null && id === selectedScenarioId ? "selected-row" : ""}"`;
+      const scenario = latest.monteCarlo.scenarios[index];
+      const id = scenario.id;
+      const selectable = hasYearTimeline(scenario);
+      const classes = [
+        selectedBacktestIndex == null && id === selectedScenarioId ? "selected-row" : "",
+        selectable ? "" : "disabled-row"
+      ].filter(Boolean).join(" ");
+      const attrs = selectable
+        ? `data-scenario="${id}"`
+        : `aria-disabled="true" title="Full path details are reloading"`;
+      return `${attrs} class="${classes}"`;
     }
   );
 
@@ -1326,7 +1334,18 @@ function renderBacktests() {
     ${tableHtml(
       ["Path", "Success", "Ending", "Heirs", "Failure year"],
       rows,
-      (index) => `data-backtest-index="${index}" class="${index === selectedBacktestIndex ? "selected-row" : ""}"`
+      (index) => {
+        const backtest = latest.backtests[index];
+        const selectable = hasYearTimeline(backtest);
+        const classes = [
+          index === selectedBacktestIndex ? "selected-row" : "",
+          selectable ? "" : "disabled-row"
+        ].filter(Boolean).join(" ");
+        const attrs = selectable
+          ? `data-backtest-index="${index}"`
+          : `aria-disabled="true" title="Full path details are reloading"`;
+        return `${attrs} class="${classes}"`;
+      }
     )}
   `;
 
@@ -1621,13 +1640,22 @@ function saleReasonText(sale) {
   return `${escapeHtml(sale.accountType)} account, ${escapeHtml(sale.taxType)} treatment.`;
 }
 
+function hasYearTimeline(result) {
+  return Array.isArray(result?.years) && result.years.length > 0;
+}
+
+function firstResultWithYears(results = []) {
+  return results.find(hasYearTimeline) ?? null;
+}
+
 function activeYears() {
   if (!latest) return [];
   if (selectedBacktestIndex != null) {
-    return latest.backtests[selectedBacktestIndex]?.years ?? latest.plan.years;
+    const backtest = latest.backtests[selectedBacktestIndex];
+    return hasYearTimeline(backtest) ? backtest.years : latest.plan.years;
   }
   const selectedScenario = latest.monteCarlo.scenarios.find((scenario) => scenario.id === selectedScenarioId);
-  return selectedScenario?.years ?? latest.plan.years;
+  return hasYearTimeline(selectedScenario) ? selectedScenario.years : latest.plan.years;
 }
 
 function activeVisibleYears() {
@@ -1970,10 +1998,10 @@ function drawTimeline() {
 function activePathLabel() {
   if (selectedBacktestIndex != null) {
     const backtest = latest.backtests[selectedBacktestIndex];
-    return backtest ? `Backtest ${backtest.id}` : "Historical backtest";
+    return hasYearTimeline(backtest) ? `Backtest ${backtest.id}` : "Baseline mean path";
   }
   const selectedScenario = latest.monteCarlo.scenarios.find((scenario) => scenario.id === selectedScenarioId);
-  return selectedScenario ? `Monte Carlo run ${selectedScenario.id}` : "Baseline mean path";
+  return hasYearTimeline(selectedScenario) ? `Monte Carlo run ${selectedScenario.id}` : "Baseline mean path";
 }
 
 function drawDistribution() {

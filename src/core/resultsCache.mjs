@@ -34,7 +34,9 @@ export function compactLatestForCache(value) {
     endingValue: s.endingValue,
     heirValue: s.heirValue,
     depletionYear: s.depletionYear ?? null,
-    lastYear: lastYearThumbnail(s.years?.at?.(-1))
+    depletionYearIndex: s.depletionYearIndex ?? null,
+    depletionAge: s.depletionAge ?? null,
+    lastYear: lastYearThumbnail(s.years?.at?.(-1)) ?? s.lastYear ?? null
   });
   const compactBacktest = (b) => ({
     id: b.id,
@@ -42,11 +44,13 @@ export function compactLatestForCache(value) {
     endingValue: b.endingValue,
     heirValue: b.heirValue,
     depletionYear: b.depletionYear ?? null,
+    depletionYearIndex: b.depletionYearIndex ?? null,
+    depletionAge: b.depletionAge ?? null,
     sourceYears: b.sourceYears,
     sourceStartYear: b.sourceStartYear,
     sourceEndYear: b.sourceEndYear,
     paddedYears: b.paddedYears,
-    lastYear: lastYearThumbnail(b.years?.at?.(-1))
+    lastYear: lastYearThumbnail(b.years?.at?.(-1)) ?? b.lastYear ?? null
   });
   return {
     ...value,

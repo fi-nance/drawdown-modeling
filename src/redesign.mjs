@@ -144,6 +144,18 @@ const MODULES = [
 
 const TIER_THRESHOLDS = { warn: 0.85, risk: 0.7 };
 
+// Cache-friendly Monte Carlo run cap. Above this, the compact cache may still
+// fit, but we'd rather warn proactively than have refresh-from-cache silently
+// fall through to recompute.
+const RUNS_CACHE_THRESHOLD = 1000;
+
+// Outcome of the most recent v2ui-app cacheLatestResults() call. null until
+// the first run completes; true on success, false if sessionStorage rejected
+// the compact blob. Drives the post-run warning state on #runsHint and the
+// "not cached for refresh" suffix in the results topbar.
+let lastCacheOk = null;
+let pendingRunAdvance = false;
+
 // ─── State ─────────────────────────────────────────────────────────
 
 const state = {
@@ -1007,17 +1019,6 @@ function syncMixSelectedHighlight(yearIndex) {
   });
 }
 
-// Cache-friendly Monte Carlo run cap. Above this, the compact cache may still
-// fit, but we'd rather warn proactively than have refresh-from-cache silently
-// fall through to recompute.
-const RUNS_CACHE_THRESHOLD = 1000;
-
-// Outcome of the most recent v2ui-app cacheLatestResults() call. null until
-// the first run completes; true on success, false if sessionStorage rejected
-// the compact blob. Drives the post-run warning state on #runsHint and the
-// "not cached for refresh" suffix in the results topbar.
-let lastCacheOk = null;
-
 function bindRunsHint() {
   const input = document.getElementById("runs");
   const hint = document.getElementById("runsHint");
@@ -1149,8 +1150,6 @@ function runOnce() {
 }
 
 // ─── Run-completion observation ────────────────────────────────────
-
-let pendingRunAdvance = false;
 
 function flagPendingRun() {
   pendingRunAdvance = true;

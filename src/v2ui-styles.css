@@ -788,6 +788,11 @@ tbody tr:hover {
   background: rgba(52, 209, 182, 0.06) !important;
 }
 
+.disabled-row {
+  cursor: wait;
+  opacity: 0.62;
+}
+
 tr[data-year-index],
 tr[data-backtest-index],
 tr[data-scenario] {
