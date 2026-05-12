@@ -2125,7 +2125,7 @@ test("Monte Carlo depletion metadata includes failure year index and age", () =>
   assert.equal(scenario.depletionAge, 61);
 });
 
-test("cash shortfalls do not mark a path failed while portfolio value remains positive", () => {
+test("cash top-up sells non-preferred accounts before leaving a year unfunded", () => {
   const input = {
     assets: [
       {
@@ -2161,6 +2161,7 @@ test("cash shortfalls do not mark a path failed while portfolio value remains po
         bond: { mean: 0, stdev: 0 },
         inflation: { mean: 0, stdev: 0 }
       },
+      rothConversion: { enabled: false },
       aca: { enabled: false }
     },
     taxProfile: noTaxProfile
@@ -2171,13 +2172,54 @@ test("cash shortfalls do not mark a path failed while portfolio value remains po
     returnSequence: [{ cash: 0, bond: 0 }, { cash: 0, bond: 0 }],
     inflationSequence: [0, 0]
   });
-  assert.equal(plan.years[0].unfunded, 100);
-  assert.equal(plan.endingValue, 1000);
+  assert.equal(plan.years[0].unfunded, 0);
+  assert.equal(plan.years[0].cashAvailable, plan.years[0].totalCashRequired);
+  assert.ok(plan.years[0].sales.some((sale) => sale.accountType === "traditional"));
+  assert.equal(plan.endingValue, 700);
   assert.equal(plan.success, true);
 
   const monteCarlo = runMonteCarlo({ ...input, runs: 1, seed: 1 });
   assert.equal(monteCarlo.scenarios[0].success, true);
   assert.equal(monteCarlo.scenarios[0].depletionYear, null);
+});
+
+test("cash top-up pays early withdrawal penalties rather than leaving spend unfunded", () => {
+  const plan = simulatePlan({
+    assets: [{
+      id: "traditional-bond",
+      accountType: "traditional",
+      assetClass: "bond",
+      holdingPeriod: "long",
+      units: 200,
+      price: 1,
+      costBasisPerUnit: 1
+    }],
+    scenario: {
+      planYears: 1,
+      startYear: 2030,
+      currentAge: 40,
+      targetSpend: 100,
+      targetSpendInflationAdjusted: false,
+      targetSpendIncludesTaxes: false,
+      targetSpendIncludesMedical: true,
+      withdrawalOrder: ["taxable"],
+      returnAssumptions: {
+        bond: { mean: 0, stdev: 0 },
+        inflation: { mean: 0, stdev: 0 }
+      },
+      rothConversion: { enabled: false },
+      aca: { enabled: false }
+    },
+    taxProfile: noTaxProfile,
+    returnSequence: [{ bond: 0 }],
+    inflationSequence: [0]
+  });
+
+  assert.equal(plan.years[0].unfunded, 0);
+  assert.ok(plan.years[0].penaltyTax > 0);
+  assert.ok(plan.years[0].cashAvailable >= plan.years[0].totalCashRequired - 0.01);
+  assert.ok(plan.years[0].sales.some((sale) => sale.accountType === "traditional"));
+  assert.equal(plan.success, true);
 });
 
 test("Roth conversion with earnings withdrawn inside five years is penalized and earnings are taxable", () => {

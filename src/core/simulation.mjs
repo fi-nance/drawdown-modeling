@@ -20,6 +20,10 @@ import {
 import { getMedicareIrmaaConfig } from "../data/taxData.mjs";
 import { createRng, normalRandom, percentile, round } from "./utils.mjs";
 
+const CASH_GAP_TOLERANCE = 0.01;
+const CASH_RAISED_EPSILON = 0.000001;
+const FULL_WITHDRAWAL_ORDER = ["taxable", "traditional", "hsa", "roth"];
+
 export const DEFAULT_SCENARIO = {
   planYears: 35,
   startYear: 2026,
@@ -824,7 +828,8 @@ function simulateYear({
   removeEmptyLots(portfolio);
   const endingAssets = assetSnapshot(portfolio);
 
-  const unfunded = Math.max(0, totalCashRequired - cashAvailable);
+  const cashShortfall = Math.max(0, totalCashRequired - cashAvailable);
+  const unfunded = cashShortfall <= CASH_GAP_TOLERANCE ? 0 : cashShortfall;
 
   return {
     year: calendarYear,
@@ -945,7 +950,7 @@ function reconcileCashRequirement({
       + (scenario.targetSpendIncludesTaxes ? 0 : currentTaxes.totalTax);
     const cashAvailable = dividends.cash + incomeCashAvailable + socialSecurityBenefits + currentWithdrawal.cashRaised;
     const gap = totalCashRequired - cashAvailable;
-    if (gap <= 1) break;
+    if (gap <= CASH_GAP_TOLERANCE) break;
 
     const chosenTopUp = chooseWithdrawalPlan({
       portfolio,
@@ -986,7 +991,7 @@ function reconcileCashRequirement({
         magiHistory
       }
     });
-    if (chosenTopUp.withdrawal.cashRaised <= currentWithdrawal.cashRaised + 0.000001) break;
+    if (chosenTopUp.withdrawal.cashRaised <= currentWithdrawal.cashRaised + CASH_RAISED_EPSILON) break;
 
     portfolio.splice(0, portfolio.length, ...chosenTopUp.portfolio);
     currentWithdrawal = chosenTopUp.withdrawal;
@@ -996,6 +1001,64 @@ function reconcileCashRequirement({
     currentMedicalEstimate = scenario.targetSpendIncludesMedical ? 0 : chosenTopUp.medicalTotal;
     currentMedicare = chosenTopUp.medicare;
     currentRothBasisOptimization = chosenTopUp.rothBasisOptimization;
+  }
+
+  for (let iteration = 0; iteration < 20; iteration += 1) {
+    const totalCashRequired = plannedSpending
+      + (scenario.targetSpendIncludesMedical ? 0 : currentMedicalEstimate)
+      + (scenario.targetSpendIncludesTaxes ? 0 : currentTaxes.totalTax);
+    const cashAvailable = dividends.cash + incomeCashAvailable + socialSecurityBenefits + currentWithdrawal.cashRaised;
+    const gap = totalCashRequired - cashAvailable;
+    if (gap <= CASH_GAP_TOLERANCE) break;
+
+    const forcedTopUp = evaluateWithdrawalPlan({
+      portfolio,
+      amount: gap,
+      baseWithdrawal: currentWithdrawal,
+      withdrawalOrder: forcedWithdrawalOrder(scenario.withdrawalOrder),
+      withdrawalContext: {
+        age,
+        calendarYear,
+        penaltyAge: scenario.retirementPenaltyAge ?? 59.5,
+        penaltyRate: scenario.earlyWithdrawalPenaltyRate ?? 0.1,
+        rothBasisRemaining: currentWithdrawal.rothBasisRemaining,
+        rothFiveYearRuleSatisfied: scenario.rothFiveYearRuleSatisfied !== false,
+        penaltyExceptionRemaining: currentWithdrawal.penaltyExceptionRemaining,
+        returnAssumptions: scenario.returnAssumptions,
+        optimizedLotSelection: false,
+        maxRothProceeds: Infinity
+      },
+      evaluationContext: {
+        scenario,
+        yearTaxProfile,
+        yearAcaConfig,
+        inflationIndex,
+        ordinaryIncome,
+        earnedIncome,
+        retirementOrdinaryIncome,
+        ordinaryInvestmentIncome: dividends.ordinaryDividends,
+        qualifiedDividends,
+        strategyLongTermGains,
+        strategyCapitalLosses,
+        strategyShortTermLosses,
+        strategyLongTermLosses,
+        lossCarryforward,
+        socialSecurityBenefits,
+        age,
+        spouseAge,
+        yearIndex,
+        magiHistory
+      }
+    });
+    if (forcedTopUp.withdrawal.cashRaised <= currentWithdrawal.cashRaised + CASH_RAISED_EPSILON) break;
+
+    portfolio.splice(0, portfolio.length, ...forcedTopUp.portfolio);
+    currentWithdrawal = forcedTopUp.withdrawal;
+    currentTaxableSocialSecurity = forcedTopUp.taxableSocialSecurity;
+    currentTaxes = forcedTopUp.taxes;
+    currentAca = forcedTopUp.aca;
+    currentMedicalEstimate = scenario.targetSpendIncludesMedical ? 0 : forcedTopUp.medicalTotal;
+    currentMedicare = forcedTopUp.medicare;
   }
 
   return {
@@ -1554,6 +1617,14 @@ function earlyWithdrawalPenaltyExceptionAmountForYear(scenario) {
 
 function normalizedWithdrawalOrder(withdrawalOrder = []) {
   return [...new Set((withdrawalOrder ?? []).filter(Boolean))];
+}
+
+function forcedWithdrawalOrder(withdrawalOrder = []) {
+  const preferred = normalizedWithdrawalOrder(withdrawalOrder);
+  return [
+    ...preferred,
+    ...FULL_WITHDRAWAL_ORDER.filter((accountType) => !preferred.includes(accountType))
+  ];
 }
 
 function rothPreservingWithdrawalOrder(withdrawalOrder) {
