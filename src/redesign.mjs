@@ -214,6 +214,19 @@ function hydrateState() {
   const queryScreen = url.searchParams.get("screen");
   if (queryScreen && SCREENS.includes(queryScreen)) state.screen = queryScreen;
 
+  // If we'd land on results but no workspace data has been entered yet, bounce
+  // back to step 1 — otherwise the user would see results computed from the
+  // sample-data fallback, which looks broken (it isn't theirs). Also strip the
+  // ?screen=results param so a subsequent reload doesn't redirect again.
+  if (state.screen === "results" && !hasStoredWorkspaceData()) {
+    state.screen = "persona";
+    writeStorage(STORAGE_SCREEN, "persona");
+    if (queryScreen) {
+      url.searchParams.delete("screen");
+      window.history.replaceState(null, "", url.toString());
+    }
+  }
+
   state.theme = readStorage(STORAGE_THEME, "dark");
   state.persona = readStorage(STORAGE_PERSONA, null);
   state.outcome = readStorage(STORAGE_OUTCOME, null);
@@ -1090,6 +1103,21 @@ function readJsonStorage(key, fallback) {
 }
 function writeJsonStorage(key, value) {
   try { localStorage.setItem(key, JSON.stringify(value)); } catch {}
+}
+
+// True if the user has ever saved workspace state (assets, inputs, etc.).
+// v2ui-app writes this snapshot on any meaningful interaction, so its absence
+// means the user hasn't engaged with the app yet and would otherwise see
+// results computed from the sample-data fallback.
+function hasStoredWorkspaceData() {
+  try {
+    const raw = localStorage.getItem("portfolio-success-lab:v3");
+    if (!raw) return false;
+    const stored = JSON.parse(raw);
+    return !!(stored && Array.isArray(stored.assets) && stored.assets.length > 0);
+  } catch {
+    return false;
+  }
 }
 
 function planYears(latest) {
