@@ -1242,7 +1242,7 @@ function hasStoredWorkspaceData() {
 // even if the setup-state localStorage key happens to be missing.
 function hasCachedResults() {
   try {
-    return !!sessionStorage.getItem("portfolio-success-lab:results-cache:v1");
+    return !!sessionStorage.getItem("portfolio-success-lab:results-cache:v2");
   } catch {
     return false;
   }
@@ -1263,7 +1263,7 @@ function describeStorageState() {
   } catch { /* ignore */ }
   let cacheBytes = 0;
   try {
-    cacheBytes = sessionStorage.getItem("portfolio-success-lab:results-cache:v1")?.length ?? 0;
+    cacheBytes = sessionStorage.getItem("portfolio-success-lab:results-cache:v2")?.length ?? 0;
   } catch { /* ignore */ }
   return {
     hasSetupState: setupBytes > 0 && setupAssets > 0,

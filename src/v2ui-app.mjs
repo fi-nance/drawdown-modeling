@@ -1325,7 +1325,7 @@ function renderBacktests() {
       backtest.success ? `<span class="positive">Yes</span>` : `<span class="negative">No</span>`,
       money(backtest.endingValue, finalYear),
       money(backtest.heirValue, finalYear),
-      backtest.depletionYear ?? (backtest.years ? firstFailureYear(backtest.years) : null) ?? ""
+      (backtest.years ? firstFailureYear(backtest.years) : backtest.depletionYear) ?? ""
     ];
   });
 
@@ -1692,13 +1692,20 @@ function failureSummary(result) {
 }
 
 function depletionDetailsForResult(result) {
-  const matchingYear = result.years?.find((year) => year.year === result.depletionYear)
-    ?? result.years?.find(isFailureYear);
-  if (!result.depletionYear && !matchingYear) return null;
+  if (Array.isArray(result.years)) {
+    const matchingYear = result.years.find(isFailureYear);
+    if (!matchingYear) return null;
+    return {
+      year: matchingYear.year,
+      yearIndex: matchingYear.yearIndex,
+      age: matchingYear.age
+    };
+  }
+  if (!result.depletionYear) return null;
   return {
-    year: result.depletionYear ?? matchingYear?.year,
-    yearIndex: result.depletionYearIndex ?? matchingYear?.yearIndex,
-    age: result.depletionAge ?? matchingYear?.age
+    year: result.depletionYear,
+    yearIndex: result.depletionYearIndex,
+    age: result.depletionAge
   };
 }
 

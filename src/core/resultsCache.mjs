@@ -10,7 +10,7 @@
    inflation-adjusted formatting still works. When the background re-run
    finishes, the full data overwrites this compact snapshot. */
 
-export const RESULTS_CACHE_KEY = "portfolio-success-lab:results-cache:v1";
+export const RESULTS_CACHE_KEY = "portfolio-success-lab:results-cache:v2";
 
 // Used by tests; defaults to globalThis.sessionStorage in the browser.
 function defaultStorage() {
