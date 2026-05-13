@@ -135,7 +135,7 @@ const MODULES = [
   { id: "healthcare",    label: "Healthcare",     desc: "Insurance until Medicare",               controls: 14, required: false, enabledByDefault: true  },
   { id: "medicare",      label: "Medicare/IRMAA", desc: "Premiums after 65",                       controls: 8,  required: false, enabledByDefault: false },
   { id: "other-income",  label: "Other income",   desc: "Social Security, work, SE",               controls: 7,  required: false, enabledByDefault: false },
-  { id: "strategy",      label: "Strategy toolkit", desc: "TLH, TGH, Roth conversions",            controls: 9,  required: false, enabledByDefault: true  },
+  { id: "strategy",      label: "Strategy toolkit", desc: "Taxes, allocations, withdrawal rules",   controls: 17, required: false, enabledByDefault: true  },
   { id: "reserve",       label: "Cash reserve",   desc: "Bucket strategy",                          controls: 4,  required: false, enabledByDefault: false },
   { id: "monte-carlo",   label: "Monte Carlo",    desc: "Return model and sampling",                controls: 16, required: false, enabledByDefault: true  },
   { id: "history",       label: "History test",   desc: "How would you have done?",                controls: 7,  required: false, enabledByDefault: false },
@@ -978,8 +978,9 @@ function renderActionList() {
   if (rothW > 0) items.push({ kind: "withdraw", title: "Sell from Roth", sub: "Tax-free draws", amt: rothW });
   if (year.rothConversionAmount > 0) items.push({ kind: "convert", title: "Convert Trad → Roth", sub: `In ${(Number(document.getElementById("rothTargetRate")?.value) || 12)}% bracket target`, amt: year.rothConversionAmount });
   if (year.aca?.subsidy > 0) items.push({ kind: "aca", title: "Cap MAGI for PTC", sub: `+${formatCurrencyShort(year.aca.subsidy)} PTC`, amt: year.magi });
-  if (year.taxGainHarvested > 0) items.push({ kind: "harvest", title: "Realize gains", sub: "0% LTCG room", amt: year.taxGainHarvested });
+  if (year.taxGainHarvested > 0) items.push({ kind: "harvest", title: "Realize gains", sub: "Use favorable gain room", amt: year.taxGainHarvested });
   if (year.realizedCapitalLosses > 0) items.push({ kind: "harvest", title: "Tax-loss harvest", sub: "$3k ordinary offset + carryforward", amt: year.realizedCapitalLosses });
+  if ((year.allocationStrategy?.rebalancedAmount ?? 0) > 0) items.push({ kind: "rebalance", title: "Rebalance allocation", sub: `Target ${Math.round(year.allocationStrategy.targetStockPercent ?? 70)}% stock sleeve`, amt: year.allocationStrategy.rebalancedAmount });
   if ((year.rmdAmount ?? 0) > 0) items.push({ kind: "rmd", title: "Take RMD", sub: "IRS-mandated distribution", amt: year.rmdAmount });
 
   root.innerHTML = items.length ? items.map(it => `

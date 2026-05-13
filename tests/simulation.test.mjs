@@ -1213,6 +1213,258 @@ test("lifetime optimizer can harvest gains beyond the zero percent bracket", () 
   assert.equal(optimized.years[0].taxes.federalPreferentialTax, 1500);
 });
 
+test("lifetime optimizer gain harvesting crosses cheap ACA bands when future tax savings exceed clawback", () => {
+  const plan = simulatePlan({
+    assets: [{
+      id: "taxable-gain",
+      accountType: "taxable",
+      assetClass: "stock",
+      holdingPeriod: "long",
+      units: 500,
+      price: 200,
+      costBasisPerUnit: 100
+    }],
+    scenario: {
+      planYears: 1,
+      targetSpend: 0,
+      targetSpendIncludesTaxes: true,
+      targetSpendIncludesMedical: true,
+      withdrawalOrder: ["taxable"],
+      withdrawalStrategy: { mode: "lifetime" },
+      taxGainHarvesting: { enabled: true, mode: "auto" },
+      taxLossHarvesting: { enabled: false },
+      rothConversion: { enabled: false },
+      returnAssumptions: { stock: { mean: 0, stdev: 0 } },
+      aca: {
+        enabled: true,
+        fpl: 20000,
+        benchmarkPremium: 18000,
+        applicablePercentageTable: [
+          { minFplPercent: 0, maxFplPercent: 133, initialRate: 0.02, finalRate: 0.02 },
+          { minFplPercent: 133, maxFplPercent: 150, initialRate: 0.04, finalRate: 0.04 },
+          { minFplPercent: 150, maxFplPercent: 200, initialRate: 0.05, finalRate: 0.05 },
+          { minFplPercent: 200, maxFplPercent: 400, initialRate: 0.09, finalRate: 0.09 }
+        ],
+        maxEligibleFplPercent: 400
+      }
+    },
+    taxProfile: {
+      ...noTaxProfile,
+      capitalGainsBrackets: [
+        { upTo: 0, rate: 0 },
+        { upTo: 100000, rate: 0.15 },
+        { upTo: Infinity, rate: 0.2 }
+      ],
+      niit: {
+        rate: 0.038,
+        thresholds: { marriedFilingJointly: 250000 }
+      }
+    },
+    returnSequence: [{ stock: 0 }],
+    inflationSequence: [0]
+  });
+
+  assert.equal(plan.years[0].taxGainHarvested, 40000);
+  assert.equal(plan.years[0].aca.fplPercent, 200);
+});
+
+test("lifetime optimizer bunches gains in years where ACA eligibility is already lost", () => {
+  const plan = simulatePlan({
+    assets: [{
+      id: "taxable-gain",
+      accountType: "taxable",
+      assetClass: "stock",
+      holdingPeriod: "long",
+      units: 500,
+      price: 200,
+      costBasisPerUnit: 100
+    }],
+    scenario: {
+      planYears: 1,
+      targetSpend: 0,
+      targetSpendIncludesTaxes: true,
+      targetSpendIncludesMedical: true,
+      medicareWages: 90000,
+      earnedIncomeInflationAdjusted: false,
+      withdrawalOrder: ["taxable"],
+      withdrawalStrategy: { mode: "lifetime" },
+      taxGainHarvesting: { enabled: true, mode: "auto" },
+      taxLossHarvesting: { enabled: false },
+      rothConversion: { enabled: false },
+      returnAssumptions: { stock: { mean: 0, stdev: 0 } },
+      aca: {
+        enabled: true,
+        fpl: 20000,
+        benchmarkPremium: 18000,
+        applicablePercentageTable: [
+          { minFplPercent: 0, maxFplPercent: 400, initialRate: 0.05, finalRate: 0.05 }
+        ],
+        maxEligibleFplPercent: 400
+      }
+    },
+    taxProfile: {
+      ...noTaxProfile,
+      capitalGainsBrackets: [
+        { upTo: 0, rate: 0 },
+        { upTo: 100000, rate: 0.15 },
+        { upTo: Infinity, rate: 0.2 }
+      ],
+      niit: {
+        rate: 0.038,
+        thresholds: { marriedFilingJointly: 250000 }
+      }
+    },
+    returnSequence: [{ stock: 0 }],
+    inflationSequence: [0]
+  });
+
+  assert.equal(plan.years[0].aca.eligible, false);
+  assert.equal(plan.years[0].taxGainHarvested, 10000);
+});
+
+test("lifetime optimizer avoids pushing extra harvested gains into NIIT", () => {
+  const plan = simulatePlan({
+    assets: [{
+      id: "taxable-gain",
+      accountType: "taxable",
+      assetClass: "stock",
+      holdingPeriod: "long",
+      units: 500,
+      price: 200,
+      costBasisPerUnit: 100
+    }],
+    scenario: {
+      planYears: 1,
+      targetSpend: 0,
+      targetSpendIncludesTaxes: true,
+      targetSpendIncludesMedical: true,
+      medicareWages: 245000,
+      earnedIncomeInflationAdjusted: false,
+      withdrawalOrder: ["taxable"],
+      withdrawalStrategy: { mode: "lifetime" },
+      taxGainHarvesting: { enabled: true, mode: "auto" },
+      taxLossHarvesting: { enabled: false },
+      rothConversion: { enabled: false },
+      returnAssumptions: { stock: { mean: 0, stdev: 0 } },
+      aca: {
+        enabled: true,
+        fpl: 20000,
+        benchmarkPremium: 18000,
+        applicablePercentageTable: [
+          { minFplPercent: 0, maxFplPercent: 400, initialRate: 0.05, finalRate: 0.05 }
+        ],
+        maxEligibleFplPercent: 400
+      }
+    },
+    taxProfile: {
+      ...noTaxProfile,
+      capitalGainsBrackets: [
+        { upTo: 0, rate: 0 },
+        { upTo: 400000, rate: 0.15 },
+        { upTo: Infinity, rate: 0.2 }
+      ],
+      niit: {
+        rate: 0.038,
+        thresholds: { marriedFilingJointly: 250000 }
+      }
+    },
+    returnSequence: [{ stock: 0 }],
+    inflationSequence: [0]
+  });
+
+  assert.equal(plan.years[0].taxGainHarvested, 5000);
+  assert.equal(plan.years[0].magi, 250000);
+});
+
+test("ACA-lost-year gain harvesting can improve next-year subsidy and ending value", () => {
+  const input = {
+    assets: [{
+      id: "taxable-gain",
+      accountType: "taxable",
+      assetClass: "stock",
+      holdingPeriod: "long",
+      units: 500,
+      price: 200,
+      costBasisPerUnit: 100
+    }],
+    scenario: {
+      planYears: 2,
+      targetSpend: 90000,
+      targetSpendIncludesTaxes: false,
+      targetSpendIncludesMedical: false,
+      medicalExpensesBase: 0,
+      expectedOopMaxUsePercent: 0,
+      withdrawalOrder: ["taxable"],
+      withdrawalStrategy: { mode: "lifetime" },
+      taxLossHarvesting: { enabled: false },
+      rothConversion: { enabled: false },
+      returnAssumptions: { stock: { mean: 0, stdev: 0 } },
+      aca: {
+        enabled: true,
+        fpl: 20000,
+        benchmarkPremium: 18000,
+        selectedPlanPremium: 18000,
+        oopMaximum: 0,
+        applicablePercentageTable: [
+          { minFplPercent: 0, maxFplPercent: 400, initialRate: 0.05, finalRate: 0.05 }
+        ],
+        maxEligibleFplPercent: 400,
+        minEligibleFplPercent: 0
+      },
+      oneOffExpenses: [
+        {
+          name: "Year 1 ordinary income",
+          cashFlowType: "taxableOrdinaryIncome",
+          startYear: 1,
+          endYear: 1,
+          amount: 90000,
+          inflationAdjusted: false
+        },
+        {
+          name: "Year 2 ordinary income",
+          cashFlowType: "taxableOrdinaryIncome",
+          startYear: 2,
+          endYear: 2,
+          amount: 25000,
+          inflationAdjusted: false
+        }
+      ]
+    },
+    taxProfile: {
+      ...noTaxProfile,
+      capitalGainsBrackets: [
+        { upTo: 0, rate: 0 },
+        { upTo: 200000, rate: 0.15 },
+        { upTo: Infinity, rate: 0.2 }
+      ],
+      niit: {
+        rate: 0.038,
+        thresholds: { marriedFilingJointly: 250000 }
+      }
+    },
+    returnSequence: [{ stock: 0 }, { stock: 0 }],
+    inflationSequence: [0, 0]
+  };
+  const withoutHarvesting = simulatePlan({
+    ...input,
+    scenario: {
+      ...input.scenario,
+      taxGainHarvesting: { enabled: false }
+    }
+  });
+  const withHarvesting = simulatePlan({
+    ...input,
+    scenario: {
+      ...input.scenario,
+      taxGainHarvesting: { enabled: true, mode: "auto" }
+    }
+  });
+
+  assert.ok(withHarvesting.years[0].taxGainHarvested > 0);
+  assert.ok(withHarvesting.years[1].aca.subsidy > withoutHarvesting.years[1].aca.subsidy);
+  assert.ok(withHarvesting.endingValue > withoutHarvesting.endingValue);
+});
+
 test("lifetime optimizer Roth conversion pressure uses default RMD age", () => {
   const plan = simulatePlan({
     assets: [{
@@ -1358,6 +1610,160 @@ test("sequence-risk cash reserve is spent first in negative early years", () => 
 
   assert.equal(plan.years[0].sequenceRiskReserve.spendReserveFirst, true);
   assert.equal(plan.years[0].sales[0].assetId, "reserve-cash");
+});
+
+test("tax-aware annual rebalancing uses sheltered stock before taxable gains", () => {
+  const plan = simulatePlan({
+    assets: [{
+      id: "traditional-stock",
+      accountType: "traditional",
+      assetClass: "stock",
+      holdingPeriod: "long",
+      units: 50,
+      price: 1,
+      costBasisPerUnit: 1
+    }, {
+      id: "taxable-stock",
+      accountType: "taxable",
+      assetClass: "stock",
+      holdingPeriod: "long",
+      units: 25,
+      price: 2,
+      costBasisPerUnit: 1
+    }],
+    scenario: {
+      planYears: 1,
+      targetSpend: 0,
+      targetSpendIncludesTaxes: true,
+      targetSpendIncludesMedical: true,
+      withdrawalOrder: ["taxable", "traditional"],
+      allocationStrategy: {
+        rebalanceEnabled: true,
+        targetStockPercent: 50,
+        rebalanceBandPercent: 0
+      },
+      taxGainHarvesting: { enabled: false },
+      taxLossHarvesting: { enabled: false },
+      rothConversion: { enabled: false },
+      returnAssumptions: { stock: { mean: 0, stdev: 0 } },
+      aca: { enabled: false }
+    },
+    taxProfile: noTaxProfile,
+    returnSequence: [{ stock: 0 }],
+    inflationSequence: [0]
+  });
+
+  assert.equal(plan.years[0].allocationStrategy.rebalancedAmount, 50);
+  assert.equal(plan.years[0].allocationStrategy.sales[0].assetId, "traditional-stock");
+  assert.equal(plan.years[0].realizedLongTermGains, 0);
+  assert.equal(plan.years[0].allocationStrategy.stockShareAfterPercent, 50);
+});
+
+test("allocation-aware withdrawals sell overweight stock before cash", () => {
+  const input = {
+    assets: [{
+      id: "overweight-stock",
+      accountType: "taxable",
+      assetClass: "stock",
+      holdingPeriod: "long",
+      units: 90,
+      price: 1,
+      costBasisPerUnit: 1
+    }, {
+      id: "cash-buffer",
+      accountType: "taxable",
+      assetClass: "cash",
+      holdingPeriod: "long",
+      units: 10,
+      price: 1,
+      costBasisPerUnit: 1
+    }],
+    scenario: {
+      planYears: 1,
+      targetSpend: 20,
+      targetSpendIncludesTaxes: true,
+      targetSpendIncludesMedical: true,
+      withdrawalOrder: ["taxable"],
+      withdrawalStrategy: { mode: "lifetime" },
+      taxGainHarvesting: { enabled: false },
+      taxLossHarvesting: { enabled: false },
+      rothConversion: { enabled: false },
+      returnAssumptions: {
+        cash: { mean: 0, stdev: 0 },
+        stock: { mean: 0.08, stdev: 0 }
+      },
+      aca: { enabled: false }
+    },
+    taxProfile: noTaxProfile,
+    returnSequence: [{ cash: 0, stock: 0 }],
+    inflationSequence: [0]
+  };
+  const ordinary = simulatePlan(input);
+  const allocationAware = simulatePlan({
+    ...input,
+    scenario: {
+      ...input.scenario,
+      allocationStrategy: {
+        withdrawalBiasEnabled: true,
+        targetStockPercent: 70,
+        rebalanceBandPercent: 0
+      }
+    }
+  });
+
+  assert.equal(ordinary.years[0].sales[0].assetId, "cash-buffer");
+  assert.equal(allocationAware.years[0].sales[0].assetId, "overweight-stock");
+});
+
+test("equity glidepath moves the stock target and rebalances toward it", () => {
+  const plan = simulatePlan({
+    assets: [{
+      id: "stock",
+      accountType: "taxable",
+      assetClass: "stock",
+      holdingPeriod: "long",
+      units: 60,
+      price: 1,
+      costBasisPerUnit: 1
+    }, {
+      id: "bond",
+      accountType: "taxable",
+      assetClass: "bond",
+      holdingPeriod: "long",
+      units: 40,
+      price: 1,
+      costBasisPerUnit: 1
+    }],
+    scenario: {
+      planYears: 3,
+      targetSpend: 0,
+      targetSpendIncludesTaxes: true,
+      targetSpendIncludesMedical: true,
+      withdrawalOrder: ["taxable"],
+      allocationStrategy: {
+        rebalanceEnabled: true,
+        glidepathEnabled: true,
+        glidepathStartStockPercent: 60,
+        glidepathEndStockPercent: 80,
+        glidepathYears: 3,
+        rebalanceBandPercent: 0
+      },
+      taxGainHarvesting: { enabled: false },
+      taxLossHarvesting: { enabled: false },
+      rothConversion: { enabled: false },
+      returnAssumptions: {
+        bond: { mean: 0, stdev: 0 },
+        stock: { mean: 0, stdev: 0 }
+      },
+      aca: { enabled: false }
+    },
+    taxProfile: noTaxProfile,
+    returnSequence: [{ bond: 0, stock: 0 }, { bond: 0, stock: 0 }, { bond: 0, stock: 0 }],
+    inflationSequence: [0, 0, 0]
+  });
+
+  assert.deepEqual(plan.years.map((year) => year.allocationStrategy.targetStockPercent), [60, 70, 80]);
+  assert.deepEqual(plan.years.map((year) => year.allocationStrategy.rebalancedAmount), [0, 10, 10]);
 });
 
 test("Roth earnings above contribution basis are taxable and penalized when withdrawn early", () => {

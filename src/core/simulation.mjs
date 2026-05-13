@@ -23,6 +23,7 @@ import { createRng, normalRandom, percentile, round } from "./utils.mjs";
 const CASH_GAP_TOLERANCE = 0.01;
 const CASH_RAISED_EPSILON = 0.000001;
 const FULL_WITHDRAWAL_ORDER = ["taxable", "traditional", "hsa", "roth"];
+const DEFENSIVE_ASSET_CLASSES = Object.freeze(["bond", "cash", "tips"]);
 
 export const MONTE_CARLO_ASSUMPTION_PRESETS = Object.freeze({
   planning: Object.freeze({
@@ -78,6 +79,17 @@ export const DEFAULT_SCENARIO = {
     targetYears: 3,
     tentYears: 10,
     triggerStockReturn: 0
+  },
+  allocationStrategy: {
+    rebalanceEnabled: false,
+    withdrawalBiasEnabled: false,
+    glidepathEnabled: false,
+    targetStockPercent: 70,
+    rebalanceBandPercent: 5,
+    glidepathStartStockPercent: 60,
+    glidepathEndStockPercent: 80,
+    glidepathYears: 15,
+    preferredDefensiveAssetClass: "bond"
   },
   oneOffExpenses: [],
   currentAge: 55,
@@ -448,6 +460,7 @@ function simulateYear({
   let strategyCapitalLosses = 0;
   let strategyShortTermLosses = 0;
   let strategyLongTermLosses = 0;
+  let strategyShortTermGains = 0;
   let strategyLongTermGains = 0;
   const annualPenaltyExceptionAmount = earlyWithdrawalPenaltyExceptionAmountForYear(scenario);
 
@@ -464,6 +477,19 @@ function simulateYear({
   strategyShortTermLosses += lossHarvest.shortTermLosses ?? 0;
   strategyLongTermLosses += lossHarvest.longTermLosses ?? 0;
   flows.push(...lossHarvest.flows);
+
+  const allocationStrategy = allocationStrategyStateForYear({
+    scenario,
+    portfolio,
+    yearIndex,
+    calendarYear
+  });
+  strategyShortTermGains += allocationStrategy.shortTermCapitalGains;
+  strategyLongTermGains += allocationStrategy.longTermCapitalGains;
+  strategyCapitalLosses += allocationStrategy.capitalLosses;
+  strategyShortTermLosses += allocationStrategy.shortTermCapitalLosses;
+  strategyLongTermLosses += allocationStrategy.longTermCapitalLosses;
+  flows.push(...allocationStrategy.flows);
 
   const rmd = requiredMinimumDistributionForYear({
     scenario,
@@ -564,7 +590,8 @@ function simulateYear({
         penaltyExceptionRemaining: rmdWithdrawal.penaltyExceptionRemaining,
         returnAssumptions: scenario.returnAssumptions,
         optimizedLotSelection: isLifetimeOptimizerEnabled(scenario) || sequenceRiskReserve.enabled,
-        sequenceRiskReserve
+        sequenceRiskReserve,
+        allocationStrategy
       },
       evaluationContext: {
         scenario,
@@ -576,6 +603,7 @@ function simulateYear({
         retirementOrdinaryIncome: rothConversionAmount,
         ordinaryInvestmentIncome: dividends.ordinaryDividends,
         qualifiedDividends,
+        strategyShortTermGains,
         strategyLongTermGains,
         strategyCapitalLosses,
         strategyShortTermLosses,
@@ -640,6 +668,7 @@ function simulateYear({
         retirementOrdinaryIncome: rothConversionAmount,
         ordinaryInvestmentIncome: dividends.ordinaryDividends,
         qualifiedDividends,
+        strategyShortTermGains,
         strategyLongTermGains,
         strategyCapitalLosses,
         strategyShortTermLosses,
@@ -671,6 +700,7 @@ function simulateYear({
         retirementOrdinaryIncome: rothConversionAmount,
         ordinaryInvestmentIncome: dividends.ordinaryDividends,
         qualifiedDividends,
+        strategyShortTermGains,
         strategyLongTermGains,
         strategyCapitalLosses,
         strategyShortTermLosses,
@@ -728,6 +758,7 @@ function simulateYear({
     earnedIncome,
     retirementOrdinaryIncome: rothConversionAmount,
     qualifiedDividends,
+    strategyShortTermGains,
     strategyLongTermGains,
     strategyCapitalLosses,
     strategyShortTermLosses,
@@ -739,7 +770,8 @@ function simulateYear({
     yearIndex,
     calendarYear,
     magiHistory,
-    sequenceRiskReserve
+    sequenceRiskReserve,
+    allocationStrategy
   });
   finalWithdrawal = reconciled.withdrawal;
   finalTaxes = reconciled.taxes;
@@ -758,6 +790,7 @@ function simulateYear({
     retirementOrdinaryIncome: rothConversionAmount,
     ordinaryInvestmentIncome: dividends.ordinaryDividends,
     qualifiedDividends,
+    strategyShortTermGains,
     strategyLongTermGains,
     strategyCapitalLosses,
     strategyShortTermLosses,
@@ -798,7 +831,9 @@ function simulateYear({
     dividends,
     rothConversionAmount,
     withdrawal: finalWithdrawal,
+    strategyShortTermGains,
     strategyLongTermGains,
+    allocationStrategy,
     taxableSocialSecurity: finalTaxableSocialSecurity
   });
   flows.push(...finalWithdrawal.flows);
@@ -905,8 +940,8 @@ function simulateYear({
     irmaaMagi: finalIrmaaMagi,
     magi: finalMagi,
     realizedLongTermGains: round(strategyLongTermGains + finalWithdrawal.longTermCapitalGains, 6),
-    taxGainHarvested: round(strategyLongTermGains, 6),
-    realizedShortTermGains: finalWithdrawal.shortTermCapitalGains,
+    taxGainHarvested: round(Math.max(0, strategyLongTermGains - allocationStrategy.longTermCapitalGains), 6),
+    realizedShortTermGains: round(strategyShortTermGains + finalWithdrawal.shortTermCapitalGains, 6),
     realizedCapitalLosses: round(strategyCapitalLosses + finalWithdrawal.capitalLosses, 6),
     lossCarryforward: finalTaxes.lossCarryforward,
     lossCarryforwardDetail: {
@@ -924,6 +959,7 @@ function simulateYear({
     rothFiveYearRuleSatisfied: scenario.rothFiveYearRuleSatisfied !== false,
     rothBasisOptimization: finalRothBasisOptimization,
     sequenceRiskReserve,
+    allocationStrategy,
     unfunded: round(unfunded, 6),
     flows: flows.filter((flow) => flow.amount > 0),
     sales: finalWithdrawal.sales,
@@ -951,6 +987,7 @@ function reconcileCashRequirement({
   earnedIncome = emptyEarnedIncome(),
   retirementOrdinaryIncome = 0,
   qualifiedDividends,
+  strategyShortTermGains = 0,
   strategyLongTermGains,
   strategyCapitalLosses,
   strategyShortTermLosses = 0,
@@ -962,7 +999,8 @@ function reconcileCashRequirement({
   yearIndex,
   calendarYear,
   magiHistory,
-  sequenceRiskReserve
+  sequenceRiskReserve,
+  allocationStrategy
 }) {
   let currentWithdrawal = withdrawal;
   let currentTaxes = taxes;
@@ -995,7 +1033,8 @@ function reconcileCashRequirement({
         penaltyExceptionRemaining: currentWithdrawal.penaltyExceptionRemaining,
         returnAssumptions: scenario.returnAssumptions,
         optimizedLotSelection: isLifetimeOptimizerEnabled(scenario) || sequenceRiskReserve?.enabled,
-        sequenceRiskReserve
+        sequenceRiskReserve,
+        allocationStrategy
       },
       evaluationContext: {
         scenario,
@@ -1007,6 +1046,7 @@ function reconcileCashRequirement({
         retirementOrdinaryIncome,
         ordinaryInvestmentIncome: dividends.ordinaryDividends,
         qualifiedDividends,
+        strategyShortTermGains,
         strategyLongTermGains,
         strategyCapitalLosses,
         strategyShortTermLosses,
@@ -1066,6 +1106,7 @@ function reconcileCashRequirement({
         retirementOrdinaryIncome,
         ordinaryInvestmentIncome: dividends.ordinaryDividends,
         qualifiedDividends,
+        strategyShortTermGains,
         strategyLongTermGains,
         strategyCapitalLosses,
         strategyShortTermLosses,
@@ -1470,6 +1511,7 @@ function evaluateWithdrawalState({
   retirementOrdinaryIncome = 0,
   ordinaryInvestmentIncome = 0,
   qualifiedDividends,
+  strategyShortTermGains = 0,
   strategyLongTermGains,
   strategyCapitalLosses,
   strategyShortTermLosses = 0,
@@ -1488,6 +1530,7 @@ function evaluateWithdrawalState({
     retirementOrdinaryIncome,
     ordinaryInvestmentIncome,
     qualifiedDividends,
+    strategyShortTermGains,
     strategyLongTermGains,
     strategyCapitalLosses,
     strategyShortTermLosses,
@@ -1631,6 +1674,262 @@ function reserveAssetValue(portfolio = [], assetClasses = []) {
     .reduce((total, asset) => total + marketValue(asset), 0), 6);
 }
 
+function allocationStrategyConfig(scenario, yearIndex = 0) {
+  const config = scenario.allocationStrategy ?? {};
+  const targetStockPercent = finitePercent(config.targetStockPercent, 70);
+  const rebalanceBandPercent = finitePercent(config.rebalanceBandPercent, 5);
+  const glidepathStartStockPercent = finitePercent(config.glidepathStartStockPercent, 60);
+  const glidepathEndStockPercent = finitePercent(config.glidepathEndStockPercent, 80);
+  const glidepathYears = Number.isFinite(Number(config.glidepathYears))
+    ? Math.max(1, Math.trunc(Number(config.glidepathYears)))
+    : 15;
+  const glidepathEnabled = config.glidepathEnabled === true;
+  const progress = glidepathEnabled
+    ? Math.min(1, Math.max(0, yearIndex) / Math.max(1, glidepathYears - 1))
+    : 0;
+  const activeTargetStockPercent = glidepathEnabled
+    ? glidepathStartStockPercent + ((glidepathEndStockPercent - glidepathStartStockPercent) * progress)
+    : targetStockPercent;
+  const preferredDefensiveAssetClass = DEFENSIVE_ASSET_CLASSES.includes(config.preferredDefensiveAssetClass)
+    ? config.preferredDefensiveAssetClass
+    : "bond";
+
+  return {
+    rebalanceEnabled: config.rebalanceEnabled === true,
+    withdrawalBiasEnabled: config.withdrawalBiasEnabled === true,
+    glidepathEnabled,
+    targetStockPercent,
+    activeTargetStockPercent,
+    targetStockShare: activeTargetStockPercent / 100,
+    rebalanceBandPercent,
+    rebalanceBandShare: rebalanceBandPercent / 100,
+    glidepathStartStockPercent,
+    glidepathEndStockPercent,
+    glidepathYears,
+    preferredDefensiveAssetClass
+  };
+}
+
+function allocationStrategyStateForYear({ scenario, portfolio, yearIndex, calendarYear }) {
+  const config = allocationStrategyConfig(scenario, yearIndex);
+  const before = managedStockAllocationSnapshot(portfolio);
+  const rebalancing = config.rebalanceEnabled
+    ? rebalancePortfolioToStockTarget(portfolio, config, { calendarYear })
+    : emptyRebalanceResult();
+  const after = managedStockAllocationSnapshot(portfolio);
+
+  return {
+    enabled: config.rebalanceEnabled || config.withdrawalBiasEnabled || config.glidepathEnabled,
+    rebalanceEnabled: config.rebalanceEnabled,
+    withdrawalBiasEnabled: config.withdrawalBiasEnabled,
+    glidepathEnabled: config.glidepathEnabled,
+    targetStockPercent: round(config.activeTargetStockPercent, 6),
+    baseTargetStockPercent: round(config.targetStockPercent, 6),
+    rebalanceBandPercent: round(config.rebalanceBandPercent, 6),
+    glidepathStartStockPercent: round(config.glidepathStartStockPercent, 6),
+    glidepathEndStockPercent: round(config.glidepathEndStockPercent, 6),
+    glidepathYears: config.glidepathYears,
+    stockShareBeforePercent: before.managedValue > 0 ? round(before.stockShare * 100, 6) : null,
+    stockShareAfterPercent: after.managedValue > 0 ? round(after.stockShare * 100, 6) : null,
+    managedValueBefore: before.managedValue,
+    managedValueAfter: after.managedValue,
+    ...rebalancing
+  };
+}
+
+function managedStockAllocationSnapshot(portfolio = []) {
+  const stockValue = round(portfolio
+    .filter((asset) => asset.assetClass === "stock")
+    .reduce((total, asset) => total + marketValue(asset), 0), 6);
+  const defensiveValue = round(portfolio
+    .filter((asset) => DEFENSIVE_ASSET_CLASSES.includes(asset.assetClass))
+    .reduce((total, asset) => total + marketValue(asset), 0), 6);
+  const managedValue = round(stockValue + defensiveValue, 6);
+  return {
+    stockValue,
+    defensiveValue,
+    managedValue,
+    stockShare: managedValue > 0 ? stockValue / managedValue : 0
+  };
+}
+
+function emptyRebalanceResult() {
+  return {
+    rebalancedAmount: 0,
+    direction: null,
+    shortTermCapitalGains: 0,
+    longTermCapitalGains: 0,
+    capitalLosses: 0,
+    shortTermCapitalLosses: 0,
+    longTermCapitalLosses: 0,
+    sales: [],
+    flows: []
+  };
+}
+
+function rebalancePortfolioToStockTarget(portfolio, config, { calendarYear = null } = {}) {
+  const snapshot = managedStockAllocationSnapshot(portfolio);
+  if (!(snapshot.managedValue > 0)) return emptyRebalanceResult();
+
+  const lowerBand = Math.max(0, config.targetStockShare - config.rebalanceBandShare);
+  const upperBand = Math.min(1, config.targetStockShare + config.rebalanceBandShare);
+  if (snapshot.stockShare >= lowerBand - 0.000001 && snapshot.stockShare <= upperBand + 0.000001) {
+    return emptyRebalanceResult();
+  }
+
+  const sellStock = snapshot.stockShare > upperBand;
+  const targetStockValue = snapshot.managedValue * config.targetStockShare;
+  const requestedAmount = sellStock
+    ? Math.max(0, snapshot.stockValue - targetStockValue)
+    : Math.max(0, targetStockValue - snapshot.stockValue);
+  if (!(requestedAmount > CASH_RAISED_EPSILON)) return emptyRebalanceResult();
+
+  const result = emptyRebalanceResult();
+  result.direction = sellStock ? "sell-stock" : "buy-stock";
+  let remaining = requestedAmount;
+  const candidates = portfolio
+    .filter((asset) => sellStock
+      ? asset.assetClass === "stock" && marketValue(asset) > 0
+      : DEFENSIVE_ASSET_CLASSES.includes(asset.assetClass) && marketValue(asset) > 0)
+    .sort(rebalanceSaleSort);
+
+  for (const asset of candidates) {
+    if (remaining <= CASH_RAISED_EPSILON) break;
+    const sale = sellFromLot(asset, remaining);
+    if (sale.proceeds <= CASH_RAISED_EPSILON) continue;
+
+    remaining -= sale.proceeds;
+    result.rebalancedAmount += sale.proceeds;
+    result.sales.push(sale);
+    applyRebalanceTaxCharacter(result, sale);
+    addRebalancedLot(portfolio, sale, {
+      destinationGroup: sellStock ? "defensive" : "stock",
+      preferredDefensiveAssetClass: config.preferredDefensiveAssetClass,
+      calendarYear
+    });
+    result.flows.push({
+      from: sale.name ?? sale.assetId,
+      to: "Allocation rebalance",
+      amount: round(sale.proceeds, 6),
+      type: "rebalance"
+    });
+    result.flows.push({
+      from: "Allocation rebalance",
+      to: sellStock ? "Defensive sleeve" : "Stock sleeve",
+      amount: round(sale.proceeds, 6),
+      type: "rebalance"
+    });
+  }
+
+  result.rebalancedAmount = round(result.rebalancedAmount, 6);
+  result.shortTermCapitalGains = round(result.shortTermCapitalGains, 6);
+  result.longTermCapitalGains = round(result.longTermCapitalGains, 6);
+  result.capitalLosses = round(result.capitalLosses, 6);
+  result.shortTermCapitalLosses = round(result.shortTermCapitalLosses, 6);
+  result.longTermCapitalLosses = round(result.longTermCapitalLosses, 6);
+  return result;
+}
+
+function rebalanceSaleSort(a, b) {
+  const aTaxable = a.accountType === "taxable";
+  const bTaxable = b.accountType === "taxable";
+  if (aTaxable !== bTaxable) return aTaxable ? 1 : -1;
+  return taxAwareSaleSort(a, b);
+}
+
+function applyRebalanceTaxCharacter(result, sale) {
+  if (sale.accountType !== "taxable") return;
+  if (sale.taxType === "ordinary") {
+    result.shortTermCapitalGains += Math.max(0, sale.gain);
+  } else if (sale.taxType === "capital-gains") {
+    result.longTermCapitalGains += Math.max(0, sale.gain);
+  } else if (sale.taxType === "capital-loss-short") {
+    const loss = Math.abs(Math.min(0, sale.gain));
+    result.capitalLosses += loss;
+    result.shortTermCapitalLosses += loss;
+  } else if (sale.taxType === "capital-loss-long") {
+    const loss = Math.abs(Math.min(0, sale.gain));
+    result.capitalLosses += loss;
+    result.longTermCapitalLosses += loss;
+  }
+}
+
+function addRebalancedLot(portfolio, sale, {
+  destinationGroup,
+  preferredDefensiveAssetClass = "bond",
+  calendarYear = null
+} = {}) {
+  const accountType = sale.accountType ?? "taxable";
+  const assetClass = destinationGroup === "stock"
+    ? "stock"
+    : preferredDefensiveClassForAccount(portfolio, accountType, preferredDefensiveAssetClass);
+  const template = portfolio.find((asset) => (
+    asset.accountType === accountType
+    && asset.assetClass === assetClass
+    && marketValue(asset) > CASH_RAISED_EPSILON
+  ));
+  const price = Math.max(CASH_RAISED_EPSILON, Number(template?.price) || 1);
+  portfolio.push({
+    id: `rebalance-${calendarYear ?? "na"}-${assetClass}-${portfolio.length + 1}`,
+    name: `${assetClassLabel(assetClass)} rebalance`,
+    accountType,
+    assetClass,
+    units: round(sale.proceeds / price, 8),
+    price: round(price, 8),
+    costBasisPerUnit: round(price, 8),
+    holdingPeriod: accountType === "taxable" ? "short" : "long",
+    ...(accountType === "taxable" && Number.isFinite(calendarYear)
+      ? { holdingPeriodResetCalendarYear: calendarYear }
+      : {}),
+    ...(Number.isFinite(Number(template?.expectedReturn)) ? { expectedReturn: Number(template.expectedReturn) } : {}),
+    ...(Number.isFinite(Number(template?.dividendYield)) ? { dividendYield: Number(template.dividendYield) } : {}),
+    ...(Number.isFinite(Number(template?.qualifiedDividendShare))
+      ? { qualifiedDividendShare: Number(template.qualifiedDividendShare) }
+      : {})
+  });
+}
+
+function preferredDefensiveClassForAccount(portfolio, accountType, fallback) {
+  const candidates = portfolio
+    .filter((asset) => asset.accountType === accountType && DEFENSIVE_ASSET_CLASSES.includes(asset.assetClass))
+    .sort((a, b) => marketValue(b) - marketValue(a));
+  return candidates[0]?.assetClass ?? fallback;
+}
+
+function assetClassLabel(assetClass) {
+  return {
+    stock: "Stock",
+    bond: "Bond",
+    cash: "Cash",
+    tips: "TIPS"
+  }[assetClass] ?? "Allocation";
+}
+
+function allocationWithdrawalStateForPortfolio(portfolio, allocationStrategy) {
+  if (!allocationStrategy?.withdrawalBiasEnabled) {
+    return { enabled: false, direction: null };
+  }
+  const snapshot = managedStockAllocationSnapshot(portfolio);
+  if (!(snapshot.managedValue > 0)) {
+    return { enabled: true, direction: null };
+  }
+  const targetShare = Math.max(0, Math.min(1, (allocationStrategy.targetStockPercent ?? 70) / 100));
+  const bandShare = Math.max(0, Math.min(1, (allocationStrategy.rebalanceBandPercent ?? 5) / 100));
+  if (snapshot.stockShare > Math.min(1, targetShare + bandShare) + 0.000001) {
+    return { enabled: true, direction: "sell-stock" };
+  }
+  if (snapshot.stockShare < Math.max(0, targetShare - bandShare) - 0.000001) {
+    return { enabled: true, direction: "sell-defensive" };
+  }
+  return { enabled: true, direction: null };
+}
+
+function finitePercent(value, fallback) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return fallback;
+  return Math.max(0, Math.min(100, numeric));
+}
+
 function isLifetimeOptimizerEnabled(scenario) {
   const mode = typeof scenario?.withdrawalStrategy === "string"
     ? scenario.withdrawalStrategy
@@ -1764,6 +2063,11 @@ function withdrawForCash(portfolio, amount, withdrawalOrder = [], context = {}) 
   let remaining = Math.max(0, amount);
   let rothBasisRemaining = Math.max(0, context.rothBasisRemaining ?? 0);
   let penaltyExceptionRemaining = Math.max(0, context.penaltyExceptionRemaining ?? 0);
+  const allocationWithdrawal = allocationWithdrawalStateForPortfolio(portfolio, context.allocationStrategy);
+  const saleContext = {
+    ...context,
+    allocationWithdrawal
+  };
   const age = context.age ?? 99;
   const calendarYear = context.calendarYear ?? 0;
   const penaltyAge = context.penaltyAge ?? 59.5;
@@ -1794,7 +2098,7 @@ function withdrawForCash(portfolio, amount, withdrawalOrder = [], context = {}) 
   };
 
   for (const accountType of withdrawalOrder) {
-    const saleSort = saleSortForWithdrawalContext({ accountType, isEarly, maxRothProceeds, context });
+    const saleSort = saleSortForWithdrawalContext({ accountType, isEarly, maxRothProceeds, context: saleContext });
     const candidates = portfolio
       .filter((asset) => asset.accountType === accountType && marketValue(asset) > 0)
       .sort(saleSort);
@@ -1812,7 +2116,7 @@ function withdrawForCash(portfolio, amount, withdrawalOrder = [], context = {}) 
 
       remaining -= sale.proceeds;
       result.cashRaised += sale.proceeds;
-      sale.expectedReturn = expectedReturnForAsset(asset, context.returnAssumptions);
+      sale.expectedReturn = expectedReturnForAsset(asset, saleContext.returnAssumptions);
       sale.opportunityCost = round(Math.max(0, sale.proceeds * Math.max(0, sale.expectedReturn ?? 0)), 6);
       result.saleOpportunityCost += sale.opportunityCost;
       if (sale.accountType === "roth") result.rothProceeds += sale.proceeds;
@@ -2013,6 +2317,7 @@ function combineIncome({
   retirementOrdinaryIncome = 0,
   ordinaryInvestmentIncome = 0,
   qualifiedDividends,
+  strategyShortTermGains = 0,
   strategyLongTermGains,
   strategyCapitalLosses,
   strategyShortTermLosses = 0,
@@ -2032,7 +2337,7 @@ function combineIncome({
     rrtaCompensation: earnedIncome.rrtaCompensation,
     taxableSocialSecurity: taxableSocialSecurityAmount,
     nonTaxableSocialSecurity: Math.max(0, socialSecurityTotal - taxableSocialSecurityAmount),
-    shortTermCapitalGains: withdrawal.shortTermCapitalGains,
+    shortTermCapitalGains: strategyShortTermGains + withdrawal.shortTermCapitalGains,
     longTermCapitalGains: strategyLongTermGains + withdrawal.longTermCapitalGains,
     qualifiedDividends,
     capitalLosses: strategyCapitalLosses + withdrawal.capitalLosses,
@@ -2047,6 +2352,7 @@ function incomeForYear({
   retirementOrdinaryIncome = 0,
   ordinaryInvestmentIncome = 0,
   qualifiedDividends,
+  strategyShortTermGains = 0,
   strategyLongTermGains,
   strategyCapitalLosses,
   strategyShortTermLosses = 0,
@@ -2062,6 +2368,7 @@ function incomeForYear({
     ordinaryInvestmentIncome,
     earnedIncome,
     qualifiedDividends,
+    strategyShortTermGains,
     strategyLongTermGains,
     strategyCapitalLosses,
     strategyShortTermLosses,
@@ -2085,6 +2392,7 @@ function incomeForYear({
       ordinaryInvestmentIncome,
       earnedIncome,
       qualifiedDividends,
+      strategyShortTermGains,
       strategyLongTermGains,
       strategyCapitalLosses,
       strategyShortTermLosses,
@@ -2530,7 +2838,9 @@ function estimateTaxAttribution({
   dividends,
   rothConversionAmount,
   withdrawal,
+  strategyShortTermGains = 0,
   strategyLongTermGains,
+  allocationStrategy = emptyRebalanceResult(),
   taxableSocialSecurity = 0
 }) {
   const totalTax = Math.max(0, finalTaxes.incomeTax ?? (finalTaxes.totalTax - (finalTaxes.penaltyTax ?? 0)));
@@ -2605,7 +2915,13 @@ function estimateTaxAttribution({
     longTermCapitalGains: withdrawal.longTermCapitalGains,
     capitalLosses: withdrawal.capitalLosses
   });
-  addSource("Tax gain harvesting", { longTermCapitalGains: strategyLongTermGains });
+  addSource("Allocation rebalancing", {
+    shortTermCapitalGains: allocationStrategy.shortTermCapitalGains ?? strategyShortTermGains,
+    longTermCapitalGains: allocationStrategy.longTermCapitalGains ?? 0
+  });
+  addSource("Tax gain harvesting", {
+    longTermCapitalGains: Math.max(0, strategyLongTermGains - (allocationStrategy.longTermCapitalGains ?? 0))
+  });
 
   const deltaTotal = sources.reduce((total, item) => total + item.delta, 0);
   if (deltaTotal <= 0.000001) return [{ source: "Taxable income", amount: round(totalTax, 6) }];
@@ -2664,8 +2980,37 @@ function gainHarvestingRoom({
   const federalFifteenRoom = fifteenBracket
     ? Math.max(0, fifteenBracket.upTo - taxableIncomeAlreadyStacked)
     : federalRoom;
+  const marginalBenefitRate = Math.max(0, futureRate - currentFifteenRate);
+  const optimizedAcaTarget = acaMagiCeiling({
+    acaConfig,
+    currentMagi,
+    maxFplPercent: acaConfig?.maxEligibleFplPercent ?? 400,
+    targetRate: marginalBenefitRate
+  });
+  const acaEligibilityCeiling = acaConfig?.enabled && acaConfig.fpl > 0
+    ? acaConfig.fpl * ((acaConfig.maxEligibleFplPercent ?? 400) / 100)
+    : Infinity;
+  const acaAlreadyUnavailable = acaConfig?.enabled
+    && Number.isFinite(acaEligibilityCeiling)
+    && currentMagi > acaEligibilityCeiling + 0.000001;
+  const optimizedAcaRoom = acaConfig?.enabled
+    ? acaAlreadyUnavailable
+      ? Infinity
+      : Math.max(0, optimizedAcaTarget.amount - currentMagi)
+    : Infinity;
+  const niitThreshold = taxProfile.niit?.thresholds?.[taxProfile.filingStatus];
+  const niitRoom = Number.isFinite(niitThreshold)
+    ? Math.max(0, niitThreshold - currentMagi)
+    : Infinity;
   const embeddedGains = embeddedTaxableGains(portfolio);
-  return round(Math.max(0, Math.min(configuredMaxGain ?? Infinity, federalFifteenRoom, acaRoom, embeddedGains)), 6);
+  const optimizedRoom = Math.max(0, Math.min(
+    configuredMaxGain ?? Infinity,
+    federalFifteenRoom,
+    optimizedAcaRoom,
+    niitRoom,
+    embeddedGains
+  ));
+  return round(Math.max(currentRoom, optimizedRoom), 6);
 }
 
 function estimatedCurrentCapitalGainRate({ taxProfile, preferredRate = 0.15 }) {
@@ -3113,6 +3458,10 @@ function mergeScenario(scenario) {
       ...DEFAULT_SCENARIO.sequenceRiskReserve,
       ...(scenario.sequenceRiskReserve ?? {})
     },
+    allocationStrategy: {
+      ...DEFAULT_SCENARIO.allocationStrategy,
+      ...(scenario.allocationStrategy ?? {})
+    },
     rothConversion: {
       ...DEFAULT_SCENARIO.rothConversion,
       ...(scenario.rothConversion ?? {})
@@ -3217,6 +3566,8 @@ function taxAwareSaleSort(a, b) {
 function optimizedTaxAwareSaleSort(a, b, context = {}) {
   const reserveCompare = sequenceRiskReserveSaleCompare(a, b, context.sequenceRiskReserve);
   if (reserveCompare !== 0) return reserveCompare;
+  const allocationCompare = allocationWithdrawalSaleCompare(a, b, context.allocationWithdrawal);
+  if (allocationCompare !== 0) return allocationCompare;
   if (a.assetClass === "cash" && b.assetClass !== "cash") return -1;
   if (a.assetClass !== "cash" && b.assetClass === "cash") return 1;
   const aExpectedReturn = expectedReturnForAsset(a, context.returnAssumptions);
@@ -3243,6 +3594,17 @@ function sequenceRiskReserveSaleCompare(a, b, reserveState) {
   if (aReserve === bReserve) return 0;
   if (reserveState.spendReserveFirst) return aReserve ? -1 : 1;
   if (reserveState.preserveReserve) return aReserve ? 1 : -1;
+  return 0;
+}
+
+function allocationWithdrawalSaleCompare(a, b, allocationState) {
+  if (!allocationState?.enabled || !allocationState.direction) return 0;
+  const aStock = a.assetClass === "stock";
+  const bStock = b.assetClass === "stock";
+  const aDefensive = DEFENSIVE_ASSET_CLASSES.includes(a.assetClass);
+  const bDefensive = DEFENSIVE_ASSET_CLASSES.includes(b.assetClass);
+  if (allocationState.direction === "sell-stock" && aStock !== bStock) return aStock ? -1 : 1;
+  if (allocationState.direction === "sell-defensive" && aDefensive !== bDefensive) return aDefensive ? -1 : 1;
   return 0;
 }
 

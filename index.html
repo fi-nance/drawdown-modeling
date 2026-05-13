@@ -436,10 +436,10 @@
                   <span class="module-icon">🧰</span>
                   <div>
                     <h3>Strategy toolkit</h3>
-                    <span class="module-sub">TLH, TGH, Roth conversions</span>
+                    <span class="module-sub">Taxes, allocations, withdrawal rules</span>
                   </div>
                 </div>
-                <div class="module-actions"><span class="controls-pill">9 controls</span></div>
+                <div class="module-actions"><span class="controls-pill">17 controls</span></div>
               </div>
               <div class="module-body">
                 <label>
@@ -452,13 +452,21 @@
                 <label class="check-row"><input id="taxLossHarvesting" type="checkbox" checked><span>Tax-loss harvesting</span></label>
                 <label class="check-row"><input id="taxGainHarvesting" type="checkbox" checked><span>Tax-gain harvesting</span></label>
                 <label class="check-row"><input id="rothConversion"    type="checkbox" checked><span>Roth conversions</span></label>
+                <label class="check-row"><input id="allocationAwareWithdrawals" type="checkbox"><span>Allocation-aware withdrawals</span></label>
+                <label class="check-row"><input id="taxAwareRebalancing" type="checkbox"><span>Tax-aware annual rebalancing</span></label>
+                <label class="check-row"><input id="equityGlidepath" type="checkbox"><span>Equity glidepath</span></label>
                 <div class="control-grid">
                   <label><span>Conversion target rate %</span><input id="rothTargetRate" type="number" min="0" max="37" step="1" value="12"></label>
                   <label><span>Annual conversion override</span><input id="rothAmount" type="number" min="0" step="1000" placeholder="Auto"></label>
                   <label><span>Max annual loss override</span><input id="tlhMax" type="number" min="0" step="500" placeholder="Auto"></label>
                   <label><span>Max annual gain override</span><input id="tghMax" type="number" min="0" step="1000" placeholder="Auto"></label>
+                  <label><span>Stock target %</span><input id="targetStockAllocation" type="number" min="0" max="100" step="1" value="70"></label>
+                  <label><span>Rebalance band +/- %</span><input id="rebalanceBand" type="number" min="0" max="50" step="1" value="5"></label>
+                  <label><span>Glidepath start stock %</span><input id="glidepathStartStockAllocation" type="number" min="0" max="100" step="1" value="60"></label>
+                  <label><span>Glidepath end stock %</span><input id="glidepathEndStockAllocation" type="number" min="0" max="100" step="1" value="80"></label>
+                  <label><span>Glidepath years</span><input id="glidepathYears" type="number" min="1" max="60" step="1" value="15"></label>
                 </div>
-                <p class="strategy-summary"><span>Lifetime optimizer tests alternate withdrawal sources, MAGI thresholds, expected-return sale costs, forward-looking gain/conversion room, and optional sequence-risk reserves.</span></p>
+                <p class="strategy-summary"><span>Lifetime optimizer tests alternate withdrawal sources, MAGI thresholds, expected-return sale costs, forward-looking gain/conversion room, optional reserve logic, and allocation rules.</span></p>
               </div>
             </section>
 
