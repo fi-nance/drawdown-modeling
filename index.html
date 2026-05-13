@@ -96,7 +96,7 @@
             <span class="step-number">3</span>
             <h2>Drop in your portfolio</h2>
           </header>
-          <p class="step-sub">Use any of the four — you can swap or refine anything in the workspace.</p>
+          <p class="step-sub">Use any of these — you can swap or refine anything in the workspace.</p>
           <div class="intake-grid">
             <button type="button" class="intake-card" data-intake="csv">
               <span class="intake-icon">📊</span>
@@ -118,7 +118,13 @@
               <span class="intake-title">Use sample data</span>
               <span class="intake-sub">Explore with a realistic example</span>
             </button>
+            <button type="button" class="intake-card" data-intake="saved">
+              <span class="intake-icon">JSON</span>
+              <span class="intake-title">Saved setup</span>
+              <span class="intake-sub">Load a Portfolio Success Lab JSON</span>
+            </button>
           </div>
+          <input id="personaRestoreSetupFile" data-setup-restore-file type="file" accept="application/json,.json" hidden>
         </section>
 
         <section class="persona-step" style="margin-top: 2.5rem;">
@@ -149,6 +155,9 @@
           <button class="theme-toggle" data-theme-toggle type="button" aria-label="Toggle theme">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
           </button>
+          <button class="subtle-button" type="button" id="workspaceBackToPersona">New / load</button>
+          <button class="subtle-button" type="button" id="workspaceSaveSetup">Save setup</button>
+          <button class="subtle-button" type="button" id="workspaceLoadSetup">Load setup</button>
           <button id="runModel" class="cta-button" type="button">Run model →</button>
         </div>
       </header>
@@ -275,9 +284,9 @@
                   </div>
                 </details>
                 <details class="advanced">
-                  <summary>Backup / Restore</summary>
-                  <div class="button-row"><button id="downloadSetup" type="button">Backup full setup</button></div>
-                  <label class="file-control"><span>Restore setup</span><input id="restoreSetupFile" type="file" accept="application/json,.json"></label>
+                  <summary>Save / Load setup</summary>
+                  <div class="button-row"><button id="downloadSetup" type="button">Save setup JSON</button></div>
+                  <label class="file-control"><span>Load setup JSON</span><input id="restoreSetupFile" data-setup-restore-file type="file" accept="application/json,.json"></label>
                 </details>
                 <div id="importStatus" class="status import-status" role="status" aria-live="polite">Ready to import.</div>
               </div>
@@ -698,17 +707,14 @@
           <button class="theme-toggle" data-theme-toggle type="button" aria-label="Toggle theme">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
           </button>
-          <button class="subtle-button" type="button" id="saveScenarioBtn">Save scenario</button>
+          <button class="subtle-button" type="button" id="resultsBackToPersona">New / load</button>
+          <button class="subtle-button" type="button" id="resultsSaveSetup">Save setup</button>
+          <button class="subtle-button" type="button" id="resultsLoadSetup">Load setup</button>
           <button class="cta-button"    type="button" id="resultsTweakInputs">Tweak inputs</button>
         </div>
       </header>
 
       <main class="results-shell">
-        <div class="scenario-tabs" id="scenarioTabs">
-          <span class="scenario-tabs-label">Comparing</span>
-          <!-- Tabs are appended dynamically -->
-        </div>
-
         <!-- Headline strip: hero number + flat KPI grid (renderKpiStrip fills this) -->
         <section id="kpiStrip" class="dash-headline"></section>
 
@@ -927,7 +933,7 @@
       <select id="viewMode"><option value="real" selected>Today's $</option><option value="nominal">Future $</option></select>
     </div>
 
-    <script type="module" src="./src/v2ui-app.mjs?v=20260513-tax-efficiency"></script>
-    <script type="module" src="./src/redesign.mjs?v=20260513-tax-efficiency"></script>
+    <script type="module" src="./src/v2ui-app.mjs?v=20260513-setup-save-load"></script>
+    <script type="module" src="./src/redesign.mjs?v=20260513-setup-save-load"></script>
   </body>
 </html>

@@ -29,7 +29,12 @@ const setupState = {
     endYear: 2030,
     amount: 35000,
     inflationAdjusted: true
-  }]
+  }],
+  redesign: {
+    persona: "preRetiree",
+    outcome: "willItLast",
+    enabledModules: ["basics", "portfolio", "strategy"]
+  }
 };
 
 test("setup backup wraps full setup state with metadata", () => {
@@ -54,5 +59,9 @@ test("setup backup parser rejects malformed backups clearly", () => {
   assert.throws(
     () => parseSetupBackup(JSON.stringify({ ...setupState, oneOffExpenses: "bad" })),
     /one-off expenses/i
+  );
+  assert.throws(
+    () => parseSetupBackup(JSON.stringify({ ...setupState, redesign: [] })),
+    /redesign state/i
   );
 });

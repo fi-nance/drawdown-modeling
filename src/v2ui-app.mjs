@@ -211,6 +211,7 @@ const els = {
   loadPrivateSheet: document.querySelector("#loadPrivateSheet"),
   downloadSetup: document.querySelector("#downloadSetup"),
   restoreSetupFile: document.querySelector("#restoreSetupFile"),
+  restoreSetupFiles: [...document.querySelectorAll("[data-setup-restore-file]")],
   addAsset: document.querySelector("#addAsset"),
   planYears: document.querySelector("#planYears"),
   runs: document.querySelector("#runs"),
@@ -560,14 +561,18 @@ function bindEvents() {
     syncJsonFromAssets();
     const backup = createSetupBackup(setupStateSnapshot());
     downloadJsonFile(backup, `portfolio-success-lab-setup-${backup.exportedAt.slice(0, 10)}.json`);
-    setImportStatus("Full setup backup downloaded.");
+    setImportStatus("Setup JSON downloaded.");
   });
 
-  els.restoreSetupFile.addEventListener("change", async () => {
-    const file = els.restoreSetupFile.files?.[0];
+  const restoreInputs = els.restoreSetupFiles.length ? els.restoreSetupFiles : [els.restoreSetupFile].filter(Boolean);
+  restoreInputs.forEach((input) => input.addEventListener("change", handleSetupRestoreFile));
+
+  async function handleSetupRestoreFile(event) {
+    const input = event.currentTarget;
+    const file = input.files?.[0];
     if (!file) return;
     try {
-      setImportStatus(`Restoring ${file.name}...`);
+      setImportStatus(`Loading ${file.name}...`);
       const restoredState = parseSetupBackup(await file.text());
       applySetupState(restoredState);
       syncJsonFromAssets();
@@ -576,15 +581,18 @@ function bindEvents() {
       saveStoredState();
       runModels();
       setActiveScreen("setup");
-      const message = `Restored full setup from ${file.name}. ${assets.length} assets loaded.`;
+      const message = `Loaded setup from ${file.name}. ${assets.length} assets loaded.`;
       setStatus(message);
       setImportStatus(message);
+      window.dispatchEvent(new CustomEvent("psl:setup-restored", {
+        detail: { fileName: file.name, state: restoredState, assetCount: assets.length }
+      }));
     } catch (error) {
       reportImportError(error);
     } finally {
-      els.restoreSetupFile.value = "";
+      input.value = "";
     }
-  });
+  }
 
   els.addOneOff.addEventListener("click", () => {
     const cashFlowType = normalizedOneOffCashFlowType(els.oneOffType.value);
@@ -961,11 +969,15 @@ function setAcaPlanLookupStatus(message, isError = false) {
 }
 
 function setupStateSnapshot() {
+  const redesign = typeof window.__pslRedesignStateSnapshot === "function"
+    ? window.__pslRedesignStateSnapshot()
+    : null;
   return {
     activeScreen,
     controls: readControlState(),
     assets,
-    oneOffExpenses
+    oneOffExpenses,
+    ...(redesign ? { redesign } : {})
   };
 }
 

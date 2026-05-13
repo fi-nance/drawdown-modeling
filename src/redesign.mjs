@@ -2,7 +2,7 @@
    redesign.mjs
    - Companion to v2ui-app.mjs (which still does all simulation/data work)
    - Implements: three-screen router, theme toggle, persona presets,
-     module library, scenario tabs, action-plan card, bracket fill,
+     module library, setup save/load, action-plan card, bracket fill,
      withdrawal mix per year, sensitivity tornado, mobile polish.
    - DOM IDs from the legacy app are preserved, so v2ui-app.mjs continues
      to function unchanged.
@@ -15,7 +15,6 @@ const STORAGE_PERSONA = "psl:redesign:persona";
 const STORAGE_OUTCOME = "psl:redesign:outcome";
 const STORAGE_DETAIL = "psl:redesign:detail";
 const STORAGE_MODULES = "psl:redesign:modules";
-const STORAGE_SCENARIOS = "psl:redesign:scenarios";
 const STORAGE_COLLAPSED = "psl:redesign:collapsedModules";
 
 // Persona presets — what each card pre-fills in the workspace.
@@ -165,9 +164,7 @@ const state = {
   persona: null,
   outcome: null,
   detail: "plain",
-  enabledModules: new Set(MODULES.filter(m => m.enabledByDefault).map(m => m.id)),
-  scenarios: [],          // [{ id, name, color, summary }]
-  activeScenarioId: null
+  enabledModules: new Set(MODULES.filter(m => m.enabledByDefault).map(m => m.id))
 };
 
 // ─── Boot ──────────────────────────────────────────────────────────
@@ -181,7 +178,7 @@ function boot() {
   bindRouter();
   bindTheme();
   bindIntakes();
-  bindResultsScenarioPanel();
+  bindSetupTransfer();
   bindWorkspaceSummary();
   bindWithdrawalMix();
   bindRunsHint();
@@ -269,7 +266,6 @@ function hydrateState() {
     if (m.required) state.enabledModules.add(m.id);
   }
 
-  state.scenarios = readJsonStorage(STORAGE_SCENARIOS, []);
 }
 
 function applyAll() {
@@ -281,7 +277,6 @@ function applyAll() {
   syncModuleLibraryUI();
   syncPersonaSelection();
   syncOutcomeSelection();
-  renderScenarioTabs();
 }
 
 // ─── Persona cards ─────────────────────────────────────────────────
@@ -398,6 +393,10 @@ function bindIntakes() {
       const intake = card.dataset.intake;
       // Mark visual active state for one click.
       document.querySelectorAll(".intake-card[data-intake]").forEach(c => c.classList.toggle("is-active", c === card));
+      if (intake === "saved") {
+        triggerSetupRestore();
+        return;
+      }
       // Switch to workspace and let the user complete intake there.
       setScreen("workspace");
       // After paint, scroll the right module into focus.
@@ -571,8 +570,14 @@ function bindRouter() {
   const wsViewResults = document.getElementById("wsViewResults");
   wsViewResults?.addEventListener("click", () => setScreen("results"));
 
+  const workspaceBackToPersona = document.getElementById("workspaceBackToPersona");
+  workspaceBackToPersona?.addEventListener("click", () => setScreen("persona"));
+
   const tweakInputs = document.getElementById("resultsTweakInputs");
   tweakInputs?.addEventListener("click", () => setScreen("workspace"));
+
+  const resultsBackToPersona = document.getElementById("resultsBackToPersona");
+  resultsBackToPersona?.addEventListener("click", () => setScreen("persona"));
 
   const back = document.getElementById("resultsBackToWorkspace");
   back?.addEventListener("click", () => setScreen("workspace"));
@@ -772,36 +777,60 @@ function renderSpark(svg, latest) {
   svg.innerHTML = bars;
 }
 
-// ─── Scenarios ─────────────────────────────────────────────────────
+// ─── Setup Save / Load ─────────────────────────────────────────────
 
-const SCENARIO_COLORS = ["#34d1b6", "#8892a8", "#7c6cf0", "#f0a848", "#56c8e8", "#f06060"];
-
-function bindResultsScenarioPanel() {
-  document.getElementById("saveScenarioBtn")?.addEventListener("click", () => {
-    if (!window.__pslLatest) return;
-    const successRate = computeSuccessRate(window.__pslLatest);
-    const id = `scn_${Date.now().toString(36)}`;
-    const scenario = {
-      id,
-      name: nextScenarioName(),
-      color: SCENARIO_COLORS[state.scenarios.length % SCENARIO_COLORS.length],
-      successRate,
-      summary: snapshotSummary(window.__pslLatest)
-    };
-    state.scenarios.push(scenario);
-    state.activeScenarioId = id;
-    writeJsonStorage(STORAGE_SCENARIOS, state.scenarios);
-    renderScenarioTabs();
-  });
-
+function bindSetupTransfer() {
+  document.getElementById("workspaceSaveSetup")?.addEventListener("click", triggerSetupDownload);
+  document.getElementById("resultsSaveSetup")?.addEventListener("click", triggerSetupDownload);
+  document.getElementById("workspaceLoadSetup")?.addEventListener("click", triggerSetupRestore);
+  document.getElementById("resultsLoadSetup")?.addEventListener("click", triggerSetupRestore);
   document.getElementById("runSensitivity")?.addEventListener("click", runSensitivitySweep);
+
+  window.__pslRedesignStateSnapshot = redesignStateSnapshot;
+  window.addEventListener("psl:setup-restored", (ev) => {
+    applyRedesignStateSnapshot(ev.detail?.state?.redesign);
+    setScreen("workspace");
+    requestAnimationFrame(() => {
+      document.querySelector('.module-card[data-module="portfolio"]')
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  });
 }
 
-function nextScenarioName() {
-  const baseNames = ["Your plan", "Baseline", "Aggro Roth", "Lean", "Healthcare bridge", "Late retire"];
-  const used = new Set(state.scenarios.map(s => s.name));
-  for (const name of baseNames) if (!used.has(name)) return name;
-  return `Scenario ${state.scenarios.length + 1}`;
+function triggerSetupDownload() {
+  document.getElementById("downloadSetup")?.click();
+}
+
+function triggerSetupRestore() {
+  document.querySelector("[data-setup-restore-file]")?.click();
+}
+
+function redesignStateSnapshot() {
+  return {
+    screen: state.screen,
+    persona: state.persona,
+    outcome: state.outcome,
+    detail: state.detail,
+    enabledModules: [...state.enabledModules]
+  };
+}
+
+function applyRedesignStateSnapshot(snapshot) {
+  if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) return;
+  if (snapshot.persona == null || typeof snapshot.persona === "string") state.persona = snapshot.persona ?? null;
+  if (snapshot.outcome == null || typeof snapshot.outcome === "string") state.outcome = snapshot.outcome ?? null;
+  if (snapshot.detail === "plain" || snapshot.detail === "pro") state.detail = snapshot.detail;
+  if (Array.isArray(snapshot.enabledModules)) {
+    state.enabledModules = new Set(snapshot.enabledModules.filter((id) => MODULES.some((module) => module.id === id)));
+    for (const module of MODULES) {
+      if (module.required) state.enabledModules.add(module.id);
+    }
+    persistModules();
+  }
+  writeStorage(STORAGE_PERSONA, state.persona ?? "");
+  writeStorage(STORAGE_OUTCOME, state.outcome ?? "");
+  writeStorage(STORAGE_DETAIL, state.detail);
+  applyAll();
 }
 
 function snapshotSummary(latest) {
@@ -816,46 +845,13 @@ function snapshotSummary(latest) {
   };
 }
 
-function renderScenarioTabs() {
-  const root = document.getElementById("scenarioTabs");
-  if (!root) return;
-  // Clear all but the label
-  [...root.querySelectorAll(".scenario-tab")].forEach(el => el.remove());
-  for (const s of state.scenarios) {
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "scenario-tab";
-    btn.dataset.scenarioId = s.id;
-    btn.style.setProperty("--scenario-dot", s.color);
-    btn.setAttribute("aria-pressed", String(state.activeScenarioId === s.id));
-    btn.innerHTML = `<span class="dot"></span>${s.name} <span class="pct">${Math.round(s.successRate*100)}%</span>`;
-    btn.addEventListener("click", () => {
-      state.activeScenarioId = s.id;
-      writeJsonStorage(STORAGE_SCENARIOS, state.scenarios);
-      renderScenarioTabs();
-      renderKpiStrip();   // re-render KPI strip with the chosen scenario summary
-    });
-    root.appendChild(btn);
-  }
-  // Add "+ New scenario" button
-  const add = document.createElement("button");
-  add.type = "button";
-  add.className = "scenario-tab add-scenario";
-  add.textContent = "+ New scenario";
-  add.addEventListener("click", () => {
-    document.getElementById("saveScenarioBtn")?.click();
-  });
-  root.appendChild(add);
-}
-
 // ─── KPI strip ─────────────────────────────────────────────────────
 
 function renderKpiStrip() {
   const root = document.getElementById("kpiStrip");
   if (!root) return;
   const latest = window.__pslLatest;
-  const active = state.scenarios.find(s => s.id === state.activeScenarioId);
-  const summary = active?.summary ?? (latest ? snapshotSummary(latest) : null);
+  const summary = latest ? snapshotSummary(latest) : null;
   if (!summary) {
     root.innerHTML = `
       <div class="dh-hero">
@@ -874,8 +870,6 @@ function renderKpiStrip() {
     return;
   }
   const pct = summary.successRate;
-  const baseline = state.scenarios.find(s => s.name === "Baseline");
-  const delta = baseline ? Math.round((pct - baseline.summary.successRate) * 100) : null;
   const runs = latest?.monteCarlo?.summary?.runs ?? monteCarloScenarios(latest).length ?? 250;
   const pctInt = Math.round(pct * 100);
   root.innerHTML = `
@@ -883,7 +877,6 @@ function renderKpiStrip() {
       <div class="dh-eyebrow">Money lasts in</div>
       <div class="dh-big mono">${pctInt}<span class="dh-big-unit">%</span></div>
       <div class="dh-sub">of ${runs.toLocaleString()} simulated futures</div>
-      ${delta != null ? `<div class="dh-delta"><span class="delta ${delta >= 0 ? "up" : "down"}">${delta >= 0 ? "+" : ""}${delta}pp</span> vs. baseline</div>` : ""}
     </div>
     <div class="dh-kpis">
       <div class="dh-kpi"><span class="kpi-label">Median ending</span><span class="kpi-big mono">${formatCurrencyShort(summary.median)}</span></div>
