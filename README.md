@@ -5,7 +5,7 @@ A browser-based, tax-aware retirement decumulation planner with Monte Carlo simu
 ## What Is Implemented
 
 - Deterministic portfolio engine in `src/core/`
-- V2 UI is the default app at `index.html`; `v2ui.html` remains as a compatibility entrypoint
+- Single UI entrypoint at `index.html` with persona, workspace, and results screens
 - Monte Carlo runs with seeded random return and inflation paths
 - Historical rolling, specific-start-year, and chunked-window backtests with a default 1928-present modern source and an opt-in reconstructed 1872-present source
 - Versioned 2026 federal tax tables, preferential long-term capital gains stacking, NIIT, Additional Medicare Tax, state tax profiles, capital loss carryforwards, and ordinary loss offsets
@@ -53,7 +53,7 @@ Private Google Sheets can be imported with Google OAuth by entering a Google OAu
 
 Private data can also be imported without OAuth by downloading the sheet as CSV and selecting it with the CSV file input.
 
-Use the Backup / Restore controls in the Setup tab to export or restore the full setup, including assets, scenario controls, and one-off cash flows.
+Use the Save setup / Load setup controls in the persona, workspace, or results flow to export or restore the full setup, including assets, scenario controls, and one-off cash flows.
 
 ## Accuracy Notes
 

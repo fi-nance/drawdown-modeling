@@ -1,10 +1,12 @@
+import { RESULTS_CACHE_KEY } from "./core/resultsCache.mjs";
+
 /* ──────────────────────────────────────────────────────────────────
    redesign.mjs
-   - Companion to v2ui-app.mjs (which still does all simulation/data work)
+   - Companion to app.mjs (which still does all simulation/data work)
    - Implements: three-screen router, theme toggle, persona presets,
      module library, setup save/load, action-plan card, bracket fill,
      withdrawal mix per year, sensitivity tornado, mobile polish.
-   - DOM IDs from the legacy app are preserved, so v2ui-app.mjs continues
+   - DOM IDs from the app shell are preserved, so app.mjs continues
      to function unchanged.
    ────────────────────────────────────────────────────────────────── */
 
@@ -149,7 +151,7 @@ const TIER_THRESHOLDS = { warn: 0.85, risk: 0.7 };
 // fall through to recompute.
 const RUNS_CACHE_THRESHOLD = 1000;
 
-// Outcome of the most recent v2ui-app cacheLatestResults() call. null until
+// Outcome of the most recent app cacheLatestResults() call. null until
 // the first run completes; true on success, false if sessionStorage rejected
 // the compact blob. Drives the post-run warning state on #runsHint and the
 // "not cached for refresh" suffix in the results topbar.
@@ -212,7 +214,7 @@ function hydrateState() {
 
   // Only redirect a results-screen visit back to step 1 when the user has
   // *never* engaged with the app. Earlier we were checking just two signals
-  // (the v2ui-app setup-state key and the cached results blob) and yanking
+  // (the app setup-state key and the cached results blob) and yanking
   // people to persona whenever both happened to be missing — too aggressive
   // when storage is partial or being cleared between sessions. Now we also
   // honour the persisted screen pointer: if the user has previously been to
@@ -544,13 +546,6 @@ function bindRouter() {
   const personaContinue = document.getElementById("personaContinue");
   personaContinue?.addEventListener("click", () => setScreen("workspace"));
 
-  const personaRunModel = document.getElementById("personaRunModel");
-  personaRunModel?.addEventListener("click", () => {
-    setScreen("workspace");
-    // Defer to v2ui-app's runModel, which is already wired to #runModel
-    requestAnimationFrame(() => document.getElementById("runModel")?.click());
-  });
-
   const wsViewResults = document.getElementById("wsViewResults");
   wsViewResults?.addEventListener("click", () => {
     // If the user edited workspace inputs since the last completed run, the
@@ -653,7 +648,7 @@ function bindTheme() {
         document.body.dataset.detail = detail;
       }
       if (viewMode) {
-        // Sync to legacy #viewMode select used by v2ui-app
+        // Sync to the hidden #viewMode select used by app.mjs
         const legacy = document.getElementById("viewMode");
         if (legacy) {
           legacy.value = viewMode;
@@ -685,7 +680,7 @@ function syncViewModeToggle() {
 // ─── Workspace summary KPI strip ───────────────────────────────────
 
 function bindWorkspaceSummary() {
-  // Populated when v2ui-app finishes a run (see hookRunCompletion).
+  // Populated when app.mjs finishes a run (see hookRunCompletion).
 }
 
 function syncWorkspaceSummary() {
@@ -1278,7 +1273,7 @@ function selectYearAcrossViews(yearIndex) {
   const max = Number(slider.max) || 1;
   const clamped = Math.max(0, Math.min(max - 1, yearIndex));
   slider.value = String(clamped + 1);
-  // Drive v2ui-app's existing input listener so KPIs, year table, asset
+  // Drive app.mjs's existing input listener so KPIs, year table, asset
   // breakdown, flow/sales, etc. all re-render against the picked year.
   slider.dispatchEvent(new Event("input", { bubbles: true }));
   syncMixSelectedHighlight(clamped);
@@ -1334,7 +1329,7 @@ function bindWithdrawalMix() {
     selectYearAcrossViews(Number(col.dataset.yearIndex));
   });
   // Keep the highlight in sync when the year is changed elsewhere (slider,
-  // year-table row click). v2ui-app already handles those; we just listen for
+  // year-table row click). app.mjs already handles those; we just listen for
   // the same input event, re-mark the selected column, and re-paint anything
   // else that's year-scoped (bracket fill).
   document.getElementById("yearRange")?.addEventListener("input", () => {
@@ -1434,7 +1429,7 @@ function flagPendingRun() {
 }
 
 function hookRunCompletion() {
-  // Run-complete is dispatched by v2ui-app when the worker hands back the
+  // Run-complete is dispatched by app.mjs when the worker hands back the
   // final summary. We use it to refresh workspace summary chips and to
   // double-check we've landed on results in case the first-scenario event
   // was missed (unlikely, but defensive).
@@ -1493,7 +1488,7 @@ function writeJsonStorage(key, value) {
 }
 
 // True if the user has ever saved workspace state (assets, inputs, etc.).
-// v2ui-app writes this snapshot on any meaningful interaction, so its absence
+// app.mjs writes this snapshot on any meaningful interaction, so its absence
 // means the user hasn't engaged with the app yet and would otherwise see
 // results computed from the sample-data fallback.
 function hasStoredWorkspaceData() {
@@ -1507,13 +1502,13 @@ function hasStoredWorkspaceData() {
   }
 }
 
-// True if v2ui-app has cached the last run's results in sessionStorage. The
+// True if app.mjs has cached the last run's results in sessionStorage. The
 // results-screen refresh guard treats this as "usable data" — if cached
 // results exist we'd rather restore them than punt the user back to step 1,
 // even if the setup-state localStorage key happens to be missing.
 function hasCachedResults() {
   try {
-    return !!sessionStorage.getItem("portfolio-success-lab:results-cache:v2");
+    return !!sessionStorage.getItem(RESULTS_CACHE_KEY);
   } catch {
     return false;
   }
@@ -1534,7 +1529,7 @@ function describeStorageState() {
   } catch { /* ignore */ }
   let cacheBytes = 0;
   try {
-    cacheBytes = sessionStorage.getItem("portfolio-success-lab:results-cache:v2")?.length ?? 0;
+    cacheBytes = sessionStorage.getItem(RESULTS_CACHE_KEY)?.length ?? 0;
   } catch { /* ignore */ }
   return {
     hasSetupState: setupBytes > 0 && setupAssets > 0,

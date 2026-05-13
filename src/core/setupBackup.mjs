@@ -41,7 +41,6 @@ export function normalizeSetupState(state) {
   }
 
   const normalized = {
-    activeScreen: state.activeScreen === "setup" ? "setup" : "plan",
     controls: copyPlainObject(state.controls ?? {}),
     assets: copyObjectArray(state.assets, "assets"),
     oneOffExpenses: copyObjectArray(state.oneOffExpenses ?? [], "one-off expenses")

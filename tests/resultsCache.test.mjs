@@ -162,7 +162,7 @@ test("cacheLatestResults ignores nullish inputs", () => {
 });
 
 test("cache → restore preserves enough fields to drive the result panels", () => {
-  // Pins the contract relied on by v2ui-app.renderLatest and
+  // Pins the contract relied on by app.mjs renderLatest and
   // redesign.mjs.rerenderResults: after restoring, plan.years and
   // monteCarlo.summary must be intact.
   const storage = makeStorage();

@@ -7,8 +7,8 @@
     <meta name="description" content="Tax-aware retirement decumulation forecasting with Monte Carlo simulation, historical backtesting, and Sankey cash flow visualization.">
     <link rel="icon" href="./favicon.svg?v=20260505-favicon" type="image/svg+xml">
     <meta name="theme-color" content="#07111f">
-    <link rel="stylesheet" href="./src/v2ui-styles.css?v=20260513-streaming">
-    <link rel="stylesheet" href="./src/redesign.css?v=20260513-streaming">
+    <link rel="stylesheet" href="./src/styles.css?v=20260513-single-ui">
+    <link rel="stylesheet" href="./src/redesign.css?v=20260513-single-ui">
     <script src="https://accounts.google.com/gsi/client" async defer></script>
   </head>
   <body data-screen="persona" data-theme="dark">
@@ -68,7 +68,6 @@
           <button class="theme-toggle" data-theme-toggle type="button" aria-label="Toggle theme">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
           </button>
-          <button id="personaRunModel" class="cta-button" type="button">Run model →</button>
         </div>
       </header>
 
@@ -926,14 +925,12 @@
       </main>
     </div>
 
-    <!-- Hidden legacy plan/setup tab buttons so existing JS that references them won't crash. -->
+    <!-- Hidden display-mode select used by the app renderer; the redesigned toggle mirrors it. -->
     <div hidden aria-hidden="true">
-      <button id="planTab"  type="button"></button>
-      <button id="setupTab" type="button"></button>
       <select id="viewMode"><option value="real" selected>Today's $</option><option value="nominal">Future $</option></select>
     </div>
 
-    <script type="module" src="./src/v2ui-app.mjs?v=20260513-streaming"></script>
-    <script type="module" src="./src/redesign.mjs?v=20260513-streaming"></script>
+    <script type="module" src="./src/app.mjs?v=20260513-single-ui"></script>
+    <script type="module" src="./src/redesign.mjs?v=20260513-single-ui"></script>
   </body>
 </html>

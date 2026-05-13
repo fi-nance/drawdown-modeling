@@ -9,7 +9,6 @@ import {
 } from "../src/core/setupBackup.mjs";
 
 const setupState = {
-  activeScreen: "setup",
   controls: {
     planYears: "35",
     includeTaxes: true,
@@ -48,9 +47,10 @@ test("setup backup wraps full setup state with metadata", () => {
 
 test("setup backup parser accepts wrapped and legacy saved-state JSON", () => {
   const wrapped = createSetupBackup(setupState, { exportedAt: "2026-05-01T00:00:00.000Z" });
+  const legacy = { ...setupState, activeScreen: "setup" };
 
   assert.deepEqual(parseSetupBackup(JSON.stringify(wrapped)), setupState);
-  assert.deepEqual(parseSetupBackup(JSON.stringify(setupState)), setupState);
+  assert.deepEqual(parseSetupBackup(JSON.stringify(legacy)), setupState);
 });
 
 test("setup backup parser rejects malformed backups clearly", () => {
