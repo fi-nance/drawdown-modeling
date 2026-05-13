@@ -439,7 +439,7 @@
                     <span class="module-sub">Taxes, allocations, withdrawal rules</span>
                   </div>
                 </div>
-                <div class="module-actions"><span class="controls-pill">17 controls</span></div>
+                <div class="module-actions"><span class="controls-pill">22 controls</span></div>
               </div>
               <div class="module-body">
                 <label>
@@ -452,6 +452,9 @@
                 <label class="check-row"><input id="taxLossHarvesting" type="checkbox" checked><span>Tax-loss harvesting</span></label>
                 <label class="check-row"><input id="taxGainHarvesting" type="checkbox" checked><span>Tax-gain harvesting</span></label>
                 <label class="check-row"><input id="rothConversion"    type="checkbox" checked><span>Roth conversions</span></label>
+                <label class="check-row"><input id="unifiedMarginalOptimizer" type="checkbox" checked><span>Unified marginal-rate optimizer</span></label>
+                <label class="check-row"><input id="assetLocationOptimization" type="checkbox"><span>Asset-location swaps</span></label>
+                <label class="check-row"><input id="hsaContributionStrategy" type="checkbox"><span>HSA contribution strategy</span></label>
                 <label class="check-row"><input id="allocationAwareWithdrawals" type="checkbox"><span>Allocation-aware withdrawals</span></label>
                 <label class="check-row"><input id="taxAwareRebalancing" type="checkbox"><span>Tax-aware annual rebalancing</span></label>
                 <label class="check-row"><input id="equityGlidepath" type="checkbox"><span>Equity glidepath</span></label>
@@ -460,6 +463,15 @@
                   <label><span>Annual conversion override</span><input id="rothAmount" type="number" min="0" step="1000" placeholder="Auto"></label>
                   <label><span>Max annual loss override</span><input id="tlhMax" type="number" min="0" step="500" placeholder="Auto"></label>
                   <label><span>Max annual gain override</span><input id="tghMax" type="number" min="0" step="1000" placeholder="Auto"></label>
+                  <label><span>HSA contribution override</span><input id="hsaContributionAmount" type="number" min="0" step="100" placeholder="Auto"></label>
+                  <label>
+                    <span>HSA coverage</span>
+                    <select id="hsaCoverage">
+                      <option value="auto">Auto</option>
+                      <option value="self">Self-only</option>
+                      <option value="family">Family</option>
+                    </select>
+                  </label>
                   <label><span>Stock target %</span><input id="targetStockAllocation" type="number" min="0" max="100" step="1" value="70"></label>
                   <label><span>Rebalance band +/- %</span><input id="rebalanceBand" type="number" min="0" max="50" step="1" value="5"></label>
                   <label><span>Glidepath start stock %</span><input id="glidepathStartStockAllocation" type="number" min="0" max="100" step="1" value="60"></label>
@@ -915,7 +927,7 @@
       <select id="viewMode"><option value="real" selected>Today's $</option><option value="nominal">Future $</option></select>
     </div>
 
-    <script type="module" src="./src/v2ui-app.mjs?v=20260512-viewmode"></script>
-    <script type="module" src="./src/redesign.mjs?v=20260512-viewmode"></script>
+    <script type="module" src="./src/v2ui-app.mjs?v=20260513-tax-efficiency"></script>
+    <script type="module" src="./src/redesign.mjs?v=20260513-tax-efficiency"></script>
   </body>
 </html>

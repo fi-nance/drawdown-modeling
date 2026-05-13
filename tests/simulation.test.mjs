@@ -1766,6 +1766,146 @@ test("equity glidepath moves the stock target and rebalances toward it", () => {
   assert.deepEqual(plan.years.map((year) => year.allocationStrategy.rebalancedAmount), [0, 10, 10]);
 });
 
+test("unified marginal optimizer limits Roth conversions through the Social Security tax torpedo", () => {
+  const plan = simulatePlan({
+    assets: [{
+      id: "ira",
+      accountType: "traditional",
+      assetClass: "bond",
+      units: 100000,
+      price: 1,
+      costBasisPerUnit: 1
+    }, {
+      id: "spending-cash",
+      accountType: "taxable",
+      assetClass: "cash",
+      holdingPeriod: "long",
+      units: 20000,
+      price: 1,
+      costBasisPerUnit: 1
+    }],
+    scenario: {
+      planYears: 1,
+      targetSpend: 20000,
+      targetSpendIncludesTaxes: true,
+      targetSpendIncludesMedical: true,
+      withdrawalOrder: ["traditional"],
+      withdrawalStrategy: { mode: "lifetime" },
+      currentAge: 67,
+      socialSecurityAnnualBenefit: 40000,
+      socialSecurityStartAge: 67,
+      socialSecurityInflationAdjusted: false,
+      rothConversion: { enabled: true, mode: "auto", targetMarginalRate: 0.12 },
+      taxEfficiencyStrategy: { marginalRateOptimizationEnabled: true },
+      taxGainHarvesting: { enabled: false },
+      taxLossHarvesting: { enabled: false },
+      returnAssumptions: { bond: { mean: 0, stdev: 0 }, cash: { mean: 0, stdev: 0 } },
+      aca: { enabled: false }
+    },
+    taxProfile: {
+      ...noTaxProfile,
+      ordinaryBrackets: [{ upTo: 100000, rate: 0.1 }, { upTo: Infinity, rate: 0.5 }],
+      socialSecurityTaxation: {
+        baseAmounts: { marriedFilingJointly: 32000 },
+        adjustedBaseAmounts: { marriedFilingJointly: 44000 },
+        taxableShareLow: 0.5,
+        taxableShareHigh: 0.85
+      }
+    },
+    returnSequence: [{ bond: 0 }],
+    inflationSequence: [0]
+  });
+
+  assert.equal(plan.years[0].rothConversionAmount, 12000);
+  assert.equal(plan.years[0].taxableSocialSecurity, 0);
+});
+
+test("asset-location swaps move taxable bonds into traditional accounts", () => {
+  const plan = simulatePlan({
+    assets: [{
+      id: "taxable-bond",
+      accountType: "taxable",
+      assetClass: "bond",
+      holdingPeriod: "long",
+      units: 1000,
+      price: 100,
+      costBasisPerUnit: 100,
+      dividendYield: 0.05,
+      qualifiedDividendShare: 0
+    }, {
+      id: "traditional-stock",
+      accountType: "traditional",
+      assetClass: "stock",
+      holdingPeriod: "long",
+      units: 1000,
+      price: 100,
+      costBasisPerUnit: 100,
+      dividendYield: 0,
+      qualifiedDividendShare: 1
+    }],
+    scenario: {
+      planYears: 2,
+      targetSpend: 0,
+      targetSpendIncludesTaxes: true,
+      targetSpendIncludesMedical: true,
+      withdrawalOrder: ["taxable", "traditional"],
+      taxEfficiencyStrategy: { assetLocationEnabled: true },
+      taxGainHarvesting: { enabled: false },
+      taxLossHarvesting: { enabled: false },
+      rothConversion: { enabled: false },
+      returnAssumptions: {
+        bond: { mean: 0, stdev: 0 },
+        stock: { mean: 0, stdev: 0 }
+      },
+      aca: { enabled: false }
+    },
+    taxProfile: flatOrdinaryTaxProfile,
+    returnSequence: [{ bond: 0, stock: 0 }, { bond: 0, stock: 0 }],
+    inflationSequence: [0, 0]
+  });
+
+  assert.equal(plan.years[0].assetLocation.relocatedAmount, 95000);
+  assert.equal(plan.years[1].taxableDividendsCash, 0);
+  assert.ok(plan.finalPortfolio.some((asset) => asset.accountType === "taxable" && asset.assetClass === "stock"));
+  assert.ok(plan.finalPortfolio.some((asset) => asset.accountType === "traditional" && asset.assetClass === "bond"));
+});
+
+test("HSA contribution strategy creates an above-the-line deduction and invested HSA lot", () => {
+  const plan = simulatePlan({
+    assets: [],
+    scenario: {
+      planYears: 1,
+      targetSpend: 0,
+      targetSpendIncludesTaxes: true,
+      targetSpendIncludesMedical: true,
+      currentAge: 55,
+      spouseAge: 55,
+      medicareWages: 10000,
+      earnedIncomeInflationAdjusted: false,
+      taxEfficiencyStrategy: {
+        hsaContributionEnabled: true,
+        hsaCoverage: "self",
+        hsaAnnualContribution: 4000,
+        hsaCatchUpEnabled: false,
+        hsaInvestmentAssetClass: "stock"
+      },
+      taxGainHarvesting: { enabled: false },
+      taxLossHarvesting: { enabled: false },
+      rothConversion: { enabled: false },
+      returnAssumptions: { stock: { mean: 0, stdev: 0 } },
+      aca: { enabled: false }
+    },
+    taxProfile: flatOrdinaryTaxProfile,
+    returnSequence: [{ stock: 0 }],
+    inflationSequence: [0]
+  });
+
+  assert.equal(plan.years[0].hsaContribution.amount, 4000);
+  assert.equal(plan.years[0].federalAgi, 6000);
+  assert.equal(plan.years[0].taxes.totalTax, 600);
+  assert.equal(plan.endingAccounts.hsa, 4000);
+});
+
 test("Roth earnings above contribution basis are taxable and penalized when withdrawn early", () => {
   const plan = simulatePlan({
     assets: [{

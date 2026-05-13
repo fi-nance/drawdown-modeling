@@ -50,6 +50,7 @@ export function computeIncomeTax({
   qualifiedDividends = 0,
   ordinaryInvestmentIncome = 0,
   taxableSocialSecurity = 0,
+  adjustmentsToIncome = 0,
   medicareWages = 0,
   selfEmploymentIncome = 0,
   rrtaCompensation = 0,
@@ -108,7 +109,8 @@ export function computeIncomeTax({
 
   // Step 3: offset against ordinary income (ST loss first, then LT, capped at
   // §1211(b) threshold — $3,000 for MFJ/Single, $1,500 for MFS).
-  const ordinaryBeforeLossOffset = Math.max(0, ordinaryIncome + netShortGains);
+  const adjustments = Math.max(0, adjustmentsToIncome);
+  const ordinaryBeforeLossOffset = Math.max(0, ordinaryIncome + netShortGains - adjustments);
   const ordinaryOffsetCap = Math.min(
     profile.capitalLossOrdinaryIncomeOffset ?? 3000,
     ordinaryBeforeLossOffset
@@ -179,6 +181,7 @@ export function computeIncomeTax({
     retirementOrdinaryIncome: round(retirementOrdinaryIncome, 6),
     ordinaryInvestmentIncome: round(ordinaryInvestmentIncome, 6),
     taxableSocialSecurity: round(taxableSocialSecurity, 6),
+    adjustmentsToIncome: round(adjustments, 6),
     medicareWages: round(medicareWages, 6),
     selfEmploymentIncome: round(selfEmploymentIncome, 6),
     rrtaCompensation: round(rrtaCompensation, 6),

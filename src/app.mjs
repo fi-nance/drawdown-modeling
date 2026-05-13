@@ -13,7 +13,7 @@ import {
   runHistoricalBacktests,
   runMonteCarlo,
   simulatePlan
-} from "./core/simulation.mjs?v=20260511-mcconfig";
+} from "./core/simulation.mjs?v=20260513-tax-efficiency";
 import { round } from "./core/utils.mjs";
 import { defaultOneOffExpenses, sampleAssets } from "./data/sample.mjs";
 import {
@@ -93,6 +93,11 @@ const CONTROL_IDS = [
   "sequenceReserveMode",
   "sequenceReserveTargetYears",
   "sequenceReserveTentYears",
+  "unifiedMarginalOptimizer",
+  "assetLocationOptimization",
+  "hsaContributionStrategy",
+  "hsaContributionAmount",
+  "hsaCoverage",
   "allocationAwareWithdrawals",
   "taxAwareRebalancing",
   "equityGlidepath",
@@ -223,6 +228,11 @@ const els = {
   sequenceReserveMode: document.querySelector("#sequenceReserveMode"),
   sequenceReserveTargetYears: document.querySelector("#sequenceReserveTargetYears"),
   sequenceReserveTentYears: document.querySelector("#sequenceReserveTentYears"),
+  unifiedMarginalOptimizer: document.querySelector("#unifiedMarginalOptimizer"),
+  assetLocationOptimization: document.querySelector("#assetLocationOptimization"),
+  hsaContributionStrategy: document.querySelector("#hsaContributionStrategy"),
+  hsaContributionAmount: document.querySelector("#hsaContributionAmount"),
+  hsaCoverage: document.querySelector("#hsaCoverage"),
   allocationAwareWithdrawals: document.querySelector("#allocationAwareWithdrawals"),
   taxAwareRebalancing: document.querySelector("#taxAwareRebalancing"),
   equityGlidepath: document.querySelector("#equityGlidepath"),
@@ -2314,6 +2324,17 @@ function readScenario() {
       glidepathStartStockPercent: Math.max(0, Math.min(100, Number(els.glidepathStartStockAllocation?.value) || 60)),
       glidepathEndStockPercent: Math.max(0, Math.min(100, Number(els.glidepathEndStockAllocation?.value) || 80)),
       glidepathYears: Math.max(1, Number(els.glidepathYears?.value) || 15)
+    },
+    taxEfficiencyStrategy: {
+      marginalRateOptimizationEnabled: els.unifiedMarginalOptimizer?.checked !== false,
+      assetLocationEnabled: els.assetLocationOptimization?.checked === true,
+      hsaContributionEnabled: els.hsaContributionStrategy?.checked === true,
+      hsaCoverage: ["auto", "self", "family"].includes(els.hsaCoverage?.value) ? els.hsaCoverage.value : "auto",
+      hsaAnnualContribution: numberOrNull(els.hsaContributionAmount?.value),
+      hsaContributionInflationAdjusted: true,
+      hsaCatchUpEnabled: true,
+      hsaInvestmentAssetClass: "stock",
+      hsaUseForQualifiedExpenses: els.hsaContributionStrategy?.checked === true
     },
     monteCarlo: {
       assumptionPreset: ["planning", "historical", "custom"].includes(els.mcPreset?.value)

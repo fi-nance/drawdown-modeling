@@ -24,6 +24,12 @@ const CASH_GAP_TOLERANCE = 0.01;
 const CASH_RAISED_EPSILON = 0.000001;
 const FULL_WITHDRAWAL_ORDER = ["taxable", "traditional", "hsa", "roth"];
 const DEFENSIVE_ASSET_CLASSES = Object.freeze(["bond", "cash", "tips"]);
+const GROWTH_ASSET_CLASSES = Object.freeze(["stock", "realEstate", "crypto"]);
+const HSA_LIMITS_2026 = Object.freeze({
+  selfOnly: 4400,
+  family: 8750,
+  catchUp55: 1000
+});
 
 export const MONTE_CARLO_ASSUMPTION_PRESETS = Object.freeze({
   planning: Object.freeze({
@@ -90,6 +96,18 @@ export const DEFAULT_SCENARIO = {
     glidepathEndStockPercent: 80,
     glidepathYears: 15,
     preferredDefensiveAssetClass: "bond"
+  },
+  taxEfficiencyStrategy: {
+    marginalRateOptimizationEnabled: true,
+    assetLocationEnabled: false,
+    hsaContributionEnabled: false,
+    hsaCoverage: "auto",
+    hsaAnnualContribution: null,
+    hsaContributionInflationAdjusted: true,
+    hsaCatchUpEnabled: true,
+    hsaInvestmentAssetClass: "stock",
+    hsaUseForQualifiedExpenses: false,
+    startingHsaQualifiedExpenseBalance: 0
   },
   oneOffExpenses: [],
   currentAge: 55,
@@ -216,6 +234,7 @@ export function simulatePlan({
   const years = [];
   let lossCarryforward = { shortTerm: 0, longTerm: 0 };
   let rothBasisRemaining = Math.max(0, mergedScenario.rothBasis ?? 0);
+  let hsaQualifiedExpenseBalance = hsaStrategyConfig(mergedScenario).startingQualifiedExpenseBalance;
   let success = true;
   let inflationIndex = 1;
   const irmaaMagiHistory = [];
@@ -237,11 +256,13 @@ export function simulatePlan({
       annualInflationRate: currentInflationRate,
       lossCarryforward,
       rothBasisRemaining,
+      hsaQualifiedExpenseBalance,
       magiHistory: irmaaMagiHistory
     });
 
     lossCarryforward = result.lossCarryforwardDetail ?? normalizeLossCarryforward(result.lossCarryforward);
     rothBasisRemaining = result.rothBasisRemaining;
+    hsaQualifiedExpenseBalance = result.hsaQualifiedExpenseBalance ?? hsaQualifiedExpenseBalance;
     irmaaMagiHistory.push(result.irmaaMagi);
     success = success && !isPortfolioDepleted(result);
     years.push(result);
@@ -256,6 +277,7 @@ export function simulatePlan({
     endingAccounts,
     heirValue: estimateHeirValue(portfolio, mergedScenario.heirOrdinaryTaxRate),
     rothBasisRemaining,
+    hsaQualifiedExpenseBalance,
     finalPortfolio: clonePortfolio(portfolio)
   };
 }
@@ -420,6 +442,7 @@ function simulateYear({
   annualInflationRate,
   lossCarryforward,
   rothBasisRemaining,
+  hsaQualifiedExpenseBalance = 0,
   magiHistory = []
 }) {
   // Accept either a number (legacy: treated as long-term) or
@@ -457,6 +480,13 @@ function simulateYear({
   const incomeCashAvailable = round(recurringEarnedIncome.cash + oneOffCashFlows.income, 6);
   let ordinaryIncome = dividends.ordinaryDividends + earnedIncome.ordinaryIncome + oneOffCashFlows.taxableOrdinaryIncome;
   let qualifiedDividends = dividends.qualifiedDividends;
+  const hsaContribution = hsaContributionForYear({
+    scenario,
+    age,
+    spouseAge,
+    inflationIndex
+  });
+  const adjustmentsToIncome = hsaContribution.amount;
   let strategyCapitalLosses = 0;
   let strategyShortTermLosses = 0;
   let strategyLongTermLosses = 0;
@@ -477,6 +507,18 @@ function simulateYear({
   strategyShortTermLosses += lossHarvest.shortTermLosses ?? 0;
   strategyLongTermLosses += lossHarvest.longTermLosses ?? 0;
   flows.push(...lossHarvest.flows);
+
+  const assetLocation = assetLocationStateForYear({
+    scenario,
+    portfolio,
+    calendarYear
+  });
+  strategyShortTermGains += assetLocation.shortTermCapitalGains;
+  strategyLongTermGains += assetLocation.longTermCapitalGains;
+  strategyCapitalLosses += assetLocation.capitalLosses;
+  strategyShortTermLosses += assetLocation.shortTermCapitalLosses;
+  strategyLongTermLosses += assetLocation.longTermCapitalLosses;
+  flows.push(...assetLocation.flows);
 
   const allocationStrategy = allocationStrategyStateForYear({
     scenario,
@@ -520,9 +562,17 @@ function simulateYear({
       taxProfile: yearTaxProfile,
       acaConfig: yearAcaConfig,
       ordinaryIncome,
+      earnedIncome,
+      ordinaryInvestmentIncome: dividends.ordinaryDividends,
       qualifiedDividends,
+      adjustmentsToIncome,
+      socialSecurityBenefits,
       age,
-      inflationIndex
+      spouseAge,
+      inflationIndex,
+      yearIndex,
+      magiHistory,
+      lossCarryforward
     }), calendarYear)
     : 0;
   ordinaryIncome += rothConversionAmount;
@@ -574,7 +624,8 @@ function simulateYear({
   for (let iteration = 0; iteration < MAX_FIXED_POINT_ITERATIONS; iteration += 1) {
     const cashRequired = plannedSpending
       + (scenario.targetSpendIncludesMedical ? 0 : medicalEstimate)
-      + (scenario.targetSpendIncludesTaxes ? 0 : taxEstimate);
+      + (scenario.targetSpendIncludesTaxes ? 0 : taxEstimate)
+      + hsaContribution.amount;
     const chosenPlan = chooseWithdrawalPlan({
       portfolio,
       amount: Math.max(0, cashRequired - dividends.cash - incomeCashAvailable - rmdWithdrawal.cashRaised - socialSecurityBenefits),
@@ -591,7 +642,12 @@ function simulateYear({
         returnAssumptions: scenario.returnAssumptions,
         optimizedLotSelection: isLifetimeOptimizerEnabled(scenario) || sequenceRiskReserve.enabled,
         sequenceRiskReserve,
-        allocationStrategy
+        allocationStrategy,
+        hsaQualifiedExpenseAvailable: hsaQualifiedExpenseAvailableForWithdrawal({
+          scenario,
+          hsaQualifiedExpenseBalance,
+          medicalEstimate
+        })
       },
       evaluationContext: {
         scenario,
@@ -603,6 +659,7 @@ function simulateYear({
         retirementOrdinaryIncome: rothConversionAmount,
         ordinaryInvestmentIncome: dividends.ordinaryDividends,
         qualifiedDividends,
+        adjustmentsToIncome,
         strategyShortTermGains,
         strategyLongTermGains,
         strategyCapitalLosses,
@@ -676,7 +733,8 @@ function simulateYear({
         withdrawal: finalWithdrawal,
         socialSecurityBenefits,
         taxProfile: yearTaxProfile,
-        scenario
+        scenario,
+        adjustmentsToIncome
       }).income),
       configuredMaxGain: strategyLimit({
         strategy: scenario.taxGainHarvesting,
@@ -686,8 +744,25 @@ function simulateYear({
       }),
       portfolio: finalPortfolio,
       scenario,
+      inflationIndex,
+      ordinaryIncome,
+      earnedIncome,
+      retirementOrdinaryIncome: rothConversionAmount,
+      ordinaryInvestmentIncome: dividends.ordinaryDividends,
+      qualifiedDividends,
+      adjustmentsToIncome,
+      strategyShortTermGains,
+      strategyLongTermGains,
+      strategyCapitalLosses,
+      strategyShortTermLosses,
+      strategyLongTermLosses,
+      withdrawal: finalWithdrawal,
+      socialSecurityBenefits,
+      lossCarryforward,
       age,
-      yearIndex
+      spouseAge,
+      yearIndex,
+      magiHistory
     });
     const gainHarvest = harvestTaxGains(finalPortfolio, gainHarvestLimit, { calendarYear });
     strategyLongTermGains += gainHarvest.realizedGains;
@@ -700,6 +775,7 @@ function simulateYear({
         retirementOrdinaryIncome: rothConversionAmount,
         ordinaryInvestmentIncome: dividends.ordinaryDividends,
         qualifiedDividends,
+        adjustmentsToIncome,
         strategyShortTermGains,
         strategyLongTermGains,
         strategyCapitalLosses,
@@ -752,12 +828,15 @@ function simulateYear({
     yearAcaConfig,
     inflationIndex,
     plannedSpending,
+    hsaContributionAmount: hsaContribution.amount,
     dividends,
     incomeCashAvailable,
     ordinaryIncome,
     earnedIncome,
     retirementOrdinaryIncome: rothConversionAmount,
+    ordinaryInvestmentIncome: dividends.ordinaryDividends,
     qualifiedDividends,
+    adjustmentsToIncome,
     strategyShortTermGains,
     strategyLongTermGains,
     strategyCapitalLosses,
@@ -765,6 +844,7 @@ function simulateYear({
     strategyLongTermLosses,
     lossCarryforward,
     socialSecurityBenefits,
+    hsaQualifiedExpenseBalance,
     age,
     spouseAge,
     yearIndex,
@@ -783,13 +863,15 @@ function simulateYear({
 
   const totalCashRequired = plannedSpending
     + (scenario.targetSpendIncludesMedical ? 0 : medicalEstimate)
-    + (scenario.targetSpendIncludesTaxes ? 0 : finalTaxes.totalTax);
+    + (scenario.targetSpendIncludesTaxes ? 0 : finalTaxes.totalTax)
+    + hsaContribution.amount;
   const { income: finalIncome, taxableSocialSecurity: reconciledTaxableSocialSecurity } = incomeForYear({
     ordinaryIncome,
     earnedIncome,
     retirementOrdinaryIncome: rothConversionAmount,
     ordinaryInvestmentIncome: dividends.ordinaryDividends,
     qualifiedDividends,
+    adjustmentsToIncome,
     strategyShortTermGains,
     strategyLongTermGains,
     strategyCapitalLosses,
@@ -831,9 +913,11 @@ function simulateYear({
     dividends,
     rothConversionAmount,
     withdrawal: finalWithdrawal,
+    hsaContribution,
     strategyShortTermGains,
     strategyLongTermGains,
     allocationStrategy,
+    assetLocation,
     taxableSocialSecurity: finalTaxableSocialSecurity
   });
   flows.push(...finalWithdrawal.flows);
@@ -876,6 +960,18 @@ function simulateYear({
   if (medicalEstimate > 0) {
     flows.push({ from: "Spending reserve", to: "Medical", amount: medicalEstimate, type: "medical" });
   }
+  if (hsaContribution.amount > 0) {
+    addHsaContributionLot(finalPortfolio, hsaContribution, {
+      calendarYear,
+      returnAssumptions: scenario.returnAssumptions
+    });
+    flows.push({
+      from: "Spending reserve",
+      to: "HSA contribution",
+      amount: hsaContribution.amount,
+      type: "contribution"
+    });
+  }
   if (plannedSpending > 0) {
     flows.push({ from: "Spending reserve", to: "Lifestyle and one-off spending", amount: plannedSpending, type: "spending" });
   }
@@ -893,6 +989,9 @@ function simulateYear({
 
   const cashShortfall = Math.max(0, totalCashRequired - cashAvailable);
   const unfunded = cashShortfall <= CASH_GAP_TOLERANCE ? 0 : cashShortfall;
+  const finalHsaQualifiedExpenseBalance = hsaStrategyConfig(scenario).useForQualifiedExpenses
+    ? round(Math.max(0, hsaQualifiedExpenseBalance + medicalEstimate - (finalWithdrawal.hsaProceeds ?? 0)), 6)
+    : hsaQualifiedExpenseBalance;
 
   return {
     year: calendarYear,
@@ -940,7 +1039,12 @@ function simulateYear({
     irmaaMagi: finalIrmaaMagi,
     magi: finalMagi,
     realizedLongTermGains: round(strategyLongTermGains + finalWithdrawal.longTermCapitalGains, 6),
-    taxGainHarvested: round(Math.max(0, strategyLongTermGains - allocationStrategy.longTermCapitalGains), 6),
+    taxGainHarvested: round(Math.max(
+      0,
+      strategyLongTermGains
+        - allocationStrategy.longTermCapitalGains
+        - assetLocation.longTermCapitalGains
+    ), 6),
     realizedShortTermGains: round(strategyShortTermGains + finalWithdrawal.shortTermCapitalGains, 6),
     realizedCapitalLosses: round(strategyCapitalLosses + finalWithdrawal.capitalLosses, 6),
     lossCarryforward: finalTaxes.lossCarryforward,
@@ -958,8 +1062,12 @@ function simulateYear({
     rothBasisRemaining: round(finalWithdrawal.rothBasisRemaining, 6),
     rothFiveYearRuleSatisfied: scenario.rothFiveYearRuleSatisfied !== false,
     rothBasisOptimization: finalRothBasisOptimization,
+    hsaContribution,
+    hsaWithdrawals: round(finalWithdrawal.hsaProceeds ?? 0, 6),
+    hsaQualifiedExpenseBalance: finalHsaQualifiedExpenseBalance,
     sequenceRiskReserve,
     allocationStrategy,
+    assetLocation,
     unfunded: round(unfunded, 6),
     flows: flows.filter((flow) => flow.amount > 0),
     sales: finalWithdrawal.sales,
@@ -981,19 +1089,23 @@ function reconcileCashRequirement({
   yearAcaConfig,
   inflationIndex,
   plannedSpending,
+  hsaContributionAmount = 0,
   dividends,
   incomeCashAvailable = 0,
   ordinaryIncome,
   earnedIncome = emptyEarnedIncome(),
   retirementOrdinaryIncome = 0,
-  qualifiedDividends,
+  ordinaryInvestmentIncome = 0,
+  qualifiedDividends = 0,
+  adjustmentsToIncome = 0,
   strategyShortTermGains = 0,
-  strategyLongTermGains,
-  strategyCapitalLosses,
+  strategyLongTermGains = 0,
+  strategyCapitalLosses = 0,
   strategyShortTermLosses = 0,
   strategyLongTermLosses = 0,
   lossCarryforward,
   socialSecurityBenefits,
+  hsaQualifiedExpenseBalance = 0,
   age,
   spouseAge,
   yearIndex,
@@ -1013,7 +1125,8 @@ function reconcileCashRequirement({
   for (let iteration = 0; iteration < 10; iteration += 1) {
     const totalCashRequired = plannedSpending
       + (scenario.targetSpendIncludesMedical ? 0 : currentMedicalEstimate)
-      + (scenario.targetSpendIncludesTaxes ? 0 : currentTaxes.totalTax);
+      + (scenario.targetSpendIncludesTaxes ? 0 : currentTaxes.totalTax)
+      + hsaContributionAmount;
     const cashAvailable = dividends.cash + incomeCashAvailable + socialSecurityBenefits + currentWithdrawal.cashRaised;
     const gap = totalCashRequired - cashAvailable;
     if (gap <= CASH_GAP_TOLERANCE) break;
@@ -1034,7 +1147,12 @@ function reconcileCashRequirement({
         returnAssumptions: scenario.returnAssumptions,
         optimizedLotSelection: isLifetimeOptimizerEnabled(scenario) || sequenceRiskReserve?.enabled,
         sequenceRiskReserve,
-        allocationStrategy
+        allocationStrategy,
+        hsaQualifiedExpenseAvailable: hsaQualifiedExpenseAvailableForWithdrawal({
+          scenario,
+          hsaQualifiedExpenseBalance,
+          medicalEstimate: currentMedicalEstimate
+        }) - (currentWithdrawal.hsaProceeds ?? 0)
       },
       evaluationContext: {
         scenario,
@@ -1044,8 +1162,9 @@ function reconcileCashRequirement({
         ordinaryIncome,
         earnedIncome,
         retirementOrdinaryIncome,
-        ordinaryInvestmentIncome: dividends.ordinaryDividends,
+        ordinaryInvestmentIncome,
         qualifiedDividends,
+        adjustmentsToIncome,
         strategyShortTermGains,
         strategyLongTermGains,
         strategyCapitalLosses,
@@ -1074,7 +1193,8 @@ function reconcileCashRequirement({
   for (let iteration = 0; iteration < 20; iteration += 1) {
     const totalCashRequired = plannedSpending
       + (scenario.targetSpendIncludesMedical ? 0 : currentMedicalEstimate)
-      + (scenario.targetSpendIncludesTaxes ? 0 : currentTaxes.totalTax);
+      + (scenario.targetSpendIncludesTaxes ? 0 : currentTaxes.totalTax)
+      + hsaContributionAmount;
     const cashAvailable = dividends.cash + incomeCashAvailable + socialSecurityBenefits + currentWithdrawal.cashRaised;
     const gap = totalCashRequired - cashAvailable;
     if (gap <= CASH_GAP_TOLERANCE) break;
@@ -1094,7 +1214,12 @@ function reconcileCashRequirement({
         penaltyExceptionRemaining: currentWithdrawal.penaltyExceptionRemaining,
         returnAssumptions: scenario.returnAssumptions,
         optimizedLotSelection: false,
-        maxRothProceeds: Infinity
+        maxRothProceeds: Infinity,
+        hsaQualifiedExpenseAvailable: hsaQualifiedExpenseAvailableForWithdrawal({
+          scenario,
+          hsaQualifiedExpenseBalance,
+          medicalEstimate: currentMedicalEstimate
+        }) - (currentWithdrawal.hsaProceeds ?? 0)
       },
       evaluationContext: {
         scenario,
@@ -1104,8 +1229,9 @@ function reconcileCashRequirement({
         ordinaryIncome,
         earnedIncome,
         retirementOrdinaryIncome,
-        ordinaryInvestmentIncome: dividends.ordinaryDividends,
+        ordinaryInvestmentIncome,
         qualifiedDividends,
+        adjustmentsToIncome,
         strategyShortTermGains,
         strategyLongTermGains,
         strategyCapitalLosses,
@@ -1510,10 +1636,11 @@ function evaluateWithdrawalState({
   earnedIncome = emptyEarnedIncome(),
   retirementOrdinaryIncome = 0,
   ordinaryInvestmentIncome = 0,
-  qualifiedDividends,
+  qualifiedDividends = 0,
+  adjustmentsToIncome = 0,
   strategyShortTermGains = 0,
-  strategyLongTermGains,
-  strategyCapitalLosses,
+  strategyLongTermGains = 0,
+  strategyCapitalLosses = 0,
   strategyShortTermLosses = 0,
   strategyLongTermLosses = 0,
   lossCarryforward,
@@ -1530,6 +1657,7 @@ function evaluateWithdrawalState({
     retirementOrdinaryIncome,
     ordinaryInvestmentIncome,
     qualifiedDividends,
+    adjustmentsToIncome,
     strategyShortTermGains,
     strategyLongTermGains,
     strategyCapitalLosses,
@@ -1672,6 +1800,235 @@ function reserveAssetValue(portfolio = [], assetClasses = []) {
   return round(portfolio
     .filter((asset) => reserveClasses.has(asset.assetClass))
     .reduce((total, asset) => total + marketValue(asset), 0), 6);
+}
+
+function hsaStrategyConfig(scenario) {
+  const config = scenario.taxEfficiencyStrategy ?? {};
+  const contribution = optionalFiniteNumber(config.hsaAnnualContribution);
+  return {
+    marginalRateOptimizationEnabled: config.marginalRateOptimizationEnabled !== false,
+    assetLocationEnabled: config.assetLocationEnabled === true,
+    hsaContributionEnabled: config.hsaContributionEnabled === true,
+    hsaCoverage: ["auto", "self", "family"].includes(config.hsaCoverage) ? config.hsaCoverage : "auto",
+    hsaAnnualContribution: contribution,
+    hsaContributionInflationAdjusted: config.hsaContributionInflationAdjusted !== false,
+    hsaCatchUpEnabled: config.hsaCatchUpEnabled !== false,
+    hsaInvestmentAssetClass: GROWTH_ASSET_CLASSES.includes(config.hsaInvestmentAssetClass)
+      || DEFENSIVE_ASSET_CLASSES.includes(config.hsaInvestmentAssetClass)
+      ? config.hsaInvestmentAssetClass
+      : "stock",
+    useForQualifiedExpenses: config.hsaUseForQualifiedExpenses === true || config.hsaContributionEnabled === true,
+    startingQualifiedExpenseBalance: Math.max(0, Number(config.startingHsaQualifiedExpenseBalance) || 0)
+  };
+}
+
+function hsaContributionForYear({ scenario, age, spouseAge, inflationIndex }) {
+  const config = hsaStrategyConfig(scenario);
+  if (!config.hsaContributionEnabled || age >= 65) {
+    return emptyHsaContribution(config);
+  }
+
+  const coverage = config.hsaCoverage === "auto"
+    ? (Number(scenario.aca?.marketplaceMembers) || 1) > 1 ? "family" : "self"
+    : config.hsaCoverage;
+  const baseLimit = coverage === "family" ? HSA_LIMITS_2026.family : HSA_LIMITS_2026.selfOnly;
+  const catchUp = config.hsaCatchUpEnabled
+    ? (age >= 55 && age < 65 ? HSA_LIMITS_2026.catchUp55 : 0)
+      + (coverage === "family" && Number.isFinite(spouseAge) && spouseAge >= 55 && spouseAge < 65
+        ? HSA_LIMITS_2026.catchUp55
+        : 0)
+    : 0;
+  const automaticLimit = baseLimit + catchUp;
+  const requested = config.hsaAnnualContribution == null
+    ? automaticLimit
+    : Math.min(config.hsaAnnualContribution, automaticLimit);
+  const index = config.hsaContributionInflationAdjusted ? inflationIndex : 1;
+  const amount = round(Math.max(0, requested) * Math.max(0, index), 6);
+
+  return {
+    enabled: true,
+    amount,
+    coverage,
+    baseLimit: round(baseLimit * Math.max(0, index), 6),
+    catchUpLimit: round(catchUp * Math.max(0, index), 6),
+    assetClass: config.hsaInvestmentAssetClass
+  };
+}
+
+function emptyHsaContribution(config = hsaStrategyConfig({})) {
+  return {
+    enabled: false,
+    amount: 0,
+    coverage: config.hsaCoverage ?? "auto",
+    baseLimit: 0,
+    catchUpLimit: 0,
+    assetClass: config.hsaInvestmentAssetClass ?? "stock"
+  };
+}
+
+function hsaQualifiedExpenseAvailableForWithdrawal({ scenario, hsaQualifiedExpenseBalance = 0, medicalEstimate = 0 }) {
+  const config = hsaStrategyConfig(scenario);
+  if (!config.useForQualifiedExpenses) return Infinity;
+  return round(Math.max(0, hsaQualifiedExpenseBalance + Math.max(0, medicalEstimate)), 6);
+}
+
+function addHsaContributionLot(portfolio, contribution, { calendarYear = null, returnAssumptions = {} } = {}) {
+  const amount = Math.max(0, contribution?.amount ?? 0);
+  if (amount <= CASH_RAISED_EPSILON) return;
+
+  const assetClass = contribution.assetClass ?? "stock";
+  const template = portfolio.find((asset) => (
+    asset.accountType === "hsa"
+    && asset.assetClass === assetClass
+    && marketValue(asset) > CASH_RAISED_EPSILON
+  ));
+  const price = Math.max(CASH_RAISED_EPSILON, Number(template?.price) || 1);
+  portfolio.push({
+    id: `hsa-contribution-${calendarYear ?? "na"}-${portfolio.length + 1}`,
+    name: `${assetClassLabel(assetClass)} HSA contribution`,
+    accountType: "hsa",
+    assetClass,
+    units: round(amount / price, 8),
+    price: round(price, 8),
+    costBasisPerUnit: round(price, 8),
+    holdingPeriod: "long",
+    expectedReturn: Number.isFinite(Number(template?.expectedReturn))
+      ? Number(template.expectedReturn)
+      : expectedReturnForAsset({ assetClass }, returnAssumptions),
+    ...(Number.isFinite(Number(template?.dividendYield)) ? { dividendYield: Number(template.dividendYield) } : {}),
+    ...(Number.isFinite(Number(template?.qualifiedDividendShare))
+      ? { qualifiedDividendShare: Number(template.qualifiedDividendShare) }
+      : {})
+  });
+}
+
+function assetLocationStateForYear({ scenario, portfolio, calendarYear }) {
+  const config = hsaStrategyConfig(scenario);
+  if (!config.assetLocationEnabled) return emptyAssetLocationResult();
+  return applyTaxEfficientAssetLocation(portfolio, { calendarYear });
+}
+
+function emptyAssetLocationResult() {
+  return {
+    enabled: false,
+    relocatedAmount: 0,
+    shortTermCapitalGains: 0,
+    longTermCapitalGains: 0,
+    capitalLosses: 0,
+    shortTermCapitalLosses: 0,
+    longTermCapitalLosses: 0,
+    sales: [],
+    flows: []
+  };
+}
+
+function applyTaxEfficientAssetLocation(portfolio, { calendarYear = null } = {}) {
+  const result = { ...emptyAssetLocationResult(), enabled: true };
+  let guard = 0;
+
+  while (guard < 50) {
+    guard += 1;
+    const taxableIncomeAsset = portfolio
+      .filter((asset) => (
+        asset.accountType === "taxable"
+        && ["bond", "tips"].includes(asset.assetClass)
+        && marketValue(asset) > CASH_RAISED_EPSILON
+      ))
+      .sort(assetLocationTaxableIncomeSort)[0];
+    const traditionalGrowthAsset = portfolio
+      .filter((asset) => (
+        asset.accountType === "traditional"
+        && GROWTH_ASSET_CLASSES.includes(asset.assetClass)
+        && marketValue(asset) > CASH_RAISED_EPSILON
+      ))
+      .sort((a, b) => expectedReturnForAsset(b) - expectedReturnForAsset(a))[0];
+
+    if (!taxableIncomeAsset || !traditionalGrowthAsset) break;
+    const amount = Math.min(marketValue(taxableIncomeAsset), marketValue(traditionalGrowthAsset));
+    if (amount <= CASH_RAISED_EPSILON) break;
+
+    const taxableSale = sellFromLot(taxableIncomeAsset, amount);
+    const shelteredSale = sellFromLot(traditionalGrowthAsset, amount);
+    const swapAmount = Math.min(taxableSale.proceeds, shelteredSale.proceeds);
+    if (swapAmount <= CASH_RAISED_EPSILON) break;
+
+    result.relocatedAmount += swapAmount;
+    result.sales.push(taxableSale, shelteredSale);
+    applyRebalanceTaxCharacter(result, taxableSale);
+    addReplacementLot(portfolio, {
+      accountType: "taxable",
+      assetClass: shelteredSale.assetClass,
+      amount: swapAmount,
+      source: traditionalGrowthAsset,
+      calendarYear,
+      label: "asset location"
+    });
+    addReplacementLot(portfolio, {
+      accountType: "traditional",
+      assetClass: taxableSale.assetClass,
+      amount: swapAmount,
+      source: taxableIncomeAsset,
+      calendarYear,
+      label: "asset location"
+    });
+    result.flows.push({
+      from: taxableSale.name ?? taxableSale.assetId,
+      to: "Asset location swap",
+      amount: round(swapAmount, 6),
+      type: "rebalance"
+    });
+    result.flows.push({
+      from: "Asset location swap",
+      to: `${accountLabel("taxable")} ${assetClassLabel(shelteredSale.assetClass)}`,
+      amount: round(swapAmount, 6),
+      type: "rebalance"
+    });
+  }
+
+  result.relocatedAmount = round(result.relocatedAmount, 6);
+  result.shortTermCapitalGains = round(result.shortTermCapitalGains, 6);
+  result.longTermCapitalGains = round(result.longTermCapitalGains, 6);
+  result.capitalLosses = round(result.capitalLosses, 6);
+  result.shortTermCapitalLosses = round(result.shortTermCapitalLosses, 6);
+  result.longTermCapitalLosses = round(result.longTermCapitalLosses, 6);
+  removeEmptyLots(portfolio);
+  return result;
+}
+
+function assetLocationTaxableIncomeSort(a, b) {
+  const aIncome = Number(a.dividendYield) || 0;
+  const bIncome = Number(b.dividendYield) || 0;
+  if (aIncome !== bIncome) return bIncome - aIncome;
+  return embeddedGainRatio(a) - embeddedGainRatio(b);
+}
+
+function addReplacementLot(portfolio, {
+  accountType,
+  assetClass,
+  amount,
+  source = {},
+  calendarYear = null,
+  label = "replacement"
+}) {
+  const price = Math.max(CASH_RAISED_EPSILON, Number(source.price) || 1);
+  portfolio.push({
+    id: `${label.replace(/\s+/g, "-")}-${calendarYear ?? "na"}-${accountType}-${assetClass}-${portfolio.length + 1}`,
+    name: `${assetClassLabel(assetClass)} ${label}`,
+    accountType,
+    assetClass,
+    units: round(amount / price, 8),
+    price: round(price, 8),
+    costBasisPerUnit: round(price, 8),
+    holdingPeriod: accountType === "taxable" ? "short" : "long",
+    ...(accountType === "taxable" && Number.isFinite(calendarYear)
+      ? { holdingPeriodResetCalendarYear: calendarYear }
+      : {}),
+    ...(Number.isFinite(Number(source.expectedReturn)) ? { expectedReturn: Number(source.expectedReturn) } : {}),
+    ...(Number.isFinite(Number(source.dividendYield)) ? { dividendYield: Number(source.dividendYield) } : {}),
+    ...(Number.isFinite(Number(source.qualifiedDividendShare))
+      ? { qualifiedDividendShare: Number(source.qualifiedDividendShare) }
+      : {})
+  });
 }
 
 function allocationStrategyConfig(scenario, yearIndex = 0) {
@@ -1901,7 +2258,9 @@ function assetClassLabel(assetClass) {
     stock: "Stock",
     bond: "Bond",
     cash: "Cash",
-    tips: "TIPS"
+    tips: "TIPS",
+    realEstate: "Real estate",
+    crypto: "Crypto"
   }[assetClass] ?? "Allocation";
 }
 
@@ -2031,6 +2390,8 @@ function mergeWithdrawals(base, addition) {
     rothProceeds: round((base.rothProceeds ?? 0) + (addition.rothProceeds ?? 0), 6),
     rothBasisUsed: round(base.rothBasisUsed + addition.rothBasisUsed, 6),
     rothBasisRemaining: addition.rothBasisRemaining,
+    hsaProceeds: round((base.hsaProceeds ?? 0) + (addition.hsaProceeds ?? 0), 6),
+    hsaQualifiedExpenseUsed: round((base.hsaQualifiedExpenseUsed ?? 0) + (addition.hsaQualifiedExpenseUsed ?? 0), 6),
     saleOpportunityCost: round((base.saleOpportunityCost ?? 0) + (addition.saleOpportunityCost ?? 0), 6),
     sales: [...base.sales, ...addition.sales],
     flows: [...base.flows, ...addition.flows]
@@ -2053,6 +2414,8 @@ function emptyWithdrawal(rothBasisRemaining = 0, penaltyExceptionRemaining = 0) 
     rothProceeds: 0,
     rothBasisUsed: 0,
     rothBasisRemaining: round(Math.max(0, rothBasisRemaining), 6),
+    hsaProceeds: 0,
+    hsaQualifiedExpenseUsed: 0,
     saleOpportunityCost: 0,
     sales: [],
     flows: []
@@ -2076,6 +2439,9 @@ function withdrawForCash(portfolio, amount, withdrawalOrder = [], context = {}) 
   const maxRothProceeds = Number.isFinite(Number(context.maxRothProceeds))
     ? Math.max(0, Number(context.maxRothProceeds))
     : Infinity;
+  const maxHsaProceeds = Number.isFinite(Number(context.hsaQualifiedExpenseAvailable))
+    ? Math.max(0, Number(context.hsaQualifiedExpenseAvailable))
+    : Infinity;
   const isEarly = age < penaltyAge;
   const result = {
     cashRaised: 0,
@@ -2092,6 +2458,8 @@ function withdrawForCash(portfolio, amount, withdrawalOrder = [], context = {}) 
     rothProceeds: 0,
     rothBasisUsed: 0,
     rothBasisRemaining,
+    hsaProceeds: 0,
+    hsaQualifiedExpenseUsed: 0,
     saleOpportunityCost: 0,
     sales: [],
     flows: []
@@ -2110,6 +2478,10 @@ function withdrawForCash(portfolio, amount, withdrawalOrder = [], context = {}) 
         const rothRoom = maxRothProceeds - result.rothProceeds;
         if (rothRoom <= 0.000001) break;
         requestedSale = Math.min(requestedSale, rothRoom);
+      } else if (accountType === "hsa") {
+        const hsaRoom = maxHsaProceeds - result.hsaProceeds;
+        if (hsaRoom <= 0.000001) break;
+        requestedSale = Math.min(requestedSale, hsaRoom);
       }
       const sale = sellFromLot(asset, requestedSale);
       if (sale.proceeds <= 0) continue;
@@ -2120,6 +2492,12 @@ function withdrawForCash(portfolio, amount, withdrawalOrder = [], context = {}) 
       sale.opportunityCost = round(Math.max(0, sale.proceeds * Math.max(0, sale.expectedReturn ?? 0)), 6);
       result.saleOpportunityCost += sale.opportunityCost;
       if (sale.accountType === "roth") result.rothProceeds += sale.proceeds;
+      if (sale.accountType === "hsa") {
+        const qualified = Math.min(sale.proceeds, Math.max(0, maxHsaProceeds - result.hsaQualifiedExpenseUsed));
+        sale.hsaQualifiedExpenseUsed = round(qualified, 6);
+        result.hsaProceeds += sale.proceeds;
+        result.hsaQualifiedExpenseUsed += qualified;
+      }
       applyRetirementDistributionTax(sale, {
         result,
         isEarly,
@@ -2179,6 +2557,8 @@ function withdrawForCash(portfolio, amount, withdrawalOrder = [], context = {}) 
   result.rothProceeds = round(result.rothProceeds, 6);
   result.rothBasisUsed = round(result.rothBasisUsed, 6);
   result.rothBasisRemaining = round(rothBasisRemaining, 6);
+  result.hsaProceeds = round(result.hsaProceeds, 6);
+  result.hsaQualifiedExpenseUsed = round(result.hsaQualifiedExpenseUsed, 6);
   result.saleOpportunityCost = round(result.saleOpportunityCost, 6);
   return result;
 }
@@ -2317,6 +2697,7 @@ function combineIncome({
   retirementOrdinaryIncome = 0,
   ordinaryInvestmentIncome = 0,
   qualifiedDividends,
+  adjustmentsToIncome = 0,
   strategyShortTermGains = 0,
   strategyLongTermGains,
   strategyCapitalLosses,
@@ -2332,6 +2713,7 @@ function combineIncome({
     ordinaryIncome: ordinaryIncome + withdrawal.ordinaryIncome + taxableSocialSecurityAmount,
     retirementOrdinaryIncome: Math.max(0, retirementOrdinaryIncome) + withdrawal.ordinaryIncome,
     ordinaryInvestmentIncome,
+    adjustmentsToIncome: Math.max(0, adjustmentsToIncome),
     medicareWages: earnedIncome.medicareWages,
     selfEmploymentIncome: earnedIncome.selfEmploymentIncome,
     rrtaCompensation: earnedIncome.rrtaCompensation,
@@ -2352,6 +2734,7 @@ function incomeForYear({
   retirementOrdinaryIncome = 0,
   ordinaryInvestmentIncome = 0,
   qualifiedDividends,
+  adjustmentsToIncome = 0,
   strategyShortTermGains = 0,
   strategyLongTermGains,
   strategyCapitalLosses,
@@ -2368,6 +2751,7 @@ function incomeForYear({
     ordinaryInvestmentIncome,
     earnedIncome,
     qualifiedDividends,
+    adjustmentsToIncome,
     strategyShortTermGains,
     strategyLongTermGains,
     strategyCapitalLosses,
@@ -2392,6 +2776,7 @@ function incomeForYear({
       ordinaryInvestmentIncome,
       earnedIncome,
       qualifiedDividends,
+      adjustmentsToIncome,
       strategyShortTermGains,
       strategyLongTermGains,
       strategyCapitalLosses,
@@ -2410,6 +2795,7 @@ function federalAgiForIncome(income) {
     + Math.max(0, income.shortTermCapitalGains)
     + Math.max(0, income.longTermCapitalGains)
     + Math.max(0, income.qualifiedDividends)
+    - Math.max(0, income.adjustmentsToIncome ?? 0)
   );
 }
 
@@ -2838,9 +3224,11 @@ function estimateTaxAttribution({
   dividends,
   rothConversionAmount,
   withdrawal,
+  hsaContribution = emptyHsaContribution(),
   strategyShortTermGains = 0,
-  strategyLongTermGains,
+  strategyLongTermGains = 0,
   allocationStrategy = emptyRebalanceResult(),
+  assetLocation = emptyAssetLocationResult(),
   taxableSocialSecurity = 0
 }) {
   const totalTax = Math.max(0, finalTaxes.incomeTax ?? (finalTaxes.totalTax - (finalTaxes.penaltyTax ?? 0)));
@@ -2859,6 +3247,7 @@ function estimateTaxAttribution({
       ordinaryIncome: Math.max(0, income.ordinaryIncome - (adjustments.ordinaryIncome ?? 0)),
       retirementOrdinaryIncome: Math.max(0, (income.retirementOrdinaryIncome ?? 0) - (adjustments.retirementOrdinaryIncome ?? 0)),
       ordinaryInvestmentIncome: Math.max(0, income.ordinaryInvestmentIncome - (adjustments.ordinaryInvestmentIncome ?? 0)),
+      adjustmentsToIncome: Math.max(0, (income.adjustmentsToIncome ?? 0) - (adjustments.adjustmentsToIncome ?? 0)),
       medicareWages: Math.max(0, (income.medicareWages ?? 0) - (adjustments.medicareWages ?? 0)),
       selfEmploymentIncome: Math.max(0, (income.selfEmploymentIncome ?? 0) - (adjustments.selfEmploymentIncome ?? 0)),
       rrtaCompensation: Math.max(0, (income.rrtaCompensation ?? 0) - (adjustments.rrtaCompensation ?? 0)),
@@ -2901,6 +3290,9 @@ function estimateTaxAttribution({
     ordinaryIncome: rothConversionAmount,
     retirementOrdinaryIncome: rothConversionAmount
   });
+  addSource("HSA contribution deduction", {
+    adjustmentsToIncome: hsaContribution.amount ?? 0
+  });
   addSource("Traditional withdrawals", {
     ordinaryIncome: traditionalOrdinaryIncome,
     retirementOrdinaryIncome: traditionalOrdinaryIncome
@@ -2919,8 +3311,17 @@ function estimateTaxAttribution({
     shortTermCapitalGains: allocationStrategy.shortTermCapitalGains ?? strategyShortTermGains,
     longTermCapitalGains: allocationStrategy.longTermCapitalGains ?? 0
   });
+  addSource("Asset location", {
+    shortTermCapitalGains: assetLocation.shortTermCapitalGains ?? 0,
+    longTermCapitalGains: assetLocation.longTermCapitalGains ?? 0
+  });
   addSource("Tax gain harvesting", {
-    longTermCapitalGains: Math.max(0, strategyLongTermGains - (allocationStrategy.longTermCapitalGains ?? 0))
+    longTermCapitalGains: Math.max(
+      0,
+      strategyLongTermGains
+        - (allocationStrategy.longTermCapitalGains ?? 0)
+        - (assetLocation.longTermCapitalGains ?? 0)
+    )
   });
 
   const deltaTotal = sources.reduce((total, item) => total + item.delta, 0);
@@ -2951,7 +3352,25 @@ function gainHarvestingRoom({
   currentMagi = 0,
   portfolio = [],
   scenario = {},
-  age = null
+  age = null,
+  inflationIndex = 1,
+  ordinaryIncome = 0,
+  earnedIncome = emptyEarnedIncome(),
+  retirementOrdinaryIncome = 0,
+  ordinaryInvestmentIncome = 0,
+  qualifiedDividends = 0,
+  adjustmentsToIncome = 0,
+  strategyShortTermGains = 0,
+  strategyLongTermGains = 0,
+  strategyCapitalLosses = 0,
+  strategyShortTermLosses = 0,
+  strategyLongTermLosses = 0,
+  withdrawal = emptyWithdrawal(),
+  socialSecurityBenefits = 0,
+  lossCarryforward = { shortTerm: 0, longTerm: 0 },
+  spouseAge = null,
+  yearIndex = 0,
+  magiHistory = []
 } = {}) {
   const zeroBracket = taxProfile.capitalGainsBrackets?.find((bracket) => bracket.rate === 0);
   if (!zeroBracket) return 0;
@@ -3003,6 +3422,42 @@ function gainHarvestingRoom({
     ? Math.max(0, niitThreshold - currentMagi)
     : Infinity;
   const embeddedGains = embeddedTaxableGains(portfolio);
+  if (hsaStrategyConfig(scenario).marginalRateOptimizationEnabled && isLifetimeOptimizerEnabled(scenario)) {
+    const marginalRoom = marginalIncomeRoom({
+      kind: "longTermGains",
+      scenario,
+      taxProfile,
+      acaConfig,
+      inflationIndex,
+      targetRate: futureRate,
+      maxAmount: Math.min(
+        configuredMaxGain ?? Infinity,
+        federalFifteenRoom,
+        optimizedAcaRoom,
+        niitRoom,
+        embeddedGains
+      ),
+      ordinaryIncome,
+      earnedIncome,
+      retirementOrdinaryIncome,
+      ordinaryInvestmentIncome,
+      qualifiedDividends,
+      adjustmentsToIncome,
+      strategyShortTermGains,
+      strategyLongTermGains,
+      strategyCapitalLosses,
+      strategyShortTermLosses,
+      strategyLongTermLosses,
+      withdrawal,
+      socialSecurityBenefits,
+      lossCarryforward,
+      age,
+      spouseAge,
+      yearIndex,
+      magiHistory
+    });
+    return round(Math.max(currentRoom, marginalRoom), 6);
+  }
   const optimizedRoom = Math.max(0, Math.min(
     configuredMaxGain ?? Infinity,
     federalFifteenRoom,
@@ -3032,8 +3487,199 @@ function estimatedFutureCapitalGainRate({ taxProfile, scenario, portfolio }) {
   return Math.max(0, maxFederalPreferentialRate + (rmdPressure ? niitRate : niitRate / 2) + stateRate);
 }
 
+function estimatedFutureOrdinaryIncomeRate({ portfolio, scenario, age, taxProfile, ordinaryIncome = 0 }) {
+  const federalTarget = effectiveRothConversionTargetRate({
+    portfolio,
+    scenario,
+    age,
+    taxProfile,
+    ordinaryIncome
+  });
+  return Math.max(0, federalTarget + approximateStateMarginalRate({ taxProfile, ordinaryIncome }));
+}
+
+function marginalIncomeRoom({
+  kind,
+  scenario,
+  taxProfile,
+  acaConfig,
+  inflationIndex = 1,
+  targetRate = 0,
+  maxAmount = 0,
+  ordinaryIncome = 0,
+  earnedIncome = emptyEarnedIncome(),
+  retirementOrdinaryIncome = 0,
+  ordinaryInvestmentIncome = 0,
+  qualifiedDividends = 0,
+  adjustmentsToIncome = 0,
+  strategyShortTermGains = 0,
+  strategyLongTermGains = 0,
+  strategyCapitalLosses = 0,
+  strategyShortTermLosses = 0,
+  strategyLongTermLosses = 0,
+  withdrawal = emptyWithdrawal(),
+  socialSecurityBenefits = 0,
+  lossCarryforward = { shortTerm: 0, longTerm: 0 },
+  age = null,
+  spouseAge = null,
+  yearIndex = 0,
+  magiHistory = []
+}) {
+  const cap = Math.max(0, Number(maxAmount) || 0);
+  if (cap <= CASH_RAISED_EPSILON) return 0;
+
+  const costFor = (additionalIncome) => {
+    const extra = Math.max(0, additionalIncome);
+    const { income } = incomeForYear({
+      ordinaryIncome: ordinaryIncome + (kind === "ordinary" ? extra : 0),
+      earnedIncome,
+      retirementOrdinaryIncome: retirementOrdinaryIncome + (kind === "ordinary" ? extra : 0),
+      ordinaryInvestmentIncome,
+      qualifiedDividends,
+      adjustmentsToIncome,
+      strategyShortTermGains,
+      strategyLongTermGains: strategyLongTermGains + (kind === "longTermGains" ? extra : 0),
+      strategyCapitalLosses,
+      strategyShortTermLosses,
+      strategyLongTermLosses,
+      withdrawal,
+      socialSecurityBenefits,
+      taxProfile,
+      scenario
+    });
+    const taxes = computeIncomeTax({
+      ...income,
+      capitalLossCarryforward: lossCarryforward,
+      profile: taxProfile
+    });
+    const acaMagi = acaMagiForIncome(income);
+    const irmaaMagi = irmaaMagiForIncome(income);
+    const aca = computeAca({ magi: acaMagi, config: acaConfig });
+    const medical = medicalCostForYear({
+      scenario,
+      aca,
+      yearAcaConfig: acaConfig,
+      inflationIndex,
+      age: age ?? 99,
+      spouseAge,
+      yearIndex,
+      filingStatus: taxProfile.filingStatus,
+      irmaaMagi,
+      magiHistory
+    });
+    return {
+      cost: round(taxes.totalTax + medical.total, 6),
+      taxes,
+      income,
+      acaMagi,
+      irmaaMagi
+    };
+  };
+
+  const base = costFor(0);
+  const points = marginalIncomeCandidateAmounts({
+    kind,
+    maxAmount: cap,
+    taxProfile,
+    acaConfig,
+    scenario,
+    base,
+    inflationIndex,
+    socialSecurityBenefits
+  });
+  const tolerance = Math.max(0, targetRate) + 0.0001;
+  let admitted = 0;
+  let previousAmount = 0;
+  let previousCost = base.cost;
+
+  for (const amount of points) {
+    if (amount <= previousAmount + CASH_RAISED_EPSILON) continue;
+    const next = costFor(amount);
+    const segmentRate = (next.cost - previousCost) / (amount - previousAmount);
+    const cumulativeRate = (next.cost - base.cost) / amount;
+    if (segmentRate <= tolerance || cumulativeRate <= tolerance) {
+      admitted = amount;
+      previousAmount = amount;
+      previousCost = next.cost;
+      continue;
+    }
+    break;
+  }
+
+  return round(admitted, 6);
+}
+
+function marginalIncomeCandidateAmounts({
+  kind,
+  maxAmount,
+  taxProfile,
+  acaConfig,
+  scenario,
+  base,
+  inflationIndex = 1,
+  socialSecurityBenefits = 0
+}) {
+  const points = new Set([round(maxAmount, 6)]);
+  const addPoint = (amount) => {
+    if (Number.isFinite(amount) && amount > CASH_RAISED_EPSILON && amount <= maxAmount + CASH_RAISED_EPSILON) {
+      points.add(round(Math.min(maxAmount, amount), 6));
+    }
+  };
+
+  if (kind === "ordinary") {
+    for (const bracket of taxProfile.ordinaryBrackets ?? []) {
+      if (Number.isFinite(bracket.upTo)) {
+        addPoint(bracket.upTo + (taxProfile.standardDeduction ?? 0) + (taxProfile.additionalDeduction ?? 0) - base.taxes.taxableOrdinaryIncome);
+      }
+    }
+  } else {
+    const stacked = base.taxes.taxableOrdinaryIncome + base.taxes.taxablePreferentialIncome;
+    for (const bracket of taxProfile.capitalGainsBrackets ?? []) {
+      if (Number.isFinite(bracket.upTo)) addPoint(bracket.upTo - stacked);
+    }
+  }
+
+  if (acaConfig?.enabled && acaConfig.fpl > 0) {
+    for (const row of acaConfig.applicablePercentageTable ?? []) {
+      addPoint(acaConfig.fpl * (row.maxFplPercent ?? 0) / 100 - base.acaMagi);
+    }
+    addPoint(acaConfig.fpl * ((acaConfig.maxEligibleFplPercent ?? 400) / 100) - base.acaMagi);
+  }
+
+  const niitThreshold = taxProfile.niit?.thresholds?.[taxProfile.filingStatus];
+  if (Number.isFinite(niitThreshold)) addPoint(niitThreshold - base.irmaaMagi);
+
+  const ssConfig = taxProfile.socialSecurityTaxation ?? {};
+  const benefits = Math.max(
+    0,
+    Number(socialSecurityBenefits) || Number(scenario.socialSecurityAnnualBenefit) || 0
+  );
+  if (benefits > 0) {
+    const otherIncome = base.irmaaMagi - Math.max(0, base.income.taxableSocialSecurity ?? 0);
+    addPoint((ssConfig.baseAmounts?.[taxProfile.filingStatus] ?? 25000) - (benefits * 0.5) - otherIncome);
+    addPoint((ssConfig.adjustedBaseAmounts?.[taxProfile.filingStatus] ?? 34000) - (benefits * 0.5) - otherIncome);
+  }
+
+  const irmaaConfig = getMedicareIrmaaConfig({ taxYear: scenario.taxYear, inflationIndex });
+  const key = medicareIrmaaBracketKey({
+    filingStatus: taxProfile.filingStatus,
+    marriedFilingSeparatelyLivedTogether: scenario.medicare?.marriedFilingSeparatelyLivedTogether
+  });
+  for (const bracket of irmaaConfig.brackets?.[key] ?? []) {
+    if (Number.isFinite(bracket.upTo)) addPoint(bracket.upTo - base.irmaaMagi);
+  }
+
+  return [...points].sort((a, b) => a - b);
+}
+
 function topBracketRate(brackets = []) {
   return Math.max(0, ...brackets.map((bracket) => bracket.rate ?? 0).filter(Number.isFinite));
+}
+
+function finiteRoom(value) {
+  const number = Number(value);
+  if (Number.isNaN(number)) return Infinity;
+  return Number.isFinite(number) ? Math.max(0, number) : Infinity;
 }
 
 function strategyLimit({ strategy, autoValue, legacyField, overrideField }) {
@@ -3055,9 +3701,17 @@ function rothConversionAmountForYear({
   taxProfile,
   acaConfig,
   ordinaryIncome,
-  qualifiedDividends,
+  earnedIncome = emptyEarnedIncome(),
+  ordinaryInvestmentIncome = 0,
+  qualifiedDividends = 0,
+  adjustmentsToIncome = 0,
+  socialSecurityBenefits = 0,
   age = null,
-  inflationIndex = 1
+  spouseAge = null,
+  inflationIndex = 1,
+  yearIndex = 0,
+  magiHistory = [],
+  lossCarryforward = { shortTerm: 0, longTerm: 0 }
 }) {
   const requested = scenario.rothConversion?.overrideAmount != null
     && Number.isFinite(Number(scenario.rothConversion.overrideAmount))
@@ -3075,9 +3729,87 @@ function rothConversionAmountForYear({
     taxProfile,
     ordinaryIncome
   });
+  if (hsaStrategyConfig(scenario).marginalRateOptimizationEnabled && isLifetimeOptimizerEnabled(scenario)) {
+    const maxTraditional = traditionalAccountValue(portfolio);
+    const { income } = incomeForYear({
+      ordinaryIncome,
+      earnedIncome,
+      retirementOrdinaryIncome: 0,
+      ordinaryInvestmentIncome,
+      qualifiedDividends,
+      adjustmentsToIncome,
+      withdrawal: emptyWithdrawal(),
+      socialSecurityBenefits,
+      taxProfile,
+      scenario
+    });
+    const magiBeforeConversion = acaMagiForIncome(income);
+    const acaTarget = scenario.rothConversion?.optimizeForAca === false
+      ? { amount: Infinity }
+      : acaMagiCeiling({
+          acaConfig,
+          currentMagi: magiBeforeConversion,
+          maxFplPercent: scenario.rothConversion?.maxAcaFplPercent ?? 400,
+          targetRate
+        });
+    const acaRoom = acaConfig?.enabled
+      ? Math.max(0, acaTarget.amount - magiBeforeConversion)
+      : Infinity;
+    const irmaaRoom = irmaaMagiRoomForConversion({
+      scenario,
+      taxProfile,
+      age,
+      inflationIndex,
+      magiBeforeConversion: irmaaMagiForIncome(income),
+      targetRate
+    });
+    const marginalRoom = marginalIncomeRoom({
+      kind: "ordinary",
+      scenario,
+      taxProfile,
+      acaConfig: scenario.rothConversion?.optimizeForAca === false
+        ? { ...acaConfig, enabled: false }
+        : acaConfig,
+      inflationIndex,
+      targetRate: estimatedFutureOrdinaryIncomeRate({
+        portfolio,
+        scenario,
+        age,
+        taxProfile,
+        ordinaryIncome
+      }),
+      maxAmount: Math.min(maxTraditional, acaRoom, irmaaRoom),
+      ordinaryIncome,
+      earnedIncome,
+      retirementOrdinaryIncome: 0,
+      ordinaryInvestmentIncome,
+      qualifiedDividends,
+      adjustmentsToIncome,
+      withdrawal: emptyWithdrawal(),
+      socialSecurityBenefits,
+      lossCarryforward,
+      age,
+      spouseAge,
+      yearIndex,
+      magiHistory
+    });
+    return round(Math.min(marginalRoom, irmaaRoom, maxTraditional), 6);
+  }
   const targetCeiling = bracketCeilingForRate(taxProfile.ordinaryBrackets, targetRate);
   const federalRoom = Math.max(0, targetCeiling + (taxProfile.standardDeduction ?? 0) - ordinaryIncome);
-  const magiBeforeConversion = Math.max(0, ordinaryIncome + qualifiedDividends);
+  const { income: incomeBeforeConversion } = incomeForYear({
+    ordinaryIncome,
+    earnedIncome,
+    retirementOrdinaryIncome: 0,
+    ordinaryInvestmentIncome,
+    qualifiedDividends,
+    adjustmentsToIncome,
+    withdrawal: emptyWithdrawal(),
+    socialSecurityBenefits,
+    taxProfile,
+    scenario
+  });
+  const magiBeforeConversion = Math.max(0, ordinaryIncome + qualifiedDividends - adjustmentsToIncome);
   const acaTarget = scenario.rothConversion?.optimizeForAca === false
     ? {
         amount: (acaConfig?.fpl ?? 0) * ((scenario.rothConversion?.maxAcaFplPercent ?? 400) / 100)
@@ -3096,11 +3828,16 @@ function rothConversionAmountForYear({
     taxProfile,
     age,
     inflationIndex,
-    magiBeforeConversion,
+    magiBeforeConversion: irmaaMagiForIncome(incomeBeforeConversion),
     targetRate
   });
 
-  return round(Math.min(federalRoom, acaRoom, irmaaRoom, traditionalAccountValue(portfolio)), 6);
+  return round(Math.min(
+    finiteRoom(federalRoom),
+    finiteRoom(acaRoom),
+    finiteRoom(irmaaRoom),
+    traditionalAccountValue(portfolio)
+  ), 6);
 }
 
 function effectiveRothConversionTargetRate({ portfolio, scenario, age, taxProfile, ordinaryIncome = 0 }) {
@@ -3461,6 +4198,10 @@ function mergeScenario(scenario) {
     allocationStrategy: {
       ...DEFAULT_SCENARIO.allocationStrategy,
       ...(scenario.allocationStrategy ?? {})
+    },
+    taxEfficiencyStrategy: {
+      ...DEFAULT_SCENARIO.taxEfficiencyStrategy,
+      ...(scenario.taxEfficiencyStrategy ?? {})
     },
     rothConversion: {
       ...DEFAULT_SCENARIO.rothConversion,
