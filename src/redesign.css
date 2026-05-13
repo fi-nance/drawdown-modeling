@@ -136,7 +136,7 @@ body[data-screen="persona"]::before {
   flex-wrap: wrap;
 }
 
-/* Pill toggles (Plain/Pro, Today's $/Real $, sun/moon) */
+/* Pill toggles (Plain/Pro, Today's $/Future $, sun/moon) */
 .pill-toggle {
   display: inline-flex;
   align-items: center;
@@ -1072,6 +1072,89 @@ body[data-screen="persona"]::before {
 .bracket-fill[data-empty="true"] { background: var(--border-light); }
 .bracket-amt { font-variant-numeric: tabular-nums; font-weight: 700; text-align: right; color: var(--text-primary); }
 
+/* Group header used when both ordinary and preferential brackets are shown */
+.bracket-section-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.5rem;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  padding: 0.5rem 0 0.15rem;
+  border-top: 1px solid var(--border);
+  list-style: none;
+}
+.bracket-section-head:first-child { padding-top: 0; border-top: 0; }
+.bracket-section-total {
+  font-size: 0.72rem;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Capital gains brackets get a distinct (blue→indigo) gradient so the eye
+   can tell ordinary and preferential fills apart at a glance. Empty bars
+   stay neutral via the existing [data-empty="true"] override. */
+.bracket-section-head[data-kind="preferential"] ~ .bracket-row:not(.deduction-row):not(.credit-row) .bracket-fill:not([data-empty="true"]) {
+  background: linear-gradient(90deg, var(--blue) 0%, var(--indigo) 100%);
+}
+
+/* Deduction & credit rows: the bar is split into two adjacent fills (ord / LT)
+   so you can see which type of income absorbed how much of the deduction. */
+.deduction-row .deduction-label,
+.credit-row .deduction-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.bracket-bar.deduction-bar {
+  display: flex;
+  align-items: stretch;
+}
+.bracket-bar.deduction-bar .bracket-fill {
+  border-radius: 0;
+  transition: width 0.35s ease;
+  flex-shrink: 0;
+}
+.bracket-bar.deduction-bar .bracket-fill.ord-fill {
+  background: linear-gradient(90deg, var(--teal) 0%, var(--cyan) 100%);
+}
+.bracket-bar.deduction-bar .bracket-fill.ltcg-fill {
+  background: linear-gradient(90deg, var(--blue) 0%, var(--indigo) 100%);
+}
+.bracket-bar.deduction-bar .bracket-fill[data-empty="true"] {
+  display: none;
+}
+/* The bar's overflow:hidden + border-radius on .bracket-bar already round
+   the outer container; individual fills inherit that visually. */
+
+/* Credit rows: no income fills the credit, so we just show a pill +
+   the dollar value (credits reduce tax, not income). */
+.credit-row .credit-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 14px;
+  padding: 0 0.5rem;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--amber);
+  background: rgba(240, 168, 72, 0.12);
+  border: 1px solid rgba(240, 168, 72, 0.3);
+  border-radius: 6px;
+  width: max-content;
+}
+.credit-row .bracket-amt { color: var(--emerald); }
+
 /* Withdrawal mix per year */
 .withdrawal-mix {
   display: grid;
@@ -1178,12 +1261,275 @@ body[data-screen="persona"]::before {
 .results-tail h2 { margin: 0; }
 .results-tail .panel { margin: 0; }
 
+/* ─── Dashboard grid layout (Results · Dashboard) ───────────────────── */
+
+/* Headline strip: hero card on the left + flat 6-cell KPI grid on the right */
+.dash-headline {
+  display: grid;
+  grid-template-columns: minmax(280px, 360px) 1fr;
+  gap: 1rem;
+  margin-bottom: 0.4rem;
+}
+.dh-hero {
+  background: linear-gradient(135deg, rgba(52, 209, 182, 0.12), var(--bg-elevated));
+  border: 1px solid rgba(52, 209, 182, 0.25);
+  border-radius: 18px;
+  padding: 1.3rem 1.5rem 1.4rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+[data-theme="light"] .dh-hero {
+  background: linear-gradient(135deg, rgba(15, 122, 94, 0.10), rgba(15, 122, 94, 0.02));
+}
+.dh-eyebrow {
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.dh-big {
+  font-size: clamp(3.6rem, 8vw, 5.4rem);
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  color: var(--teal);
+  line-height: 1;
+  margin: 0.3rem 0 0.2rem;
+  font-variant-numeric: tabular-nums;
+}
+.dh-big[data-empty="true"] { color: var(--text-muted); opacity: 0.5; }
+.dh-big-unit { font-size: 0.5em; font-weight: 700; margin-left: 0.05em; }
+.dh-hero[data-tier="warn"] .dh-big { color: var(--amber); }
+.dh-hero[data-tier="risk"] .dh-big { color: var(--coral); }
+.dh-sub {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+.dh-delta {
+  margin-top: 0.55rem;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+.dh-delta .delta {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 999px;
+  margin-right: 0.35rem;
+}
+.delta.up   { background: rgba(60, 207, 142, 0.15); color: var(--emerald); }
+.delta.down { background: rgba(196, 56, 56, 0.13); color: var(--coral); }
+
+.dh-kpis {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 1px;
+  background: var(--border);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  overflow: hidden;
+}
+.dh-kpi {
+  background: var(--bg-elevated);
+  padding: 1rem 1.1rem 1.05rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 0;
+}
+.dh-kpi .kpi-label {
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.dh-kpi .kpi-big {
+  font-size: clamp(1.1rem, 2.2vw, 1.5rem);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.15;
+}
+.dh-kpi .kpi-big[data-tone="warn"] { color: var(--amber); }
+.dh-kpi .kpi-big[data-tone="risk"] { color: var(--coral); }
+
+/* ─── Dashboard grid (3-column with span variants) ──────────────────── */
+
+.dash-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+  grid-auto-rows: auto;
+}
+.dash-cell {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  padding: 1.1rem 1.25rem 1.2rem;
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  min-width: 0;
+}
+.dash-cell.span-2 { grid-column: span 2; }
+.dash-cell.span-3 { grid-column: span 3; }
+.dash-cell.no-pad { padding: 0; gap: 0; }
+.dash-cell-pad { padding: 1.1rem 1.25rem 0.4rem; }
+
+/* Shared card-head used inside dash-cell */
+.r-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.85rem;
+  flex-wrap: wrap;
+}
+.r-card-head > div { display: flex; flex-direction: column; gap: 0.15rem; min-width: 0; }
+.r-section-eyebrow {
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin: 0;
+}
+.r-card-title {
+  font-size: 1.05rem;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  margin: 0;
+  color: var(--text-primary);
+}
+.dash-cell .ink-3 { color: var(--text-muted); font-size: 0.74rem; }
+
+/* Scrollable table wrapper used inside no-pad dash-cells */
+.ledger-wrap-dash {
+  max-height: 360px;
+  overflow-y: auto;
+  padding: 0 1.25rem 1rem;
+}
+.ledger-wrap-dash::-webkit-scrollbar { width: 8px; }
+.ledger-wrap-dash::-webkit-scrollbar-thumb { background: var(--border-light); border-radius: 4px; }
+
+/* ─── Healthcare timeline strip ─────────────────────────────────────── */
+
+.health-tl {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(var(--health-cols, 35), minmax(0, 1fr));
+  gap: 2px;
+  height: 32px;
+}
+.htl-y { border-radius: 4px; background: var(--bg-base); }
+.htl-y.aca {
+  background: linear-gradient(180deg, var(--blue) 0%, color-mix(in oklab, var(--blue) 55%, var(--bg-base)) 100%);
+  opacity: 0.6;
+}
+.htl-y.medicare {
+  background: linear-gradient(180deg, var(--indigo) 0%, color-mix(in oklab, var(--indigo) 55%, var(--bg-base)) 100%);
+  opacity: 0.6;
+}
+.htl-y.self {
+  background: var(--bg-base);
+  opacity: 0.85;
+}
+.htl-y.hot {
+  opacity: 1;
+  box-shadow: 0 0 0 1px var(--amber);
+}
+.health-tl-axis {
+  position: relative;
+  margin-top: 0.6rem;
+  height: 16px;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+.htl-ax {
+  position: absolute;
+  white-space: nowrap;
+}
+.htl-ax.start { left: 0; }
+.htl-ax.end { right: 0; }
+.htl-ax.mid {
+  transform: translateX(-50%);
+  color: var(--amber);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.htl-ax.mid::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: -18px;
+  width: 0;
+  height: 16px;
+  border-left: 2px dashed var(--amber);
+}
+.health-legend {
+  display: flex;
+  gap: 0.9rem;
+  flex-wrap: wrap;
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+}
+.health-legend > span { display: inline-flex; align-items: center; gap: 0.35rem; }
+.health-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+}
+.health-swatch.aca { background: var(--blue); opacity: 0.6; }
+.health-swatch.medicare { background: var(--indigo); opacity: 0.6; }
+.health-swatch.hot { background: transparent; box-shadow: 0 0 0 1px var(--amber); }
+
+/* ─── Dashboard-scoped overrides for legacy chart sizing ────────────── */
+
+/* The legacy sankey + chart CSS forces wide min-widths so they look right
+   in the original layout. Inside a dashboard cell, let them shrink with
+   the grid (SVG viewBox handles the scaling). */
+.dash-cell .sankey {
+  width: 100%;
+  min-height: 0;
+  height: auto;
+  aspect-ratio: 16 / 11;
+}
+.dash-cell .chart {
+  width: 100%;
+  min-height: 0;
+  height: auto;
+  aspect-ratio: 16 / 8;
+}
+.dash-cell .table-wrap {
+  margin: 0;
+  width: 100%;
+}
+
+/* The action plan ledger lives inside a no-pad span-3 cell; let its
+   internal table scroll horizontally on narrow screens. */
+.ledger-wrap-dash .table-wrap,
+.ledger-wrap-dash .pinnable-table-wrap {
+  margin: 0;
+}
+
 /* ─── Mobile ───────────────────────────────────────────────────────── */
 
 @media (max-width: 1100px) {
   .ws-shell { grid-template-columns: 1fr; }
   .module-library { position: static; }
   .results-row { grid-template-columns: 1fr; }
+
+  .dash-headline { grid-template-columns: 1fr; }
+  .dh-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .dash-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .dash-cell.span-2 { grid-column: span 2; }
+  .dash-cell.span-3 { grid-column: span 2; }
 }
 
 @media (max-width: 720px) {
@@ -1206,6 +1552,25 @@ body[data-screen="persona"]::before {
   .kpi-strip { grid-template-columns: 1fr 1fr; padding: 0.4rem; }
   .kpi-card.kpi-hero { grid-column: 1 / -1; }
   .results-topbar { padding: 0.85rem 1rem; }
+
+  .dh-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .dash-grid { grid-template-columns: 1fr; gap: 0.75rem; }
+  .dash-cell.span-2,
+  .dash-cell.span-3 { grid-column: span 1; }
+  .dash-cell { padding: 0.9rem 1rem 1rem; border-radius: 14px; }
+  .dash-cell-pad { padding: 0.9rem 1rem 0.4rem; }
+  .ledger-wrap-dash { padding: 0 1rem 0.85rem; max-height: 280px; }
+  .dh-hero { padding: 1rem 1.15rem 1.1rem; border-radius: 14px; }
+  .dh-kpis { border-radius: 14px; }
+  .dh-kpi { padding: 0.85rem 0.9rem; }
+  /* Health timeline gets cramped at narrow widths — soften it. */
+  .health-tl { gap: 1px; height: 26px; }
+  .health-tl-axis { font-size: 0.62rem; }
+  .health-legend { gap: 0.55rem; font-size: 0.68rem; }
+  /* Sankey controls (Flow select + Year scrubber + label) wrap below the
+     card title rather than crowding the right edge. */
+  .dash-cell .r-card-head { gap: 0.5rem; }
+  .dash-cell .inline-controls { width: 100%; }
 
   .module-library {
     border-radius: 14px;

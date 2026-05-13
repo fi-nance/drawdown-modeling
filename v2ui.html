@@ -142,8 +142,8 @@
             <button type="button" data-detail="pro" aria-pressed="false">Pro</button>
           </div>
           <div class="pill-toggle" role="tablist" aria-label="Inflation view">
-            <button type="button" data-view-mode="nominal" aria-pressed="true">Today's $</button>
-            <button type="button" data-view-mode="real"    aria-pressed="false">Real $</button>
+            <button type="button" data-view-mode="real"    aria-pressed="true">Today's $</button>
+            <button type="button" data-view-mode="nominal" aria-pressed="false">Future $</button>
           </div>
           <button class="theme-toggle" data-theme-toggle type="button" aria-label="Toggle theme">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
@@ -665,8 +665,8 @@
         </div>
         <div class="topbar-controls">
           <div class="pill-toggle" role="tablist" aria-label="Inflation view">
-            <button type="button" data-view-mode="nominal" aria-pressed="true">Today's $</button>
-            <button type="button" data-view-mode="real"    aria-pressed="false">Real $</button>
+            <button type="button" data-view-mode="real"    aria-pressed="true">Today's $</button>
+            <button type="button" data-view-mode="nominal" aria-pressed="false">Future $</button>
           </div>
           <button class="theme-toggle" data-theme-toggle type="button" aria-label="Toggle theme">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
@@ -826,7 +826,7 @@
     <div hidden aria-hidden="true">
       <button id="planTab"  type="button"></button>
       <button id="setupTab" type="button"></button>
-      <select id="viewMode"><option value="nominal">Today's $</option><option value="real">Real $</option></select>
+      <select id="viewMode"><option value="real" selected>Today's $</option><option value="nominal">Future $</option></select>
     </div>
 
     <script type="module" src="./src/v2ui-app.mjs?v=20260511-mcconfig"></script>

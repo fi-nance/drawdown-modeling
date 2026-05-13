@@ -276,6 +276,7 @@ function applyAll() {
   document.body.dataset.screen = state.screen;
   document.body.dataset.theme  = state.theme;
   syncDetailToggle();
+  syncViewModeToggle();
   syncModuleVisibility();
   syncModuleLibraryUI();
   syncPersonaSelection();
@@ -696,6 +697,8 @@ function bindTheme() {
       }
     }));
   });
+
+  document.getElementById("viewMode")?.addEventListener("change", syncViewModeToggle);
 }
 
 function syncDetailToggle() {
@@ -703,6 +706,15 @@ function syncDetailToggle() {
     btn.setAttribute("aria-pressed", String(btn.dataset.detail === state.detail));
   });
   document.body.dataset.detail = state.detail;
+}
+
+function syncViewModeToggle() {
+  const selectedViewMode = document.getElementById("viewMode")?.value === "nominal"
+    ? "nominal"
+    : "real";
+  document.querySelectorAll(".pill-toggle [data-view-mode]").forEach(btn => {
+    btn.setAttribute("aria-pressed", String(btn.dataset.viewMode === selectedViewMode));
+  });
 }
 
 // ─── Workspace summary KPI strip ───────────────────────────────────
@@ -846,26 +858,104 @@ function renderKpiStrip() {
   const summary = active?.summary ?? (latest ? snapshotSummary(latest) : null);
   if (!summary) {
     root.innerHTML = `
-      <div class="kpi-card kpi-hero"><span class="kpi-label">Money lasts</span><span class="kpi-value" data-empty="true">—</span><span class="kpi-sub">Run the model to see your number</span></div>`;
+      <div class="dh-hero">
+        <div class="dh-eyebrow">Money lasts in</div>
+        <div class="dh-big mono" data-empty="true">—</div>
+        <div class="dh-sub">Run the model to see your number</div>
+      </div>
+      <div class="dh-kpis">
+        <div class="dh-kpi"><span class="kpi-label">Median ending</span><span class="kpi-big mono">—</span></div>
+        <div class="dh-kpi"><span class="kpi-label">Worst 5%</span><span class="kpi-big mono">—</span></div>
+        <div class="dh-kpi"><span class="kpi-label">Lifetime tax</span><span class="kpi-big mono">—</span></div>
+        <div class="dh-kpi"><span class="kpi-label">Healthcare</span><span class="kpi-big mono">—</span></div>
+        <div class="dh-kpi"><span class="kpi-label">Safe spend rate</span><span class="kpi-big mono">—</span></div>
+        <div class="dh-kpi"><span class="kpi-label">Years modeled</span><span class="kpi-big mono">—</span></div>
+      </div>`;
     return;
   }
   const pct = summary.successRate;
   const baseline = state.scenarios.find(s => s.name === "Baseline");
   const delta = baseline ? Math.round((pct - baseline.summary.successRate) * 100) : null;
   const runs = latest?.monteCarlo?.summary?.runs ?? monteCarloScenarios(latest).length ?? 250;
+  const pctInt = Math.round(pct * 100);
   root.innerHTML = `
-    <div class="kpi-card kpi-hero">
-      <span class="kpi-label">Money lasts in</span>
-      <span class="kpi-value" data-tier="${tierFor(pct)}">${Math.round(pct*100)}%</span>
-      <span class="kpi-sub">of ${runs.toLocaleString()} simulated futures</span>
-      ${delta != null ? `<span class="kpi-delta" data-direction="${delta >= 0 ? "up" : "down"}">${delta >= 0 ? "+" : ""}${delta}pp vs. baseline</span>` : ""}
+    <div class="dh-hero" data-tier="${tierFor(pct)}">
+      <div class="dh-eyebrow">Money lasts in</div>
+      <div class="dh-big mono">${pctInt}<span class="dh-big-unit">%</span></div>
+      <div class="dh-sub">of ${runs.toLocaleString()} simulated futures</div>
+      ${delta != null ? `<div class="dh-delta"><span class="delta ${delta >= 0 ? "up" : "down"}">${delta >= 0 ? "+" : ""}${delta}pp</span> vs. baseline</div>` : ""}
     </div>
-    <div class="kpi-card"><span class="kpi-label">Median ending</span><span class="kpi-value">${formatCurrencyShort(summary.median)}</span></div>
-    <div class="kpi-card"><span class="kpi-label">Worst 5%</span><span class="kpi-value">${formatCurrencyShort(summary.fifth)}</span></div>
-    <div class="kpi-card"><span class="kpi-label">Lifetime tax</span><span class="kpi-value">${formatCurrencyShort(summary.lifetimeTax)}</span></div>
-    <div class="kpi-card"><span class="kpi-label">Healthcare</span><span class="kpi-value">${formatCurrencyShort(summary.healthcare)}</span></div>
-    <div class="kpi-card"><span class="kpi-label">Safe spend rate</span><span class="kpi-value">${(summary.safeRate*100).toFixed(1)}%</span></div>
-    <div class="kpi-card"><span class="kpi-label">Years modeled</span><span class="kpi-value">${summary.years}</span></div>`;
+    <div class="dh-kpis">
+      <div class="dh-kpi"><span class="kpi-label">Median ending</span><span class="kpi-big mono">${formatCurrencyShort(summary.median)}</span></div>
+      <div class="dh-kpi"><span class="kpi-label">Worst 5%</span><span class="kpi-big mono" data-tone="warn">${formatCurrencyShort(summary.fifth)}</span></div>
+      <div class="dh-kpi"><span class="kpi-label">Lifetime tax</span><span class="kpi-big mono">${formatCurrencyShort(summary.lifetimeTax)}</span></div>
+      <div class="dh-kpi"><span class="kpi-label">Healthcare</span><span class="kpi-big mono">${formatCurrencyShort(summary.healthcare)}</span></div>
+      <div class="dh-kpi"><span class="kpi-label">Safe spend rate</span><span class="kpi-big mono">${(summary.safeRate*100).toFixed(1)}%</span></div>
+      <div class="dh-kpi"><span class="kpi-label">Years modeled</span><span class="kpi-big mono">${summary.years}</span></div>
+    </div>`;
+}
+
+// ─── Healthcare timeline (ACA → Medicare strip) ────────────────────
+
+function renderHealthTimeline() {
+  const root = document.getElementById("healthTimeline");
+  const axis = document.getElementById("healthTimelineAxis");
+  const heading = document.getElementById("healthHeading");
+  if (!root) return;
+  const latest = window.__pslLatest;
+  const years = planYears(latest);
+  if (!years.length) {
+    root.innerHTML = "";
+    if (axis) axis.innerHTML = "";
+    return;
+  }
+
+  // Phase per year: medicare once the modeled timeline's primary age reaches
+  // 65, else ACA if MAGI was within the ACA universe, else "self" (uncovered /
+  // pre-Medicare with no marketplace plan modeled).
+  const cells = years.map((y, i) => {
+    const age = y.age ?? null;
+    const onMedicare = Number.isFinite(age) && age >= 65;
+    const acaEnrolled = !!(y.aca && (y.aca.subsidy > 0 || y.aca.netPremium > 0 || y.aca.fplPercent != null));
+    const phase = onMedicare ? "medicare" : (acaEnrolled ? "aca" : "self");
+    const fplPercent = y.aca?.fplPercent ?? null;
+    // "hot" when MAGI is in the upper ACA range (subsidy-cliff sensitive) or
+    // first 2–3 Medicare years (IRMAA lookback transition).
+    const hotAca = phase === "aca" && fplPercent != null && fplPercent >= 350;
+    const yearsOnMedicare = onMedicare && Number.isFinite(age) ? Math.max(0, age - 65) : null;
+    const hotMedicare = phase === "medicare" && yearsOnMedicare != null && yearsOnMedicare <= 2;
+    return { i, phase, hot: hotAca || hotMedicare, age, year: y.year ?? i + 1 };
+  });
+
+  const acaYears = cells.filter(c => c.phase === "aca").length;
+  const medicareYears = cells.filter(c => c.phase === "medicare").length;
+  if (heading) {
+    if (acaYears && medicareYears) heading.textContent = `${acaYears}y ACA → ${medicareYears}y Medicare`;
+    else if (medicareYears)       heading.textContent = `${medicareYears}y on Medicare`;
+    else if (acaYears)            heading.textContent = `${acaYears}y on ACA marketplace`;
+    else                          heading.textContent = "Coverage timeline";
+  }
+
+  root.style.setProperty("--health-cols", String(cells.length));
+  root.innerHTML = cells.map(c => {
+    const label = `Y${c.i + 1}${c.age != null ? ` · age ${Math.round(c.age)}` : ""} · ${c.phase.toUpperCase()}${c.hot ? " (sensitive)" : ""}`;
+    return `<div class="htl-y ${c.phase}${c.hot ? " hot" : ""}" title="${label}"></div>`;
+  }).join("");
+
+  // Axis: Y1 · start age — Medicare marker — last year · end age
+  if (axis) {
+    const first = cells[0];
+    const last = cells[cells.length - 1];
+    const medicareFirst = cells.find(c => c.phase === "medicare");
+    const parts = [];
+    parts.push(`<span class="htl-ax start">Y1${first.age != null ? ` · ${Math.round(first.age)}` : ""}</span>`);
+    if (medicareFirst) {
+      const pct = (medicareFirst.i / Math.max(1, cells.length - 1)) * 100;
+      parts.push(`<span class="htl-ax mid" style="left:${pct}%">Medicare at 65</span>`);
+    }
+    parts.push(`<span class="htl-ax end">Y${cells.length}${last.age != null ? ` · ${Math.round(last.age)}` : ""}</span>`);
+    axis.innerHTML = parts.join("");
+  }
 }
 
 // ─── Action plan card ──────────────────────────────────────────────
@@ -909,34 +999,240 @@ function renderBracketFill() {
   const root = document.getElementById("bracketList");
   if (!root) return;
   const latest = window.__pslLatest;
-  const year = planYears(latest)[0];
-  const allBrackets = latest?.taxProfile?.ordinaryBrackets ?? [];
-  if (!allBrackets.length) { root.innerHTML = ""; return; }
-  // Build hit map by rate from the actual year details, then overlay onto the
-  // full bracket schedule so empty brackets are visible too.
-  const hitMap = new Map();
-  for (const d of year?.taxes?.federalOrdinaryBracketDetails ?? []) {
-    hitMap.set(d.rate ?? 0, d.taxableIncome ?? 0);
-  }
-  const bracketWidths = allBrackets.map((b, i) => {
-    const lower = i === 0 ? 0 : (allBrackets[i - 1].upTo ?? 0);
-    const upper = b.upTo;
-    const width = Number.isFinite(upper) ? Math.max(0, upper - lower) : null;
-    return { rate: b.rate ?? 0, width, hit: hitMap.get(b.rate ?? 0) ?? 0 };
+  const years = planYears(latest);
+  const ordinaryBrackets = latest?.taxProfile?.ordinaryBrackets ?? [];
+  const preferentialBrackets = latest?.taxProfile?.capitalGainsBrackets ?? [];
+  if (!ordinaryBrackets.length || !years.length) { root.innerHTML = ""; return; }
+
+  // Bracket fill shows just *investment income* — what the portfolio passively
+  // throws off — so the empty space in each bracket reads as headroom for
+  // discretionary moves (Roth conversions, harvest, traditional withdrawals).
+  //   Ordinary side: interest + non-qualified dividends (a.k.a. ordinary
+  //   investment income). RMDs / Roth conversions / SS are excluded — they're
+  //   strategy levers, not unavoidable income.
+  //   Preferential side: long-term capital gains + qualified dividends.
+  const investmentIncome = (y) => ({
+    ordinary: y.taxes?.ordinaryInvestmentIncome ?? 0,
+    longTerm: y.taxes?.taxableLongTermCapitalGains ?? 0,
+    qualified: y.taxes?.taxableQualifiedDividends ?? 0,
   });
-  // Use the largest bracket width as the visualization scale (skip Infinity tail).
-  const max = Math.max(...bracketWidths.map(b => b.width ?? 0), 1);
-  root.innerHTML = bracketWidths.slice(0, 7).map(b => {
-    const denom = b.width ?? max;
-    const fillFrac = denom > 0 ? Math.max(0, Math.min(1, b.hit / denom)) : 0;
-    const empty = b.hit <= 0.0001;
-    return `
-      <li class="bracket-row">
-        <span class="bracket-rate">${Math.round(b.rate * 100)}%</span>
-        <div class="bracket-bar"><div class="bracket-fill" style="width:${(fillFrac*100).toFixed(1)}%" data-empty="${empty}"></div></div>
-        <span class="bracket-amt">${empty ? "—" : formatCurrencyShort(b.hit)}</span>
-      </li>`;
-  }).join("");
+
+  // Follow the shared year slider (used by the cash-flow Sankey + withdrawal
+  // mix highlight) so all "this year" cards stay in sync. The user can scrub
+  // forward to see future years (e.g. when Age 65+ kicks in); they shouldn't
+  // see Age 65+ on the bracket card while still being 44.
+  const bestIdx = Math.max(0, Math.min(years.length - 1, currentSelectedYearIndex()));
+  const year = years[bestIdx];
+
+  const inflation = Number.isFinite(year?.inflationIndex) && year.inflationIndex > 0
+    ? year.inflationIndex
+    : 1;
+
+  // Respect the global Today's $ / Future $ toggle (#viewMode select, kept in
+  // sync by the topbar pill toggle):
+  //   - "real"    (default, "Today's $" button): deflated to today's purchasing power
+  //   - "nominal" ("Future $" button):           future-inflated face values
+  // The simulator outputs values in nominal (year-N) dollars; bracket caps
+  // and standard deduction in taxProfile are in today's (year-1) dollars.
+  // Two scale factors bring everything onto the chosen display scale.
+  const viewMode = document.getElementById("viewMode")?.value || "real";
+  const isReal = viewMode === "real";
+  const bracketScale = isReal ? 1 : inflation;          // multiply profile-side values
+  const incomeScale = isReal ? 1 / inflation : 1;       // multiply simulator-side values
+
+  // Pre-scale the bracket schedules so allocateBracketRows sees them in the
+  // chosen display scale.
+  const scaleSchedule = (schedule) => schedule.map(b => ({
+    rate: b.rate,
+    upTo: Number.isFinite(b.upTo) ? b.upTo * bracketScale : null,
+  }));
+  const scaledOrdinary = scaleSchedule(ordinaryBrackets);
+  const scaledPreferential = scaleSchedule(preferentialBrackets);
+
+  // Update the card eyebrow + title to reflect which year and which dollar scale.
+  const cell = root.closest(".dash-cell, .r-panel");
+  const eyebrow = cell?.querySelector(".r-section-eyebrow, .r-eyebrow");
+  const title = cell?.querySelector(".r-card-title, h2");
+  const dollarLabel = isReal ? "today's $" : `Year ${year.year ?? bestIdx + 1} $`;
+  if (eyebrow) eyebrow.textContent = `Tax · Year ${bestIdx + 1}${year.age != null ? ` · age ${Math.round(year.age)}` : ""} · ${dollarLabel}`;
+
+  const inc = investmentIncome(year);
+  const incTotal = inc.ordinary + inc.longTerm + inc.qualified;
+  if (title) title.textContent = incTotal > 0 ? "Investment income vs. brackets" : "No investment income this year";
+  const incScaled = {
+    ordinary: inc.ordinary * incomeScale,
+    longTerm: inc.longTerm * incomeScale,
+    qualified: inc.qualified * incomeScale,
+  };
+
+  // Walk each bracket schedule from the bottom and allocate the passive
+  // income across them. Schedules + income are already on the chosen scale.
+  const ordinaryRows = allocateBracketRows(scaledOrdinary, incScaled.ordinary, 7);
+  const preferentialRows = preferentialBrackets.length
+    ? allocateBracketRows(scaledPreferential, incScaled.longTerm + incScaled.qualified, 3)
+    : [];
+
+  // Use one shared max so both groups share a visual scale (capital gains
+  // brackets are wider than ordinary brackets, so the relative size is
+  // meaningful when compared together).
+  const maxFinite = Math.max(
+    ...ordinaryRows.map(r => Number.isFinite(r.capacity) ? r.capacity : 0),
+    ...preferentialRows.map(r => Number.isFinite(r.capacity) ? r.capacity : 0),
+    1
+  );
+  for (const r of [...ordinaryRows, ...preferentialRows]) {
+    if (!Number.isFinite(r.capacity)) r.capacity = maxFinite;
+  }
+
+  const renderGroup = (kind, label, rows, total) => `
+    <li class="bracket-section-head" data-kind="${kind}">
+      <span class="bracket-section-label">${label}</span>
+      <span class="bracket-section-total">${total > 0 ? formatCurrencyShort(total) : "—"}</span>
+    </li>
+    ${rows.map(b => bracketRowHtml(b, maxFinite)).join("")}
+  `;
+
+  let html = renderGroup("ordinary", "Interest & non-qualified dividends", ordinaryRows, incScaled.ordinary);
+  if (preferentialRows.length) {
+    html += renderGroup("preferential", "Long-term gains & qualified dividends", preferentialRows, incScaled.longTerm + incScaled.qualified);
+  }
+  html += renderDeductionsSection(year, latest?.taxProfile ?? {}, bracketScale, incomeScale);
+  root.innerHTML = html;
+}
+
+// Compute and render the "Deductions & credits" section below the brackets.
+// Deduction bars are split-colored to show how much was absorbed by ordinary
+// income vs long-term gains + qualified dividends (deductions stack against
+// ordinary first, then spill into preferential income).
+//
+// Two scale factors come in from the caller so the values land on the same
+// display scale as the bracket bars above (nominal Year-N $ or real today's $):
+//   - bracketScale: multiplier for profile-side values (in today's dollars)
+//   - incomeScale:  multiplier for simulator-side values (in nominal year-N dollars)
+//
+// Each applicable deduction is its own row; we don't merge std + age 65.
+// Only rows with non-zero capacity are emitted.
+function renderDeductionsSection(year, profile, bracketScale, incomeScale) {
+  // Available deductions for this year.
+  const stdDed = (profile?.standardDeduction ?? 0) * bracketScale;
+  const age65 = (year?.age65AdditionalDeduction ?? 0) * incomeScale;
+  const additional = (profile?.additionalDeduction ?? 0) * bracketScale;
+  // Capital-loss offset is an above-the-line ordinary-only deduction;
+  // treat it as ordinary-absorbing capacity if it actually fired this year.
+  const lossOffset = (year?.taxes?.ordinaryLossOffset ?? 0) * incomeScale;
+
+  // Walk the available deductions in IRS order and allocate gross income
+  // into each, ordinary first then preferential spill-over. Each call
+  // mutates remainingOrd / remainingPref so later rows see only what's left.
+  let remainingOrd = (year?.taxes?.ordinaryIncome ?? 0) * incomeScale;
+  let remainingPref = ((year?.taxes?.longTermCapitalGains ?? 0) + (year?.taxes?.qualifiedDividends ?? 0)) * incomeScale;
+  const allocate = (capacity) => {
+    const ordAbsorbed = Math.min(remainingOrd, capacity);
+    remainingOrd -= ordAbsorbed;
+    const prefAbsorbed = Math.min(remainingPref, Math.max(0, capacity - ordAbsorbed));
+    remainingPref -= prefAbsorbed;
+    return { capacity, ordAbsorbed, prefAbsorbed };
+  };
+
+  const rows = [];
+
+  // Capital-loss offset is above-the-line and ordinary-only — applied
+  // BEFORE the standard deduction in IRS order.
+  if (lossOffset > 0) {
+    const cap = lossOffset;
+    const ordAbsorbed = Math.min(remainingOrd, cap);
+    remainingOrd -= ordAbsorbed;
+    rows.push({ label: "CL loss", fullLabel: "Capital-loss ordinary offset", capacity: cap, ordAbsorbed, prefAbsorbed: 0 });
+  }
+  if (stdDed > 0) {
+    rows.push({ label: "Std ded", fullLabel: "Standard deduction", ...allocate(stdDed) });
+  }
+  if (age65 > 0) {
+    rows.push({ label: "Age 65+", fullLabel: "Age 65 additional standard deduction", ...allocate(age65) });
+  }
+  if (additional > 0) {
+    rows.push({ label: "Other", fullLabel: "Other deductions", ...allocate(additional) });
+  }
+
+  // Credits don't get "filled by income" the way deductions do — they reduce
+  // tax owed after brackets. Show as a simple value row when present.
+  const ctcUsed = (year?.taxes?.childTaxCredit ?? 0) * incomeScale;
+  const otherCredits = (year?.taxes?.additionalCredits ?? 0) * incomeScale;
+  const creditsHtml = (ctcUsed > 0 || otherCredits > 0) ? `
+    ${ctcUsed > 0 ? creditRow("CTC", "Child tax credit", ctcUsed) : ""}
+    ${otherCredits > 0 ? creditRow("Credits", "Other credits", otherCredits) : ""}
+  ` : "";
+
+  if (!rows.length && !creditsHtml) return "";
+
+  const totalAbsorbed = rows.reduce((t, r) => t + r.ordAbsorbed + r.prefAbsorbed, 0);
+  return `
+    <li class="bracket-section-head" data-kind="deductions">
+      <span class="bracket-section-label">Deductions &amp; credits</span>
+      <span class="bracket-section-total">${totalAbsorbed > 0 ? formatCurrencyShort(totalAbsorbed) + " absorbed" : "—"}</span>
+    </li>
+    ${rows.map(r => deductionRowHtml(r)).join("")}
+    ${creditsHtml}
+  `;
+}
+
+function deductionRowHtml(r) {
+  // Deduction bars use a *full-width* scale (the bar always fills its column)
+  // rather than the bracket scale — a $32k standard deduction would otherwise
+  // render as a tiny sliver next to a $600k+ top bracket, hiding the
+  // ord/LT split colors that are the whole point of this row.
+  const ordPct = r.capacity > 0 ? (r.ordAbsorbed / r.capacity) * 100 : 0;
+  const prefPct = r.capacity > 0 ? (r.prefAbsorbed / r.capacity) * 100 : 0;
+  const total = r.ordAbsorbed + r.prefAbsorbed;
+  const empty = total <= 0.01;
+  const tip = `${r.fullLabel}: ${formatCurrencyShort(r.capacity)} (ord ${formatCurrencyShort(r.ordAbsorbed)} · LT ${formatCurrencyShort(r.prefAbsorbed)})`;
+  return `
+    <li class="bracket-row deduction-row">
+      <span class="bracket-rate deduction-label" title="${r.fullLabel}">${r.label}</span>
+      <div class="bracket-bar deduction-bar" title="${tip}">
+        <div class="bracket-fill ord-fill" style="width:${ordPct.toFixed(1)}%" data-empty="${r.ordAbsorbed <= 0.01}"></div>
+        <div class="bracket-fill ltcg-fill" style="width:${prefPct.toFixed(1)}%" data-empty="${r.prefAbsorbed <= 0.01}"></div>
+      </div>
+      <span class="bracket-amt">${empty ? "—" : formatCurrencyShort(total)}</span>
+    </li>`;
+}
+
+function creditRow(label, fullLabel, amount) {
+  return `
+    <li class="bracket-row credit-row">
+      <span class="bracket-rate deduction-label" title="${fullLabel}">${label}</span>
+      <div class="credit-pill" title="${fullLabel} applied">applied</div>
+      <span class="bracket-amt">−${formatCurrencyShort(amount)}</span>
+    </li>`;
+}
+
+// Bracket schedules arrive pre-scaled into the active display basis; `amount`
+// should already be on that same basis so the comparison stays apples-to-apples.
+function allocateBracketRows(schedule, amount, limit) {
+  let remaining = Math.max(0, amount);
+  return schedule.slice(0, limit).map((b, i) => {
+    const lower = i === 0 ? 0 : (schedule[i - 1].upTo ?? 0);
+    const upper = Number.isFinite(b.upTo) ? b.upTo : null;
+    const capacity = upper != null ? Math.max(0, upper - lower) : null;
+    const hit = capacity != null ? Math.min(remaining, capacity) : remaining;
+    remaining -= hit;
+    return { rate: b.rate ?? 0, lower, upper, capacity, hit };
+  });
+}
+
+function bracketRowHtml(b, maxFinite) {
+  const widthPct = (b.capacity / maxFinite) * 100;
+  const fillFrac = b.capacity > 0 ? Math.max(0, Math.min(1, b.hit / b.capacity)) : 0;
+  const empty = b.hit <= 0.0001;
+  const capLabel = Number.isFinite(b.upper) ? formatCurrencyShort(b.upper) : "∞";
+  return `
+    <li class="bracket-row">
+      <span class="bracket-rate">${Math.round(b.rate * 100)}%</span>
+      <div class="bracket-bar" style="width:${widthPct.toFixed(1)}%" title="${formatCurrencyShort(b.lower)} – ${capLabel}">
+        <div class="bracket-fill" style="width:${(fillFrac*100).toFixed(1)}%" data-empty="${empty}"></div>
+      </div>
+      <span class="bracket-amt">${empty ? "—" : formatCurrencyShort(b.hit)}</span>
+    </li>`;
 }
 
 // ─── Withdrawal mix per year ───────────────────────────────────────
@@ -954,7 +1250,7 @@ function renderWithdrawalMix() {
   for (let i = 0; i < years.length; i += stride) picked.push(years[i]);
   if (picked[picked.length - 1] !== years[years.length - 1]) picked.push(years[years.length - 1]);
 
-  const selectedYearIndex = currentSelectedYearIndex();
+  const selectedYearNumber = currentSelectedYearIndex() + 1;
 
   root.innerHTML = picked.map(y => {
     const tax  = y.sales?.filter(s => s.accountType === "taxable").reduce((t, s) => t + (s.proceeds ?? 0), 0) ?? 0;
@@ -972,13 +1268,13 @@ function renderWithdrawalMix() {
       { cls: "mix-rmd",  v: rmd,  label: "RMD" },
       { cls: "mix-ss",   v: ss,   label: "SS" }
     ].filter(s => s.v > 0);
-    const isSelected = y.yearIndex === selectedYearIndex;
+    const isSelected = y.yearIndex === selectedYearNumber;
     return `
-      <button type="button" class="mix-col" data-year-index="${y.yearIndex}" data-selected="${isSelected ? "true" : "false"}" aria-pressed="${isSelected ? "true" : "false"}" aria-label="Year ${y.yearIndex + 1}${y.age ? `, age ${Math.round(y.age)}` : ""} — click to inspect">
+      <button type="button" class="mix-col" data-year-index="${y.yearIndex - 1}" data-selected="${isSelected ? "true" : "false"}" aria-pressed="${isSelected ? "true" : "false"}" aria-label="Year ${y.yearIndex}${y.age ? `, age ${Math.round(y.age)}` : ""} — click to inspect">
         <div class="mix-stack">
           ${segs.map(s => `<span class="${s.cls}" style="flex-basis:${(s.v/total*100).toFixed(2)}%">${s.v/total > 0.12 ? s.label : ""}</span>`).join("")}
         </div>
-        <span class="mix-year">Y${y.yearIndex+1}</span>
+        <span class="mix-year">Y${y.yearIndex}</span>
         <span class="mix-age">${y.age ? Math.round(y.age) : ""}</span>
       </button>`;
   }).join("");
@@ -1060,9 +1356,11 @@ function bindWithdrawalMix() {
   });
   // Keep the highlight in sync when the year is changed elsewhere (slider,
   // year-table row click). v2ui-app already handles those; we just listen for
-  // the same input event and re-mark the selected column.
+  // the same input event, re-mark the selected column, and re-paint anything
+  // else that's year-scoped (bracket fill).
   document.getElementById("yearRange")?.addEventListener("input", () => {
     syncMixSelectedHighlight(currentSelectedYearIndex());
+    renderBracketFill();
   });
 }
 
@@ -1184,6 +1482,7 @@ function rerenderResults() {
   renderActionList();
   renderBracketFill();
   renderWithdrawalMix();
+  renderHealthTimeline();
   // Update results topbar meta
   const meta = document.getElementById("resultsMeta");
   if (meta && window.__pslLatest) {

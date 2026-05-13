@@ -7,8 +7,8 @@
     <meta name="description" content="Tax-aware retirement decumulation forecasting with Monte Carlo simulation, historical backtesting, and Sankey cash flow visualization.">
     <link rel="icon" href="./favicon.svg?v=20260505-favicon" type="image/svg+xml">
     <meta name="theme-color" content="#07111f">
-    <link rel="stylesheet" href="./src/v2ui-styles.css?v=20260511-mcconfig">
-    <link rel="stylesheet" href="./src/redesign.css?v=20260511-mcconfig">
+    <link rel="stylesheet" href="./src/v2ui-styles.css?v=20260512-viewmode">
+    <link rel="stylesheet" href="./src/redesign.css?v=20260512-viewmode">
     <script src="https://accounts.google.com/gsi/client" async defer></script>
   </head>
   <body data-screen="persona" data-theme="dark">
@@ -143,8 +143,8 @@
             <button type="button" data-detail="pro" aria-pressed="false">Pro</button>
           </div>
           <div class="pill-toggle" role="tablist" aria-label="Inflation view">
-            <button type="button" data-view-mode="nominal" aria-pressed="true">Today's $</button>
-            <button type="button" data-view-mode="real"    aria-pressed="false">Real $</button>
+            <button type="button" data-view-mode="real"    aria-pressed="true">Today's $</button>
+            <button type="button" data-view-mode="nominal" aria-pressed="false">Future $</button>
           </div>
           <button class="theme-toggle" data-theme-toggle type="button" aria-label="Toggle theme">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
@@ -672,8 +672,8 @@
         </div>
         <div class="topbar-controls">
           <div class="pill-toggle" role="tablist" aria-label="Inflation view">
-            <button type="button" data-view-mode="nominal" aria-pressed="true">Today's $</button>
-            <button type="button" data-view-mode="real"    aria-pressed="false">Real $</button>
+            <button type="button" data-view-mode="real"    aria-pressed="true">Today's $</button>
+            <button type="button" data-view-mode="nominal" aria-pressed="false">Future $</button>
           </div>
           <button class="theme-toggle" data-theme-toggle type="button" aria-label="Toggle theme">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
@@ -689,18 +689,21 @@
           <!-- Tabs are appended dynamically -->
         </div>
 
-        <div class="kpi-strip" id="kpiStrip"></div>
+        <!-- Headline strip: hero number + flat KPI grid (renderKpiStrip fills this) -->
+        <section id="kpiStrip" class="dash-headline"></section>
 
         <!-- Existing KPI tiles (kept for backward compat with code that paints into #kpis) -->
-        <div id="kpis" class="kpi-grid" hidden></div>
+        <div id="kpis" hidden></div>
 
-        <!-- Cash Flow + Action plan -->
-        <div class="results-row">
-          <section class="r-panel" id="cashFlowPanel">
-            <div class="r-panel-head">
+        <!-- Dashboard grid: everything visible, dense, command-center feel -->
+        <section class="dash-grid">
+
+          <!-- Cash flow (span 2) -->
+          <section class="dash-cell span-2" id="cashFlowPanel">
+            <div class="r-card-head">
               <div>
-                <p class="r-eyebrow">Cash flow</p>
-                <h2 id="cashFlowYearTitle">Year 1</h2>
+                <p class="r-section-eyebrow">Cash flow</p>
+                <h3 class="r-card-title" id="cashFlowYearTitle">Year 1</h3>
               </div>
               <div class="inline-controls">
                 <label>
@@ -720,112 +723,180 @@
             <svg id="sankeySvg" class="sankey" role="img" aria-label="Portfolio cash flow diagram"></svg>
           </section>
 
-          <section class="r-panel" id="actionPlanPanel">
-            <div class="r-panel-head">
+          <!-- Action plan (this year) -->
+          <section class="dash-cell" id="actionPlanPanel">
+            <div class="r-card-head">
               <div>
-                <p class="r-eyebrow">This year</p>
-                <h2>Action plan</h2>
+                <p class="r-section-eyebrow">This year</p>
+                <h3 class="r-card-title">Action plan</h3>
                 <span class="crumb-meta" id="actionPlanNote"></span>
               </div>
             </div>
             <ol class="action-list" id="actionList"></ol>
-            <details class="advanced">
-              <summary>Full table</summary>
-              <div id="actionPlan" class="table-wrap"></div>
-            </details>
           </section>
-        </div>
 
-        <!-- Path + Bracket fill -->
-        <div class="results-row">
-          <section class="r-panel">
-            <div class="r-panel-head">
+          <!-- Portfolio path (span 2) -->
+          <section class="dash-cell span-2">
+            <div class="r-card-head">
               <div>
-                <p class="r-eyebrow">Path</p>
-                <h2>Portfolio over the plan</h2>
+                <p class="r-section-eyebrow">Path</p>
+                <h3 class="r-card-title">Portfolio over the plan</h3>
               </div>
-              <span class="crumb-meta">Median + 25–75 + 5–95</span>
+              <span class="ink-3">Median + tax line</span>
             </div>
             <svg id="timelineSvg" class="chart" role="img" aria-label="Portfolio value over time"></svg>
           </section>
 
-          <section class="r-panel">
-            <div class="r-panel-head">
+          <!-- Tax bracket fill -->
+          <section class="dash-cell">
+            <div class="r-card-head">
               <div>
-                <p class="r-eyebrow">Tax · Year 1</p>
-                <h2>Bracket fill</h2>
+                <p class="r-section-eyebrow">Tax · Year 1</p>
+                <h3 class="r-card-title">Bracket fill</h3>
               </div>
             </div>
             <ul class="bracket-list" id="bracketList"></ul>
           </section>
-        </div>
 
-        <!-- Withdrawal mix + Sensitivity -->
-        <div class="results-row">
-          <section class="r-panel">
-            <div class="r-panel-head">
+          <!-- Withdrawal order (span 2) -->
+          <section class="dash-cell span-2">
+            <div class="r-card-head">
               <div>
-                <p class="r-eyebrow">Withdrawal order</p>
-                <h2>Account mix per year</h2>
+                <p class="r-section-eyebrow">Withdrawal order</p>
+                <h3 class="r-card-title">Account mix per year</h3>
               </div>
               <div class="mix-legend" id="mixLegend"></div>
             </div>
             <div class="withdrawal-mix" id="withdrawalMix"></div>
           </section>
 
-          <section class="r-panel">
-            <div class="r-panel-head">
+          <!-- Sensitivity tornado -->
+          <section class="dash-cell">
+            <div class="r-card-head">
               <div>
-                <p class="r-eyebrow">Sensitivity</p>
-                <h2>Top movers</h2>
+                <p class="r-section-eyebrow">Sensitivity</p>
+                <h3 class="r-card-title">Top movers</h3>
               </div>
               <span class="crumb-meta" id="sensitivityMeta">Click to recompute</span>
             </div>
             <ul class="tornado-list" id="tornadoList"></ul>
             <button class="subtle-button" type="button" id="runSensitivity">Run sensitivity sweep</button>
           </section>
-        </div>
 
-        <!-- Below-fold detail panels (kept from original app) -->
-        <div class="results-tail">
-          <section class="r-panel">
-            <div class="r-panel-head"><h2>Monte Carlo distribution</h2></div>
+          <!-- Healthcare timeline (span 3, full width) -->
+          <section class="dash-cell span-3">
+            <div class="r-card-head">
+              <div>
+                <p class="r-section-eyebrow">Healthcare</p>
+                <h3 class="r-card-title" id="healthHeading">ACA → Medicare timeline</h3>
+              </div>
+              <div class="health-legend">
+                <span><span class="health-swatch aca"></span>ACA marketplace</span>
+                <span><span class="health-swatch medicare"></span>Medicare</span>
+                <span><span class="health-swatch hot"></span>Subsidy-sensitive</span>
+              </div>
+            </div>
+            <div class="health-tl" id="healthTimeline"></div>
+            <div class="health-tl-axis" id="healthTimelineAxis"></div>
+          </section>
+
+          <!-- Monte Carlo distribution (span 3) -->
+          <section class="dash-cell span-3">
+            <div class="r-card-head">
+              <div>
+                <p class="r-section-eyebrow">Monte Carlo</p>
+                <h3 class="r-card-title">Ending-value distribution</h3>
+              </div>
+            </div>
             <svg id="distributionSvg" class="chart" role="img" aria-label="Monte Carlo ending value distribution"></svg>
           </section>
 
-          <section class="r-panel">
-            <div class="r-panel-head">
-              <h2>Year-by-year breakdown</h2>
-              <div class="inline-controls">
-                <label>
-                  <span>MAGI column</span>
-                  <select id="magiDisplayMode">
-                    <option value="aca">ACA MAGI</option>
-                    <option value="irmaa">IRMAA MAGI</option>
-                    <option value="agi">Federal AGI</option>
-                  </select>
-                </label>
+          <!-- Action plan · all years (span 3) -->
+          <section class="dash-cell span-3 no-pad">
+            <div class="dash-cell-pad">
+              <div class="r-card-head">
+                <div>
+                  <p class="r-section-eyebrow">Action plan · all years</p>
+                  <h3 class="r-card-title">Recommended moves per year</h3>
+                </div>
               </div>
             </div>
-            <div id="yearTable" class="table-wrap"></div>
+            <div class="ledger-wrap-dash">
+              <div id="actionPlan" class="table-wrap"></div>
+            </div>
           </section>
 
-          <section class="r-panel">
-            <div class="r-panel-head"><h2>Asset snapshot</h2></div>
-            <div id="assetBreakdownTable" class="table-wrap"></div>
+          <!-- Year-by-year ledger (span 3) -->
+          <section class="dash-cell span-3 no-pad">
+            <div class="dash-cell-pad">
+              <div class="r-card-head">
+                <div>
+                  <p class="r-section-eyebrow">Year-by-year</p>
+                  <h3 class="r-card-title">Ledger</h3>
+                </div>
+                <div class="inline-controls">
+                  <label>
+                    <span>MAGI column</span>
+                    <select id="magiDisplayMode">
+                      <option value="aca">ACA MAGI</option>
+                      <option value="irmaa">IRMAA MAGI</option>
+                      <option value="agi">Federal AGI</option>
+                    </select>
+                  </label>
+                </div>
+              </div>
+            </div>
+            <div class="ledger-wrap-dash">
+              <div id="yearTable" class="table-wrap"></div>
+            </div>
           </section>
 
-          <div class="results-row">
-            <section class="r-panel">
-              <div class="r-panel-head"><h2>Scenario breakdown</h2></div>
+          <!-- Asset snapshot (span 3) -->
+          <section class="dash-cell span-3 no-pad">
+            <div class="dash-cell-pad">
+              <div class="r-card-head">
+                <div>
+                  <p class="r-section-eyebrow">Asset snapshot</p>
+                  <h3 class="r-card-title">Account balances over time</h3>
+                </div>
+              </div>
+            </div>
+            <div class="ledger-wrap-dash">
+              <div id="assetBreakdownTable" class="table-wrap"></div>
+            </div>
+          </section>
+
+          <!-- Scenario breakdown (span 3) -->
+          <section class="dash-cell span-3 no-pad">
+            <div class="dash-cell-pad">
+              <div class="r-card-head">
+                <div>
+                  <p class="r-section-eyebrow">Scenarios · side-by-side</p>
+                  <h3 class="r-card-title">Scenario breakdown</h3>
+                </div>
+              </div>
+            </div>
+            <div class="ledger-wrap-dash">
               <div id="scenarioTable" class="table-wrap"></div>
-            </section>
-            <section class="r-panel">
-              <div class="r-panel-head"><h2>Backtests</h2></div>
+            </div>
+          </section>
+
+          <!-- Backtests (span 3) -->
+          <section class="dash-cell span-3 no-pad">
+            <div class="dash-cell-pad">
+              <div class="r-card-head">
+                <div>
+                  <p class="r-section-eyebrow">Backtests</p>
+                  <h3 class="r-card-title">How would your plan have done in past eras?</h3>
+                </div>
+              </div>
+            </div>
+            <div class="ledger-wrap-dash">
               <div id="backtestTable" class="table-wrap"></div>
-            </section>
-          </div>
-        </div>
+            </div>
+          </section>
+
+        </section>
       </main>
     </div>
 
@@ -833,10 +904,10 @@
     <div hidden aria-hidden="true">
       <button id="planTab"  type="button"></button>
       <button id="setupTab" type="button"></button>
-      <select id="viewMode"><option value="nominal">Today's $</option><option value="real">Real $</option></select>
+      <select id="viewMode"><option value="real" selected>Today's $</option><option value="nominal">Future $</option></select>
     </div>
 
-    <script type="module" src="./src/v2ui-app.mjs?v=20260511-mcconfig"></script>
-    <script type="module" src="./src/redesign.mjs?v=20260511-mcconfig"></script>
+    <script type="module" src="./src/v2ui-app.mjs?v=20260512-viewmode"></script>
+    <script type="module" src="./src/redesign.mjs?v=20260512-viewmode"></script>
   </body>
 </html>
