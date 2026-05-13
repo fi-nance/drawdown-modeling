@@ -14,7 +14,7 @@ import {
   runHistoricalBacktests,
   runMonteCarlo,
   simulatePlan
-} from "./core/simulation.mjs?v=20260513-tax-efficiency";
+} from "./core/simulation.mjs?v=20260513-streaming";
 import { round } from "./core/utils.mjs";
 import { defaultOneOffExpenses, sampleAssets } from "./data/sample.mjs";
 import {
@@ -358,6 +358,8 @@ let simulationRequestId = 0;
 let activeSimulationRequestId = 0;
 let runModelsBusy = false;
 let pendingRerunRequested = false;
+let workspaceDirty = false;
+let streamingRenderRaf = 0;
 
 const PINNED_YEAR_STORAGE_KEY = "portfolio-success-lab:pinned-year-columns";
 const PINNED_ASSET_STORAGE_KEY = "portfolio-success-lab:pinned-asset-columns";
@@ -425,6 +427,14 @@ function initialize() {
   const cached = restoreCachedLatest();
   if (cached) {
     latest = cached;
+    // Cached scenarios from sessionStorage are always from a completed run.
+    if (latest.monteCarlo && !latest.monteCarlo.progress) {
+      latest.monteCarlo.progress = {
+        done: latest.monteCarlo.scenarios?.length ?? 0,
+        total: latest.monteCarlo.scenarios?.length ?? 0,
+        complete: true
+      };
+    }
     selectedScenarioId = firstResultWithYears(latest.monteCarlo?.scenarios)?.id ?? null;
     const planYears = latest.scenario?.planYears ?? 35;
     selectedYearIndex = Math.min(Math.max(0, selectedYearIndex), planYears - 1);
@@ -434,7 +444,10 @@ function initialize() {
     }
     renderLatest();
   }
-  runModels();
+  // If a cached snapshot is already painted, run silently in the background
+  // and only swap when the new full result is ready — otherwise stream into
+  // an empty results screen so the user sees progress.
+  runModels({ stream: !cached });
 }
 
 function bindEvents() {
@@ -959,6 +972,13 @@ function saveStoredState() {
   } catch (error) {
     console.warn("Saved state could not be written.", error);
   }
+  // Any persisted change implies workspace inputs were edited. runModels
+  // clears this flag at the start of each run so post-run callers can tell
+  // whether the displayed results reflect the current inputs.
+  workspaceDirty = true;
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("psl:workspace-dirty"));
+  }
 }
 
 function setAcaPlanLookupStatus(message, isError = false) {
@@ -1041,7 +1061,10 @@ function getSimulationWorker() {
   return simulationWorker;
 }
 
-function runSimulationsInWorker({ assets, scenario, taxProfile, runs, seed, sequences, onProgress }) {
+function runSimulationsInWorker({
+  assets, scenario, taxProfile, runs, seed, sequences,
+  onPlan, onBacktests, onScenarios, onProgress
+}) {
   const worker = getSimulationWorker();
   const id = ++simulationRequestId;
   activeSimulationRequestId = id;
@@ -1053,13 +1076,20 @@ function runSimulationsInWorker({ assets, scenario, taxProfile, runs, seed, sequ
     function onMessage(ev) {
       const msg = ev.data;
       if (!msg || msg.id !== id) return;
-      if (msg.type === "progress") {
-        if (id !== activeSimulationRequestId) return;
-        onProgress?.(msg);
+      if (id !== activeSimulationRequestId) {
+        if (msg.type === "result" || msg.type === "error") cleanup();
+        return;
+      }
+      if (msg.type === "plan-ready") {
+        onPlan?.(msg.plan);
+      } else if (msg.type === "backtests-ready") {
+        onBacktests?.(msg.backtests);
+      } else if (msg.type === "scenarios-batch") {
+        onScenarios?.({ scenarios: msg.scenarios, done: msg.done, total: msg.total });
+        onProgress?.({ phase: "monteCarlo", done: msg.done, total: msg.total });
       } else if (msg.type === "result") {
         cleanup();
-        if (id !== activeSimulationRequestId) return;
-        resolve({ plan: msg.plan, monteCarlo: msg.monteCarlo, backtests: msg.backtests });
+        resolve({ summary: msg.summary });
       } else if (msg.type === "error") {
         cleanup();
         const err = new Error(msg.message || "Simulation worker failed");
@@ -1077,16 +1107,18 @@ function runSimulationsInWorker({ assets, scenario, taxProfile, runs, seed, sequ
   });
 }
 
-async function runModels() {
-  // If a run is already in flight (typically the silent background re-run
-  // kicked off by initialize() after a cache restore), queue another so the
-  // user's click is honored once the in-flight run finishes — otherwise
-  // their freshly-edited inputs would be silently dropped.
+async function runModels(opts = {}) {
+  // If a run is already in flight, queue another so the user's freshly-edited
+  // inputs aren't dropped — the queued run starts as soon as this one finishes.
   if (runModelsBusy) {
     pendingRerunRequested = true;
     return;
   }
   runModelsBusy = true;
+  // Stream by default. Silent mode (no UI swap until done) is used by
+  // initialize() when cached results are already painted: the background
+  // re-run shouldn't wipe the user's last view with placeholders.
+  const stream = opts.stream !== false;
   try {
     const started = performance.now();
     saveStoredState();
@@ -1113,6 +1145,38 @@ async function runModels() {
     });
 
     setStatus("Running projections...");
+    workspaceDirty = false;
+    let firstScenarioId = null;
+    // Buffer used when stream=false so the cached display stays put until
+    // we have the full new result.
+    const buffered = { plan: null, backtests: [], scenarios: [] };
+
+    if (stream) {
+      selectedBacktestIndex = null;
+      latest = {
+        scenario,
+        taxProfile,
+        historicalCoverage,
+        historicalAssetClasses,
+        historicalProxies,
+        historicalDataSource,
+        historicalRange,
+        historicalMode: els.backtestMode.value,
+        plan: null,
+        monteCarlo: {
+          scenarios: [],
+          summary: null,
+          progress: { done: 0, total: runs, complete: false }
+        },
+        backtests: []
+      };
+      selectedYearIndex = Math.min(selectedYearIndex, scenario.planYears - 1);
+      els.yearRange.max = String(scenario.planYears);
+      els.yearRange.value = String(selectedYearIndex + 1);
+
+      window.dispatchEvent(new CustomEvent("psl:run-start", { detail: { runs } }));
+      renderLatest({ streaming: true });
+    }
     window.dispatchEvent(new CustomEvent("psl:run-progress", {
       detail: { phase: "monteCarlo", done: 0, total: runs }
     }));
@@ -1124,6 +1188,41 @@ async function runModels() {
       runs,
       seed,
       sequences: historicalSequences,
+      onPlan: (plan) => {
+        if (stream) {
+          if (!latest) return;
+          latest.plan = plan;
+          renderLatest({ streaming: true });
+        } else {
+          buffered.plan = plan;
+        }
+      },
+      onBacktests: (backtests) => {
+        if (stream) {
+          if (!latest) return;
+          latest.backtests = backtests;
+          renderLatest({ streaming: true });
+        } else {
+          buffered.backtests = backtests;
+        }
+      },
+      onScenarios: ({ scenarios, done, total }) => {
+        if (stream) {
+          if (!latest) return;
+          latest.monteCarlo.scenarios.push(...scenarios);
+          latest.monteCarlo.progress = { done, total, complete: false };
+          if (firstScenarioId == null && latest.monteCarlo.scenarios[0]) {
+            firstScenarioId = latest.monteCarlo.scenarios[0].id;
+            selectedScenarioId = firstScenarioId;
+            // First MC scenario landed — redesign.mjs uses this to swap to
+            // the results screen so the user sees something live.
+            window.dispatchEvent(new CustomEvent("psl:first-scenario-ready"));
+          }
+          renderLatest({ streaming: true });
+        } else {
+          buffered.scenarios.push(...scenarios);
+        }
+      },
       onProgress: ({ phase, done, total }) => {
         window.dispatchEvent(new CustomEvent("psl:run-progress", {
           detail: { phase, done, total }
@@ -1131,26 +1230,38 @@ async function runModels() {
       }
     });
 
-    latest = {
-      scenario,
-      taxProfile,
-      historicalCoverage,
-      historicalAssetClasses,
-      historicalProxies,
-      historicalDataSource,
-      historicalRange,
-      historicalMode: els.backtestMode.value,
-      plan: result.plan,
-      monteCarlo: result.monteCarlo,
-      backtests: result.backtests
-    };
-
-    selectedYearIndex = Math.min(selectedYearIndex, scenario.planYears - 1);
-    els.yearRange.max = String(scenario.planYears);
-    els.yearRange.value = String(selectedYearIndex + 1);
-    selectedScenarioId = latest.monteCarlo.scenarios[0]?.id ?? null;
-    selectedBacktestIndex = null;
-    renderLatest();
+    if (stream) {
+      latest.monteCarlo.summary = result.summary;
+      latest.monteCarlo.progress = { done: runs, total: runs, complete: true };
+      if (selectedScenarioId == null) {
+        selectedScenarioId = latest.monteCarlo.scenarios[0]?.id ?? null;
+      }
+    } else {
+      latest = {
+        scenario,
+        taxProfile,
+        historicalCoverage,
+        historicalAssetClasses,
+        historicalProxies,
+        historicalDataSource,
+        historicalRange,
+        historicalMode: els.backtestMode.value,
+        plan: buffered.plan,
+        monteCarlo: {
+          scenarios: buffered.scenarios,
+          summary: result.summary,
+          progress: { done: runs, total: runs, complete: true }
+        },
+        backtests: buffered.backtests
+      };
+      selectedYearIndex = Math.min(selectedYearIndex, scenario.planYears - 1);
+      els.yearRange.max = String(scenario.planYears);
+      els.yearRange.value = String(selectedYearIndex + 1);
+      selectedScenarioId = latest.monteCarlo.scenarios[0]?.id ?? null;
+      selectedBacktestIndex = null;
+    }
+    renderLatest({ streaming: false });
+    window.dispatchEvent(new CustomEvent("psl:run-complete"));
     setStatus(`Completed ${runs} Monte Carlo runs and ${latest.backtests.length} historical backtests in ${Math.round(performance.now() - started)} ms.${historicalCompletionNote()}`);
   } catch (error) {
     console.error(error);
@@ -1160,45 +1271,101 @@ async function runModels() {
     runModelsBusy = false;
     if (pendingRerunRequested) {
       pendingRerunRequested = false;
-      // Re-show the overlay because the just-completed run hid it via the
-      // psl:render-latest listener. Yield the event loop first so the worker
-      // can pick up the new postMessage.
-      window.dispatchEvent(new CustomEvent("psl:run-start"));
       setTimeout(() => runModels(), 0);
     }
   }
 }
 
-function renderLatest() {
+function renderLatest(options = {}) {
+  if (!latest) return;
+  const streaming = !!options.streaming;
+  // Streaming flushes can arrive faster than the browser can paint. Coalesce
+  // them onto the next animation frame so the UI stays responsive while a
+  // 5k-run sim is still flowing.
+  if (streaming) {
+    if (streamingRenderRaf) return;
+    streamingRenderRaf = requestAnimationFrame(() => {
+      streamingRenderRaf = 0;
+      paintLatest(true);
+    });
+    return;
+  }
+  if (streamingRenderRaf) {
+    cancelAnimationFrame(streamingRenderRaf);
+    streamingRenderRaf = 0;
+  }
+  paintLatest(false);
+}
+
+function paintLatest(streaming) {
   if (!latest) return;
   clampSelectedYearToVisible();
-  renderKpis();
-  renderFlowAndSales();
-  drawTimeline();
+  if (latest.plan) {
+    renderKpis();
+    renderFlowAndSales();
+    drawTimeline();
+    renderYearTable();
+    renderAssetBreakdown();
+  }
   drawDistribution();
-  renderYearTable();
-  renderAssetBreakdown();
   renderScenarioTable();
   renderBacktests();
-  // Cache so a refresh paints these same results instantly instead of an
-  // empty page while the next worker run is in flight. cacheLatestResults
-  // returns false if the compact blob still exceeded sessionStorage's quota
-  // — fire an event so the UI can flag that a refresh will fall back to a
-  // fresh recompute.
-  const cacheOk = cacheLatestResults(latest);
+  // Only cache final, complete results — mid-run partials would thrash
+  // sessionStorage and a refresh during a stream is supposed to start over.
+  let cacheOk = true;
+  if (!streaming && latest.monteCarlo?.progress?.complete) {
+    cacheOk = cacheLatestResults(latest);
+  }
   if (typeof window !== "undefined") {
     window.__pslLatest = latest;
     window.dispatchEvent(new CustomEvent("psl:cache-status", { detail: { cached: cacheOk } }));
-    window.dispatchEvent(new CustomEvent("psl:render-latest"));
+    window.dispatchEvent(new CustomEvent("psl:render-latest", { detail: { streaming } }));
   }
 }
 
 
+if (typeof window !== "undefined") {
+  // Expose for redesign.mjs's "view results" flow — it forces a re-run when
+  // workspace inputs changed since the last completed run.
+  window.__pslIsWorkspaceDirty = () => workspaceDirty;
+  window.__pslRunModels = (opts) => runModels(opts);
+}
+
+// Returns the Monte Carlo summary if the run completed, otherwise recomputes
+// a "preliminary" summary from the scenarios accumulated so far. Returns
+// null only when there are no scenarios yet at all.
+function effectiveMonteCarloSummary() {
+  const mc = latest?.monteCarlo;
+  if (!mc) return null;
+  if (mc.summary) return mc.summary;
+  const scenarios = mc.scenarios ?? [];
+  if (!scenarios.length) return null;
+  const endingValues = scenarios.map((s) => s.endingValue);
+  const heirValues = scenarios.map((s) => s.heirValue);
+  const sortedEnding = [...endingValues].sort((a, b) => a - b);
+  const sortedHeir = [...heirValues].sort((a, b) => a - b);
+  const pct = (sorted, p) => sorted.length
+    ? sorted[Math.max(0, Math.min(sorted.length - 1, Math.floor(sorted.length * p)))]
+    : 0;
+  return {
+    runs: scenarios.length,
+    successRate: scenarios.filter((s) => s.success).length / scenarios.length,
+    medianEndingValue: pct(sortedEnding, 0.5),
+    p10EndingValue: pct(sortedEnding, 0.1),
+    p90EndingValue: pct(sortedEnding, 0.9),
+    medianHeirValue: pct(sortedHeir, 0.5),
+    preliminary: true
+  };
+}
+
 function renderKpis() {
+  if (!els.kpis) return;
   const years = activeVisibleYears();
+  if (!years?.length) { els.kpis.innerHTML = ""; return; }
   const currentYear = years[selectedYearIndex] ?? years[0];
   const finalYear = years.at(-1);
-  const summary = latest.monteCarlo.summary;
+  const summary = effectiveMonteCarloSummary();
+  if (!summary) { els.kpis.innerHTML = ""; return; }
   const adjustedMedian = adjustAmount(summary.medianEndingValue, finalYear);
   const adjustedP10 = adjustAmount(summary.p10EndingValue, finalYear);
   const adjustedHeir = adjustAmount(summary.medianHeirValue, finalYear);
@@ -1400,6 +1567,8 @@ function renderScenarioTable() {
     ];
   });
 
+  const progress = latest.monteCarlo.progress;
+  const streaming = progress && !progress.complete;
   els.scenarioTable.innerHTML = tableHtml(
     ["Run", "Success", "Ending", "Heirs", "Failure year"],
     rows,
@@ -1415,7 +1584,8 @@ function renderScenarioTable() {
         ? `data-scenario="${id}"`
         : `aria-disabled="true" title="Full path details are reloading"`;
       return `${attrs} class="${classes}"`;
-    }
+    },
+    streaming ? scenarioStreamingFooter(progress) : ""
   );
 
   els.scenarioTable.querySelectorAll("[data-scenario]").forEach((row) => {
@@ -1781,12 +1951,13 @@ function firstResultWithYears(results = []) {
 
 function activeYears() {
   if (!latest) return [];
+  const planYears = latest.plan?.years ?? [];
   if (selectedBacktestIndex != null) {
     const backtest = latest.backtests[selectedBacktestIndex];
-    return hasYearTimeline(backtest) ? backtest.years : latest.plan.years;
+    return hasYearTimeline(backtest) ? backtest.years : planYears;
   }
   const selectedScenario = latest.monteCarlo.scenarios.find((scenario) => scenario.id === selectedScenarioId);
-  return hasYearTimeline(selectedScenario) ? selectedScenario.years : latest.plan.years;
+  return hasYearTimeline(selectedScenario) ? selectedScenario.years : planYears;
 }
 
 function activeVisibleYears() {
@@ -2144,9 +2315,16 @@ function activePathLabel() {
 
 function drawDistribution() {
   const svg = els.distributionSvg;
-  clearSvg(svg, 860, 320);
   const width = 860;
   const height = 320;
+  clearSvg(svg, width, height);
+  // Histogram is an aggregate view — drawing it with a handful of scenarios
+  // looks degenerate, not "in progress". Hold for a same-sized placeholder
+  // until the run finishes so the layout doesn't jump.
+  if (!latest.monteCarlo.progress?.complete) {
+    drawDistributionPlaceholder(svg, width, height, latest.monteCarlo.progress);
+    return;
+  }
   const margin = { top: 28, right: 28, bottom: 52, left: 60 };
   const scenarios = latest.monteCarlo.scenarios;
   const values = scenarios.map((s) => adjustAmount(s.endingValue, s.years?.at?.(-1) ?? s.lastYear));
@@ -2259,6 +2437,50 @@ function drawDistribution() {
   svg.append(svgEl("text", { x: width - 208, y: height - 27, class: "axis-label", "font-size": 9 }, "Mixed"));
   svg.append(svgEl("rect", { x: width - 220, y: height - 20, width: 8, height: 8, rx: 2, fill: "#f06060" }));
   svg.append(svgEl("text", { x: width - 208, y: height - 13, class: "axis-label", "font-size": 9 }, "Mostly fail"));
+}
+
+function drawDistributionPlaceholder(svg, width, height, progress) {
+  // Subtle rounded panel matching the chart frame so the page doesn't reflow
+  // when the real chart paints.
+  svg.append(svgEl("rect", {
+    x: 12, y: 12, width: width - 24, height: height - 24,
+    rx: 12, fill: "rgba(255,255,255,0.02)", stroke: "rgba(255,255,255,0.06)"
+  }));
+  const cx = width / 2;
+  const cy = height / 2 - 8;
+  // Spinner ring (CSS animated via class).
+  svg.append(svgEl("circle", {
+    cx, cy, r: 16,
+    fill: "none",
+    stroke: "rgba(255,255,255,0.12)",
+    "stroke-width": 3
+  }));
+  const spinner = svgEl("circle", {
+    cx, cy, r: 16,
+    fill: "none",
+    stroke: "#34d1b6",
+    "stroke-width": 3,
+    "stroke-linecap": "round",
+    "stroke-dasharray": "30 70",
+    class: "v2-dist-spinner"
+  });
+  svg.append(spinner);
+  svg.append(svgEl("text", {
+    x: cx, y: cy + 38, "text-anchor": "middle",
+    fill: "rgba(255,255,255,0.78)",
+    "font-size": 13, "font-weight": 600,
+    "font-family": "'Inter', sans-serif"
+  }, "Building distribution…"));
+  const done = progress?.done ?? 0;
+  const total = progress?.total ?? 0;
+  if (total > 0) {
+    svg.append(svgEl("text", {
+      x: cx, y: cy + 56, "text-anchor": "middle",
+      fill: "rgba(255,255,255,0.5)",
+      "font-size": 11,
+      "font-family": "'JetBrains Mono', monospace"
+    }, `${done.toLocaleString()} of ${total.toLocaleString()} scenarios`));
+  }
 }
 
 function drawSankey(svg, rawFlows, nodeDetails = {}) {
@@ -2864,14 +3086,30 @@ function syncJsonFromAssets() {
   els.assetJson.value = JSON.stringify({ assets }, null, 2);
 }
 
-function tableHtml(headers, rows, rowAttrs = () => "") {
+function tableHtml(headers, rows, rowAttrs = () => "", footerHtml = "") {
   return `
     <table>
       <thead><tr>${headers.map((header) => `<th>${escapeHtml(header)}</th>`).join("")}</tr></thead>
       <tbody>
         ${rows.map((row, index) => `<tr ${rowAttrs(index)}>${row.map((cell) => `<td>${cell}</td>`).join("")}</tr>`).join("")}
       </tbody>
+      ${footerHtml ? `<tfoot>${footerHtml}</tfoot>` : ""}
     </table>
+  `;
+}
+
+function scenarioStreamingFooter(progress) {
+  const done = progress?.done ?? 0;
+  const total = progress?.total ?? 0;
+  const remaining = Math.max(0, total - done);
+  return `
+    <tr class="streaming-row" aria-live="polite">
+      <td colspan="5">
+        <span class="streaming-spinner" aria-hidden="true"></span>
+        <span class="streaming-label">Running… ${done.toLocaleString()} of ${total.toLocaleString()} scenarios</span>
+        <span class="streaming-remaining">${remaining.toLocaleString()} to go</span>
+      </td>
+    </tr>
   `;
 }
 

@@ -183,26 +183,10 @@ function boot() {
   bindWithdrawalMix();
   bindRunsHint();
   applyAll();
-  // Wait for v2ui-app to settle before painting the new visuals; it dispatches
-  // a custom event whenever a new run completes (we hook it below).
   hookRunCompletion();
-  // If v2ui-app already painted before redesign.mjs loaded, sync now.
   if (window.__pslLatest) {
     rerenderResults();
     syncWorkspaceSummary();
-  } else if (state.screen === "results") {
-    // Refreshed straight onto the results screen with no cached results.
-    // v2ui-app's initialize() auto-runs the model on load, so a worker run is
-    // already in-flight — show the overlay so the user sees progress instead
-    // of an empty page. The MutationObserver / psl:render-latest listener in
-    // hookRunCompletion will hide it once results paint.
-    flagPendingRun();
-    showRunOverlay();
-    // Safety net: if the auto-run somehow didn't fire (e.g. it errored before
-    // dispatching), kick it off explicitly.
-    setTimeout(() => {
-      if (!window.__pslLatest) document.getElementById("runModel")?.click();
-    }, 250);
   }
   // Also listen for future render-latest events (in case the user changes
   // inflation view, etc., without firing the yearTable mutation observer).
@@ -568,7 +552,17 @@ function bindRouter() {
   });
 
   const wsViewResults = document.getElementById("wsViewResults");
-  wsViewResults?.addEventListener("click", () => setScreen("results"));
+  wsViewResults?.addEventListener("click", () => {
+    // If the user edited workspace inputs since the last completed run, the
+    // displayed results are stale. Force a fresh run that streams into a
+    // cleared results screen so the user doesn't briefly see old numbers.
+    if (window.__pslIsWorkspaceDirty?.()) {
+      flagPendingRun();
+      document.getElementById("runModel")?.click();
+      return;
+    }
+    setScreen("results");
+  });
 
   const workspaceBackToPersona = document.getElementById("workspaceBackToPersona");
   workspaceBackToPersona?.addEventListener("click", () => setScreen("persona"));
@@ -582,61 +576,27 @@ function bindRouter() {
   const back = document.getElementById("resultsBackToWorkspace");
   back?.addEventListener("click", () => setScreen("workspace"));
 
-  // Show the loading overlay as soon as the user clicks Run model. The
-  // simulation now runs in a Web Worker, so the main thread stays responsive
-  // and we just need the overlay to appear before the (much shorter) main-
-  // thread setup work completes. Capture-phase listener runs before
-  // v2ui-app's click handler.
+  // The simulation runs in a Web Worker and streams partial results back; we
+  // navigate to the results screen as soon as the first Monte Carlo scenario
+  // lands so the user sees progress live instead of staring at a blank
+  // overlay until the whole run finishes.
   const runModel = document.getElementById("runModel");
   if (runModel) {
     runModel.addEventListener("click", () => {
       flagPendingRun();
-      showRunOverlay();
     }, true);
   }
 
-  // v2ui-app dispatches this when it kicks off a queued re-run that was
-  // requested while a prior run was still in flight. The just-completed run
-  // hid the overlay via psl:render-latest, so we re-show it for the queued
-  // run so the user keeps seeing progress.
-  window.addEventListener("psl:run-start", () => {
-    flagPendingRun();
-    showRunOverlay();
-  });
-
-  // Live progress updates from v2ui-app while the worker runs.
-  window.addEventListener("psl:run-progress", (ev) => {
-    const detail = ev.detail || {};
-    if (detail.error) { hideRunOverlay(); return; }
-    const sub = document.getElementById("runOverlaySub");
-    if (sub && Number.isFinite(detail.done) && Number.isFinite(detail.total) && detail.total > 0) {
-      const pct = Math.min(100, Math.round((detail.done / detail.total) * 100));
-      sub.textContent = `Monte Carlo ${detail.done.toLocaleString()} / ${detail.total.toLocaleString()} (${pct}%)`;
+  // First Monte Carlo scenario is ready — swap to the results screen if the
+  // user kicked off a run from the workspace and is waiting on us.
+  window.addEventListener("psl:first-scenario-ready", () => {
+    if (pendingRunAdvance) {
+      pendingRunAdvance = false;
+      if (state.screen === "workspace" || state.screen === "persona") {
+        setScreen("results");
+      }
     }
-    // Reset the safety timer while we're still receiving progress.
-    clearTimeout(showRunOverlay._timer);
-    showRunOverlay._timer = setTimeout(() => hideRunOverlay(), 60000);
   });
-}
-
-function showRunOverlay(message) {
-  const overlay = document.getElementById("runOverlay");
-  if (!overlay) return;
-  if (message) {
-    const sub = document.getElementById("runOverlaySub");
-    if (sub) sub.textContent = message;
-  }
-  overlay.hidden = false;
-  // Safety timer: hide if a render hasn't happened in 30s.
-  clearTimeout(showRunOverlay._timer);
-  showRunOverlay._timer = setTimeout(() => hideRunOverlay(), 30000);
-}
-
-function hideRunOverlay() {
-  const overlay = document.getElementById("runOverlay");
-  if (!overlay) return;
-  overlay.hidden = true;
-  clearTimeout(showRunOverlay._timer);
 }
 
 function setScreen(screen) {
@@ -870,22 +830,45 @@ function renderKpiStrip() {
     return;
   }
   const pct = summary.successRate;
-  const runs = latest?.monteCarlo?.summary?.runs ?? monteCarloScenarios(latest).length ?? 250;
+  const progress = latest?.monteCarlo?.progress;
+  const streaming = !!(progress && !progress.complete);
+  const totalRuns = progress?.total ?? latest?.monteCarlo?.summary?.runs ?? monteCarloScenarios(latest).length ?? 250;
+  const doneRuns = progress?.done ?? monteCarloScenarios(latest).length ?? totalRuns;
   const pctInt = Math.round(pct * 100);
+  const spinner = streaming ? `<span class="kpi-spinner" aria-hidden="true"></span>` : "";
+  // Historical success — surfaced inline next to the hero so the user can
+  // compare it against the Monte Carlo number. Hidden until backtests land.
+  const historical = historicalSummary(latest);
+  const historicalChip = historical ? `
+    <div class="dh-vs" title="${historical.count} historical paths">
+      <span class="dh-vs-label">Historical</span>
+      <span class="dh-vs-value mono">${Math.round(historical.successRate * 100)}%</span>
+    </div>` : "";
+  const subline = streaming
+    ? `<span class="dh-prelim">preliminary · ${doneRuns.toLocaleString()} of ${totalRuns.toLocaleString()}</span>`
+    : `of ${totalRuns.toLocaleString()} simulated futures`;
   root.innerHTML = `
-    <div class="dh-hero" data-tier="${tierFor(pct)}">
+    <div class="dh-hero" data-tier="${tierFor(pct)}" data-streaming="${streaming}">
       <div class="dh-eyebrow">Money lasts in</div>
-      <div class="dh-big mono">${pctInt}<span class="dh-big-unit">%</span></div>
-      <div class="dh-sub">of ${runs.toLocaleString()} simulated futures</div>
+      <div class="dh-big mono">${pctInt}<span class="dh-big-unit">%</span>${spinner}</div>
+      <div class="dh-sub">${subline}</div>
     </div>
+    ${historicalChip}
     <div class="dh-kpis">
-      <div class="dh-kpi"><span class="kpi-label">Median ending</span><span class="kpi-big mono">${formatCurrencyShort(summary.median)}</span></div>
-      <div class="dh-kpi"><span class="kpi-label">Worst 5%</span><span class="kpi-big mono" data-tone="warn">${formatCurrencyShort(summary.fifth)}</span></div>
+      <div class="dh-kpi" data-streaming="${streaming}"><span class="kpi-label">Median ending</span><span class="kpi-big mono">${formatCurrencyShort(summary.median)}${spinner}</span></div>
+      <div class="dh-kpi" data-streaming="${streaming}"><span class="kpi-label">Worst 5%</span><span class="kpi-big mono" data-tone="warn">${formatCurrencyShort(summary.fifth)}${spinner}</span></div>
       <div class="dh-kpi"><span class="kpi-label">Lifetime tax</span><span class="kpi-big mono">${formatCurrencyShort(summary.lifetimeTax)}</span></div>
       <div class="dh-kpi"><span class="kpi-label">Healthcare</span><span class="kpi-big mono">${formatCurrencyShort(summary.healthcare)}</span></div>
       <div class="dh-kpi"><span class="kpi-label">Safe spend rate</span><span class="kpi-big mono">${(summary.safeRate*100).toFixed(1)}%</span></div>
       <div class="dh-kpi"><span class="kpi-label">Years modeled</span><span class="kpi-big mono">${summary.years}</span></div>
     </div>`;
+}
+
+function historicalSummary(latest) {
+  const list = Array.isArray(latest?.backtests) ? latest.backtests : [];
+  if (!list.length) return null;
+  const successes = list.filter((b) => b?.success).length;
+  return { successRate: successes / list.length, count: list.length };
 }
 
 // ─── Healthcare timeline (ACA → Medicare strip) ────────────────────
@@ -1451,26 +1434,18 @@ function flagPendingRun() {
 }
 
 function hookRunCompletion() {
-  // v2ui-app stores the latest result in a module-private variable. We
-  // observe via a MutationObserver on the existing #yearTable, which
-  // re-renders whenever a run completes.
-  const obs = new MutationObserver(() => {
-    // Pull what we can from the global (set below) AND from the DOM.
+  // Run-complete is dispatched by v2ui-app when the worker hands back the
+  // final summary. We use it to refresh workspace summary chips and to
+  // double-check we've landed on results in case the first-scenario event
+  // was missed (unlikely, but defensive).
+  window.addEventListener("psl:run-complete", () => {
     rerenderResults();
     syncWorkspaceSummary();
-    hideRunOverlay();
-    window.dispatchEvent(new CustomEvent("psl:run-complete"));
     if (pendingRunAdvance) {
       pendingRunAdvance = false;
-      // Auto-advance to results screen on the first user-initiated run.
       if (state.screen === "workspace") setScreen("results");
     }
   });
-  const target = document.getElementById("yearTable");
-  if (target) obs.observe(target, { childList: true, subtree: true });
-  // Also hide on the render-latest event in case the page repaints
-  // without modifying #yearTable (e.g., toggle inflation view).
-  window.addEventListener("psl:render-latest", () => hideRunOverlay());
 }
 
 function rerenderResults() {

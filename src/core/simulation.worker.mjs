@@ -1,13 +1,12 @@
 /* Simulation Web Worker.
-   Receives a single { type: "run", id, payload } message, runs simulatePlan +
-   runMonteCarlo + runHistoricalBacktests off the main thread, and posts
-   progress + result/error messages back. */
+   Streams partial results back: plan → backtests → batched Monte Carlo
+   scenarios → final result with summary. */
 
 import {
   runHistoricalBacktests,
   runMonteCarlo,
   simulatePlan
-} from "./simulation.mjs?v=20260511-mcconfig";
+} from "./simulation.mjs?v=20260513-streaming";
 
 self.addEventListener("message", (ev) => {
   const msg = ev.data;
@@ -15,19 +14,30 @@ self.addEventListener("message", (ev) => {
   const { id, payload } = msg;
   try {
     const { assets, scenario, taxProfile, runs, seed, sequences } = payload;
+
     const plan = simulatePlan({ assets, scenario, taxProfile });
+    self.postMessage({ type: "plan-ready", id, plan });
+
+    const backtests = runHistoricalBacktests({ assets, scenario, taxProfile, sequences });
+    self.postMessage({ type: "backtests-ready", id, backtests });
+
     const monteCarlo = runMonteCarlo({
       assets,
       scenario,
       taxProfile,
       runs,
       seed,
-      onProgress: ({ done, total }) => {
-        self.postMessage({ type: "progress", id, phase: "monteCarlo", done, total });
+      onBatch: ({ scenarios, done, total }) => {
+        self.postMessage({
+          type: "scenarios-batch",
+          id,
+          scenarios,
+          done,
+          total
+        });
       }
     });
-    const backtests = runHistoricalBacktests({ assets, scenario, taxProfile, sequences });
-    self.postMessage({ type: "result", id, plan, monteCarlo, backtests });
+    self.postMessage({ type: "result", id, summary: monteCarlo.summary });
   } catch (err) {
     self.postMessage({
       type: "error",

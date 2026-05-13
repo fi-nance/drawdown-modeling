@@ -289,12 +289,14 @@ export function runMonteCarlo({
   runs = 500,
   seed = 42,
   onProgress = null,
+  onBatch = null,
   progressInterval = 25
 }) {
   const mergedScenario = ensureReturnAssumptionsForAssets(mergeScenario(scenario), assets);
   const rng = createRng(seed);
   const scenarios = [];
   const reportEvery = Math.max(1, Math.trunc(progressInterval) || 25);
+  let batchStart = 0;
 
   for (let run = 0; run < runs; run += 1) {
     const returnSequence = [];
@@ -326,8 +328,18 @@ export function runMonteCarlo({
       years: plan.years
     });
 
-    if (typeof onProgress === "function" && ((run + 1) % reportEvery === 0 || run + 1 === runs)) {
-      onProgress({ done: run + 1, total: runs });
+    if ((run + 1) % reportEvery === 0 || run + 1 === runs) {
+      if (typeof onBatch === "function") {
+        onBatch({
+          scenarios: scenarios.slice(batchStart, run + 1),
+          done: run + 1,
+          total: runs
+        });
+        batchStart = run + 1;
+      }
+      if (typeof onProgress === "function") {
+        onProgress({ done: run + 1, total: runs });
+      }
     }
   }
 
