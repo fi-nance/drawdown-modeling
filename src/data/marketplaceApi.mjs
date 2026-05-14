@@ -125,6 +125,7 @@ export function normalizeMarketplacePlan(plan = {}, { familyCoverage = false } =
     premium: finiteNumber(plan.premium),
     premiumWithCredit: finiteNumber(plan.premium_w_credit),
     oopMaximum: marketplacePlanOopMaximum(plan, { familyCoverage }),
+    ratingArea: normalizeMarketplaceRatingArea(plan).display,
     benefitsUrl: plan.benefits_url ?? "",
     brochureUrl: plan.brochure_url ?? "",
     networkUrl: plan.network_url ?? "",
@@ -134,13 +135,59 @@ export function normalizeMarketplacePlan(plan = {}, { familyCoverage = false } =
   };
 }
 
-export function secondLowestSilverPremium(plans = []) {
-  const silverPremiums = plans
+export function normalizeMarketplaceRatingArea(payload = {}) {
+  const raw = [
+    payload.rate_area,
+    payload.rating_area,
+    payload.ratingArea,
+    payload.place?.rate_area,
+    payload.place?.rating_area,
+    payload.place?.ratingArea
+  ].find((candidate) => candidate != null && candidate !== "");
+  const id = firstNonEmptyString([
+    raw?.id,
+    raw?.rate_area_id,
+    raw?.rating_area_id,
+    raw?.ratingAreaId,
+    payload.rate_area_id,
+    payload.rating_area_id,
+    payload.ratingAreaId
+  ]);
+  const name = firstNonEmptyString([
+    typeof raw === "string" || typeof raw === "number" ? raw : null,
+    raw?.name,
+    raw?.area,
+    raw?.rate_area,
+    raw?.rating_area,
+    raw?.ratingArea,
+    payload.rate_area,
+    payload.rating_area,
+    payload.ratingArea
+  ]);
+  const state = firstNonEmptyString([
+    raw?.state,
+    raw?.state_code,
+    raw?.stateCode,
+    payload.state,
+    payload.state_code,
+    payload.place?.state
+  ]).toUpperCase();
+  const display = ratingAreaDisplay({ id, name, state });
+  return { id, name, state, display };
+}
+
+export function secondLowestSilverPlan(plans = []) {
+  const silverPlans = plans
     .filter((plan) => String(plan.metalLevel ?? plan.metal_level ?? "").toLowerCase() === "silver")
-    .map((plan) => finiteNumber(plan.premium))
-    .filter((premium) => Number.isFinite(premium))
-    .sort((a, b) => a - b);
-  return silverPremiums[1] ?? silverPremiums[0] ?? null;
+    .map((plan) => ({ plan, premium: finiteNumber(plan.premium) }))
+    .filter(({ premium }) => Number.isFinite(premium))
+    .sort((a, b) => a.premium - b.premium || String(a.plan.name ?? "").localeCompare(String(b.plan.name ?? "")));
+  return silverPlans[1]?.plan ?? silverPlans[0]?.plan ?? null;
+}
+
+export function secondLowestSilverPremium(plans = []) {
+  const plan = secondLowestSilverPlan(plans);
+  return plan ? finiteNumber(plan.premium) : null;
 }
 
 export function marketplacePlanOopMaximum(plan = {}, { familyCoverage = false } = {}) {
@@ -204,4 +251,24 @@ function firstFiniteNumber(values) {
     if (numeric != null) return numeric;
   }
   return null;
+}
+
+function firstNonEmptyString(values) {
+  for (const value of values) {
+    const text = String(value ?? "").trim();
+    if (text && text !== "[object Object]") return text;
+  }
+  return "";
+}
+
+function ratingAreaDisplay({ id, name, state }) {
+  const normalizedId = String(id ?? "").trim();
+  const normalizedName = String(name ?? "").trim();
+  const normalizedState = String(state ?? "").trim();
+  if (normalizedId && normalizedName && normalizedId !== normalizedName) {
+    return `${normalizedId} - ${normalizedName}`;
+  }
+  if (normalizedId) return normalizedId;
+  if (normalizedName) return normalizedName;
+  return normalizedState ? `${normalizedState} rating area` : "";
 }

@@ -7,7 +7,9 @@ import {
   marketplacePlanOopMaximum,
   marketplaceStateCode,
   normalizeMarketplaceCounties,
+  normalizeMarketplaceRatingArea,
   normalizeMarketplacePlans,
+  secondLowestSilverPlan,
   secondLowestSilverPremium
 } from "../src/data/marketplaceApi.mjs";
 
@@ -69,7 +71,29 @@ test("Marketplace plan normalization extracts premiums, metal level, issuer, and
   assert.equal(plans[0].name, "Bronze One");
   assert.equal(plans[0].issuer, "Issuer B");
   assert.equal(plans[0].oopMaximum, 15000);
+  assert.equal(secondLowestSilverPlan(plans).id, "silver-1");
   assert.equal(secondLowestSilverPremium(plans), 600);
+});
+
+test("Marketplace rating-area normalization keeps the local plan audit trail", () => {
+  assert.deepEqual(normalizeMarketplaceRatingArea({
+    rate_area: { id: "NC5", name: "Rating Area 5", state: "NC" }
+  }), {
+    id: "NC5",
+    name: "Rating Area 5",
+    state: "NC",
+    display: "NC5 - Rating Area 5"
+  });
+
+  assert.deepEqual(normalizeMarketplaceRatingArea({
+    place: { state: "TX" },
+    rating_area: "Rating Area 11"
+  }), {
+    id: "",
+    name: "Rating Area 11",
+    state: "TX",
+    display: "Rating Area 11"
+  });
 });
 
 test("Marketplace counties normalize common CMS response shapes", () => {

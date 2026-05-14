@@ -75,7 +75,7 @@ export const DEFAULT_SCENARIO = {
   oopMaxOverride: null,
   withdrawalOrder: ["taxable", "traditional", "hsa", "roth"],
   withdrawalStrategy: {
-    mode: "heuristic",
+    mode: "lifetime",
     expectedReturnPenaltyYears: 1,
     gainHarvestingFutureTaxDiscount: 0.85
   },

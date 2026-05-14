@@ -133,7 +133,7 @@ const OUTCOMES = [
 const MODULES = [
   { id: "basics",        label: "The basics",     desc: "Age, plan length, target spend",        controls: 11, required: true,  enabledByDefault: true  },
   { id: "portfolio",     label: "Portfolio",      desc: "Your accounts and holdings",             controls: 5,  required: true,  enabledByDefault: true  },
-  { id: "healthcare",    label: "Healthcare",     desc: "Insurance until Medicare",               controls: 14, required: false, enabledByDefault: true  },
+  { id: "healthcare",    label: "Healthcare",     desc: "Insurance until Medicare",               controls: 21, required: false, enabledByDefault: true  },
   { id: "medicare",      label: "Medicare/IRMAA", desc: "Premiums after 65",                       controls: 8,  required: false, enabledByDefault: false },
   { id: "other-income",  label: "Other income",   desc: "Social Security, work, SE",               controls: 7,  required: false, enabledByDefault: false },
   { id: "strategy",      label: "Strategy toolkit", desc: "Taxes, allocations, withdrawal rules",   controls: 22, required: false, enabledByDefault: true  },

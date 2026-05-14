@@ -238,6 +238,7 @@ button:hover {
 .panel > textarea,
 .panel > details,
 .data-note,
+.assumption-note,
 .strategy-summary,
 .one-off-list,
 .asset-table,
@@ -286,6 +287,7 @@ label {
 
 label small,
 .data-note,
+.assumption-note,
 .table-note {
   color: var(--text-muted);
   font-size: 0.72rem;
@@ -390,6 +392,47 @@ textarea {
   background: rgba(52, 209, 182, 0.05);
   font-size: 0.78rem;
   font-weight: 600;
+}
+
+.assumption-note {
+  margin: 0;
+  border-left: 3px solid rgba(52, 209, 182, 0.34);
+  padding: 0.05rem 0 0.05rem 0.65rem;
+}
+
+.audit-list {
+  display: grid;
+  gap: 0.65rem;
+  margin: 0;
+}
+
+.audit-list > div {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.28fr) 1fr;
+  gap: 0.8rem;
+  align-items: start;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.65rem;
+}
+
+.audit-list > div:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.audit-list dt {
+  color: var(--text-accent);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.audit-list dd {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 0.76rem;
+  line-height: 1.45;
 }
 
 /* ─── Status Bar ─────────────────────────────────────────────────── */
@@ -932,6 +975,11 @@ th .pin-toggle {
 
   .control-grid {
     grid-template-columns: 1fr;
+  }
+
+  .audit-list > div {
+    grid-template-columns: 1fr;
+    gap: 0.25rem;
   }
 
   .chart {
