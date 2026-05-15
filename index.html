@@ -8,7 +8,7 @@
     <link rel="icon" href="./favicon.svg?v=20260505-favicon" type="image/svg+xml">
     <meta name="theme-color" content="#07111f">
     <link rel="stylesheet" href="./src/styles.css?v=20260513-audit-panel">
-    <link rel="stylesheet" href="./src/redesign.css?v=20260514-balanced-results">
+    <link rel="stylesheet" href="./src/redesign.css?v=20260515-nav-cleanup">
     <script src="https://accounts.google.com/gsi/client" async defer></script>
   </head>
   <body data-screen="persona" data-theme="dark">
@@ -154,10 +154,9 @@
           <button class="theme-toggle" data-theme-toggle type="button" aria-label="Toggle theme">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
           </button>
-          <button class="subtle-button" type="button" id="workspaceBackToPersona">New / load</button>
           <button class="subtle-button" type="button" id="workspaceSaveSetup">Save setup</button>
           <button class="subtle-button" type="button" id="workspaceLoadSetup">Load setup</button>
-          <button id="runModel" class="cta-button" type="button">Run model →</button>
+          <button class="subtle-button" type="button" id="workspaceClearSetup">Clear setup</button>
         </div>
       </header>
 
@@ -175,12 +174,12 @@
             <div class="ws-headline">
               <span class="ws-pct" id="wsSummaryPct" data-empty="true">—</span>
               <div>
-                <div class="ws-pct-label" id="wsSummaryLabel">Run the model to see your number</div>
-                <div class="ws-pct-sub"   id="wsSummarySub">Pick modules, fill in the basics, then Run model.</div>
+                <div class="ws-pct-label" id="wsSummaryLabel">View full results to see your number</div>
+                <div class="ws-pct-sub"   id="wsSummarySub">Pick modules, fill in the basics, then open results.</div>
               </div>
             </div>
             <div class="ws-spark"><svg id="wsSummarySpark" viewBox="0 0 320 56" preserveAspectRatio="none"></svg></div>
-            <button class="subtle-button" type="button" id="wsViewResults">View full results →</button>
+            <button class="cta-button" type="button" id="wsViewResults">View full results →</button>
           </div>
 
           <div id="status" class="status">Ready</div>
@@ -284,8 +283,10 @@
                 </details>
                 <details class="advanced">
                   <summary>Save / Load setup</summary>
+                  <label class="check-row"><input id="rememberSetup" type="checkbox"><span>Remember setup on this device</span></label>
                   <div class="button-row"><button id="downloadSetup" type="button">Save setup JSON</button></div>
                   <label class="file-control"><span>Load setup JSON</span><input id="restoreSetupFile" data-setup-restore-file type="file" accept="application/json,.json"></label>
+                  <div class="button-row"><button id="clearLocalData" type="button">Clear local data</button></div>
                 </details>
                 <div id="importStatus" class="status import-status" role="status" aria-live="polite">Ready to import.</div>
               </div>
@@ -718,10 +719,9 @@
           <button class="theme-toggle" data-theme-toggle type="button" aria-label="Toggle theme">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
           </button>
-          <button class="subtle-button" type="button" id="resultsBackToPersona">New / load</button>
           <button class="subtle-button" type="button" id="resultsSaveSetup">Save setup</button>
           <button class="subtle-button" type="button" id="resultsLoadSetup">Load setup</button>
-          <button class="cta-button"    type="button" id="resultsTweakInputs">Tweak inputs</button>
+          <button class="subtle-button" type="button" id="resultsClearSetup">Clear setup</button>
         </div>
       </header>
 
@@ -957,7 +957,7 @@
       <select id="viewMode"><option value="real" selected>Today's $</option><option value="nominal">Future $</option></select>
     </div>
 
-    <script type="module" src="./src/app.mjs?v=20260513-audit-panel"></script>
-    <script type="module" src="./src/redesign.mjs?v=20260514-inflation-results"></script>
+    <script type="module" src="./src/app.mjs?v=20260515-local-setup"></script>
+    <script type="module" src="./src/redesign.mjs?v=20260515-nav-cleanup"></script>
   </body>
 </html>

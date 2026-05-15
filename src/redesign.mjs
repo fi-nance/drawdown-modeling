@@ -553,34 +553,16 @@ function bindRouter() {
     // cleared results screen so the user doesn't briefly see old numbers.
     if (window.__pslIsWorkspaceDirty?.()) {
       flagPendingRun();
-      document.getElementById("runModel")?.click();
+      if (runModelFromRedesign()) return;
+      pendingRunAdvance = false;
+      setScreen("results");
       return;
     }
     setScreen("results");
   });
 
-  const workspaceBackToPersona = document.getElementById("workspaceBackToPersona");
-  workspaceBackToPersona?.addEventListener("click", () => setScreen("persona"));
-
-  const tweakInputs = document.getElementById("resultsTweakInputs");
-  tweakInputs?.addEventListener("click", () => setScreen("workspace"));
-
-  const resultsBackToPersona = document.getElementById("resultsBackToPersona");
-  resultsBackToPersona?.addEventListener("click", () => setScreen("persona"));
-
   const back = document.getElementById("resultsBackToWorkspace");
   back?.addEventListener("click", () => setScreen("workspace"));
-
-  // The simulation runs in a Web Worker and streams partial results back; we
-  // navigate to the results screen as soon as the first Monte Carlo scenario
-  // lands so the user sees progress live instead of staring at a blank
-  // overlay until the whole run finishes.
-  const runModel = document.getElementById("runModel");
-  if (runModel) {
-    runModel.addEventListener("click", () => {
-      flagPendingRun();
-    }, true);
-  }
 
   // First Monte Carlo scenario is ready — swap to the results screen if the
   // user kicked off a run from the workspace and is waiting on us.
@@ -693,8 +675,8 @@ function syncWorkspaceSummary() {
   if (!latest) {
     pctEl.textContent = "—";
     pctEl.dataset.empty = "true";
-    labelEl.textContent = "Run the model to see your number";
-    subEl.textContent = "Pick modules, fill in the basics, then Run model.";
+    labelEl.textContent = "View full results to see your number";
+    subEl.textContent = "Pick modules, fill in the basics, then open results.";
     if (sparkEl) sparkEl.innerHTML = "";
     return;
   }
@@ -739,6 +721,8 @@ function bindSetupTransfer() {
   document.getElementById("resultsSaveSetup")?.addEventListener("click", triggerSetupDownload);
   document.getElementById("workspaceLoadSetup")?.addEventListener("click", triggerSetupRestore);
   document.getElementById("resultsLoadSetup")?.addEventListener("click", triggerSetupRestore);
+  document.getElementById("workspaceClearSetup")?.addEventListener("click", triggerSetupClear);
+  document.getElementById("resultsClearSetup")?.addEventListener("click", triggerSetupClear);
   document.getElementById("runSensitivity")?.addEventListener("click", runSensitivitySweep);
 
   window.__pslRedesignStateSnapshot = redesignStateSnapshot;
@@ -754,10 +738,26 @@ function bindSetupTransfer() {
 
 function triggerSetupDownload() {
   document.getElementById("downloadSetup")?.click();
+  offerRememberSetupAfterTopbarSave();
+}
+
+function offerRememberSetupAfterTopbarSave() {
+  const rememberSetup = document.getElementById("rememberSetup");
+  if (!rememberSetup || rememberSetup.checked) return;
+
+  const shouldRemember = window.confirm("Also remember this setup on this device so it loads next time?");
+  if (!shouldRemember) return;
+
+  rememberSetup.checked = true;
+  rememberSetup.dispatchEvent(new Event("change", { bubbles: true }));
 }
 
 function triggerSetupRestore() {
   document.querySelector("[data-setup-restore-file]")?.click();
+}
+
+function triggerSetupClear() {
+  document.getElementById("clearLocalData")?.click();
 }
 
 function redesignStateSnapshot() {
@@ -1445,13 +1445,23 @@ function runOnce() {
   return new Promise(resolve => {
     const onDone = () => { window.removeEventListener("psl:run-complete", onDone); resolve(); };
     window.addEventListener("psl:run-complete", onDone, { once: true });
-    document.getElementById("runModel")?.click();
+    if (!runModelFromRedesign()) {
+      window.removeEventListener("psl:run-complete", onDone);
+      resolve();
+      return;
+    }
     // Safety timer
     setTimeout(resolve, 8000);
   });
 }
 
 // ─── Run-completion observation ────────────────────────────────────
+
+function runModelFromRedesign(opts) {
+  if (typeof window.__pslRunModels !== "function") return false;
+  window.__pslRunModels(opts);
+  return true;
+}
 
 function flagPendingRun() {
   pendingRunAdvance = true;

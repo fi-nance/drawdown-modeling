@@ -200,14 +200,23 @@ body[data-screen="persona"]::before {
   align-items: center;
   gap: 0.4rem;
   box-shadow: 0 6px 24px rgba(52, 209, 182, 0.32), inset 0 0 0 1px rgba(255, 255, 255, 0.18);
-  transition: transform 0.12s, box-shadow 0.12s;
+  transition: background 0.12s, color 0.12s, transform 0.12s, box-shadow 0.12s;
 }
-.cta-button:hover { transform: translateY(-1px); box-shadow: 0 10px 28px rgba(52, 209, 182, 0.4); }
+.cta-button:hover {
+  background: #43dfc5;
+  color: #032018;
+  transform: translateY(-1px);
+  box-shadow: 0 10px 28px rgba(52, 209, 182, 0.4);
+}
 .cta-button:active { transform: translateY(0); }
 [data-theme="light"] .cta-button {
   background: #1a1f2e;
   color: #fff;
   box-shadow: var(--shadow-md);
+}
+[data-theme="light"] .cta-button:hover {
+  background: #293244;
+  color: #fff;
 }
 
 .subtle-button {

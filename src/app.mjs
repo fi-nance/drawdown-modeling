@@ -7,7 +7,7 @@ import {
 } from "./core/importers.mjs";
 import { portfolioValue } from "./core/portfolio.mjs";
 import { createSetupBackup, parseSetupBackup } from "./core/setupBackup.mjs";
-import { cacheLatestResults, restoreCachedLatest } from "./core/resultsCache.mjs";
+import { cacheLatestResults, clearCachedLatest, restoreCachedLatest } from "./core/resultsCache.mjs";
 import {
   DEFAULT_SCENARIO,
   MONTE_CARLO_ASSUMPTION_PRESETS,
@@ -62,6 +62,16 @@ const MONTE_CARLO_ASSUMPTION_FIELD_IDS = Object.freeze({
 });
 
 const STORAGE_KEY = "portfolio-success-lab:v3";
+const REMEMBER_SETUP_KEY = "portfolio-success-lab:remember-setup";
+const REDESIGN_STORAGE_KEYS = Object.freeze([
+  "psl:redesign:screen",
+  "psl:redesign:theme",
+  "psl:redesign:persona",
+  "psl:redesign:outcome",
+  "psl:redesign:detail",
+  "psl:redesign:modules",
+  "psl:redesign:collapsedModules"
+]);
 const CONTROL_IDS = [
   "viewMode",
   "planYears",
@@ -202,7 +212,6 @@ const CONTROL_IDS = [
 const els = {
   status: document.querySelector("#status"),
   importStatus: document.querySelector("#importStatus"),
-  runModel: document.querySelector("#runModel"),
   viewMode: document.querySelector("#viewMode"),
   assetTable: document.querySelector("#assetTable"),
   assetJson: document.querySelector("#assetJson"),
@@ -216,6 +225,8 @@ const els = {
   sheetRange: document.querySelector("#sheetRange"),
   loadPrivateSheet: document.querySelector("#loadPrivateSheet"),
   downloadSetup: document.querySelector("#downloadSetup"),
+  rememberSetup: document.querySelector("#rememberSetup"),
+  clearLocalData: document.querySelector("#clearLocalData"),
   restoreSetupFile: document.querySelector("#restoreSetupFile"),
   restoreSetupFiles: [...document.querySelectorAll("[data-setup-restore-file]")],
   addAsset: document.querySelector("#addAsset"),
@@ -375,6 +386,7 @@ let runModelsBusy = false;
 let pendingRerunRequested = false;
 let workspaceDirty = false;
 let streamingRenderRaf = 0;
+let rememberSetupEnabled = loadRememberSetupPreference();
 
 const PINNED_YEAR_STORAGE_KEY = "portfolio-success-lab:pinned-year-columns";
 const PINNED_ASSET_STORAGE_KEY = "portfolio-success-lab:pinned-asset-columns";
@@ -417,6 +429,107 @@ function restoreTableHeight(container, tableId) {
   }
 }
 
+function loadRememberSetupPreference() {
+  try {
+    const preference = localStorage.getItem(REMEMBER_SETUP_KEY);
+    if (preference === "true") return true;
+    if (preference === "false") return false;
+    return Boolean(localStorage.getItem(STORAGE_KEY));
+  } catch {
+    return false;
+  }
+}
+
+function writeRememberSetupPreference(value) {
+  try {
+    if (value) {
+      localStorage.setItem(REMEMBER_SETUP_KEY, "true");
+    } else {
+      localStorage.removeItem(REMEMBER_SETUP_KEY);
+    }
+  } catch { /* ignore */ }
+}
+
+function initializePersistenceControls() {
+  if (els.rememberSetup) {
+    els.rememberSetup.checked = rememberSetupEnabled;
+  }
+}
+
+function handleRememberSetupChange() {
+  rememberSetupEnabled = Boolean(els.rememberSetup?.checked);
+  writeRememberSetupPreference(rememberSetupEnabled);
+
+  if (rememberSetupEnabled) {
+    saveStoredState({ markDirty: false });
+    if (latest?.monteCarlo?.progress?.complete) {
+      cacheLatestResults(latest);
+    }
+    setImportStatus("Setup will be remembered on this device.");
+  } else {
+    removeStoredSetupState();
+    clearCachedLatest();
+    setImportStatus("Setup is no longer saved on this device.");
+  }
+
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("psl:persistence-changed", {
+      detail: { rememberSetup: rememberSetupEnabled }
+    }));
+  }
+}
+
+function handleClearLocalData() {
+  const confirmed = typeof window === "undefined"
+    || window.confirm("Clear setup and restart from the beginning? This removes saved setup, cached results, app preferences, and the current open setup.");
+  if (!confirmed) return;
+
+  clearLocalData();
+  restartSetupFlow();
+}
+
+function clearLocalData() {
+  rememberSetupEnabled = false;
+  if (els.rememberSetup) els.rememberSetup.checked = false;
+
+  [
+    STORAGE_KEY,
+    REMEMBER_SETUP_KEY,
+    PINNED_YEAR_STORAGE_KEY,
+    PINNED_ASSET_STORAGE_KEY,
+    TABLE_HEIGHT_STORAGE_KEY,
+    ...REDESIGN_STORAGE_KEYS
+  ].forEach((key) => {
+    try { localStorage.removeItem(key); } catch { /* ignore */ }
+  });
+
+  clearCachedLatest();
+  pinnedYearColumns = new Set();
+  pinnedAssetColumns = new Set();
+
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("psl:local-data-cleared"));
+    window.dispatchEvent(new CustomEvent("psl:persistence-changed", {
+      detail: { rememberSetup: false }
+    }));
+  }
+}
+
+function removeStoredSetupState() {
+  try { localStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
+}
+
+function restartSetupFlow() {
+  if (typeof window === "undefined") return;
+  const url = new URL(window.location.href);
+  url.searchParams.delete("screen");
+  if (url.toString() === window.location.href) {
+    window.location.reload();
+  } else {
+    window.location.replace(url.toString());
+  }
+}
+
 initialize();
 
 // Dismiss loading screen
@@ -429,6 +542,7 @@ if (loader) {
 
 function initialize() {
   renderStateOptions();
+  initializePersistenceControls();
   loadStoredState();
   syncJsonFromAssets();
   renderAssetTable();
@@ -438,7 +552,7 @@ function initialize() {
   // the page immediately (instead of staring at empty panels while the worker
   // re-runs). The runModels() call below kicks off a fresh background run that
   // overwrites these results when it finishes.
-  const cached = restoreCachedLatest();
+  const cached = rememberSetupEnabled ? restoreCachedLatest() : null;
   if (cached) {
     latest = cached;
     // Cached scenarios from sessionStorage are always from a completed run.
@@ -465,7 +579,8 @@ function initialize() {
 }
 
 function bindEvents() {
-  els.runModel.addEventListener("click", runModels);
+  els.rememberSetup?.addEventListener("change", handleRememberSetupChange);
+  els.clearLocalData?.addEventListener("click", handleClearLocalData);
   els.fillMassConnectorCare.addEventListener("click", applyMassachusettsConnectorCarePreset);
   els.fillMassBackupPlan.addEventListener("click", applyMassachusettsBackupPlanPreset);
   els.findMarketplacePlans.addEventListener("click", findMarketplacePlans);
@@ -1001,6 +1116,7 @@ function readPercentInput(id, fallback) {
 }
 
 function loadStoredState() {
+  if (!rememberSetupEnabled) return;
   try {
     const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
     if (!stored || typeof stored !== "object") return;
@@ -1010,13 +1126,23 @@ function loadStoredState() {
   }
 }
 
-function saveStoredState() {
+function saveStoredState(options = {}) {
+  const shouldMarkDirty = options?.markDirty !== false;
+  if (!rememberSetupEnabled) {
+    removeStoredSetupState();
+    if (shouldMarkDirty) markWorkspaceDirty();
+    return;
+  }
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(setupStateSnapshot()));
   } catch (error) {
     console.warn("Saved state could not be written.", error);
   }
-  // Any persisted change implies workspace inputs were edited. runModels
+  if (shouldMarkDirty) markWorkspaceDirty();
+}
+
+function markWorkspaceDirty() {
+  // Any setup change implies workspace inputs were edited. runModels
   // clears this flag at the start of each run so post-run callers can tell
   // whether the displayed results reflect the current inputs.
   workspaceDirty = true;
@@ -1358,7 +1484,8 @@ function paintLatest(streaming) {
   // sessionStorage and a refresh during a stream is supposed to start over.
   let cacheOk = true;
   if (!streaming && latest.monteCarlo?.progress?.complete) {
-    cacheOk = cacheLatestResults(latest);
+    cacheOk = rememberSetupEnabled ? cacheLatestResults(latest) : false;
+    if (!rememberSetupEnabled) clearCachedLatest();
   }
   if (typeof window !== "undefined") {
     window.__pslLatest = latest;
