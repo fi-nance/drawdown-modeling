@@ -717,7 +717,7 @@ function syncWorkspaceSummary() {
 
 function renderSpark(svg, latest) {
   // Bar chart: ending portfolio value year-over-year from the deterministic plan.
-  const series = planYears(latest).slice(0, 36).map(y => y.endingPortfolioValue ?? 0);
+  const series = planYears(latest).slice(0, 36).map(y => displayAmount(y.endingPortfolioValue ?? 0, y));
   if (!series.length) { svg.innerHTML = ""; return; }
   const max = Math.max(...series, 1);
   const w = 320, h = 56, gap = 1.5;
@@ -809,14 +809,21 @@ function renderKpiStrip() {
   const summary = latest ? snapshotSummary(latest) : null;
   if (!summary) {
     root.innerHTML = `
-      <div class="dh-hero">
-        <div class="dh-eyebrow">Money lasts in</div>
-        <div class="dh-big mono" data-empty="true">—</div>
-        <div class="dh-sub">Run the model to see your number</div>
+      <div class="dh-result-grid">
+        <div class="dh-hero">
+          <div class="dh-eyebrow">Monte Carlo</div>
+          <div class="dh-result-title">Money lasts in</div>
+          <div class="dh-big mono" data-empty="true">—</div>
+          <div class="dh-sub">Run the model to see simulated futures</div>
+        </div>
+        <div class="dh-hero dh-historical">
+          <div class="dh-eyebrow">Historical</div>
+          <div class="dh-result-title">Money lasted in</div>
+          <div class="dh-big mono" data-empty="true">—</div>
+          <div class="dh-sub">Run the model to see historical paths</div>
+        </div>
       </div>
       <div class="dh-kpis">
-        <div class="dh-kpi"><span class="kpi-label">Median ending</span><span class="kpi-big mono">—</span></div>
-        <div class="dh-kpi"><span class="kpi-label">Worst 5%</span><span class="kpi-big mono">—</span></div>
         <div class="dh-kpi"><span class="kpi-label">Lifetime tax</span><span class="kpi-big mono">—</span></div>
         <div class="dh-kpi"><span class="kpi-label">Healthcare</span><span class="kpi-big mono">—</span></div>
         <div class="dh-kpi"><span class="kpi-label">Safe spend rate</span><span class="kpi-big mono">—</span></div>
@@ -831,27 +838,39 @@ function renderKpiStrip() {
   const doneRuns = progress?.done ?? monteCarloScenarios(latest).length ?? totalRuns;
   const pctInt = Math.round(pct * 100);
   const spinner = streaming ? `<span class="kpi-spinner" aria-hidden="true"></span>` : "";
-  // Historical success — surfaced inline next to the hero so the user can
-  // compare it against the Monte Carlo number. Hidden until backtests land.
   const historical = historicalSummary(latest);
-  const historicalChip = historical ? `
-    <div class="dh-vs" title="${historical.count} historical paths">
-      <span class="dh-vs-label">Historical</span>
-      <span class="dh-vs-value mono">${Math.round(historical.successRate * 100)}%</span>
-    </div>` : "";
   const subline = streaming
     ? `<span class="dh-prelim">preliminary · ${doneRuns.toLocaleString()} of ${totalRuns.toLocaleString()}</span>`
     : `of ${totalRuns.toLocaleString()} simulated futures`;
+  const historicalSubline = historical
+    ? `of ${historical.count.toLocaleString()} historical paths`
+    : "Historical paths pending";
   root.innerHTML = `
-    <div class="dh-hero" data-tier="${tierFor(pct)}" data-streaming="${streaming}">
-      <div class="dh-eyebrow">Money lasts in</div>
-      <div class="dh-big mono">${pctInt}<span class="dh-big-unit">%</span>${spinner}</div>
-      <div class="dh-sub">${subline}</div>
+    <div class="dh-result-grid">
+      <div class="dh-hero" data-tier="${tierFor(pct)}" data-streaming="${streaming}">
+        <div class="dh-eyebrow">Monte Carlo</div>
+        <div class="dh-result-title">Money lasts in</div>
+        <div class="dh-big mono">${pctInt}<span class="dh-big-unit">%</span>${spinner}</div>
+        <div class="dh-sub">${subline}</div>
+        <div class="dh-mini-grid">
+          <div><span>Median ending</span><strong class="mono">${formatCurrencyShort(summary.median)}${spinner}</strong></div>
+          <div><span>Worst 5%</span><strong class="mono" data-tone="warn">${formatCurrencyShort(summary.fifth)}${spinner}</strong></div>
+          <div><span>Best 10%</span><strong class="mono">${formatCurrencyShort(pickEndingValue(latest, 0.9))}${spinner}</strong></div>
+        </div>
+      </div>
+      <div class="dh-hero dh-historical" data-tier="${tierFor(historical?.successRate ?? 0)}" data-empty="${historical ? "false" : "true"}">
+        <div class="dh-eyebrow">Historical</div>
+        <div class="dh-result-title">Money lasted in</div>
+        <div class="dh-big mono">${historical ? Math.round(historical.successRate * 100) : "—"}${historical ? `<span class="dh-big-unit">%</span>` : ""}</div>
+        <div class="dh-sub">${historicalSubline}</div>
+        <div class="dh-mini-grid">
+          <div><span>Median ending</span><strong class="mono">${historical ? formatCurrencyShort(historical.medianEnding) : "—"}</strong></div>
+          <div><span>Worst path</span><strong class="mono" data-tone="warn">${historical ? formatCurrencyShort(historical.worstEnding) : "—"}</strong></div>
+          <div><span>Best path</span><strong class="mono">${historical ? formatCurrencyShort(historical.bestEnding) : "—"}</strong></div>
+        </div>
+      </div>
     </div>
-    ${historicalChip}
     <div class="dh-kpis">
-      <div class="dh-kpi" data-streaming="${streaming}"><span class="kpi-label">Median ending</span><span class="kpi-big mono">${formatCurrencyShort(summary.median)}${spinner}</span></div>
-      <div class="dh-kpi" data-streaming="${streaming}"><span class="kpi-label">Worst 5%</span><span class="kpi-big mono" data-tone="warn">${formatCurrencyShort(summary.fifth)}${spinner}</span></div>
       <div class="dh-kpi"><span class="kpi-label">Lifetime tax</span><span class="kpi-big mono">${formatCurrencyShort(summary.lifetimeTax)}</span></div>
       <div class="dh-kpi"><span class="kpi-label">Healthcare</span><span class="kpi-big mono">${formatCurrencyShort(summary.healthcare)}</span></div>
       <div class="dh-kpi"><span class="kpi-label">Safe spend rate</span><span class="kpi-big mono">${(summary.safeRate*100).toFixed(1)}%</span></div>
@@ -863,7 +882,17 @@ function historicalSummary(latest) {
   const list = Array.isArray(latest?.backtests) ? latest.backtests : [];
   if (!list.length) return null;
   const successes = list.filter((b) => b?.success).length;
-  return { successRate: successes / list.length, count: list.length };
+  const endings = list
+    .map((b) => resultEndingValue(b))
+    .filter(Number.isFinite)
+    .sort((a, b) => a - b);
+  return {
+    successRate: successes / list.length,
+    count: list.length,
+    medianEnding: percentileValue(endings, 0.5),
+    worstEnding: percentileValue(endings, 0),
+    bestEnding: percentileValue(endings, 1)
+  };
 }
 
 // ─── Healthcare timeline (ACA → Medicare strip) ────────────────────
@@ -948,7 +977,7 @@ function renderActionList() {
   if (traditionalW > 0) items.push({ kind: "withdraw", title: "Sell from Traditional", sub: "Ordinary income", amt: traditionalW });
   if (rothW > 0) items.push({ kind: "withdraw", title: "Sell from Roth", sub: "Tax-free draws", amt: rothW });
   if (year.rothConversionAmount > 0) items.push({ kind: "convert", title: "Convert Trad → Roth", sub: `In ${(Number(document.getElementById("rothTargetRate")?.value) || 12)}% bracket target`, amt: year.rothConversionAmount });
-  if (year.aca?.subsidy > 0) items.push({ kind: "aca", title: "Cap MAGI for PTC", sub: `+${formatCurrencyShort(year.aca.subsidy)} PTC`, amt: year.magi });
+  if (year.aca?.subsidy > 0) items.push({ kind: "aca", title: "Cap MAGI for PTC", sub: `+${formatYearCurrencyShort(year.aca.subsidy, year)} PTC`, amt: year.magi });
   if (year.taxGainHarvested > 0) items.push({ kind: "harvest", title: "Realize gains", sub: "Use favorable gain room", amt: year.taxGainHarvested });
   if (year.realizedCapitalLosses > 0) items.push({ kind: "harvest", title: "Tax-loss harvest", sub: "$3k ordinary offset + carryforward", amt: year.realizedCapitalLosses });
   if ((year.assetLocation?.relocatedAmount ?? 0) > 0) items.push({ kind: "rebalance", title: "Relocate assets", sub: "Move income assets into sheltered accounts", amt: year.assetLocation.relocatedAmount });
@@ -963,7 +992,7 @@ function renderActionList() {
         <span class="action-title">${it.title}</span>
         <span class="action-sub">${it.sub}</span>
       </div>
-      <span class="action-amt">${formatCurrencyShort(it.amt)}</span>
+      <span class="action-amt">${formatYearCurrencyShort(it.amt, year)}</span>
     </li>`).join("") : `<li><div class="action-text"><span class="action-sub">No actions for year 1.</span></div></li>`;
 }
 
@@ -1557,30 +1586,63 @@ function computeSuccessRate(latest) {
   return list.filter(s => s.success).length / list.length;
 }
 function pickEndingValue(latest, percentile) {
+  const values = monteCarloScenarios(latest)
+    .map((scenario) => resultEndingValue(scenario))
+    .filter(Number.isFinite)
+    .sort((a, b) => a - b);
+  if (values.length) return percentileValue(values, percentile);
+
   const summary = latest?.monteCarlo?.summary;
   if (summary) {
-    if (Math.abs(percentile - 0.5)  < 0.001 && Number.isFinite(summary.medianEndingValue)) return summary.medianEndingValue;
-    if (Math.abs(percentile - 0.05) < 0.001 && Number.isFinite(summary.p10EndingValue))    return summary.p10EndingValue;
-    if (Math.abs(percentile - 0.95) < 0.001 && Number.isFinite(summary.p90EndingValue))    return summary.p90EndingValue;
+    const finalYear = planYears(latest).at(-1);
+    if (Math.abs(percentile - 0.5)  < 0.001 && Number.isFinite(summary.medianEndingValue)) return displayAmount(summary.medianEndingValue, finalYear);
+    if (Math.abs(percentile - 0.05) < 0.001 && Number.isFinite(summary.p10EndingValue))    return displayAmount(summary.p10EndingValue, finalYear);
+    if (Math.abs(percentile - 0.95) < 0.001 && Number.isFinite(summary.p90EndingValue))    return displayAmount(summary.p90EndingValue, finalYear);
   }
-  const arr = monteCarloScenarios(latest).map(s => s.endingValue ?? 0).filter(Number.isFinite).sort((a, b) => a - b);
-  if (!arr.length) return NaN;
-  const idx = Math.max(0, Math.min(arr.length - 1, Math.floor(arr.length * percentile)));
-  return arr[idx];
+  return NaN;
+}
+function resultEndingValue(result) {
+  const year = resultFinalYear(result);
+  const value = result?.endingValue ?? year?.endingPortfolioValue ?? NaN;
+  return displayAmount(value, year);
+}
+function resultFinalYear(result) {
+  return result?.years?.at?.(-1) ?? result?.lastYear ?? null;
+}
+function percentileValue(sortedValues, percentile) {
+  if (!sortedValues.length) return NaN;
+  if (percentile <= 0) return sortedValues[0];
+  if (percentile >= 1) return sortedValues[sortedValues.length - 1];
+  const idx = Math.max(0, Math.min(sortedValues.length - 1, Math.floor(sortedValues.length * percentile)));
+  return sortedValues[idx];
 }
 function pickStartingValue(latest) {
-  return planYears(latest)[0]?.beginningPortfolioValue ?? 0;
+  const firstYear = planYears(latest)[0];
+  return displayAmount(firstYear?.beginningPortfolioValue ?? 0, firstYear);
 }
 function sumLifetimeTax(latest) {
-  return planYears(latest).reduce((t, y) => t + (y?.taxes?.totalTax ?? 0), 0);
+  return planYears(latest).reduce((t, y) => t + displayAmount(y?.taxes?.totalTax ?? 0, y), 0);
 }
 function sumLifetimeHealthcare(latest) {
-  return planYears(latest).reduce((t, y) => t + (y?.medicalTotal ?? 0), 0);
+  return planYears(latest).reduce((t, y) => t + displayAmount(y?.medicalTotal ?? 0, y), 0);
 }
 function safeWithdrawalRate(latest) {
   const start = pickStartingValue(latest);
   const targetSpend = Number(document.getElementById("targetSpend")?.value) || 0;
   return start > 0 ? targetSpend / start : 0;
+}
+function currentDollarMode() {
+  return document.getElementById("viewMode")?.value === "nominal" ? "nominal" : "real";
+}
+function displayAmount(value, year = null) {
+  const amount = Number(value);
+  if (!Number.isFinite(amount)) return NaN;
+  if (currentDollarMode() !== "real") return amount;
+  const index = Number(year?.inflationIndex);
+  return amount / Math.max(1, Number.isFinite(index) ? index : 1);
+}
+function formatYearCurrencyShort(value, year = null) {
+  return formatCurrencyShort(displayAmount(value, year));
 }
 function tierFor(rate) {
   if (rate >= TIER_THRESHOLDS.warn) return "ok";
