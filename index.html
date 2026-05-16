@@ -8,7 +8,7 @@
     <link rel="icon" href="./favicon.svg?v=20260505-favicon" type="image/svg+xml">
     <meta name="theme-color" content="#07111f">
     <link rel="stylesheet" href="./src/styles.css?v=20260513-audit-panel">
-    <link rel="stylesheet" href="./src/redesign.css?v=20260515-nav-cleanup">
+    <link rel="stylesheet" href="./src/redesign.css?v=20260515-historical-links">
     <script src="https://accounts.google.com/gsi/client" async defer></script>
   </head>
   <body data-screen="persona" data-theme="dark">
@@ -459,7 +459,7 @@
                     <span class="module-sub">Taxes, allocations, withdrawal rules</span>
                   </div>
                 </div>
-                <div class="module-actions"><span class="controls-pill">22 controls</span></div>
+                <div class="module-actions"><span class="controls-pill">25 controls</span></div>
               </div>
               <div class="module-body">
                 <label>
@@ -470,6 +470,18 @@
                   </select>
                 </label>
                 <p class="assumption-note">Assumption: Lifetime optimizer compares withdrawal sources, MAGI thresholds, ACA and IRMAA cliffs, Roth basis, expected-return sale costs, and future tax-rate pressure. Basic drawdown heuristic follows the selected account order with tax-aware lot sorting and simple guardrails.</p>
+                <label>
+                  <span>Spending strategy</span>
+                  <select id="spendingStrategyMode">
+                    <option value="fixed" selected>Fixed target spend</option>
+                    <option value="discretionaryGuardrails">Essential + discretionary guardrails</option>
+                  </select>
+                </label>
+                <div class="control-grid" data-guardrail-spend-controls hidden>
+                  <label><span>Essential spend</span><input id="essentialSpend" type="number" min="0" step="1000" value="60000"></label>
+                  <label><span>Discretionary spend</span><input id="discretionarySpend" type="number" min="0" step="1000" value="30000"></label>
+                </div>
+                <p class="assumption-note" data-guardrail-spend-controls hidden>Assumption: discretionary spending is 100% when stocks are less than 10% below prior highs, 50% from 10% to 20%, and 0% beyond 20%; essential spending inflates, discretionary spending stays nominal.</p>
                 <label class="check-row"><input id="taxLossHarvesting" type="checkbox" checked><span>Tax-loss harvesting</span></label>
                 <label class="check-row"><input id="taxGainHarvesting" type="checkbox" checked><span>Tax-gain harvesting</span></label>
                 <label class="check-row"><input id="rothConversion"    type="checkbox" checked><span>Roth conversions</span></label>
@@ -957,7 +969,7 @@
       <select id="viewMode"><option value="real" selected>Today's $</option><option value="nominal">Future $</option></select>
     </div>
 
-    <script type="module" src="./src/app.mjs?v=20260515-local-setup"></script>
-    <script type="module" src="./src/redesign.mjs?v=20260515-nav-cleanup"></script>
+    <script type="module" src="./src/app.mjs?v=20260515-historical-links"></script>
+    <script type="module" src="./src/redesign.mjs?v=20260515-historical-links"></script>
   </body>
 </html>

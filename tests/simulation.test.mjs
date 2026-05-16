@@ -98,6 +98,52 @@ test("taxes can remain inside target spend when configured that way", () => {
   assert.equal(Math.round(plan.years[0].taxes.totalTax), 10);
 });
 
+test("discretionary spending guardrails trim nonessential spend by stock-market drawdown", () => {
+  const plan = simulatePlan({
+    assets: [{
+      id: "cash",
+      accountType: "taxable",
+      assetClass: "cash",
+      units: 1000,
+      price: 1,
+      costBasisPerUnit: 1
+    }],
+    scenario: {
+      planYears: 4,
+      targetSpend: 999,
+      targetSpendIncludesTaxes: true,
+      targetSpendIncludesMedical: true,
+      withdrawalOrder: ["taxable"],
+      currentAge: 65,
+      spendingStrategy: {
+        mode: "discretionaryGuardrails",
+        essentialSpend: 100,
+        discretionarySpend: 100
+      },
+      taxLossHarvesting: { enabled: false },
+      taxGainHarvesting: { enabled: false },
+      rothConversion: { enabled: false },
+      aca: { enabled: false }
+    },
+    taxProfile: noTaxProfile,
+    returnSequence: [
+      { cash: 0, stock: -0.1 },
+      { cash: 0, stock: -0.12 },
+      { cash: 0, stock: 0.4 },
+      { cash: 0, stock: 0 }
+    ],
+    inflationSequence: [0.05, 0.05, 0.05, 0.05]
+  });
+
+  assertNear(plan.years[0].plannedSpending, 200);
+  assertNear(plan.years[1].plannedSpending, 155);
+  assertNear(plan.years[2].plannedSpending, 110.25);
+  assertNear(plan.years[3].plannedSpending, 215.7625);
+  assert.deepEqual(plan.years.map((year) => year.spendingGuardrail.discretionaryPercent), [1, 0.5, 0, 1]);
+  assert.deepEqual(plan.years.map((year) => year.discretionarySpending), [100, 50, 0, 100]);
+  assertNear(plan.years[2].spendingGuardrail.marketDrawdown, 0.208);
+});
+
 test("earned income creates cash, MAGI, and Additional Medicare Tax", () => {
   const plan = simulatePlan({
     assets: [],

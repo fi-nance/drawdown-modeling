@@ -70,6 +70,18 @@ export const DEFAULT_SCENARIO = {
   targetSpendInflationAdjusted: true,
   targetSpendIncludesTaxes: false,
   targetSpendIncludesMedical: false,
+  spendingStrategy: {
+    mode: "fixed",
+    essentialSpend: 60000,
+    discretionarySpend: 30000,
+    essentialInflationAdjusted: true,
+    discretionaryInflationAdjusted: false,
+    correctionDrawdownThreshold: 0.1,
+    bearDrawdownThreshold: 0.2,
+    correctionDiscretionaryPercent: 0.5,
+    bearDiscretionaryPercent: 0,
+    marketAssetClass: "stock"
+  },
   medicalExpensesBase: 0,
   expectedOopMaxUsePercent: 0.25,
   oopMaxOverride: null,
@@ -238,6 +250,7 @@ export function simulatePlan({
   let success = true;
   let inflationIndex = 1;
   const irmaaMagiHistory = [];
+  let spendingGuardrailMarketState = initialSpendingGuardrailMarketState();
 
   for (let yearIndex = 0; yearIndex < mergedScenario.planYears; yearIndex += 1) {
     if (yearIndex > 0) {
@@ -246,6 +259,10 @@ export function simulatePlan({
 
     const returnByAssetClass = annualReturns(mergedScenario, returnSequence, yearIndex);
     const currentInflationRate = annualInflation(mergedScenario, inflationSequence, yearIndex);
+    const spendingGuardrail = spendingGuardrailStateForYear({
+      scenario: mergedScenario,
+      marketState: spendingGuardrailMarketState
+    });
     const result = simulateYear({
       portfolio,
       scenario: mergedScenario,
@@ -254,10 +271,16 @@ export function simulatePlan({
       inflationIndex,
       returnByAssetClass,
       annualInflationRate: currentInflationRate,
+      spendingGuardrail,
       lossCarryforward,
       rothBasisRemaining,
       hsaQualifiedExpenseBalance,
       magiHistory: irmaaMagiHistory
+    });
+    spendingGuardrailMarketState = advanceSpendingGuardrailMarketState({
+      scenario: mergedScenario,
+      marketState: spendingGuardrailMarketState,
+      returnByAssetClass
     });
 
     lossCarryforward = result.lossCarryforwardDetail ?? normalizeLossCarryforward(result.lossCarryforward);
@@ -452,6 +475,7 @@ function simulateYear({
   inflationIndex,
   returnByAssetClass,
   annualInflationRate,
+  spendingGuardrail = null,
   lossCarryforward,
   rothBasisRemaining,
   hsaQualifiedExpenseBalance = 0,
@@ -603,7 +627,14 @@ function simulateYear({
     });
   }
 
-  const plannedSpending = plannedSpendingForYear(scenario, yearIndex + 1, inflationIndex, oneOffCashFlows);
+  const plannedSpendingDetail = plannedSpendingDetailForYear(
+    scenario,
+    yearIndex + 1,
+    inflationIndex,
+    oneOffCashFlows,
+    spendingGuardrail
+  );
+  const plannedSpending = plannedSpendingDetail.total;
   const sequenceRiskReserve = sequenceRiskReserveStateForYear({
     scenario,
     portfolio,
@@ -984,7 +1015,32 @@ function simulateYear({
       type: "contribution"
     });
   }
-  if (plannedSpending > 0) {
+  if (plannedSpendingDetail.strategy?.mode === "discretionaryGuardrails") {
+    if (plannedSpendingDetail.essentialSpend > 0) {
+      flows.push({
+        from: "Spending reserve",
+        to: "Essential spending",
+        amount: plannedSpendingDetail.essentialSpend,
+        type: "spending"
+      });
+    }
+    if (plannedSpendingDetail.discretionarySpend > 0) {
+      flows.push({
+        from: "Spending reserve",
+        to: "Discretionary spending",
+        amount: plannedSpendingDetail.discretionarySpend,
+        type: "spending"
+      });
+    }
+    if (plannedSpendingDetail.oneOffExpenses > 0) {
+      flows.push({
+        from: "Spending reserve",
+        to: "One-off spending",
+        amount: plannedSpendingDetail.oneOffExpenses,
+        type: "spending"
+      });
+    }
+  } else if (plannedSpending > 0) {
     flows.push({ from: "Spending reserve", to: "Lifestyle and one-off spending", amount: plannedSpending, type: "spending" });
   }
 
@@ -1016,6 +1072,11 @@ function simulateYear({
     afterReturnPortfolioValue,
     endingPortfolioValue: portfolioValue(portfolio),
     plannedSpending: round(plannedSpending, 6),
+    spendingStrategy: plannedSpendingDetail.strategy,
+    essentialSpending: round(plannedSpendingDetail.essentialSpend, 6),
+    discretionarySpending: round(plannedSpendingDetail.discretionarySpend, 6),
+    discretionarySpendingBudget: round(plannedSpendingDetail.discretionaryBudget, 6),
+    spendingGuardrail: plannedSpendingDetail.guardrail,
     medicalCost: round(medicalEstimate, 6),
     medicare: finalMedicare,
     age65AdditionalDeduction: round(taxProfileContext.age65AdditionalDeduction, 6),
@@ -3085,11 +3146,159 @@ function clampIntegerLike(value, min, max, fallback) {
   return Math.min(max, Math.max(min, Math.trunc(numeric)));
 }
 
-function plannedSpendingForYear(scenario, planYear, inflationIndex, oneOffCashFlows = null) {
+function spendingStrategyConfig(scenario = {}) {
+  const raw = scenario.spendingStrategy ?? {};
+  const mode = raw.mode === "discretionaryGuardrails" ? "discretionaryGuardrails" : "fixed";
+  const targetSpend = Math.max(0, Number(scenario.targetSpend) || 0);
+  const essentialFallback = mode === "discretionaryGuardrails" ? targetSpend : DEFAULT_SCENARIO.spendingStrategy.essentialSpend;
+  const discretionaryFallback = mode === "discretionaryGuardrails" ? 0 : DEFAULT_SCENARIO.spendingStrategy.discretionarySpend;
+  const correctionThreshold = normalizedPercent(
+    raw.correctionDrawdownThreshold,
+    DEFAULT_SCENARIO.spendingStrategy.correctionDrawdownThreshold
+  );
+  const bearThreshold = Math.max(
+    correctionThreshold,
+    normalizedPercent(raw.bearDrawdownThreshold, DEFAULT_SCENARIO.spendingStrategy.bearDrawdownThreshold)
+  );
+
+  return {
+    mode,
+    essentialSpend: nonNegativeNumber(raw.essentialSpend, essentialFallback),
+    discretionarySpend: nonNegativeNumber(raw.discretionarySpend, discretionaryFallback),
+    essentialInflationAdjusted: raw.essentialInflationAdjusted !== false,
+    discretionaryInflationAdjusted: raw.discretionaryInflationAdjusted === true,
+    correctionDrawdownThreshold: correctionThreshold,
+    bearDrawdownThreshold: bearThreshold,
+    correctionDiscretionaryPercent: normalizedPercent(
+      raw.correctionDiscretionaryPercent,
+      DEFAULT_SCENARIO.spendingStrategy.correctionDiscretionaryPercent
+    ),
+    bearDiscretionaryPercent: normalizedPercent(
+      raw.bearDiscretionaryPercent,
+      DEFAULT_SCENARIO.spendingStrategy.bearDiscretionaryPercent
+    ),
+    marketAssetClass: raw.marketAssetClass || DEFAULT_SCENARIO.spendingStrategy.marketAssetClass
+  };
+}
+
+function nonNegativeNumber(value, fallback = 0) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? Math.max(0, numeric) : Math.max(0, Number(fallback) || 0);
+}
+
+function normalizedPercent(value, fallback = 0) {
+  const numeric = Number(value);
+  const usable = Number.isFinite(numeric) ? numeric : Number(fallback);
+  return Math.max(0, Math.min(1, Number.isFinite(usable) ? usable : 0));
+}
+
+function initialSpendingGuardrailMarketState() {
+  return { marketIndex: 1, highWaterMark: 1 };
+}
+
+function spendingGuardrailStateForYear({ scenario, marketState }) {
+  const config = spendingStrategyConfig(scenario);
+  if (config.mode !== "discretionaryGuardrails") return null;
+
+  const index = Math.max(0.000001, Number(marketState?.marketIndex) || 1);
+  const high = Math.max(index, Number(marketState?.highWaterMark) || 1);
+  const drawdown = high > 0 ? Math.max(0, 1 - (index / high)) : 0;
+  const discretionaryPercent = drawdown + 0.0000001 >= config.bearDrawdownThreshold
+    ? config.bearDiscretionaryPercent
+    : drawdown + 0.0000001 >= config.correctionDrawdownThreshold
+      ? config.correctionDiscretionaryPercent
+      : 1;
+
+  return {
+    enabled: true,
+    marketAssetClass: config.marketAssetClass,
+    marketIndex: round(index, 6),
+    marketHighWaterMark: round(high, 6),
+    marketDrawdown: round(drawdown, 6),
+    correctionDrawdownThreshold: config.correctionDrawdownThreshold,
+    bearDrawdownThreshold: config.bearDrawdownThreshold,
+    discretionaryPercent: round(discretionaryPercent, 6)
+  };
+}
+
+function advanceSpendingGuardrailMarketState({ scenario, marketState, returnByAssetClass = {} }) {
+  const config = spendingStrategyConfig(scenario);
+  const currentIndex = Math.max(0.000001, Number(marketState?.marketIndex) || 1);
+  const currentHigh = Math.max(currentIndex, Number(marketState?.highWaterMark) || 1);
+  const marketReturn = guardrailMarketReturn({
+    scenario,
+    returnByAssetClass,
+    marketAssetClass: config.marketAssetClass
+  });
+  const nextIndex = Math.max(0.000001, currentIndex * (1 + Math.max(-0.99, marketReturn)));
+  return {
+    marketIndex: nextIndex,
+    highWaterMark: Math.max(currentHigh, nextIndex)
+  };
+}
+
+function guardrailMarketReturn({ scenario, returnByAssetClass = {}, marketAssetClass = "stock" }) {
+  const candidates = [
+    returnByAssetClass?.[marketAssetClass],
+    returnByAssetClass?.default,
+    scenario?.returnAssumptions?.[marketAssetClass]?.mean,
+    DEFAULT_SCENARIO.returnAssumptions?.[marketAssetClass]?.mean,
+    0
+  ];
+  for (const value of candidates) {
+    const numeric = Number(value);
+    if (Number.isFinite(numeric)) return numeric;
+  }
+  return 0;
+}
+
+function plannedSpendingForYear(scenario, planYear, inflationIndex, oneOffCashFlows = null, spendingGuardrail = null) {
+  return plannedSpendingDetailForYear(scenario, planYear, inflationIndex, oneOffCashFlows, spendingGuardrail).total;
+}
+
+function plannedSpendingDetailForYear(scenario, planYear, inflationIndex, oneOffCashFlows = null, spendingGuardrail = null) {
+  const scheduled = oneOffCashFlows ?? oneOffCashFlowsForYear(scenario, planYear, inflationIndex);
+  const strategy = spendingStrategyConfig(scenario);
+  const oneOffExpenses = round(scheduled.expenses, 6);
+
+  if (strategy.mode === "discretionaryGuardrails") {
+    const essentialSpend = round(strategy.essentialSpend * (strategy.essentialInflationAdjusted ? inflationIndex : 1), 6);
+    const discretionaryBudget = round(strategy.discretionarySpend * (strategy.discretionaryInflationAdjusted ? inflationIndex : 1), 6);
+    const discretionaryPercent = Number.isFinite(Number(spendingGuardrail?.discretionaryPercent))
+      ? Math.max(0, Math.min(1, Number(spendingGuardrail.discretionaryPercent)))
+      : 1;
+    const discretionarySpend = round(discretionaryBudget * discretionaryPercent, 6);
+    const total = round(essentialSpend + discretionarySpend + oneOffExpenses, 6);
+    return {
+      total,
+      baseSpend: round(essentialSpend + discretionaryBudget, 6),
+      essentialSpend,
+      discretionaryBudget,
+      discretionarySpend,
+      oneOffExpenses,
+      guardrail: spendingGuardrail,
+      strategy: {
+        mode: strategy.mode,
+        essentialInflationAdjusted: strategy.essentialInflationAdjusted,
+        discretionaryInflationAdjusted: strategy.discretionaryInflationAdjusted,
+        discretionaryPercent
+      }
+    };
+  }
+
   const baseSpend = (scenario.targetSpend ?? 0)
     * (scenario.targetSpendInflationAdjusted === false ? 1 : inflationIndex);
-  const scheduled = oneOffCashFlows ?? oneOffCashFlowsForYear(scenario, planYear, inflationIndex);
-  return round(baseSpend + scheduled.expenses, 6);
+  const total = round(baseSpend + oneOffExpenses, 6);
+  return {
+    total,
+    baseSpend: round(baseSpend, 6),
+    essentialSpend: round(baseSpend, 6),
+    discretionaryBudget: 0,
+    discretionarySpend: 0,
+    oneOffExpenses,
+    guardrail: null,
+    strategy: { mode: "fixed", discretionaryPercent: 1 }
+  };
 }
 
 function oneOffCashFlowsForYear(scenario, planYear, inflationIndex) {
@@ -4202,6 +4411,12 @@ function mergeScenario(scenario) {
       ...(typeof scenario.withdrawalStrategy === "string"
         ? { mode: scenario.withdrawalStrategy }
         : (scenario.withdrawalStrategy ?? {}))
+    },
+    spendingStrategy: {
+      ...DEFAULT_SCENARIO.spendingStrategy,
+      ...(typeof scenario.spendingStrategy === "string"
+        ? { mode: scenario.spendingStrategy }
+        : (scenario.spendingStrategy ?? {}))
     },
     sequenceRiskReserve: {
       ...DEFAULT_SCENARIO.sequenceRiskReserve,

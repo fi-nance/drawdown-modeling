@@ -136,7 +136,7 @@ const MODULES = [
   { id: "healthcare",    label: "Healthcare",     desc: "Insurance until Medicare",               controls: 21, required: false, enabledByDefault: true  },
   { id: "medicare",      label: "Medicare/IRMAA", desc: "Premiums after 65",                       controls: 8,  required: false, enabledByDefault: false },
   { id: "other-income",  label: "Other income",   desc: "Social Security, work, SE",               controls: 7,  required: false, enabledByDefault: false },
-  { id: "strategy",      label: "Strategy toolkit", desc: "Taxes, allocations, withdrawal rules",   controls: 22, required: false, enabledByDefault: true  },
+  { id: "strategy",      label: "Strategy toolkit", desc: "Taxes, allocations, withdrawal rules",   controls: 25, required: false, enabledByDefault: true  },
   { id: "reserve",       label: "Cash reserve",   desc: "Bucket strategy",                          controls: 4,  required: false, enabledByDefault: false },
   { id: "monte-carlo",   label: "Monte Carlo",    desc: "Return model and sampling",                controls: 16, required: false, enabledByDefault: true  },
   { id: "history",       label: "History test",   desc: "How would you have done?",                controls: 7,  required: false, enabledByDefault: false },
@@ -183,6 +183,7 @@ function boot() {
   bindSetupTransfer();
   bindWorkspaceSummary();
   bindWithdrawalMix();
+  bindHistoricalPathLinks();
   bindRunsHint();
   applyAll();
   hookRunCompletion();
@@ -193,6 +194,10 @@ function boot() {
   // Also listen for future render-latest events (in case the user changes
   // inflation view, etc., without firing the yearTable mutation observer).
   window.addEventListener("psl:render-latest", () => {
+    rerenderResults();
+    syncWorkspaceSummary();
+  });
+  window.addEventListener("psl:path-selected", () => {
     rerenderResults();
     syncWorkspaceSummary();
   });
@@ -548,17 +553,8 @@ function bindRouter() {
 
   const wsViewResults = document.getElementById("wsViewResults");
   wsViewResults?.addEventListener("click", () => {
-    // If the user edited workspace inputs since the last completed run, the
-    // displayed results are stale. Force a fresh run that streams into a
-    // cleared results screen so the user doesn't briefly see old numbers.
-    if (window.__pslIsWorkspaceDirty?.()) {
-      flagPendingRun();
-      if (runModelFromRedesign()) return;
-      pendingRunAdvance = false;
-      setScreen("results");
-      return;
-    }
     setScreen("results");
+    runModelFromRedesign({ cancelActive: true, stream: true });
   });
 
   const back = document.getElementById("resultsBackToWorkspace");
@@ -838,6 +834,35 @@ function renderKpiStrip() {
   const doneRuns = progress?.done ?? monteCarloScenarios(latest).length ?? totalRuns;
   const pctInt = Math.round(pct * 100);
   const spinner = streaming ? `<span class="kpi-spinner" aria-hidden="true"></span>` : "";
+  if (streaming && doneRuns === 0 && !planYears(latest).length) {
+    root.innerHTML = `
+      <div class="dh-result-grid">
+        <div class="dh-hero" data-tier="ok" data-streaming="true">
+          <div class="dh-eyebrow">Monte Carlo</div>
+          <div class="dh-result-title">Running projections</div>
+          <div class="dh-big mono" data-empty="true">—${spinner}</div>
+          <div class="dh-sub"><span class="dh-prelim">starting · 0 of ${totalRuns.toLocaleString()}</span></div>
+          <div class="dh-mini-grid">
+            <div><span>Median ending</span><strong class="mono">—</strong></div>
+            <div><span>Worst 5%</span><strong class="mono" data-tone="warn">—</strong></div>
+            <div><span>Best 10%</span><strong class="mono">—</strong></div>
+          </div>
+        </div>
+        <div class="dh-hero dh-historical" data-empty="true">
+          <div class="dh-eyebrow">Historical</div>
+          <div class="dh-result-title">Preparing paths</div>
+          <div class="dh-big mono" data-empty="true">—</div>
+          <div class="dh-sub">Historical paths pending</div>
+        </div>
+      </div>
+      <div class="dh-kpis">
+        <div class="dh-kpi"><span class="kpi-label">Lifetime tax</span><span class="kpi-big mono">—</span></div>
+        <div class="dh-kpi"><span class="kpi-label">Healthcare</span><span class="kpi-big mono">—</span></div>
+        <div class="dh-kpi"><span class="kpi-label">Safe spend rate</span><span class="kpi-big mono">—</span></div>
+        <div class="dh-kpi"><span class="kpi-label">Years modeled</span><span class="kpi-big mono">—</span></div>
+      </div>`;
+    return;
+  }
   const historical = historicalSummary(latest);
   const subline = streaming
     ? `<span class="dh-prelim">preliminary · ${doneRuns.toLocaleString()} of ${totalRuns.toLocaleString()}</span>`
@@ -865,8 +890,8 @@ function renderKpiStrip() {
         <div class="dh-sub">${historicalSubline}</div>
         <div class="dh-mini-grid">
           <div><span>Median ending</span><strong class="mono">${historical ? formatCurrencyShort(historical.medianEnding) : "—"}</strong></div>
-          <div><span>Worst path</span><strong class="mono" data-tone="warn">${historical ? formatCurrencyShort(historical.worstEnding) : "—"}</strong></div>
-          <div><span>Best path</span><strong class="mono">${historical ? formatCurrencyShort(historical.bestEnding) : "—"}</strong></div>
+          ${historicalPathTile("Worst path", historical?.worstEnding, historical?.worstIndex, "warn")}
+          ${historicalPathTile("Best path", historical?.bestEnding, historical?.bestIndex)}
         </div>
       </div>
     </div>
@@ -882,17 +907,40 @@ function historicalSummary(latest) {
   const list = Array.isArray(latest?.backtests) ? latest.backtests : [];
   if (!list.length) return null;
   const successes = list.filter((b) => b?.success).length;
-  const endings = list
-    .map((b) => resultEndingValue(b))
-    .filter(Number.isFinite)
-    .sort((a, b) => a - b);
+  const ranked = list
+    .map((backtest, index) => ({
+      index,
+      ending: resultEndingValue(backtest),
+      selectable: Array.isArray(backtest?.years) && backtest.years.length > 0
+    }))
+    .filter((item) => Number.isFinite(item.ending))
+    .sort((a, b) => a.ending - b.ending);
+  const endings = ranked.map((item) => item.ending);
+  const worst = ranked[0] ?? null;
+  const best = ranked[ranked.length - 1] ?? null;
   return {
     successRate: successes / list.length,
     count: list.length,
     medianEnding: percentileValue(endings, 0.5),
-    worstEnding: percentileValue(endings, 0),
-    bestEnding: percentileValue(endings, 1)
+    worstEnding: worst?.ending ?? NaN,
+    bestEnding: best?.ending ?? NaN,
+    worstIndex: worst?.selectable ? worst.index : null,
+    bestIndex: best?.selectable ? best.index : null
   };
+}
+
+function historicalPathTile(label, value, index, tone = "") {
+  const toneAttr = tone ? ` data-tone="${tone}"` : "";
+  const amount = formatCurrencyShort(value);
+  if (!Number.isInteger(index)) {
+    return `<div><span>${label}</span><strong class="mono"${toneAttr}>${amount}</strong></div>`;
+  }
+  const ariaPath = label.toLowerCase().replace(/\s+path$/, "");
+  return `
+    <button type="button" class="dh-mini-action" data-historical-backtest-index="${index}" aria-label="View ${ariaPath} historical path">
+      <span>${label}</span>
+      <strong class="mono"${toneAttr}>${amount}</strong>
+    </button>`;
 }
 
 // ─── Healthcare timeline (ACA → Medicare strip) ────────────────────
@@ -1245,17 +1293,12 @@ function renderWithdrawalMix() {
   const legend = document.getElementById("mixLegend");
   if (!root) return;
   const latest = window.__pslLatest;
-  const years = planYears(latest);
+  const years = withdrawalMixVisibleYears(planYears(latest));
   if (!years.length) { root.innerHTML = ""; if (legend) legend.innerHTML = ""; return; }
-  // Pick a digestible subset of years (every Nth so we get roughly 8 columns)
-  const stride = Math.max(1, Math.round(years.length / 8));
-  const picked = [];
-  for (let i = 0; i < years.length; i += stride) picked.push(years[i]);
-  if (picked[picked.length - 1] !== years[years.length - 1]) picked.push(years[years.length - 1]);
-
   const selectedYearNumber = currentSelectedYearIndex() + 1;
+  const picked = withdrawalMixYearPicks(years, selectedYearNumber - 1);
 
-  root.innerHTML = picked.map(y => {
+  root.innerHTML = picked.map(({ year: y, labels }) => {
     const tax  = y.sales?.filter(s => s.accountType === "taxable").reduce((t, s) => t + (s.proceeds ?? 0), 0) ?? 0;
     const trad = y.sales?.filter(s => s.accountType === "traditional").reduce((t, s) => t + (s.proceeds ?? 0), 0) ?? 0;
     const roth = y.sales?.filter(s => s.accountType === "roth").reduce((t, s) => t + (s.proceeds ?? 0), 0) ?? 0;
@@ -1272,11 +1315,13 @@ function renderWithdrawalMix() {
       { cls: "mix-ss",   v: ss,   label: "SS" }
     ].filter(s => s.v > 0);
     const isSelected = y.yearIndex === selectedYearNumber;
+    const labelText = labels.join(", ");
     return `
-      <button type="button" class="mix-col" data-year-index="${y.yearIndex - 1}" data-selected="${isSelected ? "true" : "false"}" aria-pressed="${isSelected ? "true" : "false"}" aria-label="Year ${y.yearIndex}${y.age ? `, age ${Math.round(y.age)}` : ""} — click to inspect">
+      <button type="button" class="mix-col" data-year-index="${y.yearIndex - 1}" data-selected="${isSelected ? "true" : "false"}" aria-pressed="${isSelected ? "true" : "false"}" aria-label="Year ${y.yearIndex}${y.age ? `, age ${Math.round(y.age)}` : ""}${labelText ? `, ${labelText}` : ""} — click to inspect">
         <div class="mix-stack">
           ${segs.map(s => `<span class="${s.cls}" style="flex-basis:${(s.v/total*100).toFixed(2)}%">${s.v/total > 0.12 ? s.label : ""}</span>`).join("")}
         </div>
+        ${labels.length ? `<span class="mix-badges">${labels.map((label) => `<span class="mix-badge" data-kind="${label.toLowerCase()}">${label}</span>`).join("")}</span>` : ""}
         <span class="mix-year">Y${y.yearIndex}</span>
         <span class="mix-age">${y.age ? Math.round(y.age) : ""}</span>
       </button>`;
@@ -1288,6 +1333,44 @@ function renderWithdrawalMix() {
     <span><span class="swatch" style="background:#0e7da6"></span>HSA</span>
     <span><span class="swatch" style="background:#c43838"></span>RMD</span>
     <span><span class="swatch" style="background:#117a4d;opacity:.55"></span>Soc Sec</span>`;
+}
+
+function withdrawalMixVisibleYears(years = []) {
+  const max = Number(document.getElementById("yearRange")?.max);
+  if (!Number.isFinite(max) || max < 1) return years;
+  return years.slice(0, Math.min(years.length, Math.trunc(max)));
+}
+
+function withdrawalMixYearPicks(years, selectedIndex = 0) {
+  const picks = new Map();
+  const add = (index, label = null) => {
+    const bounded = Math.max(0, Math.min(years.length - 1, Number(index)));
+    const year = years[bounded];
+    if (!year) return;
+    const existing = picks.get(bounded) ?? { year, labels: [] };
+    if (label && !existing.labels.includes(label)) existing.labels.push(label);
+    picks.set(bounded, existing);
+  };
+
+  // Keep the strip digestible while guaranteeing the important outlier years
+  // are present and clickable.
+  const stride = Math.max(1, Math.round(years.length / 8));
+  for (let i = 0; i < years.length; i += stride) add(i);
+  add(years.length - 1);
+  add(selectedIndex);
+
+  const ranked = years
+    .map((year, index) => ({ index, value: displayAmount(year?.endingPortfolioValue ?? NaN, year) }))
+    .filter((item) => Number.isFinite(item.value));
+  if (ranked.length) {
+    ranked.sort((a, b) => a.value - b.value);
+    add(ranked[0].index, "Worst");
+    add(ranked[ranked.length - 1].index, "Best");
+  }
+
+  return [...picks.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([, pick]) => pick);
 }
 
 function currentSelectedYearIndex() {
@@ -1362,8 +1445,23 @@ function bindWithdrawalMix() {
   // the same input event, re-mark the selected column, and re-paint anything
   // else that's year-scoped (bracket fill).
   document.getElementById("yearRange")?.addEventListener("input", () => {
+    renderWithdrawalMix();
     syncMixSelectedHighlight(currentSelectedYearIndex());
     renderBracketFill();
+  });
+}
+
+function bindHistoricalPathLinks() {
+  const root = document.getElementById("kpiStrip");
+  if (!root) return;
+  root.addEventListener("click", (ev) => {
+    const button = ev.target.closest("[data-historical-backtest-index]");
+    if (!button) return;
+    const index = Number(button.dataset.historicalBacktestIndex);
+    if (!Number.isInteger(index)) return;
+    if (typeof window.__pslSelectHistoricalBacktest === "function") {
+      window.__pslSelectHistoricalBacktest(index);
+    }
   });
 }
 

@@ -1240,6 +1240,38 @@ body[data-screen="persona"]::before {
 .mix-stack .mix-other { background: #6b7180; }
 .mix-col .mix-year { font-weight: 700; font-size: 0.78rem; color: var(--text-primary); font-variant-numeric: tabular-nums; }
 .mix-col .mix-age  { color: var(--text-muted); font-size: 0.68rem; font-variant-numeric: tabular-nums; }
+.mix-badges {
+  min-height: 18px;
+  display: flex;
+  justify-content: center;
+  gap: 3px;
+  flex-wrap: wrap;
+}
+.mix-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 16px;
+  padding: 0 5px;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+  background: var(--bg-glass-2);
+  color: var(--text-secondary);
+  font-size: 0.56rem;
+  font-weight: 800;
+  line-height: 1;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.mix-badge[data-kind="best"] {
+  color: var(--emerald);
+  border-color: rgba(52, 209, 182, 0.35);
+  background: rgba(52, 209, 182, 0.1);
+}
+.mix-badge[data-kind="worst"] {
+  color: var(--amber);
+  border-color: rgba(240, 168, 72, 0.35);
+  background: rgba(240, 168, 72, 0.1);
+}
 .mix-legend { display: flex; gap: 0.7rem; flex-wrap: wrap; font-size: 0.72rem; color: var(--text-secondary); }
 .mix-legend .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: middle; }
 
@@ -1351,7 +1383,8 @@ body[data-screen="persona"]::before {
   background: var(--border);
   margin-top: 0.5rem;
 }
-.dh-mini-grid > div {
+.dh-mini-grid > div,
+.dh-mini-grid > .dh-mini-action {
   display: flex;
   min-width: 0;
   flex-direction: column;
@@ -1359,8 +1392,28 @@ body[data-screen="persona"]::before {
   background: rgba(0, 0, 0, 0.12);
   padding: 0.65rem 0.7rem;
 }
-[data-theme="light"] .dh-mini-grid > div {
+[data-theme="light"] .dh-mini-grid > div,
+[data-theme="light"] .dh-mini-grid > .dh-mini-action {
   background: rgba(255, 255, 255, 0.42);
+}
+.dh-mini-action {
+  appearance: none;
+  border: 0;
+  border-radius: 0;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+.dh-mini-action:hover {
+  background: rgba(52, 209, 182, 0.12);
+}
+[data-theme="light"] .dh-mini-action:hover {
+  background: rgba(30, 144, 255, 0.12);
+}
+.dh-mini-action:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: -2px;
 }
 .dh-mini-grid span {
   color: var(--text-muted);

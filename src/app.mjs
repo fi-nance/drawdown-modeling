@@ -14,7 +14,7 @@ import {
   runHistoricalBacktests,
   runMonteCarlo,
   simulatePlan
-} from "./core/simulation.mjs?v=20260513-streaming";
+} from "./core/simulation.mjs?v=20260515-guardrail-spend";
 import { round } from "./core/utils.mjs";
 import { defaultOneOffExpenses, sampleAssets } from "./data/sample.mjs";
 import {
@@ -102,6 +102,9 @@ const CONTROL_IDS = [
   "cryptoStockProxy",
   "tipsBondProxy",
   "withdrawalStrategyMode",
+  "spendingStrategyMode",
+  "essentialSpend",
+  "discretionarySpend",
   "sequenceReserveMode",
   "sequenceReserveTargetYears",
   "sequenceReserveTentYears",
@@ -244,6 +247,9 @@ const els = {
   cryptoStockProxy: document.querySelector("#cryptoStockProxy"),
   tipsBondProxy: document.querySelector("#tipsBondProxy"),
   withdrawalStrategyMode: document.querySelector("#withdrawalStrategyMode"),
+  spendingStrategyMode: document.querySelector("#spendingStrategyMode"),
+  essentialSpend: document.querySelector("#essentialSpend"),
+  discretionarySpend: document.querySelector("#discretionarySpend"),
   sequenceReserveMode: document.querySelector("#sequenceReserveMode"),
   sequenceReserveTargetYears: document.querySelector("#sequenceReserveTargetYears"),
   sequenceReserveTentYears: document.querySelector("#sequenceReserveTentYears"),
@@ -384,6 +390,8 @@ let simulationRequestId = 0;
 let activeSimulationRequestId = 0;
 let runModelsBusy = false;
 let pendingRerunRequested = false;
+let runModelsToken = 0;
+let activeSimulationCancel = null;
 let workspaceDirty = false;
 let streamingRenderRaf = 0;
 let rememberSetupEnabled = loadRememberSetupPreference();
@@ -393,6 +401,7 @@ const PINNED_ASSET_STORAGE_KEY = "portfolio-success-lab:pinned-asset-columns";
 const TABLE_HEIGHT_STORAGE_KEY = "portfolio-success-lab:table-heights";
 const ALWAYS_PINNED_YEAR = ["Year", "Age"];
 const ALWAYS_PINNED_ASSET = ["Asset", "Account"];
+const RUN_CANCELED_MESSAGE = "Simulation run canceled.";
 let pinnedYearColumns = loadPinnedColumns(PINNED_YEAR_STORAGE_KEY);
 let pinnedAssetColumns = loadPinnedColumns(PINNED_ASSET_STORAGE_KEY);
 
@@ -544,6 +553,7 @@ function initialize() {
   renderStateOptions();
   initializePersistenceControls();
   loadStoredState();
+  syncSpendingStrategyControls();
   syncJsonFromAssets();
   renderAssetTable();
   renderOneOffs();
@@ -596,6 +606,18 @@ function bindEvents() {
     if (!input) return;
     input.addEventListener("change", saveStoredState);
     input.addEventListener("input", saveStoredState);
+  });
+  els.spendingStrategyMode?.addEventListener("change", () => {
+    syncSpendingStrategyControls();
+    saveStoredState();
+  });
+  els.essentialSpend?.addEventListener("input", () => {
+    syncSpendingStrategyControls();
+    saveStoredState();
+  });
+  els.discretionarySpend?.addEventListener("input", () => {
+    syncSpendingStrategyControls();
+    saveStoredState();
   });
   bindMonteCarloControls();
   els.historicalDataSource?.addEventListener("change", resetHistoricalRangeControlsForCurrentSource);
@@ -715,6 +737,7 @@ function bindEvents() {
       setImportStatus(`Loading ${file.name}...`);
       const restoredState = parseSetupBackup(await file.text());
       applySetupState(restoredState);
+      syncSpendingStrategyControls();
       syncJsonFromAssets();
       renderAssetTable();
       renderOneOffs();
@@ -746,6 +769,23 @@ function bindEvents() {
     renderOneOffs();
     saveStoredState();
   });
+}
+
+function syncSpendingStrategyControls() {
+  const guardrailEnabled = els.spendingStrategyMode?.value === "discretionaryGuardrails";
+  document.querySelectorAll("[data-guardrail-spend-controls]").forEach((element) => {
+    element.hidden = !guardrailEnabled;
+  });
+  [els.essentialSpend, els.discretionarySpend].forEach((input) => {
+    if (input) input.disabled = !guardrailEnabled;
+  });
+  if (els.targetSpend) {
+    els.targetSpend.disabled = guardrailEnabled;
+    if (guardrailEnabled) {
+      const total = (Number(els.essentialSpend?.value) || 0) + (Number(els.discretionarySpend?.value) || 0);
+      els.targetSpend.value = String(Math.max(0, total));
+    }
+  }
 }
 
 function renderStateOptions() {
@@ -1229,6 +1269,17 @@ function getSimulationWorker() {
   return simulationWorker;
 }
 
+function cancelActiveSimulationRun() {
+  activeSimulationRequestId = ++simulationRequestId;
+  pendingRerunRequested = false;
+  activeSimulationCancel?.();
+  activeSimulationCancel = null;
+  if (simulationWorker) {
+    simulationWorker.terminate();
+    simulationWorker = null;
+  }
+}
+
 function runSimulationsInWorker({
   assets, scenario, taxProfile, runs, seed, sequences,
   onPlan, onBacktests, onScenarios, onProgress
@@ -1237,15 +1288,26 @@ function runSimulationsInWorker({
   const id = ++simulationRequestId;
   activeSimulationRequestId = id;
   return new Promise((resolve, reject) => {
+    let settled = false;
     function cleanup() {
       worker.removeEventListener("message", onMessage);
       worker.removeEventListener("error", onError);
+      if (activeSimulationCancel === cancel) activeSimulationCancel = null;
+    }
+    function settle() {
+      if (settled) return false;
+      settled = true;
+      cleanup();
+      return true;
+    }
+    function cancel() {
+      if (settle()) reject(new Error(RUN_CANCELED_MESSAGE));
     }
     function onMessage(ev) {
       const msg = ev.data;
       if (!msg || msg.id !== id) return;
       if (id !== activeSimulationRequestId) {
-        if (msg.type === "result" || msg.type === "error") cleanup();
+        if (msg.type === "result" || msg.type === "error") settle();
         return;
       }
       if (msg.type === "plan-ready") {
@@ -1256,19 +1318,17 @@ function runSimulationsInWorker({
         onScenarios?.({ scenarios: msg.scenarios, done: msg.done, total: msg.total });
         onProgress?.({ phase: "monteCarlo", done: msg.done, total: msg.total });
       } else if (msg.type === "result") {
-        cleanup();
-        resolve({ summary: msg.summary });
+        if (settle()) resolve({ summary: msg.summary });
       } else if (msg.type === "error") {
-        cleanup();
         const err = new Error(msg.message || "Simulation worker failed");
         if (msg.stack) err.stack = msg.stack;
-        reject(err);
+        if (settle()) reject(err);
       }
     }
     function onError(ev) {
-      cleanup();
-      reject(new Error(ev.message || "Simulation worker crashed"));
+      if (settle()) reject(new Error(ev.message || "Simulation worker crashed"));
     }
+    activeSimulationCancel = cancel;
     worker.addEventListener("message", onMessage);
     worker.addEventListener("error", onError);
     worker.postMessage({ type: "run", id, payload: { assets, scenario, taxProfile, runs, seed, sequences } });
@@ -1279,10 +1339,16 @@ async function runModels(opts = {}) {
   // If a run is already in flight, queue another so the user's freshly-edited
   // inputs aren't dropped — the queued run starts as soon as this one finishes.
   if (runModelsBusy) {
-    pendingRerunRequested = true;
-    return;
+    if (opts.cancelActive === true) {
+      cancelActiveSimulationRun();
+    } else {
+      pendingRerunRequested = true;
+      return;
+    }
   }
+  const runToken = ++runModelsToken;
   runModelsBusy = true;
+  pendingRerunRequested = false;
   // Stream by default. Silent mode (no UI swap until done) is used by
   // initialize() when cached results are already painted: the background
   // re-run shouldn't wipe the user's last view with placeholders.
@@ -1428,15 +1494,20 @@ async function runModels(opts = {}) {
       selectedScenarioId = latest.monteCarlo.scenarios[0]?.id ?? null;
       selectedBacktestIndex = null;
     }
+    if (runToken !== runModelsToken) return;
     renderLatest({ streaming: false });
     window.dispatchEvent(new CustomEvent("psl:run-complete"));
     setStatus(`Completed ${runs} Monte Carlo runs and ${latest.backtests.length} historical backtests in ${Math.round(performance.now() - started)} ms.${historicalCompletionNote()}`);
   } catch (error) {
-    console.error(error);
-    setStatus(error.message, true);
-    window.dispatchEvent(new CustomEvent("psl:run-progress", { detail: { error: true } }));
+    if (error?.message !== RUN_CANCELED_MESSAGE && runToken === runModelsToken) {
+      console.error(error);
+      setStatus(error.message, true);
+      window.dispatchEvent(new CustomEvent("psl:run-progress", { detail: { error: true } }));
+    }
   } finally {
+    if (runToken !== runModelsToken) return;
     runModelsBusy = false;
+    activeSimulationCancel = null;
     if (pendingRerunRequested) {
       pendingRerunRequested = false;
       setTimeout(() => runModels(), 0);
@@ -1500,6 +1571,7 @@ if (typeof window !== "undefined") {
   // workspace inputs changed since the last completed run.
   window.__pslIsWorkspaceDirty = () => workspaceDirty;
   window.__pslRunModels = (opts) => runModels(opts);
+  window.__pslSelectHistoricalBacktest = (index) => selectHistoricalBacktest(index);
 }
 
 // Returns the Monte Carlo summary if the run completed, otherwise recomputes
@@ -1577,10 +1649,13 @@ function taxAuditLine(scenario) {
 
 function strategyAuditLine(scenario) {
   const mode = scenario.withdrawalStrategy?.mode === "lifetime" ? "lifetime" : "heuristic";
+  const spending = scenario.spendingStrategy?.mode === "discretionaryGuardrails"
+    ? ` Spending guardrails are active: ${moneyFormatter.format(scenario.spendingStrategy.essentialSpend ?? 0)} essential plus ${moneyFormatter.format(scenario.spendingStrategy.discretionarySpend ?? 0)} discretionary, with discretionary trimmed at 10% and 20% stock-market drawdowns.`
+    : " Fixed target spending is active.";
   if (mode === "lifetime") {
-    return "Lifetime optimizer is active: it scores alternate withdrawal sources and tax moves against ACA, IRMAA, NIIT, ordinary/LTCG brackets, Roth basis, expected returns, and future tax-rate pressure.";
+    return `Lifetime optimizer is active: it scores alternate withdrawal sources and tax moves against ACA, IRMAA, NIIT, ordinary/LTCG brackets, Roth basis, expected returns, and future tax-rate pressure.${spending}`;
   }
-  return "Basic drawdown heuristic is active: it follows the selected account order with tax-aware lot sorting and simple guardrails, without full cross-year source scoring.";
+  return `Basic drawdown heuristic is active: it follows the selected account order with tax-aware lot sorting and simple guardrails, without full cross-year source scoring.${spending}`;
 }
 
 function acaLocalityAuditLine(scenario) {
@@ -1714,7 +1789,7 @@ function acaPlanLabel(year) {
 function renderYearTable() {
   const years = activeVisibleYears();
   const magiColumn = selectedMagiColumn();
-  const headers = ["Year", "Age", "Stock", "Bond", "Real estate", "TIPS", "Crypto", "Inflation", "Start value", "End value", "Sales / withdrawals", "Dividends", "Social Security", "Earned income", "One-off income", "RMD", "Total cash", "Total need", "Tax", "Fed income tax", "CG/QD tax", "NIIT", "Addl Medicare", "Credits", "State tax", magiColumn.header, "Taxable SS", "65+ deduction", "CTC children", "ACA plan", "ACA SLCSP", "ACA gross", "ACA subsidy", "ACA net", "Medicare", "Spend", "Medical", "Tax gain harvest", "Roth conv.", "Roth basis left", "Penalty", "Loss carry"];
+  const headers = ["Year", "Age", "Stock", "Bond", "Real estate", "TIPS", "Crypto", "Inflation", "Start value", "End value", "Sales / withdrawals", "Dividends", "Social Security", "Earned income", "One-off income", "RMD", "Total cash", "Total need", "Tax", "Fed income tax", "CG/QD tax", "NIIT", "Addl Medicare", "Credits", "State tax", magiColumn.header, "Taxable SS", "65+ deduction", "CTC children", "ACA plan", "ACA SLCSP", "ACA gross", "ACA subsidy", "ACA net", "Medicare", "Spend", "Essential", "Discretionary", "Disc. %", "Market DD", "Medical", "Tax gain harvest", "Roth conv.", "Roth basis left", "Penalty", "Loss carry"];
   const rows = years.map((year) => [
     yearDisplayLabel(year),
     ageLabel(year.age),
@@ -1752,6 +1827,10 @@ function renderYearTable() {
     money(year.aca.netPremium ?? 0, year),
     money(year.medicare?.totalAnnualPremium ?? 0, year),
     money(year.plannedSpending, year),
+    year.spendingStrategy?.mode === "discretionaryGuardrails" ? money(year.essentialSpending ?? 0, year) : "n/a",
+    year.spendingStrategy?.mode === "discretionaryGuardrails" ? money(year.discretionarySpending ?? 0, year) : "n/a",
+    guardrailPercent(year.spendingGuardrail?.discretionaryPercent),
+    guardrailPercent(year.spendingGuardrail?.marketDrawdown),
     money(year.medicalCost, year),
     money(year.taxGainHarvested, year),
     money(year.rothConversionAmount, year),
@@ -1946,18 +2025,34 @@ function renderBacktests() {
 
   els.backtestTable.querySelectorAll("[data-backtest-index]").forEach((row) => {
     row.addEventListener("click", () => {
-      selectedBacktestIndex = Number(row.dataset.backtestIndex);
-      selectedScenarioId = null;
-      clampSelectedYearToVisible();
-      renderScenarioTable();
-      renderBacktests();
-      drawTimeline();
-      renderKpis();
-      renderFlowAndSales();
-      renderYearTable();
-      renderAssetBreakdown();
+      selectHistoricalBacktest(Number(row.dataset.backtestIndex));
     });
   });
+}
+
+function selectHistoricalBacktest(index) {
+  const numericIndex = Number(index);
+  if (!Number.isInteger(numericIndex) || numericIndex < 0) return false;
+  const backtest = latest?.backtests?.[numericIndex];
+  if (!hasYearTimeline(backtest)) return false;
+
+  selectedBacktestIndex = numericIndex;
+  selectedScenarioId = null;
+  clampSelectedYearToVisible();
+  renderScenarioTable();
+  renderBacktests();
+  drawTimeline();
+  renderKpis();
+  renderFlowAndSales();
+  renderYearTable();
+  renderAssetBreakdown();
+
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("psl:path-selected", {
+      detail: { type: "historical", index: numericIndex, id: backtest.id }
+    }));
+  }
+  return true;
 }
 
 function renderActionPlan() {
@@ -2028,6 +2123,17 @@ function renderActionPlan() {
       "One-off income",
       `${money(taxAttributionFor(year, "One-off income"), year)} estimated tax share`,
       "Adds outside cash for the configured year range before selling portfolio assets."
+    ]);
+  }
+
+  const discretionaryTrim = Math.max(0, (year.discretionarySpendingBudget ?? 0) - (year.discretionarySpending ?? 0));
+  if (discretionaryTrim > 1 && year.spendingGuardrail?.enabled) {
+    rows.push([
+      "Trim discretionary spending",
+      money(discretionaryTrim, year),
+      "Lifestyle budget",
+      `${guardrailPercent(year.spendingGuardrail.marketDrawdown)} stock-market drawdown; ${guardrailPercent(year.spendingGuardrail.discretionaryPercent)} discretionary budget modeled`,
+      "Applies the essential-plus-discretionary guardrail before portfolio sales are sized."
     ]);
   }
 
@@ -3253,6 +3359,14 @@ function readScenario() {
     backupTriggerFplPercent,
     fplOverride: numberOrNull(els.acaFpl.value)
   });
+  const spendingStrategyMode = els.spendingStrategyMode?.value === "discretionaryGuardrails"
+    ? "discretionaryGuardrails"
+    : "fixed";
+  const essentialSpend = Math.max(0, Number(els.essentialSpend?.value) || 0);
+  const discretionarySpend = Math.max(0, Number(els.discretionarySpend?.value) || 0);
+  const targetSpend = spendingStrategyMode === "discretionaryGuardrails"
+    ? essentialSpend + discretionarySpend
+    : Number(els.targetSpend.value) || 0;
 
   return {
     ...DEFAULT_SCENARIO,
@@ -3288,7 +3402,7 @@ function readScenario() {
       marriedFilingSeparatelyLivedTogether: els.mfsLivedTogether.checked
     },
     planYears: clampInteger(Number(els.planYears.value), 1, 80),
-    targetSpend: Number(els.targetSpend.value) || 0,
+    targetSpend,
     targetSpendIncludesTaxes: els.includeTaxes.checked,
     targetSpendIncludesMedical: els.includeMedical.checked,
     medicalExpensesBase: Number(els.medicalBase.value) || 0,
@@ -3296,6 +3410,18 @@ function readScenario() {
     oopMaxOverride: selectedPlanOopMaximumOverride,
     withdrawalStrategy: {
       mode: els.withdrawalStrategyMode?.value === "lifetime" ? "lifetime" : "heuristic"
+    },
+    spendingStrategy: {
+      mode: spendingStrategyMode,
+      essentialSpend,
+      discretionarySpend,
+      essentialInflationAdjusted: true,
+      discretionaryInflationAdjusted: false,
+      correctionDrawdownThreshold: 0.1,
+      bearDrawdownThreshold: 0.2,
+      correctionDiscretionaryPercent: 0.5,
+      bearDiscretionaryPercent: 0,
+      marketAssetClass: "stock"
     },
     sequenceRiskReserve: {
       enabled: (els.sequenceReserveMode?.value ?? "none") !== "none",
@@ -3576,6 +3702,10 @@ function signedPercent(value) {
 function returnPercent(year, assetClass) {
   const value = year.assetClassReturns?.[assetClass];
   return typeof value === "number" && Number.isFinite(value) ? signedPercent(value) : "n/a";
+}
+
+function guardrailPercent(value) {
+  return typeof value === "number" && Number.isFinite(value) ? percentFormatter.format(value) : "n/a";
 }
 
 function adjustAmount(value, year) {

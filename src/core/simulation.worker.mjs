@@ -6,7 +6,7 @@ import {
   runHistoricalBacktests,
   runMonteCarlo,
   simulatePlan
-} from "./simulation.mjs?v=20260513-streaming";
+} from "./simulation.mjs?v=20260515-guardrail-spend";
 
 self.addEventListener("message", (ev) => {
   const msg = ev.data;
