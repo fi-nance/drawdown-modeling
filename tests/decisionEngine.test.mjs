@@ -181,7 +181,7 @@ test("decision batch returns base, income bridge, and combined rescue summaries"
   assert.equal(decision.verdict.historicalKnown, false);
 });
 
-test("discretionary rescue status is based on finalized full-run evidence", () => {
+test("discretionary rescue falls back to the full cut when the searched cut misses on finalized runs", () => {
   const spend = 60;
   const scenario = {
     ...DEFAULT_SCENARIO,
@@ -238,8 +238,12 @@ test("discretionary rescue status is based on finalized full-run evidence", () =
   });
 
   const cut = decision.rescueOptions.find((option) => option.kind === "discretionaryCut");
-  assert.equal(cut.status, "best-tested");
-  assert.equal(cut.monteCarlo.successRate, 0.8833);
+  // The bounded search picks a partial cut that looks sufficient on
+  // search-run noise; finalized full-run evidence shows it misses the
+  // target, so the engine reports the full flexible-spend cut instead.
+  assert.equal(cut.status, "target-met");
+  assert.equal(cut.monteCarlo.successRate, 1);
+  assert.equal(cut.metadata.cutAmount, 18);
 });
 
 test("discretionary rescue can be target-met when finalized run clears target after search miss", () => {

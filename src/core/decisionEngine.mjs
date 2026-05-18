@@ -323,7 +323,16 @@ function findDiscretionaryCut({ assets, scenario, taxProfile, runs, seed, sequen
       low = cut;
     }
   }
-  const finalized = finalizeCandidate({ candidate: best, assets, taxProfile, runs, seed, sequences, profile });
+  let finalized = finalizeCandidate({ candidate: best, assets, taxProfile, runs, seed, sequences, profile });
+  // The bounded search picks `best` on noisy search-run evidence. If the
+  // finalized full-run result misses the target, that pick is not
+  // trustworthy: a smaller cut looked sufficient only by sampling noise.
+  // Fall back to the full flexible-spend cut, the largest and genuinely
+  // best cut the solver can offer, so the reported amount and success
+  // rate stay consistent (and a target-meeting full cut is not hidden).
+  if (!meetsTarget(finalized, profile) && best.metadata.cutAmount + EPSILON < maxCut) {
+    finalized = finalizeCandidate({ candidate: fullCut, assets, taxProfile, runs, seed, sequences, profile });
+  }
   return optionWithDelta(finalized, base, { status: meetsTarget(finalized, profile) ? "target-met" : "best-tested" });
 }
 
