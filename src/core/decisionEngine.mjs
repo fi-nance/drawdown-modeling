@@ -1,4 +1,5 @@
 import {
+  DEFAULT_SCENARIO,
   runHistoricalBacktests,
   runMonteCarlo,
   simulatePlan
@@ -215,6 +216,9 @@ export function scenarioWithDiscretionaryCut(scenario = {}, profile = {}, cutAmo
   const flexibleSpend = Math.max(0, normalized.flexibleSpend);
   const cut = Math.max(0, Math.min(flexibleSpend, Number(cutAmount) || 0));
   const remainingPercent = flexibleSpend > 0 ? (flexibleSpend - cut) / flexibleSpend : 1;
+  const correctionPercent = flexibleSpend > 0
+    ? 1 - ((cut / flexibleSpend) * defaultCorrectionCutShare())
+    : 1;
   return {
     ...scenario,
     targetSpend: round(normalized.requiredSpend + flexibleSpend, 2),
@@ -227,11 +231,19 @@ export function scenarioWithDiscretionaryCut(scenario = {}, profile = {}, cutAmo
       discretionaryInflationAdjusted: false,
       correctionDrawdownThreshold: 0.1,
       bearDrawdownThreshold: 0.2,
-      correctionDiscretionaryPercent: round(remainingPercent, 4),
+      correctionDiscretionaryPercent: round(correctionPercent, 4),
       bearDiscretionaryPercent: round(remainingPercent, 4),
       marketAssetClass: "stock"
     }
   };
+}
+
+function defaultCorrectionCutShare() {
+  const defaultCorrection = Number(DEFAULT_SCENARIO.spendingStrategy.correctionDiscretionaryPercent);
+  const defaultBear = Number(DEFAULT_SCENARIO.spendingStrategy.bearDiscretionaryPercent);
+  const correctionCutShare = 1 - (Number.isFinite(defaultCorrection) ? defaultCorrection : 0.5);
+  const bearCutShare = 1 - (Number.isFinite(defaultBear) ? defaultBear : 0);
+  return bearCutShare > 0 ? Math.max(0, Math.min(1, correctionCutShare / bearCutShare)) : 0.5;
 }
 
 export function scenarioWithIncomeBridge(scenario = {}, {

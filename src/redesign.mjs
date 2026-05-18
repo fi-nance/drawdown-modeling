@@ -1027,7 +1027,7 @@ function decisionHeadline({ base, cut, income, combined }) {
     `Base plan: ${formatRate(base?.monteCarlo?.successRate)} Monte Carlo success at ${formatCurrencyShort(spend)}/year.`
   ];
   if (cut) {
-    parts.push(`Cutting flexible spending by ${formatCurrencyShort(cut.metadata?.cutAmount ?? 0)} during early market stress raises this to ${formatRate(cut.monteCarlo?.successRate)}.`);
+    parts.push(`Cutting flexible spending by up to ${formatCurrencyShort(cut.metadata?.cutAmount ?? 0)} during early market stress raises this to ${formatRate(cut.monteCarlo?.successRate)}.`);
   }
   if (income) {
     parts.push(`Earning ${formatCurrencyShort(income.metadata?.annualIncome ?? 0)}/year for ${income.metadata?.durationYears ?? 0} years raises it to ${formatRate(income.monteCarlo?.successRate)}.`);
@@ -1042,7 +1042,7 @@ function rescueCardHtml(option, base) {
   const delta = option.delta?.monteCarloSuccessRate ?? 0;
   const meta = option.metadata ?? {};
   const title = option.kind === "discretionaryCut"
-    ? `Cut ${formatCurrencyShort(meta.cutAmount ?? 0)}`
+    ? `Cut up to ${formatCurrencyShort(meta.cutAmount ?? 0)}`
     : option.kind === "incomeBridge"
       ? `Earn ${formatCurrencyShort(meta.annualIncome ?? 0)} for ${meta.durationYears ?? 0}y`
       : "Do both";

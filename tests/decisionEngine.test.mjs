@@ -86,9 +86,22 @@ test("scenario transforms apply discretionary cuts and income bridges explicitly
   assert.equal(cutScenario.spendingStrategy.mode, "discretionaryGuardrails");
   assert.equal(cutScenario.spendingStrategy.essentialSpend, 70000);
   assert.equal(cutScenario.spendingStrategy.discretionarySpend, 30000);
+  assert.equal(cutScenario.spendingStrategy.correctionDiscretionaryPercent, 0.75);
   assert.equal(cutScenario.spendingStrategy.bearDiscretionaryPercent, 0.5);
   assert.equal(incomeScenario.oneOffExpenses.at(-1).amount, 42000);
   assert.equal(incomeScenario.oneOffExpenses.at(-1).endYear, 3);
+});
+
+test("full discretionary rescue cut matches the app guardrail shape", () => {
+  const cutScenario = scenarioWithDiscretionaryCut(DEFAULT_SCENARIO, {
+    requiredSpend: 70000,
+    flexibleSpend: 30000
+  }, 30000);
+
+  assert.equal(cutScenario.spendingStrategy.correctionDrawdownThreshold, 0.1);
+  assert.equal(cutScenario.spendingStrategy.bearDrawdownThreshold, 0.2);
+  assert.equal(cutScenario.spendingStrategy.correctionDiscretionaryPercent, 0.5);
+  assert.equal(cutScenario.spendingStrategy.bearDiscretionaryPercent, 0);
 });
 
 test("decision batch returns base, income bridge, and combined rescue summaries", () => {
