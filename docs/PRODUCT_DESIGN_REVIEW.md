@@ -886,3 +886,98 @@ If they cannot name the fallback action after seeing the result, the next build 
 - Current action plan rows: [src/app.mjs](../src/app.mjs)
 - Current default scenario and guardrails: [src/core/simulation.mjs](../src/core/simulation.mjs)
 - Current model capabilities and accuracy notes: [README.md](../README.md)
+
+## Post-Implementation Revision: Additional Decision Modifications
+
+This section is a follow-up office-hours pass after the decision engine shipped. It revises the rescue-option design based on findings from using the built engine.
+
+### Why This Revision
+
+The post-job decision engine shipped in commit `be45670` with three of the five planned solvers:
+
+- Solver 2, Bad-Market Discretionary Cut (`findDiscretionaryCut`)
+- Solver 3, Income Bridge (`findIncomeBridge`)
+- Solver 5, Evidence Weighting (`classifyDecisionEvidence`)
+
+Solver 1 (Safe Spending Boundary) and Solver 4 (MAGI / Healthcare Threshold) were specified but not built. Using the shipped engine surfaced two problems with the two rescue levers it does offer.
+
+1. The discretionary cut is redundant for guardrail users. `scenarioWithDiscretionaryCut` forces `spendingStrategy.mode = "discretionaryGuardrails"` and recomputes the correction and bear discretionary percentages from the cut amount. A household already running guardrails with, for example, $35k of discretionary spend is already modeling that discretionary flexes down in a drawdown. A rescue that says "cut $35k" is the same lever turned harder, it overwrites thresholds the user tuned, and it overstates the change: the cut is drawdown-triggered flex, not a permanent reduction.
+
+2. The income bridge assumes the household will return to work. For a household that recently left work and does not want to go back, an earned-income rescue is a non-option. `incomeBridge.enabled` can disable it, but that leaves only the redundant discretionary cut. A guardrails user who will not take a job gets no useful rescue at all.
+
+Root cause: both shipped rescues are lifestyle-cost levers, where the household spends less or earns more. The engine also computes a failure diagnosis (`failureAnatomy`: "Early sequence risk" vs "Long-horizon depletion") and then offers the same two rescues regardless of that diagnosis.
+
+### Organizing Principle: Rank Rescues By Lifestyle Cost
+
+Rescues should be ordered by how much they ask the household to change its life.
+
+- Tier 0, Mechanical. Change the outcome without changing how the household lives: sequence-risk reserve, allocation and glidepath, withdrawal order, Roth and MAGI sequencing. The scenario model already supports every one of these; none are wired as solvers.
+- Tier 1, Spending flexibility. Lower the safe spend or trim discretionary. A real lifestyle change, but reversible and market-conditional.
+- Tier 2, Income. Return to work. The largest life disruption.
+
+The current engine offers only Tier 1 and Tier 2. The verdict objective in this doc (avoid depletion first, then lowest disruption) already wants this ordering; `disruptionPenalty` simply has no concept of a Tier 0 rescue. The engine should compute all tiers and lead with the lowest-cost lever that meets the target.
+
+### Modification 1: Safe Spending Boundary (Solver 1)
+
+Answer the household's question directly: what is the most we can spend and still hold the target success rate?
+
+- Search variable: total annual spend, holding `requiredSpend` as a hard floor.
+- Stage 1: binary-search `flexibleSpend` from current down to 0. Report the largest flexible spend that meets the target as a number ("safe spend $72k vs your $90k target, an $18k gap"), not as a guardrail config.
+- Stage 2: if even `flexibleSpend = 0` misses the target, search below the required floor and flag it explicitly: "even with zero discretionary spend, required spending is not sustainable." This flag is the honest trigger for when an income bridge is genuinely necessary rather than optional.
+- Inverse case: if the base plan already passes, the same search reports headroom ("you could spend up to $X more and still hold the target"). The current engine only ever frames results as rescues; it never tells a passing household it has room. Same solver, positive output.
+
+This also de-redundifies the discretionary cut. The safe-spend number is the decision input; cutting discretionary is one of several ways to close the gap, not a rescue in its own right.
+
+### Modification 2: Mechanical Rescues (Tier 0)
+
+Three sub-solvers, all built on existing `DEFAULT_SCENARIO` fields, none requiring a lifestyle change.
+
+2a. Sequence-risk reserve. Set `sequenceRiskReserve.enabled = true`; sweep `targetYears` (1 to 5) and `mode` (`cash`, `bond`, `hybrid`). Find the smallest reserve that meets the target. This is the textbook fix for the "Early sequence risk" failure the engine already diagnoses. Tradeoff to show: a cash reserve lowers expected return, so it can raise the success rate while lowering the median ending value. Present both numbers.
+
+2b. Allocation and glidepath shift. Sweep `allocationStrategy.targetStockPercent`, or enable a rising-equity glidepath. Find the allocation that maximizes success. Hard guardrail: reject any candidate whose `historical.worstEndingValue` is worse than the base. Panel 2 item 4 already requires this. Without the guardrail, the solver can recommend more equity because Monte Carlo likes it while the historical worst sequence gets worse, talking a household into more risk right before a bad sequence. The solver must respect the same Monte Carlo vs historical disagreement that `classifyDecisionEvidence` already detects.
+
+2c. Withdrawal-order shift. Test `withdrawalStrategy.mode` (heuristic vs `lifetime`) and alternate `withdrawalOrder` permutations. Usually a small gain, but free. Good as a "found N points with no lifestyle change" line item.
+
+Present 2a through 2c as one group: levers that change the outcome without changing how you live.
+
+### Modification 3: MAGI / Healthcare Rescue (Solver 4)
+
+For the Massachusetts ConnectorCare household, subsidy loss is a cliff, not a gradient. The plan already computes `acaMagiCeiling` and `healthcareSummary.magiBuffer` per year.
+
+- Identify which modeled moves consume MAGI room: Roth conversions, gain harvesting, taxable withdrawals.
+- Solve for the Roth conversion schedule that fills tax brackets up to but not over the MAGI ceiling. `rothConversion.optimizeForAca` and `maxAcaFplPercent` already exist; part of this solver is testing whether the base plan is MAGI-aware and what enabling that does.
+- Output: a "do not cross $C MAGI" amount, the current buffer, and the success delta from converting under the ceiling versus ignoring it.
+- This is a Tier 0 rescue (pure tax sequencing) and the one that earns Massachusetts-wedge trust.
+- It also catches a failure the other solvers cannot see: a plan that looks fine on spend can still fail because a year-3 Roth conversion crossed the ConnectorCare ceiling and multiplied the premium. That feeds Modification 4.
+
+### Modification 4: Diagnosis-Driven Rescue Selection
+
+The engine diagnoses the failure, then ignores the diagnosis. Wire them together.
+
+- Extend `failureAnatomy` beyond "Early sequence risk" and "Long-horizon depletion" to also detect "Healthcare cliff" (failures clustered right after a MAGI-ceiling breach) and "Tax drag" (failures where withdrawal-order tax cost is high).
+- Map diagnosis to rescue priority:
+  - Early sequence risk: reserve (2a), tent-window allocation de-risk (2b), discretionary flex.
+  - Long-horizon depletion: safe spending boundary (1), more equity if too conservative (2b), or tax-drag fix.
+  - Healthcare cliff: MAGI and Roth solver (3) first.
+  - Tax drag: withdrawal-order and Roth solver (2c, 3).
+- The engine still computes every solver so the user sees the full menu, but it leads with the diagnosis-matched lever and says why: "your failures cluster in years 1 to 6 after market drops, so the reserve is the targeted fix; the spending cut also works but costs lifestyle."
+- Implementation: extend `failureAnatomy`, add a diagnosis-match bonus to `rescueSortScore`, and add a lifestyle-cost term so Tier 0 rescues outrank Tier 1 and Tier 2 at equal success.
+
+### Fixes To The Two Current Rescues
+
+- Discretionary cut: stop presenting it as a discrete rescue. It is a slider position on a dial the guardrails user already owns. Replace the headline with the safe-spend number from Modification 1; keep discretionary flex as a how, surfaced only when the base plan is not already in guardrails mode.
+- Income bridge: keep it, but rank it last (Tier 2) and suppress it (and the combined option) when `incomeBridge.enabled` is false. Elevate it to a headline only when Modification 1 Stage 2 reports that even zero discretionary spend fails, when income genuinely is the only remaining lever. Also: `incomeBridge.maxAnnualIncome` defaults to $500k, which lets the solver pass trivially with implausible income; default it to the household's prior earned income or a modest cap.
+
+### Suggested Implementation Order
+
+1. Modification 1 (Safe Spending Boundary). Directly answers the user's stated question and fixes the discretionary-cut redundancy.
+2. Modification 2a (sequence-risk reserve). Highest-value Tier 0 lever, targets the most common diagnosed failure.
+3. Modification 4 (diagnosis-driven selection). Small change once 1 and 2a exist; makes the whole menu coherent.
+4. Modification 3 (MAGI and Roth). Highest modeling care required; the ConnectorCare cliff math must be exact.
+5. Modification 2b and 2c (allocation, withdrawal order). Lower individual impact, add once the framework is in place.
+
+### Open Questions
+
+1. Should the safe-spend boundary search total spend directly (mode `fixed`) or always search `flexibleSpend` with `requiredSpend` fixed? The second is cleaner but cannot model the Stage-2 "required spend itself is unsustainable" case without a separate pass.
+2. For the allocation solver, is "historical worst path must not get worse" a hard reject or a warning the user can override? Hard reject is safer; a warning gives power users more room.
+3. Should Tier 0 rescues ever be hidden when the base plan already passes, or always shown as "you could also de-risk for free"? The headroom framing argues for always showing them.

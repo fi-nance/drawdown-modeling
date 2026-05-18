@@ -963,7 +963,7 @@ function renderDecisionPanel() {
         <div>
           <p class="r-section-eyebrow">Decision engine</p>
           <h2>Solving rescue options</h2>
-          <p class="decision-headline">${tested ? `${tested} candidates tested. ` : ""}Comparing the base plan against spending cuts, income bridges, and historical paths.</p>
+          <p class="decision-headline">${tested ? `${tested} candidates tested. ` : ""}Comparing the base plan against spending, income, reserve, allocation, and healthcare options.</p>
         </div>
       </div>`;
     return;
@@ -981,22 +981,26 @@ function renderDecisionPanel() {
   }
 
   const base = decision.base;
-  const cut = decision.rescueOptions?.find((option) => option.kind === "discretionaryCut");
-  const income = decision.rescueOptions?.find((option) => option.kind === "incomeBridge");
-  const combined = decision.rescueOptions?.find((option) => option.kind === "combined");
   const verdict = decision.verdict ?? base?.verdict;
   const target = decision.targetSuccessRate ?? 0.9;
-  const headline = decisionHeadline({ base, cut, income, combined });
-  const rescueCards = [cut, income, combined].filter(Boolean).map((option) => rescueCardHtml(option, base)).join("");
+  const diagnosis = decision.diagnosis ?? {};
+  const safe = decision.safeSpending;
+  const rescues = Array.isArray(decision.rescueOptions) ? decision.rescueOptions : [];
+  const headline = decisionHeadline(decision);
+  const rescueCards = rescues.map((option) => rescueCardHtml(option, base)).join("");
   const anatomy = decision.failureAnatomy ?? {};
   const healthcare = decision.healthcare ?? {};
+  const diagnosisLine = diagnosis.primary && diagnosis.primary !== "none"
+    ? `<p class="decision-sub"><strong>${escapeHtml(diagnosis.label)}.</strong> ${escapeHtml(diagnosis.reason)}</p>`
+    : "";
   root.innerHTML = `
     <div class="decision-shell" data-tone="${escapeHtml(verdict?.tone ?? "warn")}">
       <div class="decision-main">
         <p class="r-section-eyebrow">Decision</p>
         <h2>${decisionVerdictLabel(verdict?.label)} at ${formatRate(target)} target</h2>
-        <p class="decision-headline">${headline}</p>
+        <p class="decision-headline">${escapeHtml(headline)}</p>
         <p class="decision-sub">${escapeHtml(verdict?.reason ?? "Evidence is still being evaluated.")}</p>
+        ${diagnosisLine}
       </div>
       <div class="decision-evidence">
         <div><span>Monte Carlo</span><strong>${formatRate(base?.monteCarlo?.successRate)}</strong></div>
@@ -1013,6 +1017,11 @@ function renderDecisionPanel() {
           <small>${failureTimingText(anatomy)}</small>
         </div>
         <div>
+          <span>Safe spending</span>
+          <strong>${safe?.available ? `${formatCurrencyShort(safe.safeTotalSpend)}/yr` : "n/a"}</strong>
+          <small>${escapeHtml(safeSpendingText(safe))}</small>
+        </div>
+        <div>
           <span>Healthcare guardrail</span>
           <strong>${healthcare.magiCeiling != null ? formatCurrencyShort(healthcare.magiCeiling) : "No ceiling"}</strong>
           <small>${healthcareText(healthcare)}</small>
@@ -1021,38 +1030,88 @@ function renderDecisionPanel() {
     </div>`;
 }
 
-function decisionHeadline({ base, cut, income, combined }) {
+function decisionHeadline(decision) {
+  const base = decision.base;
   const spend = base?.scenarioSummary?.targetSpend;
   const parts = [
     `Base plan: ${formatRate(base?.monteCarlo?.successRate)} Monte Carlo success at ${formatCurrencyShort(spend)}/year.`
   ];
-  if (cut) {
-    parts.push(`Cutting flexible spending by up to ${formatCurrencyShort(cut.metadata?.cutAmount ?? 0)} during early market stress raises this to ${formatRate(cut.monteCarlo?.successRate)}.`);
+  const safe = decision.safeSpending;
+  if (safe?.available) {
+    if (safe.status === "headroom") {
+      parts.push(`Safe spending is about ${formatCurrencyShort(safe.safeTotalSpend)}/year${safe.headroomCapped ? " or more" : ""}, so the current plan has room.`);
+    } else if (safe.status === "required-unsustainable") {
+      parts.push("Even with no flexible spending the plan misses the target, so income may be required.");
+    } else {
+      parts.push(`Safe spending is about ${formatCurrencyShort(safe.safeTotalSpend)}/year, a ${formatCurrencyShort(Math.abs(safe.gap))} gap from the ${formatCurrencyShort(safe.currentTargetSpend)} target.`);
+    }
   }
-  if (income) {
-    parts.push(`Earning ${formatCurrencyShort(income.metadata?.annualIncome ?? 0)}/year for ${income.metadata?.durationYears ?? 0} years raises it to ${formatRate(income.monteCarlo?.successRate)}.`);
-  }
-  if (combined) {
-    parts.push(`Doing both raises it to ${formatRate(combined.monteCarlo?.successRate)}.`);
+  const best = decision.bestOption;
+  if (best && best.kind !== "base") {
+    parts.push(best.status === "target-met"
+      ? `Best fix that meets the target: ${rescueTitle(best)} (${formatRate(best.monteCarlo?.successRate)} success).`
+      : `Closest tested option: ${rescueTitle(best)} (${formatRate(best.monteCarlo?.successRate)} success, still short of target).`);
   }
   return parts.join(" ");
 }
 
+function rescueTitle(option) {
+  const meta = option?.metadata ?? {};
+  switch (option?.kind) {
+    case "discretionaryCut":
+      return `cut up to ${formatCurrencyShort(meta.cutAmount ?? 0)} of flexible spending`;
+    case "incomeBridge":
+      return `earn ${formatCurrencyShort(meta.annualIncome ?? 0)}/year for ${meta.durationYears ?? 0} years`;
+    case "combined":
+      return "cut spending and earn bridge income";
+    case "sequenceReserve":
+      return `hold a ${meta.reserveYears ?? 0}-year ${meta.reserveMode ?? "cash"} reserve`;
+    case "allocationShift":
+      return `shift to ${Math.round(meta.targetStockPercent ?? 0)}% stock`;
+    case "withdrawalShift":
+      return "reorder account withdrawals";
+    case "healthcareRescue":
+      return "discipline MAGI to protect the subsidy";
+    default:
+      return option?.label ?? "rescue option";
+  }
+}
+
+function rescueTierLabel(kind) {
+  if (kind === "incomeBridge" || kind === "combined") return "Income change";
+  if (kind === "discretionaryCut") return "Spending change";
+  return "No lifestyle change";
+}
+
+function safeSpendingText(safe) {
+  if (!safe?.available) return "Not enough spending detail to solve.";
+  if (safe.status === "headroom") {
+    return safe.headroomCapped
+      ? "Current spending clears the target with room to spare."
+      : `About ${formatCurrencyShort(safe.headroom)}/yr of headroom above the current plan.`;
+  }
+  if (safe.status === "required-unsustainable") {
+    return "Required spending alone misses the target.";
+  }
+  return `Trim about ${formatCurrencyShort(Math.abs(safe.gap))}/yr to reach the target.`;
+}
+
+function capitalizeFirst(text) {
+  const str = String(text ?? "");
+  return str ? str.charAt(0).toUpperCase() + str.slice(1) : str;
+}
+
 function rescueCardHtml(option, base) {
   const delta = option.delta?.monteCarloSuccessRate ?? 0;
-  const meta = option.metadata ?? {};
-  const title = option.kind === "discretionaryCut"
-    ? `Cut up to ${formatCurrencyShort(meta.cutAmount ?? 0)}`
-    : option.kind === "incomeBridge"
-      ? `Earn ${formatCurrencyShort(meta.annualIncome ?? 0)} for ${meta.durationYears ?? 0}y`
-      : "Do both";
+  const title = rescueTitle(option);
+  const tier = rescueTierLabel(option.kind);
   const sideEffect = option.delta?.firstYearSubsidy == null
     ? "No healthcare delta"
     : `${option.delta.firstYearSubsidy >= 0 ? "+" : ""}${formatCurrencyShort(option.delta.firstYearSubsidy)} year-1 subsidy`;
   return `
     <article class="decision-rescue" data-status="${escapeHtml(option.status ?? "tested")}">
-      <span>${escapeHtml(option.label ?? title)}</span>
-      <strong>${escapeHtml(title)}</strong>
+      <span>${escapeHtml(tier)}</span>
+      <strong>${escapeHtml(capitalizeFirst(title))}</strong>
       <small>${formatRate(base?.monteCarlo?.successRate)} -> ${formatRate(option.monteCarlo?.successRate)} (${signedRate(delta)})</small>
       <small>Historical ${formatOptionalRate(base?.historical?.successRate)} -> ${formatOptionalRate(option.historical?.successRate)}</small>
       <small>${escapeHtml(sideEffect)}</small>

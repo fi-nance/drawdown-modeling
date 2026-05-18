@@ -1257,7 +1257,7 @@ function decisionProfileStateSnapshot() {
       enabled: true,
       startYear: 1,
       maxYears: 6,
-      maxAnnualIncome: 500000,
+      maxAnnualIncome: 150000,
       incomeType: "medicareWages"
     },
     healthcarePriority: els.stateSelect?.value === "Massachusetts" ? "preserveConnectorCare" : "preserveAcaSubsidy",
@@ -3608,7 +3608,7 @@ function readDecisionProfile(scenario) {
       enabled: true,
       startYear: 1,
       maxYears: 6,
-      maxAnnualIncome: 500000,
+      maxAnnualIncome: 150000,
       incomeType: "medicareWages"
     },
     healthcarePriority: scenario?.state === "Massachusetts" ? "preserveConnectorCare" : "preserveAcaSubsidy",

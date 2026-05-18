@@ -19,7 +19,7 @@ export const DEFAULT_DECISION_PROFILE = Object.freeze({
   incomeBridge: Object.freeze({
     enabled: true,
     maxYears: 6,
-    maxAnnualIncome: 500000,
+    maxAnnualIncome: 150000,
     incomeType: "medicareWages"
   }),
   healthcarePriority: "preserveConnectorCare",
@@ -32,6 +32,15 @@ export const DEFAULT_DECISION_PROFILE = Object.freeze({
 const SOLVER_ITERATIONS = 6;
 const SEARCH_RUN_CAP = 50;
 const EPSILON = 0.00001;
+
+const RESERVE_MAX_YEARS = 5;
+const RESERVE_MODES = ["cash", "hybrid"];
+const ALLOCATION_TARGETS = [40, 55, 70, 85];
+const WITHDRAWAL_ORDERS = [
+  ["taxable", "traditional", "hsa", "roth"],
+  ["traditional", "taxable", "hsa", "roth"],
+  ["taxable", "hsa", "traditional", "roth"]
+];
 
 export function normalizeDecisionProfile(profile = {}, scenario = {}) {
   const targetSuccessRate = clampNumber(
@@ -101,55 +110,47 @@ export function runDecisionBatch({
     profile
   });
 
-  const discretionaryCut = findDiscretionaryCut({
-    assets,
-    scenario,
-    taxProfile,
-    runs,
-    seed,
-    sequences,
-    profile,
-    base,
-    tracker
-  });
-  const incomeBridge = findIncomeBridge({
-    assets,
-    scenario,
-    taxProfile,
-    runs,
-    seed,
-    sequences,
-    profile,
-    base,
-    tracker
-  });
-  const combined = buildCombinedRescue({
-    assets,
-    scenario,
-    taxProfile,
-    runs,
-    seed,
-    sequences,
-    profile,
-    base,
-    discretionaryCut,
-    incomeBridge,
-    tracker
-  });
+  const solverContext = { assets, scenario, taxProfile, runs, seed, sequences, profile, base, tracker };
 
-  const rescueOptions = [discretionaryCut, incomeBridge, combined].filter(Boolean);
-  const bestOption = [...rescueOptions].sort((a, b) => rescueSortScore(b, profile) - rescueSortScore(a, profile))[0] ?? null;
+  const safeSpending = findSafeSpendingBoundary(solverContext);
+
+  // The discretionary cut is the same lever a guardrails plan already owns,
+  // so skip it as a distinct rescue when the base plan already guards spending.
+  const baseUsesGuardrails = scenario?.spendingStrategy?.mode === "discretionaryGuardrails";
+  const discretionaryCut = baseUsesGuardrails ? null : findDiscretionaryCut(solverContext);
+  const incomeBridge = findIncomeBridge(solverContext);
+  const sequenceReserve = findSequenceReserve(solverContext);
+  const allocationShift = findAllocationShift(solverContext);
+  const withdrawalShift = findWithdrawalShift(solverContext);
+  const healthcareRescue = findHealthcareRescue(solverContext);
+  const combined = buildCombinedRescue({ ...solverContext, discretionaryCut, incomeBridge });
+
   const verdict = classifyDecisionEvidence({
     monteCarloSuccessRate: base.monteCarlo.successRate,
     historicalSuccessRate: base.historical.successRate,
     historicalCount: base.historical.count,
     targetSuccessRate: profile.targetSuccessRate
   });
+  const diagnosis = diagnoseFailure({ base, safeSpending });
+
+  const rescueOptions = [
+    discretionaryCut,
+    incomeBridge,
+    sequenceReserve,
+    allocationShift,
+    withdrawalShift,
+    healthcareRescue,
+    combined
+  ].filter(Boolean);
+  rescueOptions.sort((a, b) => rescueSortScore(b, profile, diagnosis) - rescueSortScore(a, profile, diagnosis));
+  const bestOption = rescueOptions[0] ?? null;
 
   return {
     status: "ready",
     profile,
     verdict,
+    diagnosis,
+    safeSpending,
     targetSuccessRate: profile.targetSuccessRate,
     base,
     rescueOptions,
@@ -470,6 +471,393 @@ function buildCombinedRescue({
   return optionWithDelta(candidate, base, { status: meetsTarget(candidate, profile) ? "target-met" : "best-tested" });
 }
 
+export function scenarioWithFlatSpend(scenario = {}, totalSpend = 0) {
+  const total = Math.max(0, Number(totalSpend) || 0);
+  return {
+    ...scenario,
+    targetSpend: round(total, 2),
+    spendingStrategy: {
+      ...(plainObject(scenario.spendingStrategy) ? scenario.spendingStrategy : {}),
+      mode: "fixed"
+    }
+  };
+}
+
+export function scenarioWithSequenceReserve(scenario = {}, { mode = "cash", targetYears = 3 } = {}) {
+  const years = Math.max(1, Math.trunc(Number(targetYears) || 0));
+  const reserveMode = RESERVE_MODES.includes(mode) || mode === "bond" ? mode : "cash";
+  const existing = plainObject(scenario.sequenceRiskReserve) ? scenario.sequenceRiskReserve : {};
+  return {
+    ...scenario,
+    sequenceRiskReserve: {
+      tentYears: 10,
+      triggerStockReturn: 0,
+      ...existing,
+      enabled: true,
+      mode: reserveMode,
+      targetYears: years
+    }
+  };
+}
+
+export function scenarioWithAllocationTarget(scenario = {}, targetStockPercent = 70) {
+  const pct = clampNumber(Number(targetStockPercent), 0, 100, 70);
+  const existing = plainObject(scenario.allocationStrategy) ? scenario.allocationStrategy : {};
+  return {
+    ...scenario,
+    allocationStrategy: {
+      ...existing,
+      rebalanceEnabled: true,
+      glidepathEnabled: false,
+      targetStockPercent: round(pct, 2)
+    }
+  };
+}
+
+export function scenarioWithWithdrawalPlan(scenario = {}, { mode = null, order = null } = {}) {
+  const next = { ...scenario };
+  if (mode) {
+    const existing = plainObject(scenario.withdrawalStrategy) ? scenario.withdrawalStrategy : {};
+    next.withdrawalStrategy = { ...existing, mode };
+  }
+  if (Array.isArray(order) && order.length) {
+    next.withdrawalOrder = [...order];
+  }
+  return next;
+}
+
+export function scenarioWithMagiDiscipline(scenario = {}, { maxAcaFplPercent = 400, disableGainHarvesting = true } = {}) {
+  const next = { ...scenario };
+  const existingRoth = plainObject(scenario.rothConversion) ? scenario.rothConversion : {};
+  next.rothConversion = {
+    ...existingRoth,
+    enabled: true,
+    optimizeForAca: true,
+    maxAcaFplPercent: clampNumber(Number(maxAcaFplPercent), 100, 600, 400)
+  };
+  if (disableGainHarvesting) {
+    const existingGain = plainObject(scenario.taxGainHarvesting) ? scenario.taxGainHarvesting : {};
+    next.taxGainHarvesting = { ...existingGain, enabled: false };
+  }
+  return next;
+}
+
+function findSafeSpendingBoundary({ assets, scenario, taxProfile, runs, seed, sequences, profile, tracker }) {
+  const requiredSpend = Math.max(0, Number(profile.requiredSpend) || 0);
+  const flexibleSpend = Math.max(0, Number(profile.flexibleSpend) || 0);
+  const currentTargetSpend = round(requiredSpend + flexibleSpend, 2);
+  if (!(currentTargetSpend > 0)) return null;
+  const searchRuns = solverSearchRuns(runs);
+
+  const probe = (spend) => runCandidate({
+    id: `safe-spend-${Math.round(spend)}`,
+    kind: "safeSpending",
+    label: "Safe spending boundary",
+    scenario: scenarioWithFlatSpend(scenario, spend),
+    assets,
+    taxProfile,
+    runs: searchRuns,
+    seed,
+    sequences,
+    profile,
+    metadata: { totalSpend: round(spend, 2) },
+    includeHistorical: false,
+    tracker
+  });
+
+  let high = Math.max(currentTargetSpend, requiredSpend, 1);
+  let highCandidate = probe(high);
+  let expansions = 0;
+  while (meetsTarget(highCandidate, profile) && expansions < 4) {
+    high *= 1.6;
+    highCandidate = probe(high);
+    expansions += 1;
+  }
+  const headroomCapped = meetsTarget(highCandidate, profile);
+
+  let low = 0;
+  let best = 0;
+  if (headroomCapped) {
+    best = high;
+  } else {
+    for (let index = 0; index < SOLVER_ITERATIONS + 2; index += 1) {
+      const spend = (low + high) / 2;
+      if (meetsTarget(probe(spend), profile)) {
+        best = spend;
+        low = spend;
+      } else {
+        high = spend;
+      }
+    }
+  }
+
+  const finalized = runCandidate({
+    id: "safe-spend-final",
+    kind: "safeSpending",
+    label: "Safe spending boundary",
+    scenario: scenarioWithFlatSpend(scenario, best),
+    assets,
+    taxProfile,
+    runs,
+    seed,
+    sequences,
+    profile,
+    metadata: { totalSpend: round(best, 2) },
+    includeHistorical: true,
+    tracker
+  });
+
+  const safeTotalSpend = round(best, 2);
+  const gap = round(currentTargetSpend - safeTotalSpend, 2);
+  const requiredUnsustainable = safeTotalSpend + EPSILON < requiredSpend;
+  let status = "trim-flexible";
+  if (gap <= EPSILON) status = "headroom";
+  else if (requiredUnsustainable) status = "required-unsustainable";
+
+  return {
+    available: true,
+    status,
+    requiredSpend: round(requiredSpend, 2),
+    flexibleSpend: round(flexibleSpend, 2),
+    currentTargetSpend,
+    safeTotalSpend,
+    safeFlexibleSpend: round(Math.max(0, safeTotalSpend - requiredSpend), 2),
+    gap,
+    headroom: gap < 0 ? round(-gap, 2) : 0,
+    headroomCapped,
+    requiredUnsustainable,
+    monteCarloSuccessRate: finalized.monteCarlo.successRate,
+    historicalSuccessRate: finalized.historical.successRate,
+    verdict: finalized.verdict
+  };
+}
+
+function findSequenceReserve({ assets, scenario, taxProfile, runs, seed, sequences, profile, base, tracker }) {
+  const searchRuns = solverSearchRuns(runs);
+  const candidates = [];
+  let passing = null;
+  for (let years = 1; years <= RESERVE_MAX_YEARS && !passing; years += 1) {
+    for (const mode of RESERVE_MODES) {
+      const candidate = runCandidate({
+        id: `reserve-${years}-${mode}`,
+        kind: "sequenceReserve",
+        label: "Hold a sequence-risk reserve",
+        scenario: scenarioWithSequenceReserve(scenario, { mode, targetYears: years }),
+        assets,
+        taxProfile,
+        runs: searchRuns,
+        seed,
+        sequences,
+        profile,
+        metadata: { reserveYears: years, reserveMode: mode },
+        includeHistorical: false,
+        tracker
+      });
+      candidates.push(candidate);
+      if (meetsTarget(candidate, profile)) {
+        passing = candidate;
+        break;
+      }
+    }
+  }
+  const winner = passing
+    ?? [...candidates].sort((a, b) => b.monteCarlo.successRate - a.monteCarlo.successRate)[0]
+    ?? null;
+  if (!winner) return null;
+  const finalized = finalizeCandidate({ candidate: winner, assets, taxProfile, runs, seed, sequences, profile });
+  if (!isWorthwhileRescue(finalized, base, profile)) return null;
+  return optionWithDelta(finalized, base, { status: meetsTarget(finalized, profile) ? "target-met" : "best-tested" });
+}
+
+function findAllocationShift({ assets, scenario, taxProfile, runs, seed, sequences, profile, base, tracker }) {
+  const searchRuns = solverSearchRuns(runs);
+  const baseWorst = Number.isFinite(base?.historical?.worstEndingValue) ? base.historical.worstEndingValue : null;
+  const currentTarget = Number(scenario?.allocationStrategy?.targetStockPercent);
+  const baseRebalances = scenario?.allocationStrategy?.rebalanceEnabled === true;
+  const candidates = [];
+  for (const target of ALLOCATION_TARGETS) {
+    if (baseRebalances && Number.isFinite(currentTarget) && Math.abs(currentTarget - target) < 1) continue;
+    candidates.push(runCandidate({
+      id: `allocation-${target}`,
+      kind: "allocationShift",
+      label: "Shift the target allocation",
+      scenario: scenarioWithAllocationTarget(scenario, target),
+      assets,
+      taxProfile,
+      runs: searchRuns,
+      seed,
+      sequences,
+      profile,
+      metadata: { targetStockPercent: target },
+      includeHistorical: true,
+      tracker
+    }));
+  }
+  // Hard guardrail: never recommend an allocation that worsens the historical worst path.
+  const allowed = candidates.filter((candidate) => {
+    if (baseWorst == null) return true;
+    const worst = Number(candidate?.historical?.worstEndingValue);
+    return !Number.isFinite(worst) || worst + EPSILON >= baseWorst;
+  });
+  if (!allowed.length) return null;
+  const passing = allowed.filter((candidate) => meetsTarget(candidate, profile));
+  const winner = (passing.length ? passing : allowed)
+    .sort((a, b) => b.monteCarlo.successRate - a.monteCarlo.successRate)[0];
+  if (!winner) return null;
+  const finalized = finalizeCandidate({ candidate: winner, assets, taxProfile, runs, seed, sequences, profile });
+  // Re-apply the worst-path guardrail to the finalized (full-run) candidate.
+  const finalizedWorst = Number(finalized?.historical?.worstEndingValue);
+  const worsensWorstPath = baseWorst != null
+    && Number.isFinite(finalizedWorst)
+    && finalizedWorst + EPSILON < baseWorst;
+  if (worsensWorstPath || !isWorthwhileRescue(finalized, base, profile)) return null;
+  return optionWithDelta(finalized, base, {
+    status: meetsTarget(finalized, profile) ? "target-met" : "best-tested",
+    worstPathGuardrail: baseWorst != null
+  });
+}
+
+function findWithdrawalShift({ assets, scenario, taxProfile, runs, seed, sequences, profile, base, tracker }) {
+  const searchRuns = solverSearchRuns(runs);
+  const baseMode = typeof scenario?.withdrawalStrategy === "string"
+    ? scenario.withdrawalStrategy
+    : scenario?.withdrawalStrategy?.mode === "heuristic" ? "heuristic" : "lifetime";
+  const altMode = baseMode === "lifetime" ? "heuristic" : "lifetime";
+  const baseOrder = Array.isArray(scenario?.withdrawalOrder) ? scenario.withdrawalOrder.join(">") : "";
+  const variants = [
+    { id: "withdrawal-mode", mode: altMode, order: null, label: `Use the ${altMode} withdrawal strategy` }
+  ];
+  WITHDRAWAL_ORDERS.forEach((order, index) => {
+    if (order.join(">") !== baseOrder) {
+      variants.push({ id: `withdrawal-order-${index}`, mode: null, order, label: "Reorder account withdrawals" });
+    }
+  });
+  const candidates = variants.map((variant) => runCandidate({
+    id: variant.id,
+    kind: "withdrawalShift",
+    label: variant.label,
+    scenario: scenarioWithWithdrawalPlan(scenario, { mode: variant.mode, order: variant.order }),
+    assets,
+    taxProfile,
+    runs: searchRuns,
+    seed,
+    sequences,
+    profile,
+    metadata: {
+      withdrawalMode: variant.mode ?? baseMode,
+      withdrawalOrder: variant.order ?? (Array.isArray(scenario?.withdrawalOrder) ? scenario.withdrawalOrder : null)
+    },
+    includeHistorical: false,
+    tracker
+  }));
+  if (!candidates.length) return null;
+  const passing = candidates.filter((candidate) => meetsTarget(candidate, profile));
+  const winner = (passing.length ? passing : candidates)
+    .sort((a, b) => b.monteCarlo.successRate - a.monteCarlo.successRate)[0];
+  if (!winner) return null;
+  const finalized = finalizeCandidate({ candidate: winner, assets, taxProfile, runs, seed, sequences, profile });
+  if (!isWorthwhileRescue(finalized, base, profile)) return null;
+  return optionWithDelta(finalized, base, { status: meetsTarget(finalized, profile) ? "target-met" : "best-tested" });
+}
+
+function findHealthcareRescue({ assets, scenario, taxProfile, runs, seed, sequences, profile, base, tracker }) {
+  if (scenario?.aca?.enabled === false) return null;
+  const firstYear = base?.planFirstYear;
+  if (!firstYear || !Number.isFinite(firstYear.acaMagiCeiling)) return null;
+  const searchRuns = solverSearchRuns(runs);
+  const variants = [
+    { id: "healthcare-fpl-400", maxAcaFplPercent: 400, disableGainHarvesting: false },
+    { id: "healthcare-fpl-400-nogain", maxAcaFplPercent: 400, disableGainHarvesting: true },
+    { id: "healthcare-fpl-250-nogain", maxAcaFplPercent: 250, disableGainHarvesting: true }
+  ];
+  const candidates = variants.map((variant) => runCandidate({
+    id: variant.id,
+    kind: "healthcareRescue",
+    label: "Discipline MAGI to protect the subsidy",
+    scenario: scenarioWithMagiDiscipline(scenario, variant),
+    assets,
+    taxProfile,
+    runs: searchRuns,
+    seed,
+    sequences,
+    profile,
+    metadata: {
+      maxAcaFplPercent: variant.maxAcaFplPercent,
+      gainHarvestingDisabled: variant.disableGainHarvesting,
+      magiCeiling: round(firstYear.acaMagiCeiling, 2)
+    },
+    includeHistorical: false,
+    tracker
+  }));
+  const passing = candidates.filter((candidate) => meetsTarget(candidate, profile));
+  const winner = (passing.length ? passing : candidates)
+    .sort((a, b) => healthcareSortScore(b) - healthcareSortScore(a))[0];
+  if (!winner) return null;
+  const finalized = finalizeCandidate({ candidate: winner, assets, taxProfile, runs, seed, sequences, profile });
+  const subsidyGain = (finalized.planFirstYear?.acaSubsidy ?? 0) > (base.planFirstYear?.acaSubsidy ?? 0) + 1;
+  if (!isWorthwhileRescue(finalized, base, profile) && !subsidyGain) return null;
+  return optionWithDelta(finalized, base, { status: meetsTarget(finalized, profile) ? "target-met" : "best-tested" });
+}
+
+// A rescue is worth surfacing only if the finalized full-run candidate meets
+// the target or genuinely improves on the base success rate.
+function isWorthwhileRescue(candidate, base, profile) {
+  return meetsTarget(candidate, profile)
+    || candidate.monteCarlo.successRate > base.monteCarlo.successRate + EPSILON;
+}
+
+function healthcareSortScore(candidate) {
+  return candidate.monteCarlo.successRate * 1000 + (candidate.planFirstYear?.acaSubsidy ?? 0) / 1000;
+}
+
+function diagnoseFailure({ base, safeSpending }) {
+  const anatomy = base?.failureAnatomy ?? {};
+  const failedCount = anatomy.failedCount ?? 0;
+  const firstYear = base?.planFirstYear;
+  const magiCeiling = Number(firstYear?.acaMagiCeiling);
+  const magi = Number(firstYear?.magi);
+  const magiBuffer = Number.isFinite(magiCeiling) && Number.isFinite(magi) ? magiCeiling - magi : null;
+  // Sitting at the ceiling is the intended optimized state; only a genuine
+  // breach (modeled MAGI above the ceiling) points to a subsidy-cliff failure.
+  const overCliff = magiBuffer != null && magiBuffer < -1;
+  const requiredUnsustainable = safeSpending?.requiredUnsustainable === true;
+
+  let primary = "none";
+  let label = "No failures in tested paths";
+  let reason = "The base plan met the target in the tested evidence.";
+  let recommendedKinds = [];
+
+  if (failedCount > 0 && overCliff) {
+    primary = "healthcareCliff";
+    label = "Healthcare subsidy cliff";
+    reason = "Modeled MAGI is above the subsidy ceiling, so losing the healthcare subsidy is the likely failure driver.";
+    recommendedKinds = ["healthcareRescue", "withdrawalShift", "discretionaryCut"];
+  } else if (failedCount > 0 && anatomy.commonTrigger === "Early sequence risk") {
+    primary = "earlySequenceRisk";
+    label = "Early sequence risk";
+    reason = "Failures cluster in the first ten years, so an early bad-market sequence is the likely failure driver.";
+    recommendedKinds = ["sequenceReserve", "allocationShift", "discretionaryCut"];
+  } else if (failedCount > 0) {
+    primary = "longHorizonDepletion";
+    label = "Long-horizon depletion";
+    reason = "Failures cluster later in the plan, so structural overspend or portfolio drag is the likely failure driver.";
+    recommendedKinds = ["discretionaryCut", "allocationShift", "withdrawalShift"];
+  }
+
+  if (requiredUnsustainable) {
+    reason += " Required spending alone is not sustainable, so an income bridge may be necessary.";
+    recommendedKinds = ["incomeBridge", ...recommendedKinds.filter((kind) => kind !== "incomeBridge")];
+  }
+
+  return {
+    primary,
+    label,
+    reason,
+    recommendedKinds,
+    magiBuffer: magiBuffer != null ? round(magiBuffer, 2) : null
+  };
+}
+
 function runCandidate({
   id,
   kind,
@@ -603,18 +991,32 @@ function incomeSortScore(candidate, profile) {
   return passPenalty + qualityPenalty + total + annual * 0.01 + duration;
 }
 
-function rescueSortScore(candidate, profile) {
+function rescueSortScore(candidate, profile, diagnosis) {
   const targetBonus = meetsTarget(candidate, profile) ? 1_000_000 : 0;
+  const diagnosisBonus = diagnosisMatchRank(candidate, diagnosis) * 10_000;
+  const lifestylePenalty = lifestyleCost(candidate) * 2_000;
   const combined = candidate?.verdict?.combinedSuccessRate ?? 0;
-  const disruption = disruptionPenalty(candidate);
-  return targetBonus + combined * 1000 - disruption;
+  return targetBonus + diagnosisBonus - lifestylePenalty + combined * 1000;
 }
 
-function disruptionPenalty(candidate) {
-  if (!candidate) return 0;
-  const cut = (candidate.metadata?.cutAmount ?? 0) / 1000000;
-  const income = (candidate.metadata?.totalIncome ?? 0) / 1000000;
-  return cut + income;
+// Lifestyle cost ranks how much a rescue asks the household to change its life:
+// 0 = mechanical (no lifestyle change), 1 = spend less, 2 = earn income.
+function lifestyleCost(candidate) {
+  switch (candidate?.kind) {
+    case "incomeBridge":
+    case "combined":
+      return 2;
+    case "discretionaryCut":
+      return 1;
+    default:
+      return 0;
+  }
+}
+
+function diagnosisMatchRank(candidate, diagnosis) {
+  const kinds = Array.isArray(diagnosis?.recommendedKinds) ? diagnosis.recommendedKinds : [];
+  const index = kinds.indexOf(candidate?.kind);
+  return index < 0 ? 0 : kinds.length - index;
 }
 
 function historicalEvidence(backtests = []) {

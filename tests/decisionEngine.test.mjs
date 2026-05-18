@@ -5,8 +5,12 @@ import {
   classifyDecisionEvidence,
   normalizeDecisionProfile,
   runDecisionBatch,
+  scenarioWithAllocationTarget,
   scenarioWithDiscretionaryCut,
-  scenarioWithIncomeBridge
+  scenarioWithFlatSpend,
+  scenarioWithIncomeBridge,
+  scenarioWithMagiDiscipline,
+  scenarioWithSequenceReserve
 } from "../src/core/decisionEngine.mjs";
 import { DEFAULT_SCENARIO } from "../src/core/simulation.mjs";
 import { buildTaxProfile } from "../src/data/taxData.mjs";
@@ -298,4 +302,213 @@ test("discretionary rescue can be target-met when finalized run clears target af
   assert.equal(cut.status, "target-met");
   assert.equal(cut.monteCarlo.successRate, 0.9);
   assert.equal(cut.metadata.cutAmount, 15);
+});
+
+test("income bridge default cap is a modest amount", () => {
+  const profile = normalizeDecisionProfile({}, DEFAULT_SCENARIO);
+  assert.equal(profile.incomeBridge.maxAnnualIncome, 150000);
+});
+
+test("safe spending transform forces fixed mode with the given total", () => {
+  const flat = scenarioWithFlatSpend({
+    ...DEFAULT_SCENARIO,
+    spendingStrategy: { ...DEFAULT_SCENARIO.spendingStrategy, mode: "discretionaryGuardrails" }
+  }, 72000);
+
+  assert.equal(flat.targetSpend, 72000);
+  assert.equal(flat.spendingStrategy.mode, "fixed");
+});
+
+test("sequence reserve transform enables the reserve with the requested mode", () => {
+  const withReserve = scenarioWithSequenceReserve(DEFAULT_SCENARIO, { mode: "hybrid", targetYears: 4 });
+
+  assert.equal(withReserve.sequenceRiskReserve.enabled, true);
+  assert.equal(withReserve.sequenceRiskReserve.mode, "hybrid");
+  assert.equal(withReserve.sequenceRiskReserve.targetYears, 4);
+});
+
+test("allocation transform enables rebalancing toward the target stock percent", () => {
+  const shifted = scenarioWithAllocationTarget(DEFAULT_SCENARIO, 55);
+
+  assert.equal(shifted.allocationStrategy.rebalanceEnabled, true);
+  assert.equal(shifted.allocationStrategy.glidepathEnabled, false);
+  assert.equal(shifted.allocationStrategy.targetStockPercent, 55);
+});
+
+test("MAGI discipline transform makes Roth conversions ACA-aware", () => {
+  const disciplined = scenarioWithMagiDiscipline(DEFAULT_SCENARIO, {
+    maxAcaFplPercent: 250,
+    disableGainHarvesting: true
+  });
+
+  assert.equal(disciplined.rothConversion.optimizeForAca, true);
+  assert.equal(disciplined.rothConversion.maxAcaFplPercent, 250);
+  assert.equal(disciplined.taxGainHarvesting.enabled, false);
+});
+
+test("decision batch surfaces a safe spending boundary and a failure diagnosis", () => {
+  const scenario = {
+    ...DEFAULT_SCENARIO,
+    planYears: 3,
+    currentAge: 44,
+    spouseAge: 44,
+    targetSpend: 600000,
+    targetSpendIncludesTaxes: false,
+    targetSpendIncludesMedical: true,
+    medicalExpensesBase: 0,
+    aca: { enabled: false },
+    spendingStrategy: {
+      ...DEFAULT_SCENARIO.spendingStrategy,
+      mode: "fixed",
+      essentialSpend: 500000,
+      discretionarySpend: 100000
+    },
+    returnAssumptions: {
+      ...DEFAULT_SCENARIO.returnAssumptions,
+      cash: { mean: 0, stdev: 0 },
+      inflation: { mean: 0, stdev: 0 }
+    }
+  };
+  const taxProfile = buildTaxProfile({
+    taxYear: 2026,
+    filingStatus: "marriedFilingJointly",
+    state: "Florida",
+    dependentCount: 0
+  });
+
+  const decision = runDecisionBatch({
+    assets: cashAssets,
+    scenario,
+    taxProfile,
+    runs: 10,
+    seed: 7,
+    sequences: [],
+    decisionProfile: {
+      requiredSpend: 500000,
+      flexibleSpend: 100000,
+      targetSuccessRate: 0.9
+    }
+  });
+
+  assert.equal(decision.safeSpending.available, true);
+  assert.equal(typeof decision.safeSpending.safeTotalSpend, "number");
+  assert.ok(decision.safeSpending.safeTotalSpend >= 0);
+  assert.ok(["headroom", "trim-flexible", "required-unsustainable"].includes(decision.safeSpending.status));
+  assert.equal(typeof decision.diagnosis.primary, "string");
+  assert.ok(Array.isArray(decision.diagnosis.recommendedKinds));
+});
+
+test("discretionary cut is skipped when the base plan already uses guardrails", () => {
+  const scenario = {
+    ...DEFAULT_SCENARIO,
+    planYears: 3,
+    targetSpend: 600000,
+    aca: { enabled: false },
+    spendingStrategy: {
+      ...DEFAULT_SCENARIO.spendingStrategy,
+      mode: "discretionaryGuardrails",
+      essentialSpend: 500000,
+      discretionarySpend: 100000
+    },
+    returnAssumptions: {
+      ...DEFAULT_SCENARIO.returnAssumptions,
+      cash: { mean: 0, stdev: 0 },
+      inflation: { mean: 0, stdev: 0 }
+    }
+  };
+  const taxProfile = buildTaxProfile({
+    taxYear: 2026,
+    filingStatus: "marriedFilingJointly",
+    state: "Florida",
+    dependentCount: 0
+  });
+
+  const decision = runDecisionBatch({
+    assets: cashAssets,
+    scenario,
+    taxProfile,
+    runs: 10,
+    seed: 7,
+    sequences: [],
+    decisionProfile: {
+      requiredSpend: 500000,
+      flexibleSpend: 100000,
+      targetSuccessRate: 0.9
+    }
+  });
+
+  assert.ok(decision.rescueOptions.every((option) => option.kind !== "discretionaryCut"));
+  assert.ok(decision.rescueOptions.every((option) => option.kind !== "combined"));
+});
+
+test("decision batch runs every rescue solver and only returns known rescue kinds", () => {
+  const scenario = {
+    ...DEFAULT_SCENARIO,
+    planYears: 5,
+    currentAge: 60,
+    spouseAge: 60,
+    targetSpend: 55,
+    targetSpendIncludesTaxes: true,
+    targetSpendIncludesMedical: true,
+    medicalExpensesBase: 0,
+    withdrawalOrder: ["taxable"],
+    withdrawalStrategy: { mode: "heuristic" },
+    taxLossHarvesting: { enabled: false },
+    taxGainHarvesting: { enabled: false },
+    rothConversion: { enabled: false },
+    aca: { enabled: false },
+    monteCarlo: { ...DEFAULT_SCENARIO.monteCarlo, samplingMode: "independent" },
+    returnAssumptions: {
+      ...DEFAULT_SCENARIO.returnAssumptions,
+      stock: { mean: 0.04, stdev: 0.08 },
+      inflation: { mean: 0, stdev: 0 }
+    },
+    spendingStrategy: {
+      ...DEFAULT_SCENARIO.spendingStrategy,
+      mode: "fixed",
+      essentialSpend: 40,
+      discretionarySpend: 15
+    }
+  };
+
+  const decision = runDecisionBatch({
+    assets: [{
+      id: "stock",
+      name: "Stock",
+      accountType: "taxable",
+      assetClass: "stock",
+      units: 400,
+      price: 1,
+      costBasisPerUnit: 1,
+      dividendYield: 0,
+      qualifiedDividendShare: 1
+    }],
+    scenario,
+    taxProfile: noTaxProfile,
+    runs: 12,
+    seed: 5,
+    sequences: [],
+    decisionProfile: {
+      requiredSpend: 40,
+      flexibleSpend: 15,
+      targetSuccessRate: 0.9
+    }
+  });
+
+  assert.equal(decision.status, "ready");
+  assert.ok(decision.safeSpending);
+  assert.ok(decision.diagnosis);
+  const validKinds = new Set([
+    "discretionaryCut",
+    "incomeBridge",
+    "combined",
+    "sequenceReserve",
+    "allocationShift",
+    "withdrawalShift",
+    "healthcareRescue"
+  ]);
+  for (const option of decision.rescueOptions) {
+    assert.ok(validKinds.has(option.kind), `unexpected rescue kind: ${option.kind}`);
+    assert.equal(typeof option.monteCarlo.successRate, "number");
+  }
 });
