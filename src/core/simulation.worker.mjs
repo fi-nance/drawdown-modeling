@@ -6,14 +6,15 @@ import {
   runHistoricalBacktests,
   runMonteCarlo,
   simulatePlan
-} from "./simulation.mjs?v=20260515-guardrail-spend";
+} from "./simulation.mjs";
+import { runDecisionBatch } from "./decisionEngine.mjs";
 
 self.addEventListener("message", (ev) => {
   const msg = ev.data;
   if (!msg || msg.type !== "run") return;
   const { id, payload } = msg;
   try {
-    const { assets, scenario, taxProfile, runs, seed, sequences } = payload;
+    const { assets, scenario, taxProfile, runs, seed, sequences, decisionProfile } = payload;
 
     const plan = simulatePlan({ assets, scenario, taxProfile });
     self.postMessage({ type: "plan-ready", id, plan });
@@ -37,6 +38,26 @@ self.addEventListener("message", (ev) => {
         });
       }
     });
+    const decision = runDecisionBatch({
+      assets,
+      scenario,
+      taxProfile,
+      runs,
+      seed,
+      sequences,
+      decisionProfile,
+      basePlan: plan,
+      baseMonteCarlo: monteCarlo,
+      baseBacktests: backtests,
+      onProgress: (progress) => {
+        self.postMessage({
+          type: "decision-progress",
+          id,
+          progress
+        });
+      }
+    });
+    self.postMessage({ type: "decision-ready", id, decision });
     self.postMessage({ type: "result", id, summary: monteCarlo.summary });
   } catch (err) {
     self.postMessage({

@@ -14,7 +14,7 @@ import {
   runHistoricalBacktests,
   runMonteCarlo,
   simulatePlan
-} from "./core/simulation.mjs?v=20260515-guardrail-spend";
+} from "./core/simulation.mjs?v=20260518-decision-engine";
 import { round } from "./core/utils.mjs";
 import { defaultOneOffExpenses, sampleAssets } from "./data/sample.mjs";
 import {
@@ -26,7 +26,7 @@ import {
   makeHistoricalSequences
 } from "./data/historicalReturns.mjs";
 import { buildAcaConfig, buildTaxProfile, STATE_OPTIONS, getMonthlyBenchmarkPremium } from "./data/taxData.mjs";
-import { massachusettsConnectorCareEstimate } from "./data/acaPlanPresets.mjs";
+import { massachusettsConnectorCareEstimate, massachusettsConnectorCarePlanOptions } from "./data/acaPlanPresets.mjs";
 import {
   buildMarketplacePlanSearchRequest,
   marketplaceApiUrl,
@@ -94,6 +94,9 @@ const CONTROL_IDS = [
   "mcInflationMean",
   "mcInflationStdev",
   "targetSpend",
+  "decisionRequiredSpend",
+  "decisionFlexibleSpend",
+  "decisionTargetSuccessRate",
   "historicalDataSource",
   "backtestMode",
   "historicalStartYear",
@@ -157,6 +160,7 @@ const CONTROL_IDS = [
   "acaPlanCostMode",
   "acaPremiumInputMode",
   "acaQuoteIncome",
+  "maConnectorCarePlanType",
   "marketplaceApiKey",
   "marketplaceZip",
   "marketplaceCountyFips",
@@ -239,6 +243,9 @@ const els = {
   mcPreset: document.querySelector("#mcPreset"),
   mcSamplingMode: document.querySelector("#mcSamplingMode"),
   targetSpend: document.querySelector("#targetSpend"),
+  decisionRequiredSpend: document.querySelector("#decisionRequiredSpend"),
+  decisionFlexibleSpend: document.querySelector("#decisionFlexibleSpend"),
+  decisionTargetSuccessRate: document.querySelector("#decisionTargetSuccessRate"),
   historicalDataSource: document.querySelector("#historicalDataSource"),
   backtestMode: document.querySelector("#backtestMode"),
   historicalStartYear: document.querySelector("#historicalStartYear"),
@@ -302,6 +309,7 @@ const els = {
   acaPlanCostMode: document.querySelector("#acaPlanCostMode"),
   acaPremiumInputMode: document.querySelector("#acaPremiumInputMode"),
   acaQuoteIncome: document.querySelector("#acaQuoteIncome"),
+  maConnectorCarePlanType: document.querySelector("#maConnectorCarePlanType"),
   fillMassConnectorCare: document.querySelector("#fillMassConnectorCare"),
   fillMassBackupPlan: document.querySelector("#fillMassBackupPlan"),
   findMarketplacePlans: document.querySelector("#findMarketplacePlans"),
@@ -551,6 +559,7 @@ if (loader) {
 
 function initialize() {
   renderStateOptions();
+  renderMassachusettsConnectorCarePlanOptions();
   initializePersistenceControls();
   loadStoredState();
   syncSpendingStrategyControls();
@@ -794,6 +803,16 @@ function renderStateOptions() {
   )).join("");
 }
 
+function renderMassachusettsConnectorCarePlanOptions() {
+  if (!els.maConnectorCarePlanType) return;
+  els.maConnectorCarePlanType.innerHTML = [
+    `<option value="auto">Auto by MAGI</option>`,
+    ...massachusettsConnectorCarePlanOptions().map((planType) => (
+      `<option value="${escapeAttr(planType.name)}">${escapeHtml(planType.name)} (${planType.minFplPercent}-${planType.maxFplPercent}% FPL)</option>`
+    ))
+  ].join("");
+}
+
 function applyMassachusettsConnectorCarePreset() {
   try {
     if (els.stateSelect.value !== "Massachusetts") {
@@ -807,7 +826,12 @@ function applyMassachusettsConnectorCarePreset() {
       throw new Error("Enter ACA quote income/MAGI before filling ConnectorCare. This can be lower than target spend.");
     }
 
-    const estimate = massachusettsConnectorCareEstimate({ income, householdSize, marketplaceMembers });
+    const estimate = massachusettsConnectorCareEstimate({
+      income,
+      householdSize,
+      marketplaceMembers,
+      planTypeName: els.maConnectorCarePlanType?.value || "auto"
+    });
     if (!estimate.eligible) {
       throw new Error(`${estimate.reason} Estimated FPL is ${percentFormatter.format(estimate.fplPercent / 100)}.`);
     }
@@ -816,11 +840,13 @@ function applyMassachusettsConnectorCarePreset() {
     els.acaPlanCostMode.value = "selectedPlan";
     els.acaPremiumInputMode.value = "net";
     els.acaSelectedPlanMonthlyPremium.value = String(estimate.selectedPlanMonthlyPremium);
+    if (els.acaSelectedPlanId) els.acaSelectedPlanId.value = estimate.planName;
+    if (els.acaSelectedPlanName) els.acaSelectedPlanName.value = estimate.planName;
     els.oopMaxOverride.value = String(estimate.selectedPlanOopMaximum);
     els.acaBenchmarkMonthlyPremium.value = "";
     els.acaPremium.value = "";
     setAcaPlanLookupStatus(
-      `${estimate.planName} from ACA MAGI ${moneyFormatter.format(income)}: ${moneyFormatter.format(estimate.selectedPlanMonthlyPremium)}/mo net premium, ${moneyFormatter.format(estimate.selectedPlanOopMaximum)} combined medical/Rx OOP max. Add a backup plan for years above 400% FPL.`
+      `${estimate.planName} from ACA MAGI ${moneyFormatter.format(income)}: ${moneyFormatter.format(estimate.selectedPlanMonthlyPremium)}/mo net premium, ${moneyFormatter.format(estimate.selectedPlanOopMaximum)} combined medical/Rx OOP max.${estimate.userSelectedPlanType && estimate.automaticPlanName !== estimate.planName ? ` Auto estimate would be ${estimate.automaticPlanName}.` : ""} Add a backup plan for years above 400% FPL.`
     );
     saveStoredState();
     runModels();
@@ -1204,9 +1230,39 @@ function setupStateSnapshot() {
     : null;
   return {
     controls: readControlState(),
+    decisionProfile: decisionProfileStateSnapshot(),
     assets,
     oneOffExpenses,
     ...(redesign ? { redesign } : {})
+  };
+}
+
+function decisionProfileStateSnapshot() {
+  const targetPercent = numberOrNull(els.decisionTargetSuccessRate?.value);
+  return {
+    mode: "recentlyLeftWork",
+    requiredSpend: numberOrNull(els.decisionRequiredSpend?.value),
+    flexibleSpend: numberOrNull(els.decisionFlexibleSpend?.value),
+    targetSuccessRate: targetPercent == null ? 0.9 : Math.max(1, Math.min(99, targetPercent)) / 100,
+    targetSuccessRateUserOverridden: targetPercent != null && Math.abs(targetPercent - 90) > 0.001,
+    verdictObjective: "avoidDepletion",
+    evidenceWeights: { monteCarlo: 0.5, historical: 0.5 },
+    incomeBridge: {
+      enabled: true,
+      startYear: 1,
+      maxYears: 6,
+      maxAnnualIncome: 500000,
+      incomeType: "medicareWages"
+    },
+    healthcarePriority: els.stateSelect?.value === "Massachusetts" ? "preserveConnectorCare" : "preserveAcaSubsidy",
+    healthcarePlanSelection: {
+      mode: els.stateSelect?.value === "Massachusetts" ? "maConnectorCarePlanType" : "manualOrMarketplace",
+      selectedPlanId: els.maConnectorCarePlanType?.value || null
+    },
+    share: {
+      mode: "deferred",
+      allowInputTweaks: false
+    }
   };
 }
 
@@ -1235,6 +1291,19 @@ function applySetupState(stored) {
       input.value = value ?? "";
     }
   }
+
+  if (stored.decisionProfile && typeof stored.decisionProfile === "object") {
+    if (stored.controls?.decisionRequiredSpend == null && els.decisionRequiredSpend) {
+      els.decisionRequiredSpend.value = stored.decisionProfile.requiredSpend ?? "";
+    }
+    if (stored.controls?.decisionFlexibleSpend == null && els.decisionFlexibleSpend) {
+      els.decisionFlexibleSpend.value = stored.decisionProfile.flexibleSpend ?? "";
+    }
+    if (stored.controls?.decisionTargetSuccessRate == null && els.decisionTargetSuccessRate) {
+      const rate = Number(stored.decisionProfile.targetSuccessRate);
+      els.decisionTargetSuccessRate.value = Number.isFinite(rate) ? String(Math.round(rate * 100)) : "90";
+    }
+  }
 }
 
 function downloadJsonFile(value, filename) {
@@ -1259,7 +1328,7 @@ function downloadJsonText(text, filename) {
 function getSimulationWorker() {
   if (!simulationWorker) {
     simulationWorker = new Worker(
-      new URL("./core/simulation.worker.mjs", import.meta.url),
+      new URL("./core/simulation.worker.mjs?v=20260518-decision", import.meta.url),
       { type: "module" }
     );
     simulationWorker.addEventListener("error", (ev) => {
@@ -1281,8 +1350,8 @@ function cancelActiveSimulationRun() {
 }
 
 function runSimulationsInWorker({
-  assets, scenario, taxProfile, runs, seed, sequences,
-  onPlan, onBacktests, onScenarios, onProgress
+  assets, scenario, taxProfile, runs, seed, sequences, decisionProfile,
+  onPlan, onBacktests, onScenarios, onProgress, onDecisionProgress, onDecision
 }) {
   const worker = getSimulationWorker();
   const id = ++simulationRequestId;
@@ -1317,6 +1386,10 @@ function runSimulationsInWorker({
       } else if (msg.type === "scenarios-batch") {
         onScenarios?.({ scenarios: msg.scenarios, done: msg.done, total: msg.total });
         onProgress?.({ phase: "monteCarlo", done: msg.done, total: msg.total });
+      } else if (msg.type === "decision-progress") {
+        onDecisionProgress?.(msg.progress);
+      } else if (msg.type === "decision-ready") {
+        onDecision?.(msg.decision);
       } else if (msg.type === "result") {
         if (settle()) resolve({ summary: msg.summary });
       } else if (msg.type === "error") {
@@ -1331,7 +1404,7 @@ function runSimulationsInWorker({
     activeSimulationCancel = cancel;
     worker.addEventListener("message", onMessage);
     worker.addEventListener("error", onError);
-    worker.postMessage({ type: "run", id, payload: { assets, scenario, taxProfile, runs, seed, sequences } });
+    worker.postMessage({ type: "run", id, payload: { assets, scenario, taxProfile, runs, seed, sequences, decisionProfile } });
   });
 }
 
@@ -1358,6 +1431,7 @@ async function runModels(opts = {}) {
     saveStoredState();
     const scenario = readScenario();
     const taxProfile = readTaxProfile();
+    const decisionProfile = readDecisionProfile(scenario);
     const runs = clampInteger(Number(els.runs.value), 10, 5000);
     const seed = Number(els.seed.value) || 42;
     const historicalDataSource = readHistoricalDataSource();
@@ -1383,7 +1457,7 @@ async function runModels(opts = {}) {
     let firstScenarioId = null;
     // Buffer used when stream=false so the cached display stays put until
     // we have the full new result.
-    const buffered = { plan: null, backtests: [], scenarios: [] };
+    const buffered = { plan: null, backtests: [], scenarios: [], decision: null };
 
     if (stream) {
       selectedBacktestIndex = null;
@@ -1397,6 +1471,7 @@ async function runModels(opts = {}) {
         historicalRange,
         historicalMode: els.backtestMode.value,
         plan: null,
+        decision: { status: "running" },
         monteCarlo: {
           scenarios: [],
           summary: null,
@@ -1422,6 +1497,7 @@ async function runModels(opts = {}) {
       runs,
       seed,
       sequences: historicalSequences,
+      decisionProfile,
       onPlan: (plan) => {
         if (stream) {
           if (!latest) return;
@@ -1457,6 +1533,25 @@ async function runModels(opts = {}) {
           buffered.scenarios.push(...scenarios);
         }
       },
+      onDecisionProgress: (progress) => {
+        if (stream) {
+          if (!latest) return;
+          latest.decision = { status: "running", progress };
+          setStatus(`Solving rescue options... ${progress.done} candidates tested.`);
+          renderLatest({ streaming: true });
+        } else {
+          buffered.decision = { status: "running", progress };
+        }
+      },
+      onDecision: (decision) => {
+        if (stream) {
+          if (!latest) return;
+          latest.decision = decision;
+          renderLatest({ streaming: true });
+        } else {
+          buffered.decision = decision;
+        }
+      },
       onProgress: ({ phase, done, total }) => {
         window.dispatchEvent(new CustomEvent("psl:run-progress", {
           detail: { phase, done, total }
@@ -1481,6 +1576,7 @@ async function runModels(opts = {}) {
         historicalRange,
         historicalMode: els.backtestMode.value,
         plan: buffered.plan,
+        decision: buffered.decision,
         monteCarlo: {
           scenarios: buffered.scenarios,
           summary: result.summary,
@@ -3477,6 +3573,42 @@ function readScenario() {
       maxAcaFplPercent: 400
     },
     aca
+  };
+}
+
+function readDecisionProfile(scenario) {
+  const requiredSpend = numberOrNull(els.decisionRequiredSpend?.value);
+  const flexibleSpend = numberOrNull(els.decisionFlexibleSpend?.value);
+  const targetPercent = numberOrNull(els.decisionTargetSuccessRate?.value);
+  const targetSuccessRate = targetPercent == null ? 0.9 : Math.max(1, Math.min(99, targetPercent)) / 100;
+  return {
+    mode: "recentlyLeftWork",
+    requiredSpend,
+    flexibleSpend,
+    targetSuccessRate,
+    targetSuccessRateUserOverridden: targetPercent != null && Math.abs(targetPercent - 90) > 0.001,
+    verdictObjective: "avoidDepletion",
+    minimumAcceptableHistoricalWorstEnding: 0,
+    evidenceWeights: {
+      monteCarlo: 0.5,
+      historical: 0.5
+    },
+    incomeBridge: {
+      enabled: true,
+      startYear: 1,
+      maxYears: 6,
+      maxAnnualIncome: 500000,
+      incomeType: "medicareWages"
+    },
+    healthcarePriority: scenario?.state === "Massachusetts" ? "preserveConnectorCare" : "preserveAcaSubsidy",
+    healthcarePlanSelection: {
+      mode: scenario?.state === "Massachusetts" ? "maConnectorCarePlanType" : "manualOrMarketplace",
+      selectedPlanId: els.maConnectorCarePlanType?.value || null
+    },
+    share: {
+      mode: "deferred",
+      allowInputTweaks: false
+    }
   };
 }
 

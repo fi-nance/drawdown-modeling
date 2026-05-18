@@ -6,6 +6,9 @@ A browser-based, tax-aware retirement decumulation planner with Monte Carlo simu
 
 - Deterministic portfolio engine in `src/core/`
 - Single UI entrypoint at `index.html` with persona, workspace, and results screens
+- "Recently left work" first-screen path and "Bad-market fallback" outcome for households deciding whether they can stay retired after leaving work
+- Decision panel that turns the base plan into a safe, fragile, or unsafe verdict with Monte Carlo evidence, historical evidence, failure timing, healthcare guardrails, and ranked rescue options
+- Rescue solvers for bad-market discretionary spending cuts, earned-income bridges, and the combined "do both" plan, with final displayed options rerun at the selected Monte Carlo count and historical backtest settings
 - Monte Carlo runs with seeded random return and inflation paths
 - Historical rolling, specific-start-year, and chunked-window backtests with a default 1928-present modern source and an opt-in reconstructed 1872-present source
 - Versioned 2026 federal tax tables, preferential long-term capital gains stacking, NIIT, Additional Medicare Tax, state tax profiles, capital loss carryforwards, and ordinary loss offsets
@@ -18,7 +21,7 @@ A browser-based, tax-aware retirement decumulation planner with Monte Carlo simu
 - Social Security taxable-benefit modeling, forced RMDs, age-65 standard-deduction bumps, and Medicare Part B/D IRMAA estimates
 - Target spend controls that can include or exclude taxes and medical costs
 - One-off cash flows by year or year range, fixed or inflation adjusted, as expenses, taxable ordinary income, tax-free income, Medicare wages, self-employment income, or RRTA compensation
-- CSV and JSON imports, a sample CSV template, public Google Sheets CSV import, private Google Sheets OAuth import, and full setup backup/restore
+- CSV and JSON imports, a sample CSV template, public Google Sheets CSV import, private Google Sheets OAuth import, and full setup backup/restore, including the decision profile
 - Sankey-style yearly cash-flow and portfolio-flow visualizations
 - Year-by-year, scenario-by-scenario, backtest, and current-year sale breakdowns
 
@@ -34,6 +37,20 @@ Then open:
 ```text
 http://localhost:4173/
 ```
+
+## Decision Engine And Rescue Options
+
+The fastest way to try the decision layer is to choose **Recently left work**, use sample data or import a portfolio, then view results. That path fills a 44-year-old Massachusetts household, preselects the bad-market fallback outcome, enables healthcare and strategy controls, and separates spending into required and flexible amounts.
+
+The Basics module includes three decision fields:
+
+- `Required spend`: spending the household does not want the solver to cut.
+- `Flexible spend`: spending the solver can trim during early market stress.
+- `Success target %`: the depletion-avoidance target, defaulting to 90%.
+
+The results Decision panel compares the base plan against three rescue choices: cut flexible spending during early market stress, earn bridge income for a limited number of years, or do both. Monte Carlo and historical backtests are shown side by side. If one evidence source passes and the other misses the target, the verdict stays fragile instead of hiding the disagreement in one blended score.
+
+Intermediate solver probes use a bounded Monte Carlo search so the UI can remain responsive. The final displayed rescue options are rerun with the user's selected Monte Carlo count and historical backtest settings, so the percentages shown in the panel are comparable with the base plan.
 
 ## Portfolio Import Columns
 
@@ -54,7 +71,7 @@ Private Google Sheets can be imported with Google OAuth by entering a Google OAu
 
 Private data can also be imported without OAuth by downloading the sheet as CSV and selecting it with the CSV file input.
 
-Use the Save setup / Load setup controls in the persona, workspace, or results flow to export or restore the full setup, including assets, scenario controls, and one-off cash flows.
+Use the Save setup / Load setup controls in the persona, workspace, or results flow to export or restore the full setup, including assets, scenario controls, decision profile, and one-off cash flows.
 
 ## Accuracy Notes
 
@@ -64,7 +81,7 @@ ACA has two plan-cost modes. State benchmark estimate mode uses the built-in sta
 
 For HealthCare.gov states, the CMS Marketplace API helper can look up available plans by ZIP/county FIPS, household ages, ACA quote income/MAGI, tobacco flag, utilization level, and plan year. Selecting a plan fills the SLCSP benchmark, selected plan premium, selected plan OOP max, issuer/name metadata where used, and covered ages for exact gross-premium modeling.
 
-Massachusetts users can use the MA ConnectorCare helper to fill an estimated 2026 lowest-cost ConnectorCare net premium and combined medical/Rx OOP maximum from ACA quote income/MAGI, household size, and marketplace member count. Those premiums are treated as quoted net premiums, so the app does not subtract a second federal subsidy. A backup ACA plan can also be entered or filled from supported federal Marketplace results; the simulator switches to it when modeled MAGI exceeds the backup FPL trigger, which defaults to 400%.
+Massachusetts users can use the MA ConnectorCare helper to fill an estimated 2026 ConnectorCare net premium and combined medical/Rx OOP maximum from ACA quote income/MAGI, household size, marketplace member count, and either the automatic MAGI-derived plan type or a user-selected public plan type. These are official plan-type estimates, not carrier-specific quotes. Those premiums are treated as quoted net premiums, so the app does not subtract a second federal subsidy. A backup ACA plan can also be entered or filled from supported federal Marketplace results; the simulator switches to it when modeled MAGI exceeds the backup FPL trigger, which defaults to 400%.
 
 Retirement-tax controls include Roth contribution basis, whether the Roth five-year qualified-distribution rule is satisfied, annual early-withdrawal penalty exception amounts, RMD start-age override, Social Security benefit timing, Medicare/IRMAA enrollment and lookback inputs, earned-income inputs for Additional Medicare Tax, dynamic child ages, age-65 standard-deduction bumps, and manual federal deduction/credit overrides.
 
@@ -72,4 +89,8 @@ The default withdrawal strategy keeps the app's established current-year heurist
 
 Historical backtesting data is versioned in `src/data/historicalReturns.mjs` and runs through 2025 where source history exists. The default modern baseline uses Damodaran-style annual returns from 1928 onward. The opt-in extended reconstructed source prepends JST U.S. reconstructed stock, bond, cash, housing, and CPI history before 1928; stock/bond/cash coverage starts in 1872 and real estate coverage starts in 1891. Crypto and TIPS histories start later than the core stock/bond/cash series, so the Backtesting panel includes explicit proxy options: stock returns before crypto data begins and bond returns before TIPS data begins. Actual crypto and TIPS returns are still used once available. The data-source inventory and annual refresh checklist live in [`docs/DATA_SOURCES.md`](docs/DATA_SOURCES.md).
 
-Long-horizon tax-law limitations and implementation priorities are tracked in [`docs/KNOWN_LIMITATIONS.md`](docs/KNOWN_LIMITATIONS.md).
+## Documentation
+
+- [Data sources and annual update runbook](docs/DATA_SOURCES.md)
+- [Known modeling limitations](docs/KNOWN_LIMITATIONS.md)
+- [Product design review for the post-job decision engine](docs/PRODUCT_DESIGN_REVIEW.md)

@@ -39,6 +39,9 @@ export function normalizeSetupState(state) {
   if (state.redesign != null && (typeof state.redesign !== "object" || Array.isArray(state.redesign))) {
     throw new Error("Setup backup redesign state must be an object.");
   }
+  if (state.decisionProfile != null && (typeof state.decisionProfile !== "object" || Array.isArray(state.decisionProfile))) {
+    throw new Error("Setup backup decision profile must be an object.");
+  }
 
   const normalized = {
     controls: copyPlainObject(state.controls ?? {}),
@@ -46,6 +49,7 @@ export function normalizeSetupState(state) {
     oneOffExpenses: copyObjectArray(state.oneOffExpenses ?? [], "one-off expenses")
   };
   if (state.redesign != null) normalized.redesign = copyPlainObject(state.redesign);
+  if (state.decisionProfile != null) normalized.decisionProfile = copyPlainObject(state.decisionProfile);
   return normalized;
 }
 

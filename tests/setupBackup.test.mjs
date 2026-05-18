@@ -29,6 +29,12 @@ const setupState = {
     amount: 35000,
     inflationAdjusted: true
   }],
+  decisionProfile: {
+    mode: "recentlyLeftWork",
+    requiredSpend: 72000,
+    flexibleSpend: 28000,
+    targetSuccessRate: 0.9
+  },
   redesign: {
     persona: "preRetiree",
     outcome: "willItLast",
@@ -63,5 +69,9 @@ test("setup backup parser rejects malformed backups clearly", () => {
   assert.throws(
     () => parseSetupBackup(JSON.stringify({ ...setupState, redesign: [] })),
     /redesign state/i
+  );
+  assert.throws(
+    () => parseSetupBackup(JSON.stringify({ ...setupState, decisionProfile: [] })),
+    /decision profile/i
   );
 });

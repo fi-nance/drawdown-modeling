@@ -17,16 +17,19 @@ export const MASSACHUSETTS_CONNECTORCARE_2026 = Object.freeze({
 export function massachusettsConnectorCareEstimate({
   income,
   householdSize = 1,
-  marketplaceMembers = householdSize
+  marketplaceMembers = householdSize,
+  planTypeName = "auto"
 } = {}) {
   const annualIncome = Math.max(0, Number(income) || 0);
   const household = Math.max(1, Math.trunc(Number(householdSize) || 1));
   const members = Math.max(1, Math.trunc(Number(marketplaceMembers) || household));
   const fpl = connectorCareFplForHousehold(household);
   const fplPercent = fpl > 0 ? (annualIncome / fpl) * 100 : Infinity;
-  const planType = MASSACHUSETTS_CONNECTORCARE_2026.planTypes.find((row) => (
+  const automaticPlanType = MASSACHUSETTS_CONNECTORCARE_2026.planTypes.find((row) => (
     fplPercent > row.minFplPercent && fplPercent <= row.maxFplPercent
   )) ?? (fplPercent <= 100 ? MASSACHUSETTS_CONNECTORCARE_2026.planTypes[0] : null);
+  const requestedPlanType = connectorCarePlanTypeByName(planTypeName);
+  const planType = automaticPlanType ? (requestedPlanType ?? automaticPlanType) : null;
 
   if (!planType) {
     return {
@@ -47,6 +50,8 @@ export function massachusettsConnectorCareEstimate({
     source: MASSACHUSETTS_CONNECTORCARE_2026.source,
     year: MASSACHUSETTS_CONNECTORCARE_2026.year,
     planName: planType.name,
+    automaticPlanName: automaticPlanType?.name ?? null,
+    userSelectedPlanType: !!requestedPlanType,
     fpl,
     fplPercent,
     monthlyPremiumPerPerson: planType.monthlyPremiumPerPerson,
@@ -56,6 +61,16 @@ export function massachusettsConnectorCareEstimate({
     rxOopMaximum: rxOop,
     premiumInputMode: "net"
   };
+}
+
+export function massachusettsConnectorCarePlanOptions() {
+  return MASSACHUSETTS_CONNECTORCARE_2026.planTypes.map((planType) => ({ ...planType }));
+}
+
+function connectorCarePlanTypeByName(planTypeName) {
+  const name = String(planTypeName || "").trim();
+  if (!name || name === "auto") return null;
+  return MASSACHUSETTS_CONNECTORCARE_2026.planTypes.find((row) => row.name === name) ?? null;
 }
 
 function connectorCareFplForHousehold(householdSize) {

@@ -8,7 +8,7 @@
     <link rel="icon" href="./favicon.svg?v=20260505-favicon" type="image/svg+xml">
     <meta name="theme-color" content="#07111f">
     <link rel="stylesheet" href="./src/styles.css?v=20260513-audit-panel">
-    <link rel="stylesheet" href="./src/redesign.css?v=20260515-historical-links">
+    <link rel="stylesheet" href="./src/redesign.css?v=20260518-decision-engine">
     <script src="https://accounts.google.com/gsi/client" async defer></script>
   </head>
   <body data-screen="persona" data-theme="dark">
@@ -202,7 +202,7 @@
                   </div>
                 </div>
                 <div class="module-actions">
-                  <span class="controls-pill">11 controls</span>
+                  <span class="controls-pill">14 controls</span>
                 </div>
               </div>
               <div class="module-body">
@@ -211,6 +211,9 @@
                   <label><span>Spouse age</span><input id="spouseAge" type="number" min="0" max="120" step="0.5" value="55"></label>
                   <label><span>Plan years</span><input id="planYears" type="number" min="1" max="80" value="35"></label>
                   <label><span>Target spend</span><input id="targetSpend" type="number" min="0" step="1000" value="90000"></label>
+                  <label><span>Required spend</span><input id="decisionRequiredSpend" type="number" min="0" step="1000" placeholder="Auto from strategy"></label>
+                  <label><span>Flexible spend</span><input id="decisionFlexibleSpend" type="number" min="0" step="1000" placeholder="Auto from strategy"></label>
+                  <label><span>Success target %</span><input id="decisionTargetSuccessRate" type="number" min="1" max="99" step="1" value="90"></label>
                   <label><span>State</span><select id="stateSelect"></select></label>
                   <label>
                     <span>Filing status</span>
@@ -302,7 +305,7 @@
                     <span class="module-sub">Insurance until Medicare</span>
                   </div>
                 </div>
-                <div class="module-actions"><span class="controls-pill">21 controls</span></div>
+                <div class="module-actions"><span class="controls-pill">22 controls</span></div>
               </div>
               <div class="module-body">
                 <label class="check-row"><input id="acaEnabled" type="checkbox" checked><span>ACA marketplace coverage</span></label>
@@ -320,6 +323,7 @@
                   <p class="assumption-note">Assumption: exact plan mode calculates PTC from the household SLCSP and applies the selected plan gross premium and OOP max. Quoted net premium mode trusts the quote and bypasses PTC recalculation.</p>
                   <div class="control-grid">
                     <label><span>Additional medical costs</span><input id="medicalBase" type="number" min="0" step="500" value="0"></label>
+                    <label><span>MA ConnectorCare plan type</span><select id="maConnectorCarePlanType"></select><small>Official 2026 plan-type estimate, not a carrier quote.</small></label>
                     <label>
                       <span>Plan cost mode</span>
                       <select id="acaPlanCostMode">
@@ -740,6 +744,7 @@
       <main class="results-shell">
         <!-- Headline strip: hero number + flat KPI grid (renderKpiStrip fills this) -->
         <section id="kpiStrip" class="dash-headline"></section>
+        <section id="decisionPanel" class="decision-panel" aria-live="polite"></section>
 
         <!-- Existing KPI tiles (kept for backward compat with code that paints into #kpis) -->
         <div id="kpis" hidden></div>
@@ -969,7 +974,7 @@
       <select id="viewMode"><option value="real" selected>Today's $</option><option value="nominal">Future $</option></select>
     </div>
 
-    <script type="module" src="./src/app.mjs?v=20260515-historical-links"></script>
-    <script type="module" src="./src/redesign.mjs?v=20260515-historical-links"></script>
+    <script type="module" src="./src/app.mjs?v=20260518-decision-engine"></script>
+    <script type="module" src="./src/redesign.mjs?v=20260518-decision-engine"></script>
   </body>
 </html>

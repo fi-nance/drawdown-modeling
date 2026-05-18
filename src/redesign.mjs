@@ -22,6 +22,25 @@ const STORAGE_COLLAPSED = "psl:redesign:collapsedModules";
 // Persona presets — what each card pre-fills in the workspace.
 const PERSONAS = [
   {
+    id: "recentlyLeftWork",
+    label: "Recently left work",
+    sub: "Can we stay retired, or do I need income?",
+    dot: "#34d1b6",
+    age: 44,
+    spouseAge: 44,
+    plan: 50,
+    spend: 100000,
+    requiredSpend: 72000,
+    flexibleSpend: 28000,
+    state: "Massachusetts",
+    householdSize: 4,
+    marketplaceMembers: 4,
+    rothBasis: 120000,
+    outcome: "fallback",
+    spendingStrategyMode: "discretionaryGuardrails",
+    enabledModules: ["healthcare", "strategy", "history", "what-ifs", "other-income"]
+  },
+  {
     id: "fire",
     label: "FIRE / early",
     sub: "Retired in 30s–40s, 50+ year horizon",
@@ -93,6 +112,13 @@ const PERSONAS = [
 
 const OUTCOMES = [
   {
+    id: "fallback",
+    label: "Bad-market fallback",
+    sub: "Show the cut or income bridge that keeps us safe.",
+    focus: "decisionPanel",
+    enable: ["healthcare", "strategy", "history", "what-ifs", "other-income"]
+  },
+  {
     id: "lasts",
     label: "Will my money last?",
     sub: "Show me a simple yes / no with why.",
@@ -131,9 +157,9 @@ const OUTCOMES = [
 ];
 
 const MODULES = [
-  { id: "basics",        label: "The basics",     desc: "Age, plan length, target spend",        controls: 11, required: true,  enabledByDefault: true  },
+  { id: "basics",        label: "The basics",     desc: "Age, plan length, target spend",        controls: 14, required: true,  enabledByDefault: true  },
   { id: "portfolio",     label: "Portfolio",      desc: "Your accounts and holdings",             controls: 5,  required: true,  enabledByDefault: true  },
-  { id: "healthcare",    label: "Healthcare",     desc: "Insurance until Medicare",               controls: 21, required: false, enabledByDefault: true  },
+  { id: "healthcare",    label: "Healthcare",     desc: "Insurance until Medicare",               controls: 22, required: false, enabledByDefault: true  },
   { id: "medicare",      label: "Medicare/IRMAA", desc: "Premiums after 65",                       controls: 8,  required: false, enabledByDefault: false },
   { id: "other-income",  label: "Other income",   desc: "Social Security, work, SE",               controls: 7,  required: false, enabledByDefault: false },
   { id: "strategy",      label: "Strategy toolkit", desc: "Taxes, allocations, withdrawal rules",   controls: 25, required: false, enabledByDefault: true  },
@@ -319,7 +345,25 @@ function applyPersonaPreset(id) {
   setInputValue("spouseAge", persona.spouseAge ?? persona.age);
   setInputValue("planYears", persona.plan);
   setInputValue("targetSpend", persona.spend);
+  if (persona.requiredSpend != null) setInputValue("decisionRequiredSpend", persona.requiredSpend);
+  if (persona.flexibleSpend != null) setInputValue("decisionFlexibleSpend", persona.flexibleSpend);
+  if (persona.state) setInputValue("stateSelect", persona.state);
+  if (persona.householdSize != null) setInputValue("householdSize", persona.householdSize);
+  if (persona.marketplaceMembers != null) setInputValue("marketplaceMembers", persona.marketplaceMembers);
+  if (persona.requiredSpend != null) setInputValue("essentialSpend", persona.requiredSpend);
+  if (persona.flexibleSpend != null) setInputValue("discretionarySpend", persona.flexibleSpend);
+  if (persona.spendingStrategyMode) setInputValue("spendingStrategyMode", persona.spendingStrategyMode);
+  setInputValue("decisionTargetSuccessRate", 90);
   if (persona.rothBasis != null) setInputValue("rothBasis", persona.rothBasis);
+  if (persona.outcome) {
+    state.outcome = persona.outcome;
+    writeStorage(STORAGE_OUTCOME, persona.outcome);
+    syncOutcomeSelection();
+    const outcome = OUTCOMES.find(x => x.id === persona.outcome);
+    if (outcome?.enable) {
+      for (const id of outcome.enable) state.enabledModules.add(id);
+    }
+  }
 
   // Pre-enable suggested modules (without disabling user's existing picks).
   if (Array.isArray(persona.enabledModules)) {
@@ -901,6 +945,155 @@ function renderKpiStrip() {
       <div class="dh-kpi"><span class="kpi-label">Safe spend rate</span><span class="kpi-big mono">${(summary.safeRate*100).toFixed(1)}%</span></div>
       <div class="dh-kpi"><span class="kpi-label">Years modeled</span><span class="kpi-big mono">${summary.years}</span></div>
     </div>`;
+}
+
+function renderDecisionPanel() {
+  const root = document.getElementById("decisionPanel");
+  if (!root) return;
+  const latest = window.__pslLatest;
+  const decision = latest?.decision;
+  if (!latest) {
+    root.innerHTML = "";
+    return;
+  }
+  if (!decision || decision.status === "running") {
+    const tested = decision?.progress?.done ?? 0;
+    root.innerHTML = `
+      <div class="decision-shell" data-tone="pending">
+        <div>
+          <p class="r-section-eyebrow">Decision engine</p>
+          <h2>Solving rescue options</h2>
+          <p class="decision-headline">${tested ? `${tested} candidates tested. ` : ""}Comparing the base plan against spending cuts, income bridges, and historical paths.</p>
+        </div>
+      </div>`;
+    return;
+  }
+  if (decision.status !== "ready") {
+    root.innerHTML = `
+      <div class="decision-shell" data-tone="risk">
+        <div>
+          <p class="r-section-eyebrow">Decision engine</p>
+          <h2>Decision engine unavailable</h2>
+          <p class="decision-headline">The base model is still available, but the rescue solver did not return a decision.</p>
+        </div>
+      </div>`;
+    return;
+  }
+
+  const base = decision.base;
+  const cut = decision.rescueOptions?.find((option) => option.kind === "discretionaryCut");
+  const income = decision.rescueOptions?.find((option) => option.kind === "incomeBridge");
+  const combined = decision.rescueOptions?.find((option) => option.kind === "combined");
+  const verdict = decision.verdict ?? base?.verdict;
+  const target = decision.targetSuccessRate ?? 0.9;
+  const headline = decisionHeadline({ base, cut, income, combined });
+  const rescueCards = [cut, income, combined].filter(Boolean).map((option) => rescueCardHtml(option, base)).join("");
+  const anatomy = decision.failureAnatomy ?? {};
+  const healthcare = decision.healthcare ?? {};
+  root.innerHTML = `
+    <div class="decision-shell" data-tone="${escapeHtml(verdict?.tone ?? "warn")}">
+      <div class="decision-main">
+        <p class="r-section-eyebrow">Decision</p>
+        <h2>${decisionVerdictLabel(verdict?.label)} at ${formatRate(target)} target</h2>
+        <p class="decision-headline">${headline}</p>
+        <p class="decision-sub">${escapeHtml(verdict?.reason ?? "Evidence is still being evaluated.")}</p>
+      </div>
+      <div class="decision-evidence">
+        <div><span>Monte Carlo</span><strong>${formatRate(base?.monteCarlo?.successRate)}</strong></div>
+        <div><span>Historical</span><strong>${formatOptionalRate(base?.historical?.successRate)}</strong></div>
+        <div><span>Failed paths</span><strong>${numberText(anatomy.failedCount)}</strong></div>
+      </div>
+      <div class="decision-rescues">
+        ${rescueCards || `<p class="decision-sub">No rescue candidates were available for the current inputs.</p>`}
+      </div>
+      <div class="decision-foot">
+        <div>
+          <span>Failure anatomy</span>
+          <strong>${escapeHtml(anatomy.commonTrigger ?? "No failures in tested paths")}</strong>
+          <small>${failureTimingText(anatomy)}</small>
+        </div>
+        <div>
+          <span>Healthcare guardrail</span>
+          <strong>${healthcare.magiCeiling != null ? formatCurrencyShort(healthcare.magiCeiling) : "No ceiling"}</strong>
+          <small>${healthcareText(healthcare)}</small>
+        </div>
+      </div>
+    </div>`;
+}
+
+function decisionHeadline({ base, cut, income, combined }) {
+  const spend = base?.scenarioSummary?.targetSpend;
+  const parts = [
+    `Base plan: ${formatRate(base?.monteCarlo?.successRate)} Monte Carlo success at ${formatCurrencyShort(spend)}/year.`
+  ];
+  if (cut) {
+    parts.push(`Cutting flexible spending by ${formatCurrencyShort(cut.metadata?.cutAmount ?? 0)} during early market stress raises this to ${formatRate(cut.monteCarlo?.successRate)}.`);
+  }
+  if (income) {
+    parts.push(`Earning ${formatCurrencyShort(income.metadata?.annualIncome ?? 0)}/year for ${income.metadata?.durationYears ?? 0} years raises it to ${formatRate(income.monteCarlo?.successRate)}.`);
+  }
+  if (combined) {
+    parts.push(`Doing both raises it to ${formatRate(combined.monteCarlo?.successRate)}.`);
+  }
+  return parts.join(" ");
+}
+
+function rescueCardHtml(option, base) {
+  const delta = option.delta?.monteCarloSuccessRate ?? 0;
+  const meta = option.metadata ?? {};
+  const title = option.kind === "discretionaryCut"
+    ? `Cut ${formatCurrencyShort(meta.cutAmount ?? 0)}`
+    : option.kind === "incomeBridge"
+      ? `Earn ${formatCurrencyShort(meta.annualIncome ?? 0)} for ${meta.durationYears ?? 0}y`
+      : "Do both";
+  const sideEffect = option.delta?.firstYearSubsidy == null
+    ? "No healthcare delta"
+    : `${option.delta.firstYearSubsidy >= 0 ? "+" : ""}${formatCurrencyShort(option.delta.firstYearSubsidy)} year-1 subsidy`;
+  return `
+    <article class="decision-rescue" data-status="${escapeHtml(option.status ?? "tested")}">
+      <span>${escapeHtml(option.label ?? title)}</span>
+      <strong>${escapeHtml(title)}</strong>
+      <small>${formatRate(base?.monteCarlo?.successRate)} -> ${formatRate(option.monteCarlo?.successRate)} (${signedRate(delta)})</small>
+      <small>Historical ${formatOptionalRate(base?.historical?.successRate)} -> ${formatOptionalRate(option.historical?.successRate)}</small>
+      <small>${escapeHtml(sideEffect)}</small>
+    </article>`;
+}
+
+function decisionVerdictLabel(label) {
+  if (label === "safe") return "Plan looks safe";
+  if (label === "unsafe") return "Plan is unsafe";
+  return "Plan is fragile";
+}
+
+function formatRate(value) {
+  return Number.isFinite(value) ? `${Math.round(value * 100)}%` : "n/a";
+}
+
+function formatOptionalRate(value) {
+  return Number.isFinite(value) ? formatRate(value) : "unavailable";
+}
+
+function signedRate(value) {
+  if (!Number.isFinite(value)) return "n/a";
+  const pct = Math.round(value * 100);
+  return `${pct >= 0 ? "+" : ""}${pct} pts`;
+}
+
+function numberText(value) {
+  return Number.isFinite(value) ? String(value) : "0";
+}
+
+function failureTimingText(anatomy = {}) {
+  if (!(anatomy.failedCount > 0)) return "No modeled depletion paths in the tested run.";
+  const earliest = anatomy.earliestFailureYear ? `earliest Y${anatomy.earliestFailureYear}` : "earliest n/a";
+  const median = anatomy.medianFailureYear ? `median Y${Math.round(anatomy.medianFailureYear)}` : "median n/a";
+  return `${earliest}; ${median}.`;
+}
+
+function healthcareText(healthcare = {}) {
+  if (healthcare.magiCeiling == null) return "No ACA/ConnectorCare ceiling was available for year 1.";
+  const buffer = healthcare.magiBuffer ?? 0;
+  return `${formatCurrencyShort(Math.abs(buffer))} ${buffer >= 0 ? "under" : "over"} modeled MAGI ceiling.`;
 }
 
 function historicalSummary(latest) {
@@ -1582,6 +1775,7 @@ function hookRunCompletion() {
 
 function rerenderResults() {
   renderKpiStrip();
+  renderDecisionPanel();
   renderActionList();
   renderBracketFill();
   renderWithdrawalMix();
@@ -1764,4 +1958,12 @@ function formatCurrencyShort(n) {
   if (abs >= 1e6) return `$${(n/1e6).toFixed(1)}M`;
   if (abs >= 1e3) return `$${Math.round(n/1000)}k`;
   return `$${Math.round(n)}`;
+}
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
