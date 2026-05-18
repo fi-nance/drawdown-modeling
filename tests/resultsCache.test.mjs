@@ -218,24 +218,24 @@ test("compactLatestForCache preserves restored thumbnails and depletion metadata
 });
 
 test("cached blob shrinks dramatically after compaction (fits under sessionStorage quota)", () => {
-  // The whole point: real MC blobs (250 runs × 35 years) exceed the ~5 MB
-  // sessionStorage quota by ~17×. The compact form must come in well under.
-  const latest = makeLatest({ runs: 250, planYears: 35 });
+  // The whole point: default MC blobs (1000 runs × 35 years) exceed the ~5 MB
+  // sessionStorage quota. The compact form must come in well under.
+  const latest = makeLatest({ runs: 1000, planYears: 35 });
   const fullKb = Math.round(JSON.stringify(latest).length / 1024);
   const compactKb = Math.round(JSON.stringify(compactLatestForCache(latest)).length / 1024);
   assert.ok(compactKb * 5 < fullKb, `expected compact form to be much smaller (full ${fullKb} KB, compact ${compactKb} KB)`);
   assert.ok(compactKb < 5 * 1024, `compact form ${compactKb} KB should fit under ~5 MB sessionStorage quota`);
 });
 
-test("cacheLatestResults succeeds with realistic 250-run latest because it caches the compact form", () => {
+test("cacheLatestResults succeeds with realistic 1000-run latest because it caches the compact form", () => {
   const storage = makeStorage({ quota: 5 * 1024 * 1024 }); // 5 MB
-  const latest = makeLatest({ runs: 250, planYears: 35 });
+  const latest = makeLatest({ runs: 1000, planYears: 35 });
   const ok = cacheLatestResults(latest, storage);
-  assert.equal(ok, true, "compact cache must succeed at the default 250 runs");
+  assert.equal(ok, true, "compact cache must succeed at the default 1000 runs");
 
   const restored = restoreCachedLatest(storage);
   assert.ok(restored, "must round-trip");
-  assert.equal(restored.monteCarlo.scenarios.length, 250);
+  assert.equal(restored.monteCarlo.scenarios.length, 1000);
   assert.equal(restored.plan.years.length, 35);
   assert.ok(restored.monteCarlo.scenarios[0].lastYear);
 });

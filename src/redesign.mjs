@@ -874,7 +874,7 @@ function renderKpiStrip() {
   const pct = summary.successRate;
   const progress = latest?.monteCarlo?.progress;
   const streaming = !!(progress && !progress.complete);
-  const totalRuns = progress?.total ?? latest?.monteCarlo?.summary?.runs ?? monteCarloScenarios(latest).length ?? 250;
+  const totalRuns = progress?.total ?? latest?.monteCarlo?.summary?.runs ?? monteCarloScenarios(latest).length ?? 1000;
   const doneRuns = progress?.done ?? monteCarloScenarios(latest).length ?? totalRuns;
   const pctInt = Math.round(pct * 100);
   const spinner = streaming ? `<span class="kpi-spinner" aria-hidden="true"></span>` : "";

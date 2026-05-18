@@ -77,9 +77,9 @@ export function makeStressSequences(years) {
     {
       name: "Mean return path",
       returns: sequence(years, [
-        { stock: 0.065, bond: 0.028, cash: 0.015, realEstate: 0.05 }
+        { stock: 0.071, bond: 0.049, cash: 0.033, realEstate: 0.081 }
       ]),
-      inflation: repeat(years, 0.025)
+      inflation: repeat(years, 0.024)
     },
     {
       name: "Early bear market",

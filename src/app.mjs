@@ -60,6 +60,12 @@ const MONTE_CARLO_ASSUMPTION_FIELD_IDS = Object.freeze({
   crypto: Object.freeze({ mean: "mcCryptoMean", stdev: "mcCryptoStdev" }),
   inflation: Object.freeze({ mean: "mcInflationMean", stdev: "mcInflationStdev" })
 });
+const MONTE_CARLO_PRESET_LABELS = Object.freeze({
+  marketNeutral: "market-neutral 2026",
+  planning: "conservative planning",
+  historical: "historical-fit",
+  custom: "custom"
+});
 
 const STORAGE_KEY = "portfolio-success-lab:v3";
 const REMEMBER_SETUP_KEY = "portfolio-success-lab:remember-setup";
@@ -1126,7 +1132,7 @@ function bindMonteCarloControls() {
   if (!els.mcPreset) return;
 
   els.mcPreset.addEventListener("change", () => {
-    if (els.mcPreset.value === "planning" || els.mcPreset.value === "historical") {
+    if (Object.prototype.hasOwnProperty.call(MONTE_CARLO_ASSUMPTION_PRESETS, els.mcPreset.value)) {
       applyMonteCarloPreset(els.mcPreset.value);
       saveStoredState();
     }
@@ -1805,12 +1811,13 @@ function backupPlanAuditSummary() {
 function simulationAuditLine() {
   const summary = effectiveMonteCarloSummary();
   const runs = summary ? `${numberFormatter.format(summary.runs)}${summary.preliminary ? " preliminary" : ""} Monte Carlo runs` : "Monte Carlo pending";
-  const preset = els.mcPreset?.value || latest?.scenario?.monteCarlo?.assumptionPreset || "planning";
+  const preset = els.mcPreset?.value || latest?.scenario?.monteCarlo?.assumptionPreset || DEFAULT_SCENARIO.monteCarlo.assumptionPreset;
+  const presetLabel = MONTE_CARLO_PRESET_LABELS[preset] ?? preset;
   const sampling = els.mcSamplingMode?.value === "correlated" ? "correlated sampling" : "independent sampling";
   const coverage = latest?.historicalCoverage
     ? `${historicalDataSourceLabel()} history ${latest.historicalCoverage.startYear}-${latest.historicalCoverage.endYear}`
     : "historical coverage unavailable";
-  return `${runs}; ${preset} return preset; ${sampling}; ${coverage}.`;
+  return `${runs}; ${presetLabel} return preset; ${sampling}; ${coverage}.`;
 }
 
 function knownLimitsAuditLine() {
@@ -3548,7 +3555,7 @@ function readScenario() {
       hsaUseForQualifiedExpenses: els.hsaContributionStrategy?.checked === true
     },
     monteCarlo: {
-      assumptionPreset: ["planning", "historical", "custom"].includes(els.mcPreset?.value)
+      assumptionPreset: presetIdIsKnown(els.mcPreset?.value) || els.mcPreset?.value === "custom"
         ? els.mcPreset.value
         : DEFAULT_SCENARIO.monteCarlo.assumptionPreset,
       samplingMode: els.mcSamplingMode?.value === "correlated" ? "correlated" : "independent"
@@ -3574,6 +3581,10 @@ function readScenario() {
     },
     aca
   };
+}
+
+function presetIdIsKnown(value) {
+  return Object.prototype.hasOwnProperty.call(MONTE_CARLO_ASSUMPTION_PRESETS, value);
 }
 
 function readDecisionProfile(scenario) {

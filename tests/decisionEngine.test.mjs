@@ -194,6 +194,7 @@ test("discretionary rescue status is based on finalized full-run evidence", () =
     taxGainHarvesting: { enabled: false },
     rothConversion: { enabled: false },
     aca: { enabled: false },
+    monteCarlo: { ...DEFAULT_SCENARIO.monteCarlo, samplingMode: "independent" },
     returnAssumptions: {
       ...DEFAULT_SCENARIO.returnAssumptions,
       stock: { mean: 0.04, stdev: 0.08 },
@@ -254,6 +255,7 @@ test("discretionary rescue can be target-met when finalized run clears target af
     taxGainHarvesting: { enabled: false },
     rothConversion: { enabled: false },
     aca: { enabled: false },
+    monteCarlo: { ...DEFAULT_SCENARIO.monteCarlo, samplingMode: "independent" },
     returnAssumptions: {
       ...DEFAULT_SCENARIO.returnAssumptions,
       stock: { mean: 0.04, stdev: 0.08 },

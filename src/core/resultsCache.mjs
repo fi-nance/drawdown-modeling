@@ -3,8 +3,8 @@
    worker re-runs in the background.
 
    The full `latest` object is too big to fit in sessionStorage at realistic
-   MC run counts — a single 250-run × 35-year Monte Carlo serializes to
-   ~85 MB, far above the ~5 MB quota. We strip the per-scenario year
+   MC run counts — a single 1000-run × 35-year Monte Carlo serializes well
+   above the ~5 MB quota. We strip the per-scenario year
    timelines (which dominate the size) and keep just the summary + each
    scenario's top-level outcome fields plus a thumbnail "lastYear" so
    inflation-adjusted formatting still works. When the background re-run

@@ -89,6 +89,8 @@ The default withdrawal strategy keeps the app's established current-year heurist
 
 Historical backtesting data is versioned in `src/data/historicalReturns.mjs` and runs through 2025 where source history exists. The default modern baseline uses Damodaran-style annual returns from 1928 onward. The opt-in extended reconstructed source prepends JST U.S. reconstructed stock, bond, cash, housing, and CPI history before 1928; stock/bond/cash coverage starts in 1872 and real estate coverage starts in 1891. Crypto and TIPS histories start later than the core stock/bond/cash series, so the Backtesting panel includes explicit proxy options: stock returns before crypto data begins and bond returns before TIPS data begins. Actual crypto and TIPS returns are still used once available. The data-source inventory and annual refresh checklist live in [`docs/DATA_SOURCES.md`](docs/DATA_SOURCES.md).
 
+Monte Carlo defaults use the 2026 market-neutral preset: 1000 correlated annual paths, nominal before-tax/before-fee return assumptions, and arithmetic annual draw means converted from public geometric capital-market assumptions. The conservative planning and historical-fit presets remain available. Crypto stays a speculative BTC-like assumption rather than a capital-market-assumption median.
+
 ## Documentation
 
 - [Data sources and annual update runbook](docs/DATA_SOURCES.md)

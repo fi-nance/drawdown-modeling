@@ -32,6 +32,15 @@ const HSA_LIMITS_2026 = Object.freeze({
 });
 
 export const MONTE_CARLO_ASSUMPTION_PRESETS = Object.freeze({
+  marketNeutral: Object.freeze({
+    stock: Object.freeze({ mean: 0.071, stdev: 0.153 }),
+    bond: Object.freeze({ mean: 0.049, stdev: 0.063 }),
+    cash: Object.freeze({ mean: 0.033, stdev: 0.011 }),
+    realEstate: Object.freeze({ mean: 0.081, stdev: 0.179 }),
+    tips: Object.freeze({ mean: 0.042, stdev: 0.05 }),
+    crypto: Object.freeze({ mean: 0.12, stdev: 0.65 }),
+    inflation: Object.freeze({ mean: 0.024, stdev: 0.017 })
+  }),
   planning: Object.freeze({
     stock: Object.freeze({ mean: 0.065, stdev: 0.18 }),
     bond: Object.freeze({ mean: 0.028, stdev: 0.06 }),
@@ -53,6 +62,8 @@ export const MONTE_CARLO_ASSUMPTION_PRESETS = Object.freeze({
     inflation: Object.freeze({ mean: 0.0308, stdev: 0.0387 })
   })
 });
+
+export const DEFAULT_MONTE_CARLO_RUNS = 1000;
 
 const MONTE_CARLO_FACTOR_LOADINGS = Object.freeze({
   stock: Object.freeze({ market: 0.65, rates: 0.05 }),
@@ -154,10 +165,10 @@ export const DEFAULT_SCENARIO = {
     marriedFilingSeparatelyLivedTogether: false
   },
   monteCarlo: {
-    assumptionPreset: "planning",
-    samplingMode: "independent"
+    assumptionPreset: "marketNeutral",
+    samplingMode: "correlated"
   },
-  returnAssumptions: cloneReturnAssumptions(MONTE_CARLO_ASSUMPTION_PRESETS.planning),
+  returnAssumptions: cloneReturnAssumptions(MONTE_CARLO_ASSUMPTION_PRESETS.marketNeutral),
   taxLossHarvesting: { enabled: true, mode: "auto", overrideMaxLoss: null },
   taxGainHarvesting: { enabled: true, mode: "auto", overrideMaxGain: null },
   rothConversion: {
@@ -309,7 +320,7 @@ export function runMonteCarlo({
   assets,
   scenario = {},
   taxProfile = DEFAULT_TAX_PROFILE,
-  runs = 500,
+  runs = DEFAULT_MONTE_CARLO_RUNS,
   seed = 42,
   onProgress = null,
   onBatch = null,
@@ -328,8 +339,8 @@ export function runMonteCarlo({
       returnSequence.push(sampleReturnsForYear(mergedScenario, rng));
       inflationSequence.push(Math.max(-0.08, normalRandom(
         rng,
-        mergedScenario.returnAssumptions.inflation?.mean ?? 0.025,
-        mergedScenario.returnAssumptions.inflation?.stdev ?? 0.012
+        mergedScenario.returnAssumptions.inflation?.mean ?? MONTE_CARLO_ASSUMPTION_PRESETS.marketNeutral.inflation.mean,
+        mergedScenario.returnAssumptions.inflation?.stdev ?? MONTE_CARLO_ASSUMPTION_PRESETS.marketNeutral.inflation.stdev
       )));
     }
 

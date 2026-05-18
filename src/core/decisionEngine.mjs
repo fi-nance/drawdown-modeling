@@ -1,4 +1,5 @@
 import {
+  DEFAULT_MONTE_CARLO_RUNS,
   DEFAULT_SCENARIO,
   runHistoricalBacktests,
   runMonteCarlo,
@@ -78,7 +79,7 @@ export function runDecisionBatch({
   assets,
   scenario = {},
   taxProfile,
-  runs = 500,
+  runs = DEFAULT_MONTE_CARLO_RUNS,
   seed = 42,
   sequences = [],
   decisionProfile = {},
