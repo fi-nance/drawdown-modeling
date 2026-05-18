@@ -800,10 +800,13 @@ function findHealthcareRescue({ assets, scenario, taxProfile, runs, seed, sequen
 }
 
 // A rescue is worth surfacing only if the finalized full-run candidate meets
-// the target or genuinely improves on the base success rate.
+// the target or improves the success rate by at least a visible point.
+// A smaller gain is within Monte Carlo noise and renders as a "+0 pts" card.
+const WORTHWHILE_RESCUE_GAIN = 0.01;
+
 function isWorthwhileRescue(candidate, base, profile) {
   return meetsTarget(candidate, profile)
-    || candidate.monteCarlo.successRate > base.monteCarlo.successRate + EPSILON;
+    || candidate.monteCarlo.successRate >= base.monteCarlo.successRate + WORTHWHILE_RESCUE_GAIN;
 }
 
 function healthcareSortScore(candidate) {
