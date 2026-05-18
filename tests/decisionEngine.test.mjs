@@ -23,6 +23,28 @@ const cashAssets = [{
   qualifiedDividendShare: 0
 }];
 
+const noTaxProfile = {
+  filingStatus: "marriedFilingJointly",
+  standardDeduction: 0,
+  capitalLossOrdinaryIncomeOffset: 3000,
+  ordinaryBrackets: [{ upTo: Infinity, rate: 0 }],
+  capitalGainsBrackets: [{ upTo: Infinity, rate: 0 }],
+  additionalMedicareTax: {
+    rate: 0,
+    thresholds: {
+      single: Infinity,
+      marriedFilingJointly: Infinity,
+      marriedFilingSeparately: Infinity,
+      headOfHousehold: Infinity
+    }
+  },
+  state: {
+    standardDeduction: 0,
+    brackets: [{ upTo: Infinity, rate: 0 }],
+    treatCapitalGainsAsOrdinary: true
+  }
+};
+
 test("decision evidence stays fragile when Monte Carlo and history disagree", () => {
   const verdict = classifyDecisionEvidence({
     monteCarloSuccessRate: 0.54,
@@ -153,4 +175,125 @@ test("decision batch returns base, income bridge, and combined rescue summaries"
   assert.ok(decision.rescueOptions.some((option) => option.kind === "incomeBridge"));
   assert.ok(decision.rescueOptions.some((option) => option.kind === "combined"));
   assert.equal(decision.verdict.historicalKnown, false);
+});
+
+test("discretionary rescue status is based on finalized full-run evidence", () => {
+  const spend = 60;
+  const scenario = {
+    ...DEFAULT_SCENARIO,
+    planYears: 8,
+    currentAge: 60,
+    spouseAge: 60,
+    targetSpend: spend,
+    targetSpendIncludesTaxes: true,
+    targetSpendIncludesMedical: true,
+    medicalExpensesBase: 0,
+    withdrawalOrder: ["taxable"],
+    withdrawalStrategy: { mode: "heuristic" },
+    taxLossHarvesting: { enabled: false },
+    taxGainHarvesting: { enabled: false },
+    rothConversion: { enabled: false },
+    aca: { enabled: false },
+    returnAssumptions: {
+      ...DEFAULT_SCENARIO.returnAssumptions,
+      stock: { mean: 0.04, stdev: 0.08 },
+      inflation: { mean: 0, stdev: 0 }
+    },
+    spendingStrategy: {
+      ...DEFAULT_SCENARIO.spendingStrategy,
+      mode: "fixed",
+      essentialSpend: 42,
+      discretionarySpend: 18
+    }
+  };
+
+  const decision = runDecisionBatch({
+    assets: [{
+      id: "stock",
+      name: "Stock",
+      accountType: "taxable",
+      assetClass: "stock",
+      units: 500,
+      price: 1,
+      costBasisPerUnit: 1,
+      dividendYield: 0,
+      qualifiedDividendShare: 1
+    }],
+    scenario,
+    taxProfile: noTaxProfile,
+    runs: 60,
+    seed: 2,
+    sequences: [],
+    decisionProfile: {
+      requiredSpend: 42,
+      flexibleSpend: 18,
+      targetSuccessRate: 0.9,
+      incomeBridge: { enabled: false }
+    }
+  });
+
+  const cut = decision.rescueOptions.find((option) => option.kind === "discretionaryCut");
+  assert.equal(cut.status, "best-tested");
+  assert.equal(cut.monteCarlo.successRate, 0.8833);
+});
+
+test("discretionary rescue can be target-met when finalized run clears target after search miss", () => {
+  const spend = 50;
+  const scenario = {
+    ...DEFAULT_SCENARIO,
+    planYears: 8,
+    currentAge: 60,
+    spouseAge: 60,
+    targetSpend: spend,
+    targetSpendIncludesTaxes: true,
+    targetSpendIncludesMedical: true,
+    medicalExpensesBase: 0,
+    withdrawalOrder: ["taxable"],
+    withdrawalStrategy: { mode: "heuristic" },
+    taxLossHarvesting: { enabled: false },
+    taxGainHarvesting: { enabled: false },
+    rothConversion: { enabled: false },
+    aca: { enabled: false },
+    returnAssumptions: {
+      ...DEFAULT_SCENARIO.returnAssumptions,
+      stock: { mean: 0.04, stdev: 0.08 },
+      inflation: { mean: 0, stdev: 0 }
+    },
+    spendingStrategy: {
+      ...DEFAULT_SCENARIO.spendingStrategy,
+      mode: "fixed",
+      essentialSpend: 35,
+      discretionarySpend: 15
+    }
+  };
+
+  const decision = runDecisionBatch({
+    assets: [{
+      id: "stock",
+      name: "Stock",
+      accountType: "taxable",
+      assetClass: "stock",
+      units: 400,
+      price: 1,
+      costBasisPerUnit: 1,
+      dividendYield: 0,
+      qualifiedDividendShare: 1
+    }],
+    scenario,
+    taxProfile: noTaxProfile,
+    runs: 60,
+    seed: 25,
+    sequences: [],
+    decisionProfile: {
+      requiredSpend: 35,
+      flexibleSpend: 15,
+      targetSuccessRate: 0.9,
+      incomeBridge: { enabled: false }
+    }
+  });
+
+  const cut = decision.rescueOptions.find((option) => option.kind === "discretionaryCut");
+  assert.equal(cut.status, "target-met");
+  assert.equal(cut.monteCarlo.successRate, 0.9);
+  assert.equal(cut.metadata.cutAmount, 15);
 });

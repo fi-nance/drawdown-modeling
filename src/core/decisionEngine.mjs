@@ -290,7 +290,8 @@ function findDiscretionaryCut({ assets, scenario, taxProfile, runs, seed, sequen
     tracker
   });
   if (!meetsTarget(fullCut, profile)) {
-    return optionWithDelta(finalizeCandidate({ candidate: fullCut, assets, taxProfile, runs, seed, sequences, profile }), base, { status: "best-tested" });
+    const finalized = finalizeCandidate({ candidate: fullCut, assets, taxProfile, runs, seed, sequences, profile });
+    return optionWithDelta(finalized, base, { status: meetsTarget(finalized, profile) ? "target-met" : "best-tested" });
   }
 
   let low = 0;
@@ -320,7 +321,8 @@ function findDiscretionaryCut({ assets, scenario, taxProfile, runs, seed, sequen
       low = cut;
     }
   }
-  return optionWithDelta(finalizeCandidate({ candidate: best, assets, taxProfile, runs, seed, sequences, profile }), base, { status: "target-met" });
+  const finalized = finalizeCandidate({ candidate: best, assets, taxProfile, runs, seed, sequences, profile });
+  return optionWithDelta(finalized, base, { status: meetsTarget(finalized, profile) ? "target-met" : "best-tested" });
 }
 
 function findIncomeBridge({ assets, scenario, taxProfile, runs, seed, sequences, profile, base, tracker }) {
