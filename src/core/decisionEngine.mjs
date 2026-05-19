@@ -1011,10 +1011,9 @@ function findConversionGuardrail({ assets, scenario, taxProfile, runs, seed, seq
     tracker
   });
   const finalized = finalizeCandidate({ candidate, assets, taxProfile, runs, seed, sequences, profile });
-  const magiImproved = Number.isFinite(finalized.planFirstYear?.magi)
-    && Number.isFinite(base.planFirstYear?.magi)
-    && finalized.planFirstYear.magi + EPSILON < base.planFirstYear.magi;
-  if (!isWorthwhileRescue(finalized, base, profile) && !(firstYearSubsidyGain(finalized, base) > MEANINGFUL_SUBSIDY_GAIN) && !magiImproved) {
+  // A bare MAGI drop with no success or subsidy gain just renders a "+0 pts"
+  // no-op card; a real MAGI win shows up in the success rate or the subsidy.
+  if (!isWorthwhileRescue(finalized, base, profile) && !(firstYearSubsidyGain(finalized, base) > MEANINGFUL_SUBSIDY_GAIN)) {
     return null;
   }
   return optionWithDelta(finalized, base, { status: meetsTarget(finalized, profile) ? "target-met" : "best-tested" });
@@ -1074,10 +1073,9 @@ function findIrmaaLookbackRescue({ assets, scenario, taxProfile, runs, seed, seq
     tracker
   });
   const finalized = finalizeCandidate({ candidate, assets, taxProfile, runs, seed, sequences, profile });
-  const magiImproved = Number.isFinite(finalized.planFirstYear?.magi)
-    && Number.isFinite(base.planFirstYear?.magi)
-    && finalized.planFirstYear.magi + EPSILON < base.planFirstYear.magi;
-  if (!isWorthwhileRescue(finalized, base, profile) && !magiImproved) return null;
+  // Surface only on a real success gain; a MAGI drop that does not move the
+  // success rate is not worth a "+0 pts" card.
+  if (!isWorthwhileRescue(finalized, base, profile)) return null;
   return optionWithDelta(finalized, base, { status: meetsTarget(finalized, profile) ? "target-met" : "best-tested" });
 }
 
