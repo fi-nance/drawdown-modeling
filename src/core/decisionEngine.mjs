@@ -956,7 +956,7 @@ function findRothBasisCliffRescue({ assets, scenario, taxProfile, runs, seed, se
   });
   const finalized = finalizeCandidate({ candidate, assets, taxProfile, runs, seed, sequences, profile });
   const subsidyGain = firstYearSubsidyGain(finalized, base);
-  if (!isWorthwhileRescue(finalized, base, profile) && !(subsidyGain > 1)) return null;
+  if (!isWorthwhileRescue(finalized, base, profile) && !(subsidyGain > MEANINGFUL_SUBSIDY_GAIN)) return null;
   return optionWithDelta(finalized, base, { status: meetsTarget(finalized, profile) ? "target-met" : "best-tested" });
 }
 
@@ -981,7 +981,7 @@ function findTaxableLotRescue({ assets, scenario, taxProfile, runs, seed, sequen
     tracker
   });
   const finalized = finalizeCandidate({ candidate, assets, taxProfile, runs, seed, sequences, profile });
-  if (!isWorthwhileRescue(finalized, base, profile) && !(firstYearSubsidyGain(finalized, base) > 1)) return null;
+  if (!isWorthwhileRescue(finalized, base, profile) && !(firstYearSubsidyGain(finalized, base) > MEANINGFUL_SUBSIDY_GAIN)) return null;
   return optionWithDelta(finalized, base, { status: meetsTarget(finalized, profile) ? "target-met" : "best-tested" });
 }
 
@@ -1014,7 +1014,7 @@ function findConversionGuardrail({ assets, scenario, taxProfile, runs, seed, seq
   const magiImproved = Number.isFinite(finalized.planFirstYear?.magi)
     && Number.isFinite(base.planFirstYear?.magi)
     && finalized.planFirstYear.magi + EPSILON < base.planFirstYear.magi;
-  if (!isWorthwhileRescue(finalized, base, profile) && !(firstYearSubsidyGain(finalized, base) > 1) && !magiImproved) {
+  if (!isWorthwhileRescue(finalized, base, profile) && !(firstYearSubsidyGain(finalized, base) > MEANINGFUL_SUBSIDY_GAIN) && !magiImproved) {
     return null;
   }
   return optionWithDelta(finalized, base, { status: meetsTarget(finalized, profile) ? "target-met" : "best-tested" });
@@ -1048,7 +1048,7 @@ function findMagiSpendTrim({ assets, scenario, taxProfile, runs, seed, sequences
     tracker
   });
   const finalized = finalizeCandidate({ candidate, assets, taxProfile, runs, seed, sequences, profile });
-  if (!isWorthwhileRescue(finalized, base, profile) && !(firstYearSubsidyGain(finalized, base) > 1)) return null;
+  if (!isWorthwhileRescue(finalized, base, profile) && !(firstYearSubsidyGain(finalized, base) > MEANINGFUL_SUBSIDY_GAIN)) return null;
   return optionWithDelta(finalized, base, { status: meetsTarget(finalized, profile) ? "target-met" : "best-tested" });
 }
 
@@ -1128,6 +1128,11 @@ function isWorthwhileRescue(candidate, base, profile) {
 function healthcareSortScore(candidate) {
   return candidate.monteCarlo.successRate * 1000 + (candidate.planFirstYear?.acaSubsidy ?? 0) / 1000;
 }
+
+// A subsidy-only rescue (no success-rate gain) is worth a card only if it
+// preserves a meaningful amount of first-year ACA subsidy. A trivial gain
+// just renders as a "+0 pts" no-op card.
+const MEANINGFUL_SUBSIDY_GAIN = 250;
 
 function firstYearSubsidyGain(candidate, base) {
   return (candidate?.planFirstYear?.acaSubsidy ?? 0) - (base?.planFirstYear?.acaSubsidy ?? 0);
