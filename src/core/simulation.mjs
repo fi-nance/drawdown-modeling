@@ -142,7 +142,9 @@ export const DEFAULT_SCENARIO = {
   rothFiveYearRuleSatisfied: true,
   rothBasisOptimization: {
     enabled: true,
-    minSavingsRate: 0.5
+    minSavingsRate: 0.5,
+    opportunityCostMode: "dynamic",
+    magiBuffer: 1000
   },
   medicareWages: 0,
   selfEmploymentIncome: 0,
@@ -178,7 +180,9 @@ export const DEFAULT_SCENARIO = {
     annualAmount: null,
     targetMarginalRate: 0.12,
     optimizeForAca: true,
-    maxAcaFplPercent: 400
+    maxAcaFplPercent: 400,
+    magiBuffer: 0,
+    applyMagiGuardrails: false
   },
   aca: DEFAULT_ACA_CONFIG,
   heirOrdinaryTaxRate: 0.24
@@ -691,6 +695,12 @@ function simulateYear({
         penaltyAge: scenario.retirementPenaltyAge ?? 59.5,
         penaltyRate: scenario.earlyWithdrawalPenaltyRate ?? 0.1,
         rothBasisRemaining: rmdWithdrawal.rothBasisRemaining,
+        rothBasisAvailable: rothBasisAvailableForWithdrawal(portfolio, {
+          rothBasisRemaining: rmdWithdrawal.rothBasisRemaining,
+          age,
+          calendarYear,
+          penaltyAge: scenario.retirementPenaltyAge ?? 59.5
+        }),
         rothFiveYearRuleSatisfied: scenario.rothFiveYearRuleSatisfied !== false,
         penaltyExceptionRemaining: rmdWithdrawal.penaltyExceptionRemaining,
         returnAssumptions: scenario.returnAssumptions,
@@ -955,7 +965,8 @@ function simulateYear({
           taxProfile: yearTaxProfile,
           ordinaryIncome: finalIncome.ordinaryIncome
         })
-      : null
+      : null,
+    magiBuffer: rothConversionMagiBuffer(scenario)
   });
   const taxAttribution = estimateTaxAttribution({
     taxProfile: yearTaxProfile,
@@ -1065,6 +1076,11 @@ function simulateYear({
   portfolio.splice(0, portfolio.length, ...finalPortfolio);
   removeEmptyLots(portfolio);
   const endingAssets = assetSnapshot(portfolio);
+  const rothBasisSummary = rothBasisSummaryForYear(finalPortfolio, {
+    age,
+    calendarYear,
+    penaltyAge: scenario.retirementPenaltyAge ?? 59.5
+  });
 
   const cashShortfall = Math.max(0, totalCashRequired - cashAvailable);
   const unfunded = cashShortfall <= CASH_GAP_TOLERANCE ? 0 : cashShortfall;
@@ -1144,6 +1160,10 @@ function simulateYear({
     rothWithdrawals: round(finalWithdrawal.rothProceeds, 6),
     rothBasisUsed: round(finalWithdrawal.rothBasisUsed, 6),
     rothBasisRemaining: round(finalWithdrawal.rothBasisRemaining, 6),
+    rothContributionBasisRemaining: round(finalWithdrawal.rothBasisRemaining, 6),
+    rothConversionPrincipalRemaining: rothBasisSummary.conversionPrincipal,
+    rothPenaltyFreeConversionPrincipal: rothBasisSummary.penaltyFreeConversionPrincipal,
+    rothBasisAvailable: round(finalWithdrawal.rothBasisRemaining + rothBasisSummary.penaltyFreeConversionPrincipal, 6),
     rothFiveYearRuleSatisfied: scenario.rothFiveYearRuleSatisfied !== false,
     rothBasisOptimization: finalRothBasisOptimization,
     hsaContribution,
@@ -1226,6 +1246,12 @@ function reconcileCashRequirement({
         penaltyAge: scenario.retirementPenaltyAge ?? 59.5,
         penaltyRate: scenario.earlyWithdrawalPenaltyRate ?? 0.1,
         rothBasisRemaining: currentWithdrawal.rothBasisRemaining,
+        rothBasisAvailable: rothBasisAvailableForWithdrawal(portfolio, {
+          rothBasisRemaining: currentWithdrawal.rothBasisRemaining,
+          age,
+          calendarYear,
+          penaltyAge: scenario.retirementPenaltyAge ?? 59.5
+        }),
         rothFiveYearRuleSatisfied: scenario.rothFiveYearRuleSatisfied !== false,
         penaltyExceptionRemaining: currentWithdrawal.penaltyExceptionRemaining,
         returnAssumptions: scenario.returnAssumptions,
@@ -1408,19 +1434,20 @@ function chooseWithdrawalPlan({
       }
     }
     if (penaltyCandidate) {
-      const baselineRoth = rothWithdrawalProceeds(baseline.withdrawal) - rothWithdrawalProceeds(baseWithdrawal);
-      const candidateRoth = rothWithdrawalProceeds(penaltyCandidate.withdrawal) - rothWithdrawalProceeds(baseWithdrawal);
-      const extraRothWithdrawal = round(Math.max(0, candidateRoth - Math.max(0, baselineRoth)), 6);
-      const modeledSavings = round(Math.max(0, baseline.modeledCost - penaltyCandidate.modeledCost), 6);
-      const requiredSavings = round(extraRothWithdrawal * optimization.minSavingsRate, 6);
+      const metrics = rothOptimizationMetrics({
+        baseline,
+        candidate: penaltyCandidate,
+        baseWithdrawal,
+        withdrawalContext,
+        evaluationContext,
+        optimization
+      });
       return withRothOptimizationDecision(penaltyCandidate, {
         enabled: true,
         accepted: true,
         reason: "early-penalty-avoidance",
         minSavingsRate: optimization.minSavingsRate,
-        extraRothWithdrawal,
-        modeledSavings,
-        requiredSavings
+        ...metrics
       });
     }
   }
@@ -1461,21 +1488,24 @@ function chooseWithdrawalPlan({
     },
     evaluationContext
   });
-  const baselineRoth = rothWithdrawalProceeds(baseline.withdrawal) - rothWithdrawalProceeds(baseWithdrawal);
-  const candidateRoth = rothWithdrawalProceeds(candidate.withdrawal) - rothWithdrawalProceeds(baseWithdrawal);
-  const extraRothWithdrawal = round(Math.max(0, candidateRoth - Math.max(0, baselineRoth)), 6);
-  const modeledSavings = round(Math.max(0, baseline.modeledCost - candidate.modeledCost), 6);
-  const requiredSavings = round(extraRothWithdrawal * optimization.minSavingsRate, 6);
-  const accepted = extraRothWithdrawal > 0.000001 && modeledSavings + 0.01 >= requiredSavings;
+  const metrics = rothOptimizationMetrics({
+    baseline,
+    candidate,
+    baseWithdrawal,
+    withdrawalContext,
+    evaluationContext,
+    optimization
+  });
+  const accepted = metrics.extraRothWithdrawal > 0.000001
+    && metrics.modeledSavings > 0.01
+    && metrics.modeledSavings + 0.01 >= metrics.requiredSavings;
 
   return withRothOptimizationDecision(accepted ? candidate : baseline, {
     enabled: true,
     accepted,
     reason: accepted ? "savings-hurdle-met" : "savings-below-hurdle",
     minSavingsRate: optimization.minSavingsRate,
-    extraRothWithdrawal,
-    modeledSavings,
-    requiredSavings
+    ...metrics
   });
 }
 
@@ -1535,29 +1565,32 @@ function chooseLifetimeOptimizedWithdrawalPlan({
       },
       evaluationContext
     });
-    const baselineRoth = rothWithdrawalProceeds(baseline.withdrawal) - rothWithdrawalProceeds(baseWithdrawal);
-    const candidateRoth = rothWithdrawalProceeds(candidate.withdrawal) - rothWithdrawalProceeds(baseWithdrawal);
-    const extraRothWithdrawal = round(Math.max(0, candidateRoth - Math.max(0, baselineRoth)), 6);
-    const modeledSavings = round(Math.max(0, baseline.modeledCost - candidate.modeledCost), 6);
-    const requiredSavings = round(extraRothWithdrawal * rothOptimization.minSavingsRate, 6);
+    const metrics = rothOptimizationMetrics({
+      baseline,
+      candidate,
+      baseWithdrawal,
+      withdrawalContext,
+      evaluationContext,
+      optimization: rothOptimization
+    });
     const avoidsEarlyPenalty = hasLowerPenaltyBurden(candidate.withdrawal, baseline.withdrawal);
 
-    if (extraRothWithdrawal > 0.000001
+    if (metrics.extraRothWithdrawal > 0.000001
       && !avoidsEarlyPenalty
-      && (!rothOptimization.enabled || modeledSavings + 0.01 < requiredSavings)) {
+      && (!rothOptimization.enabled
+        || metrics.modeledSavings <= 0.01
+        || metrics.modeledSavings + 0.01 < metrics.requiredSavings)) {
       continue;
     }
 
     const annotated = withRothOptimizationDecision(candidate, {
       enabled: rothOptimization.enabled,
-      accepted: extraRothWithdrawal > 0.000001,
+      accepted: metrics.extraRothWithdrawal > 0.000001,
       reason: avoidsEarlyPenalty
         ? "early-penalty-avoidance"
-        : extraRothWithdrawal > 0.000001 ? "lifetime-savings-hurdle-met" : "lifetime-lower-cost-source",
+        : metrics.extraRothWithdrawal > 0.000001 ? "lifetime-savings-hurdle-met" : "lifetime-lower-cost-source",
       minSavingsRate: rothOptimization.minSavingsRate,
-      extraRothWithdrawal,
-      modeledSavings,
-      requiredSavings
+      ...metrics
     });
     const score = lifetimeWithdrawalScore(annotated, config, evaluationContext.scenario);
     const candidatePenalty = withdrawalPenaltyBurden(annotated.withdrawal);
@@ -1614,7 +1647,8 @@ function optimizedWithdrawalCandidates({
       baseline,
       withdrawalContext,
       evaluationContext,
-      amount
+      amount,
+      rothOptimization
     })) {
       candidates.push({ order: rothOrder, maxRothProceeds: limit });
     }
@@ -1623,14 +1657,15 @@ function optimizedWithdrawalCandidates({
   return candidates;
 }
 
-function rothSubstitutionLimits({ baseline, withdrawalContext, evaluationContext, amount }) {
+function rothSubstitutionLimits({ baseline, withdrawalContext, evaluationContext, amount, rothOptimization }) {
   const maxRoth = optimizedRothProceedsLimit(withdrawalContext);
   if (!(maxRoth > 0)) return [];
   const baselineRoth = rothWithdrawalProceeds(baseline.withdrawal);
   const thresholds = magiOptimizationThresholds({
     magi: baseline.magi,
     yearTaxProfile: evaluationContext.yearTaxProfile,
-    yearAcaConfig: evaluationContext.yearAcaConfig
+    yearAcaConfig: evaluationContext.yearAcaConfig,
+    magiBuffer: rothOptimization?.magiBuffer ?? 0
   });
   const limits = [Math.min(maxRoth, amount)];
   for (const threshold of thresholds) {
@@ -1644,20 +1679,192 @@ function rothSubstitutionLimits({ baseline, withdrawalContext, evaluationContext
     .sort((a, b) => a - b);
 }
 
-function magiOptimizationThresholds({ magi, yearTaxProfile, yearAcaConfig }) {
+function magiOptimizationThresholds({ magi, yearTaxProfile, yearAcaConfig, magiBuffer = 0 }) {
   const thresholds = [];
+  const acaBuffer = Math.max(0, Number(magiBuffer) || 0);
   if (yearAcaConfig?.enabled && yearAcaConfig.fpl > 0) {
     thresholds.push(...(yearAcaConfig.applicablePercentageTable ?? [])
       .map((row) => row.maxFplPercent)
       .filter((percent) => Number.isFinite(percent) && percent > 0)
-      .map((percent) => yearAcaConfig.fpl * percent / 100));
-    thresholds.push(yearAcaConfig.fpl * ((yearAcaConfig.maxEligibleFplPercent ?? 400) / 100));
+      .map((percent) => Math.max(0, yearAcaConfig.fpl * percent / 100 - acaBuffer)));
+    thresholds.push(Math.max(0, yearAcaConfig.fpl * ((yearAcaConfig.maxEligibleFplPercent ?? 400) / 100) - acaBuffer));
   }
   const niitThreshold = yearTaxProfile?.niit?.thresholds?.[yearTaxProfile.filingStatus];
   if (Number.isFinite(niitThreshold)) thresholds.push(niitThreshold);
   return thresholds
     .filter((threshold) => Number.isFinite(threshold) && threshold > 0 && threshold < magi - 0.000001)
     .sort((a, b) => b - a);
+}
+
+function rothOptimizationMetrics({
+  baseline,
+  candidate,
+  baseWithdrawal,
+  withdrawalContext,
+  evaluationContext,
+  optimization
+}) {
+  const baselineRoth = rothWithdrawalProceeds(baseline.withdrawal) - rothWithdrawalProceeds(baseWithdrawal);
+  const candidateRoth = rothWithdrawalProceeds(candidate.withdrawal) - rothWithdrawalProceeds(baseWithdrawal);
+  const extraRothWithdrawal = round(Math.max(0, candidateRoth - Math.max(0, baselineRoth)), 6);
+  const modeledSavings = round(Math.max(0, baseline.modeledCost - candidate.modeledCost), 6);
+  const opportunityCostRate = rothBasisOpportunityCostRate({
+    baseline,
+    candidate,
+    extraRothWithdrawal,
+    withdrawalContext,
+    evaluationContext,
+    optimization
+  });
+  return {
+    extraRothWithdrawal,
+    modeledSavings,
+    requiredSavings: round(extraRothWithdrawal * opportunityCostRate, 6),
+    opportunityCostRate
+  };
+}
+
+function rothBasisOpportunityCostRate({
+  baseline,
+  candidate,
+  extraRothWithdrawal,
+  withdrawalContext,
+  evaluationContext,
+  optimization
+}) {
+  if (!(extraRothWithdrawal > 0)) return 0;
+  if (optimization?.opportunityCostMode === "fixed") {
+    return round(clampFiniteNumber(optimization.minSavingsRate, 0, 1, 0.5), 6);
+  }
+
+  const scenario = evaluationContext.scenario ?? {};
+  const taxProfile = evaluationContext.yearTaxProfile;
+  const years = rothOpportunityCostYears({
+    withdrawalContext,
+    scenario,
+    yearIndex: evaluationContext.yearIndex
+  });
+  const futureOrdinaryRate = estimatedFutureOrdinaryIncomeRate({
+    portfolio: candidate.portfolio ?? [],
+    scenario,
+    age: withdrawalContext.age,
+    taxProfile,
+    ordinaryIncome: evaluationContext.ordinaryIncome ?? 0
+  });
+  const futureCapitalGainRate = estimatedFutureCapitalGainRate({
+    taxProfile,
+    scenario,
+    portfolio: candidate.portfolio ?? []
+  });
+  const avoidedSales = avoidedSalesFromBaseline(baseline.withdrawal, candidate.withdrawal);
+  const retainedTaxRate = weightedRetainedFutureTaxRate(avoidedSales, {
+    futureOrdinaryRate,
+    futureCapitalGainRate,
+    scenario
+  });
+  const retainedReturn = weightedSaleExpectedReturn(avoidedSales, scenario.returnAssumptions);
+  const extraRothSales = extraRothSalesFromCandidate(baseline.withdrawal, candidate.withdrawal);
+  const rothReturn = weightedSaleExpectedReturn(extraRothSales, scenario.returnAssumptions);
+  const discountReturn = Math.max(0.01, rothReturn);
+  const relativeGrowth = Math.pow((1 + Math.max(-0.5, retainedReturn)) / (1 + discountReturn), years);
+  const futureTaxCost = retainedTaxRate * relativeGrowth;
+  const taxableDrag = retainedTaxRate > 0
+    ? 0
+    : Math.max(0, rothReturn - retainedReturn) * Math.min(years, 10) * 0.15;
+  const rawRate = futureTaxCost + taxableDrag;
+  const capped = clampFiniteNumber(rawRate, 0, optimization?.minSavingsRate ?? 0.5, 0.15);
+  return round(capped, 6);
+}
+
+function clampFiniteNumber(value, min, max, fallback) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return fallback;
+  return Math.max(min, Math.min(max, number));
+}
+
+function rothOpportunityCostYears({ withdrawalContext, scenario, yearIndex = 0 }) {
+  const configured = Number(scenario?.rothBasisOptimization?.opportunityCostYears);
+  if (Number.isFinite(configured) && configured > 0) return Math.min(40, configured);
+  const age = Number(withdrawalContext?.age);
+  const remainingPlanYears = Math.max(1, Number(scenario?.planYears ?? 30) - Number(yearIndex ?? 0));
+  if (Number.isFinite(age) && age < 65 && scenario?.aca?.enabled !== false) {
+    return Math.max(1, Math.min(remainingPlanYears, 65 - age));
+  }
+  if (Number.isFinite(age)) return Math.max(1, Math.min(remainingPlanYears, 85 - age));
+  return Math.min(remainingPlanYears, 20);
+}
+
+function avoidedSalesFromBaseline(baselineWithdrawal = {}, candidateWithdrawal = {}) {
+  const candidateByKey = saleProceedsByKey(candidateWithdrawal.sales ?? [], (sale) => sale.accountType !== "roth");
+  return (baselineWithdrawal.sales ?? [])
+    .filter((sale) => sale.accountType !== "roth")
+    .map((sale) => {
+      const key = saleKey(sale);
+      const candidateProceeds = candidateByKey.get(key) ?? 0;
+      const avoidedProceeds = Math.max(0, (sale.proceeds ?? 0) - candidateProceeds);
+      return avoidedProceeds > 0.000001 ? { ...sale, proceeds: round(avoidedProceeds, 6) } : null;
+    })
+    .filter(Boolean);
+}
+
+function extraRothSalesFromCandidate(baselineWithdrawal = {}, candidateWithdrawal = {}) {
+  const baselineByKey = saleProceedsByKey(baselineWithdrawal.sales ?? [], (sale) => sale.accountType === "roth");
+  return (candidateWithdrawal.sales ?? [])
+    .filter((sale) => sale.accountType === "roth")
+    .map((sale) => {
+      const key = saleKey(sale);
+      const baselineProceeds = baselineByKey.get(key) ?? 0;
+      const extraProceeds = Math.max(0, (sale.proceeds ?? 0) - baselineProceeds);
+      return extraProceeds > 0.000001 ? { ...sale, proceeds: round(extraProceeds, 6) } : null;
+    })
+    .filter(Boolean);
+}
+
+function saleProceedsByKey(sales = [], predicate = () => true) {
+  const map = new Map();
+  for (const sale of sales) {
+    if (!predicate(sale)) continue;
+    const key = saleKey(sale);
+    map.set(key, (map.get(key) ?? 0) + Math.max(0, sale.proceeds ?? 0));
+  }
+  return map;
+}
+
+function saleKey(sale = {}) {
+  return `${sale.accountType ?? ""}|${sale.assetId ?? sale.id ?? sale.name ?? ""}`;
+}
+
+function weightedRetainedFutureTaxRate(sales = [], { futureOrdinaryRate, futureCapitalGainRate, scenario }) {
+  const total = sales.reduce((sum, sale) => sum + Math.max(0, sale.proceeds ?? 0), 0);
+  if (!(total > 0)) return Math.max(0, futureOrdinaryRate ?? 0) * 0.5;
+  return sales.reduce((sum, sale) => {
+    const proceeds = Math.max(0, sale.proceeds ?? 0);
+    const weight = proceeds / total;
+    if (sale.accountType === "traditional") return sum + weight * Math.max(0, futureOrdinaryRate ?? 0);
+    if (sale.accountType === "taxable") {
+      const gainRatio = proceeds > 0 ? Math.max(0, sale.gain ?? 0) / proceeds : 0;
+      return sum + weight * Math.max(0, futureCapitalGainRate ?? 0) * Math.min(1, gainRatio);
+    }
+    if (sale.accountType === "hsa") {
+      const hsaQualified = scenario?.taxEfficiencyStrategy?.hsaUseForQualifiedExpenses === true
+        || scenario?.taxEfficiencyStrategy?.hsaContributionEnabled === true;
+      return sum + weight * (hsaQualified ? 0 : Math.max(0, futureOrdinaryRate ?? 0));
+    }
+    return sum;
+  }, 0);
+}
+
+function weightedSaleExpectedReturn(sales = [], returnAssumptions = {}) {
+  const total = sales.reduce((sum, sale) => sum + Math.max(0, sale.proceeds ?? 0), 0);
+  if (!(total > 0)) return 0;
+  return sales.reduce((sum, sale) => {
+    const proceeds = Math.max(0, sale.proceeds ?? 0);
+    const explicit = Number(sale.expectedReturn);
+    const assumed = Number.isFinite(explicit)
+      ? explicit
+      : expectedReturnForAsset(sale, returnAssumptions);
+    return sum + (proceeds / total) * (Number.isFinite(assumed) ? assumed : 0);
+  }, 0);
 }
 
 function uniqueWithdrawalOrders(orders) {
@@ -1797,7 +2004,8 @@ function withRothOptimizationDecision(plan, decision) {
       ...decision,
       extraRothWithdrawal: round(decision.extraRothWithdrawal ?? 0, 6),
       modeledSavings: round(decision.modeledSavings ?? 0, 6),
-      requiredSavings: round(decision.requiredSavings ?? 0, 6)
+      requiredSavings: round(decision.requiredSavings ?? 0, 6),
+      opportunityCostRate: round(decision.opportunityCostRate ?? 0, 6)
     }
   };
 }
@@ -1805,9 +2013,13 @@ function withRothOptimizationDecision(plan, decision) {
 function rothBasisOptimizationConfig(scenario) {
   const config = scenario.rothBasisOptimization ?? {};
   const minSavingsRate = Number(config.minSavingsRate);
+  const magiBuffer = Number(config.magiBuffer);
+  const opportunityCostMode = config.opportunityCostMode === "fixed" ? "fixed" : "dynamic";
   return {
     enabled: config.enabled !== false,
-    minSavingsRate: Number.isFinite(minSavingsRate) && minSavingsRate >= 0 ? minSavingsRate : 0.5
+    minSavingsRate: Number.isFinite(minSavingsRate) && minSavingsRate >= 0 ? minSavingsRate : 0.5,
+    opportunityCostMode,
+    magiBuffer: Number.isFinite(magiBuffer) && magiBuffer >= 0 ? magiBuffer : 1000
   };
 }
 
@@ -2449,6 +2661,8 @@ function betterPenaltyAvoidancePlan(candidate, incumbent) {
 
 function optimizedRothProceedsLimit(withdrawalContext) {
   if ((withdrawalContext.age ?? 99) >= (withdrawalContext.penaltyAge ?? 59.5)) return Infinity;
+  const available = Number(withdrawalContext.rothBasisAvailable);
+  if (Number.isFinite(available)) return Math.max(0, available);
   return Math.max(0, Number(withdrawalContext.rothBasisRemaining) || 0);
 }
 
@@ -2773,6 +2987,35 @@ function convertTraditionalToRoth(portfolio, requestedAmount, calendarYear) {
 
   removeEmptyLots(portfolio);
   return round(converted, 6);
+}
+
+function rothBasisSummaryForYear(portfolio, { age, calendarYear, penaltyAge }) {
+  const isEarly = Number(age) < Number(penaltyAge);
+  let conversionPrincipal = 0;
+  let penaltyFreeConversionPrincipal = 0;
+
+  for (const asset of portfolio) {
+    if (asset?.accountType !== "roth" || asset.rothSource !== "conversion") continue;
+    const principal = Math.max(0, Math.min(marketValue(asset), (asset.units ?? 0) * (asset.costBasisPerUnit ?? 0)));
+    if (!(principal > 0)) continue;
+    conversionPrincipal += principal;
+    const conversionYear = Number(asset.conversionYear);
+    const conversionFiveYearClockMet = Number.isFinite(conversionYear) && calendarYear - conversionYear >= 5;
+    if (!isEarly || conversionFiveYearClockMet) {
+      penaltyFreeConversionPrincipal += principal;
+    }
+  }
+
+  return {
+    conversionPrincipal: round(conversionPrincipal, 6),
+    penaltyFreeConversionPrincipal: round(penaltyFreeConversionPrincipal, 6)
+  };
+}
+
+function rothBasisAvailableForWithdrawal(portfolio, { rothBasisRemaining = 0, age, calendarYear, penaltyAge }) {
+  if (Number(age) >= Number(penaltyAge)) return Infinity;
+  const summary = rothBasisSummaryForYear(portfolio, { age, calendarYear, penaltyAge });
+  return round(Math.max(0, Number(rothBasisRemaining) || 0) + summary.penaltyFreeConversionPrincipal, 6);
 }
 
 function combineIncome({
@@ -3611,7 +3854,8 @@ function gainHarvestingRoom({
   const acaTarget = acaMagiCeiling({
     acaConfig,
     currentMagi,
-    maxFplPercent: acaConfig?.maxEligibleFplPercent ?? 400
+    maxFplPercent: acaConfig?.maxEligibleFplPercent ?? 400,
+    magiBuffer: taxGainHarvestingMagiBuffer(scenario)
   });
   const acaRoom = acaConfig?.enabled
     ? Math.max(0, acaTarget.amount - currentMagi)
@@ -3636,7 +3880,8 @@ function gainHarvestingRoom({
     acaConfig,
     currentMagi,
     maxFplPercent: acaConfig?.maxEligibleFplPercent ?? 400,
-    targetRate: marginalBenefitRate
+    targetRate: marginalBenefitRate,
+    magiBuffer: taxGainHarvestingMagiBuffer(scenario)
   });
   const acaEligibilityCeiling = acaConfig?.enabled && acaConfig.fpl > 0
     ? acaConfig.fpl * ((acaConfig.maxEligibleFplPercent ?? 400) / 100)
@@ -3914,6 +4159,16 @@ function finiteRoom(value) {
   return Number.isFinite(number) ? Math.max(0, number) : Infinity;
 }
 
+function rothConversionMagiBuffer(scenario = {}) {
+  const buffer = Number(scenario.rothConversion?.magiBuffer ?? scenario.aca?.magiBuffer ?? 0);
+  return Number.isFinite(buffer) && buffer > 0 ? buffer : 0;
+}
+
+function taxGainHarvestingMagiBuffer(scenario = {}) {
+  const buffer = Number(scenario.taxGainHarvesting?.magiBuffer ?? scenario.aca?.magiBuffer ?? 0);
+  return Number.isFinite(buffer) && buffer > 0 ? buffer : 0;
+}
+
 function strategyLimit({ strategy, autoValue, legacyField, overrideField }) {
   const legacy = Number(strategy?.[legacyField]);
   const override = Number(strategy?.[overrideField]);
@@ -3952,7 +4207,33 @@ function rothConversionAmountForYear({
       && Number.isFinite(Number(scenario.rothConversion.annualAmount))
       ? Number(scenario.rothConversion.annualAmount)
       : null;
-  if (requested !== null && requested >= 0) return requested;
+  if (requested !== null && requested >= 0) {
+    if (scenario.rothConversion?.applyMagiGuardrails === true || rothConversionMagiBuffer(scenario) > 0) {
+      const room = rothConversionMagiGuardrailRoom({
+        portfolio,
+        scenario,
+        taxProfile,
+        acaConfig,
+        ordinaryIncome,
+        earnedIncome,
+        ordinaryInvestmentIncome,
+        qualifiedDividends,
+        adjustmentsToIncome,
+        socialSecurityBenefits,
+        age,
+        inflationIndex
+      });
+      const directAcaRoom = rothConversionDirectAcaRoom({
+        scenario,
+        acaConfig,
+        ordinaryIncome,
+        qualifiedDividends,
+        adjustmentsToIncome
+      });
+      return round(Math.min(requested, room, directAcaRoom, traditionalAccountValue(portfolio)), 6);
+    }
+    return requested;
+  }
 
   const targetRate = effectiveRothConversionTargetRate({
     portfolio,
@@ -3982,7 +4263,8 @@ function rothConversionAmountForYear({
           acaConfig,
           currentMagi: magiBeforeConversion,
           maxFplPercent: scenario.rothConversion?.maxAcaFplPercent ?? 400,
-          targetRate
+          targetRate,
+          magiBuffer: rothConversionMagiBuffer(scenario)
         });
     const acaRoom = acaConfig?.enabled
       ? Math.max(0, acaTarget.amount - magiBeforeConversion)
@@ -4050,7 +4332,8 @@ function rothConversionAmountForYear({
         acaConfig,
         currentMagi: magiBeforeConversion,
         maxFplPercent: scenario.rothConversion?.maxAcaFplPercent ?? 400,
-        targetRate
+        targetRate,
+        magiBuffer: rothConversionMagiBuffer(scenario)
       });
   const acaRoom = acaConfig?.enabled
     ? Math.max(0, acaTarget.amount - magiBeforeConversion)
@@ -4070,6 +4353,79 @@ function rothConversionAmountForYear({
     finiteRoom(irmaaRoom),
     traditionalAccountValue(portfolio)
   ), 6);
+}
+
+function rothConversionMagiGuardrailRoom({
+  portfolio,
+  scenario,
+  taxProfile,
+  acaConfig,
+  ordinaryIncome,
+  earnedIncome = emptyEarnedIncome(),
+  ordinaryInvestmentIncome = 0,
+  qualifiedDividends = 0,
+  adjustmentsToIncome = 0,
+  socialSecurityBenefits = 0,
+  age = null,
+  inflationIndex = 1
+}) {
+  const targetRate = effectiveRothConversionTargetRate({
+    portfolio,
+    scenario,
+    age,
+    taxProfile,
+    ordinaryIncome
+  });
+  const { income } = incomeForYear({
+    ordinaryIncome,
+    earnedIncome,
+    retirementOrdinaryIncome: 0,
+    ordinaryInvestmentIncome,
+    qualifiedDividends,
+    adjustmentsToIncome,
+    withdrawal: emptyWithdrawal(),
+    socialSecurityBenefits,
+    taxProfile,
+    scenario
+  });
+  const magiBeforeConversion = acaMagiForIncome(income);
+  const acaTarget = scenario.rothConversion?.optimizeForAca === false
+    ? { amount: Infinity }
+    : acaMagiCeiling({
+        acaConfig,
+        currentMagi: magiBeforeConversion,
+        maxFplPercent: scenario.rothConversion?.maxAcaFplPercent ?? 400,
+        targetRate,
+        magiBuffer: rothConversionMagiBuffer(scenario)
+      });
+  const acaRoom = acaConfig?.enabled
+    ? Math.max(0, acaTarget.amount - magiBeforeConversion)
+    : Infinity;
+  const irmaaRoom = irmaaMagiRoomForConversion({
+    scenario,
+    taxProfile,
+    age,
+    inflationIndex,
+    magiBeforeConversion: irmaaMagiForIncome(income),
+    targetRate
+  });
+  return Math.min(finiteRoom(acaRoom), finiteRoom(irmaaRoom), traditionalAccountValue(portfolio));
+}
+
+function rothConversionDirectAcaRoom({
+  scenario,
+  acaConfig,
+  ordinaryIncome = 0,
+  qualifiedDividends = 0,
+  adjustmentsToIncome = 0
+}) {
+  if (!acaConfig?.enabled || !(acaConfig.fpl > 0) || scenario.rothConversion?.optimizeForAca === false) return Infinity;
+  const ceiling = Math.max(0,
+    acaConfig.fpl * ((scenario.rothConversion?.maxAcaFplPercent ?? 400) / 100)
+      - rothConversionMagiBuffer(scenario)
+  );
+  const currentMagi = Math.max(0, ordinaryIncome + qualifiedDividends - Math.max(0, adjustmentsToIncome));
+  return Math.max(0, ceiling - currentMagi);
 }
 
 function effectiveRothConversionTargetRate({ portfolio, scenario, age, taxProfile, ordinaryIncome = 0 }) {
@@ -4152,7 +4508,7 @@ function irmaaMagiRoomForConversion({ scenario, taxProfile, age, inflationIndex,
   return Number.isFinite(lastAdmittedUpTo) ? Math.max(0, lastAdmittedUpTo - magiBeforeConversion) : Infinity;
 }
 
-function acaMagiCeiling({ acaConfig, currentMagi = 0, maxFplPercent = 400, targetRate = null } = {}) {
+function acaMagiCeiling({ acaConfig, currentMagi = 0, maxFplPercent = 400, targetRate = null, magiBuffer = 0 } = {}) {
   if (!acaConfig?.enabled || !(acaConfig.fpl > 0)) {
     return { amount: Infinity, fplPercent: Infinity };
   }
@@ -4160,6 +4516,14 @@ function acaMagiCeiling({ acaConfig, currentMagi = 0, maxFplPercent = 400, targe
   const fpl = acaConfig.fpl;
   const currentFplPercent = Math.max(0, currentMagi / fpl * 100);
   const cappedMax = Math.max(0, Math.min(maxFplPercent, acaConfig.maxEligibleFplPercent ?? maxFplPercent));
+  const buffer = Math.max(0, Number(magiBuffer) || 0);
+  const bufferedResult = (targetPercent) => {
+    const amount = Math.max(0, fpl * targetPercent / 100 - buffer);
+    return {
+      amount: round(amount, 6),
+      fplPercent: round(amount / fpl * 100, 6)
+    };
+  };
 
   // Sort intra-table band boundaries above currentFplPercent, capped by
   // cappedMax. Always include cappedMax itself as a candidate boundary.
@@ -4173,10 +4537,7 @@ function acaMagiCeiling({ acaConfig, currentMagi = 0, maxFplPercent = 400, targe
   if (!Number.isFinite(targetRate)) {
     const nextBoundary = bands[0]?.maxFplPercent;
     const targetPercent = Number.isFinite(nextBoundary) ? Math.min(cappedMax, nextBoundary) : cappedMax;
-    return {
-      amount: round(fpl * targetPercent / 100, 6),
-      fplPercent: round(targetPercent, 6)
-    };
+    return bufferedResult(targetPercent);
   }
 
   // Net-benefit path: admit crossing each next band only if the band's
@@ -4203,10 +4564,7 @@ function acaMagiCeiling({ acaConfig, currentMagi = 0, maxFplPercent = 400, targe
   }
   const targetPercent = Math.min(cappedMax, admittedPercent);
 
-  return {
-    amount: round(fpl * targetPercent / 100, 6),
-    fplPercent: round(targetPercent, 6)
-  };
+  return bufferedResult(targetPercent);
 }
 
 // Average marginal cost-per-MAGI-dollar of traversing the FPL% range
@@ -4598,13 +4956,17 @@ function rothDistributionSort(a, b) {
 
 function rothSaleSortForContext({ isEarly, maxRothProceeds, context = {} }) {
   return isEarly && Number.isFinite(maxRothProceeds)
-    ? rothBasisWithdrawalSort
+    ? (a, b) => rothBasisWithdrawalSort(a, b, context)
     : context.optimizedLotSelection
       ? (a, b) => optimizedTaxAwareSaleSort(a, b, context)
       : rothDistributionSort;
 }
 
-function rothBasisWithdrawalSort(a, b) {
+function rothBasisWithdrawalSort(a, b, context = {}) {
+  const aPenaltyFree = rothPenaltyFreePrincipalLot(a, context);
+  const bPenaltyFree = rothPenaltyFreePrincipalLot(b, context);
+  if (aPenaltyFree !== bPenaltyFree && !(context.rothBasisRemaining > 0)) return aPenaltyFree ? -1 : 1;
+
   const aExpectedReturn = Number(a.expectedReturn);
   const bExpectedReturn = Number(b.expectedReturn);
   if (Number.isFinite(aExpectedReturn) && Number.isFinite(bExpectedReturn) && aExpectedReturn !== bExpectedReturn) {
@@ -4622,6 +4984,13 @@ function rothBasisWithdrawalSort(a, b) {
   const bValue = marketValue(b);
   if (aValue !== bValue) return aValue - bValue;
   return String(a.name ?? a.id ?? "").localeCompare(String(b.name ?? b.id ?? ""));
+}
+
+function rothPenaltyFreePrincipalLot(asset = {}, context = {}) {
+  if (asset.accountType !== "roth" || asset.rothSource !== "conversion") return false;
+  if ((context.age ?? 99) >= (context.penaltyAge ?? 59.5)) return true;
+  const conversionYear = Number(asset.conversionYear);
+  return Number.isFinite(conversionYear) && (context.calendarYear ?? 0) - conversionYear >= 5;
 }
 
 function embeddedGainRatio(asset) {

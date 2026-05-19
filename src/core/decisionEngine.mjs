@@ -36,6 +36,8 @@ const EPSILON = 0.00001;
 const RESERVE_MAX_YEARS = 5;
 const RESERVE_MODES = ["cash", "hybrid"];
 const ALLOCATION_TARGETS = [40, 55, 70, 85];
+const DEFAULT_MAGI_BUFFER = 1000;
+const SOCIAL_SECURITY_BRIDGE_AGES = [67, 70];
 const WITHDRAWAL_ORDERS = [
   ["taxable", "traditional", "hsa", "roth"],
   ["traditional", "taxable", "hsa", "roth"],
@@ -123,6 +125,12 @@ export function runDecisionBatch({
   const allocationShift = findAllocationShift(solverContext);
   const withdrawalShift = findWithdrawalShift(solverContext);
   const healthcareRescue = findHealthcareRescue(solverContext);
+  const rothBasisCliffRescue = findRothBasisCliffRescue(solverContext);
+  const taxableLotRescue = findTaxableLotRescue(solverContext);
+  const conversionGuardrail = findConversionGuardrail(solverContext);
+  const magiSpendTrim = findMagiSpendTrim(solverContext);
+  const irmaaLookbackRescue = findIrmaaLookbackRescue(solverContext);
+  const socialSecurityBridge = findSocialSecurityBridge(solverContext);
   const combined = buildCombinedRescue({ ...solverContext, discretionaryCut, incomeBridge });
 
   const verdict = classifyDecisionEvidence({
@@ -140,6 +148,12 @@ export function runDecisionBatch({
     allocationShift,
     withdrawalShift,
     healthcareRescue,
+    rothBasisCliffRescue,
+    taxableLotRescue,
+    conversionGuardrail,
+    magiSpendTrim,
+    irmaaLookbackRescue,
+    socialSecurityBridge,
     combined
   ].filter(Boolean);
   rescueOptions.sort((a, b) => rescueSortScore(b, profile, diagnosis) - rescueSortScore(a, profile, diagnosis));
@@ -542,13 +556,120 @@ export function scenarioWithMagiDiscipline(scenario = {}, { maxAcaFplPercent = 4
     ...existingRoth,
     enabled: true,
     optimizeForAca: true,
-    maxAcaFplPercent: clampNumber(Number(maxAcaFplPercent), 100, 600, 400)
+    maxAcaFplPercent: clampNumber(Number(maxAcaFplPercent), 100, 600, 400),
+    magiBuffer: Math.max(0, Number(existingRoth.magiBuffer) || DEFAULT_MAGI_BUFFER)
   };
   if (disableGainHarvesting) {
     const existingGain = plainObject(scenario.taxGainHarvesting) ? scenario.taxGainHarvesting : {};
     next.taxGainHarvesting = { ...existingGain, enabled: false };
   }
   return next;
+}
+
+export function scenarioWithRothBasisCliffRescue(scenario = {}, { maxAcaFplPercent = 400, magiBuffer = DEFAULT_MAGI_BUFFER } = {}) {
+  const next = scenarioWithWithdrawalPlan(scenario, {
+    mode: "lifetime",
+    order: ensureWithdrawalOrderIncludes(scenario.withdrawalOrder, "roth")
+  });
+  const existingRothBasis = plainObject(scenario.rothBasisOptimization) ? scenario.rothBasisOptimization : {};
+  const existingRothConversion = plainObject(scenario.rothConversion) ? scenario.rothConversion : {};
+  return {
+    ...next,
+    rothBasisOptimization: {
+      ...existingRothBasis,
+      enabled: true,
+      opportunityCostMode: "dynamic",
+      magiBuffer: Math.max(0, Number(magiBuffer) || 0)
+    },
+    rothConversion: {
+      ...existingRothConversion,
+      optimizeForAca: true,
+      maxAcaFplPercent: clampNumber(Number(maxAcaFplPercent), 100, 600, 400),
+      magiBuffer: Math.max(0, Number(magiBuffer) || 0)
+    }
+  };
+}
+
+export function scenarioWithTaxableLotRescue(scenario = {}) {
+  const order = ["taxable", "hsa", "traditional", "roth"];
+  const existingGain = plainObject(scenario.taxGainHarvesting) ? scenario.taxGainHarvesting : {};
+  const existingLoss = plainObject(scenario.taxLossHarvesting) ? scenario.taxLossHarvesting : {};
+  return {
+    ...scenarioWithWithdrawalPlan(scenario, { mode: "lifetime", order }),
+    taxLossHarvesting: { ...existingLoss, enabled: true },
+    taxGainHarvesting: scenario.aca?.enabled === false
+      ? { ...existingGain, enabled: existingGain.enabled !== false }
+      : { ...existingGain, enabled: false }
+  };
+}
+
+export function scenarioWithConversionGuardrails(scenario = {}, { maxAcaFplPercent = 400, magiBuffer = DEFAULT_MAGI_BUFFER } = {}) {
+  const existingRoth = plainObject(scenario.rothConversion) ? scenario.rothConversion : {};
+  const existingGain = plainObject(scenario.taxGainHarvesting) ? scenario.taxGainHarvesting : {};
+  return {
+    ...scenarioWithWithdrawalPlan(scenario, { mode: "lifetime" }),
+    rothConversion: {
+      ...existingRoth,
+      enabled: existingRoth.enabled !== false,
+      optimizeForAca: true,
+      applyMagiGuardrails: true,
+      maxAcaFplPercent: clampNumber(Number(maxAcaFplPercent), 100, 600, 400),
+      magiBuffer: Math.max(0, Number(magiBuffer) || 0)
+    },
+    taxGainHarvesting: {
+      ...existingGain,
+      magiBuffer: Math.max(0, Number(magiBuffer) || 0)
+    }
+  };
+}
+
+export function scenarioWithMagiSpendTrim(scenario = {}, profile = {}, trimAmount = 0) {
+  const normalized = normalizeDecisionProfile(profile, scenario);
+  const flexible = Math.max(0, normalized.flexibleSpend);
+  const trim = Math.max(0, Math.min(flexible, Number(trimAmount) || 0));
+  const remainingFlexible = Math.max(0, flexible - trim);
+  return {
+    ...scenario,
+    targetSpend: round(normalized.requiredSpend + remainingFlexible, 2),
+    spendingStrategy: {
+      ...(plainObject(scenario.spendingStrategy) ? scenario.spendingStrategy : {}),
+      mode: "fixed",
+      essentialSpend: round(normalized.requiredSpend, 2),
+      discretionarySpend: round(remainingFlexible, 2)
+    }
+  };
+}
+
+export function scenarioWithIrmaaLookbackGuardrails(scenario = {}, { maxIrmaaTier = 0 } = {}) {
+  const existingMedicare = plainObject(scenario.medicare) ? scenario.medicare : {};
+  const existingGain = plainObject(scenario.taxGainHarvesting) ? scenario.taxGainHarvesting : {};
+  return {
+    ...scenarioWithConversionGuardrails(scenario, { maxAcaFplPercent: scenario.rothConversion?.maxAcaFplPercent ?? 400, magiBuffer: 0 }),
+    medicare: {
+      ...existingMedicare,
+      irmaaEnabled: true,
+      maxIrmaaTier: Math.max(0, Math.trunc(Number(maxIrmaaTier) || 0))
+    },
+    taxGainHarvesting: {
+      ...existingGain,
+      enabled: false
+    }
+  };
+}
+
+export function scenarioWithSocialSecurityBridge(scenario = {}, claimAge = 70) {
+  const currentStart = Number(scenario.socialSecurityStartAge ?? 67);
+  const targetStart = clampNumber(Number(claimAge), 62, 70, 70);
+  if (!(targetStart > currentStart)) return { ...scenario };
+  const annualBenefit = Math.max(0, Number(scenario.socialSecurityAnnualBenefit) || 0);
+  const adjustedBenefit = annualBenefit > 0
+    ? annualBenefit / socialSecurityClaimFactor(currentStart) * socialSecurityClaimFactor(targetStart)
+    : annualBenefit;
+  return {
+    ...scenario,
+    socialSecurityStartAge: targetStart,
+    socialSecurityAnnualBenefit: round(adjustedBenefit, 2)
+  };
 }
 
 function findSafeSpendingBoundary({ assets, scenario, taxProfile, runs, seed, sequences, profile, tracker }) {
@@ -808,6 +929,192 @@ function findHealthcareRescue({ assets, scenario, taxProfile, runs, seed, sequen
   return optionWithDelta(finalized, base, { status: meetsTarget(finalized, profile) ? "target-met" : "best-tested" });
 }
 
+function findRothBasisCliffRescue({ assets, scenario, taxProfile, runs, seed, sequences, profile, base, tracker }) {
+  if (scenario?.aca?.enabled === false || !hasAccountType(assets, "roth")) return null;
+  const firstYear = base?.planFirstYear;
+  if (!firstYear || !Number.isFinite(firstYear.acaMagiCeiling)) return null;
+  const candidate = runCandidate({
+    id: "roth-basis-cliff",
+    kind: "rothBasisCliffRescue",
+    label: "Use Roth basis to stay under MAGI cliffs",
+    scenario: scenarioWithRothBasisCliffRescue(scenario, {
+      maxAcaFplPercent: firstYear.acaMagiCeilingFplPercent ?? 400,
+      magiBuffer: DEFAULT_MAGI_BUFFER
+    }),
+    assets,
+    taxProfile,
+    runs: solverSearchRuns(runs),
+    seed,
+    sequences,
+    profile,
+    metadata: {
+      magiBuffer: DEFAULT_MAGI_BUFFER,
+      maxAcaFplPercent: firstYear.acaMagiCeilingFplPercent ?? 400
+    },
+    includeHistorical: false,
+    tracker
+  });
+  const finalized = finalizeCandidate({ candidate, assets, taxProfile, runs, seed, sequences, profile });
+  const subsidyGain = firstYearSubsidyGain(finalized, base);
+  if (!isWorthwhileRescue(finalized, base, profile) && !(subsidyGain > 1)) return null;
+  return optionWithDelta(finalized, base, { status: meetsTarget(finalized, profile) ? "target-met" : "best-tested" });
+}
+
+function findTaxableLotRescue({ assets, scenario, taxProfile, runs, seed, sequences, profile, base, tracker }) {
+  if (!hasAccountType(assets, "taxable")) return null;
+  const candidate = runCandidate({
+    id: "taxable-lot-rescue",
+    kind: "taxableLotRescue",
+    label: "Spend high-basis taxable lots first",
+    scenario: scenarioWithTaxableLotRescue(scenario),
+    assets,
+    taxProfile,
+    runs: solverSearchRuns(runs),
+    seed,
+    sequences,
+    profile,
+    metadata: {
+      withdrawalOrder: ["taxable", "hsa", "traditional", "roth"],
+      gainHarvestingDisabled: scenario.aca?.enabled !== false
+    },
+    includeHistorical: false,
+    tracker
+  });
+  const finalized = finalizeCandidate({ candidate, assets, taxProfile, runs, seed, sequences, profile });
+  if (!isWorthwhileRescue(finalized, base, profile) && !(firstYearSubsidyGain(finalized, base) > 1)) return null;
+  return optionWithDelta(finalized, base, { status: meetsTarget(finalized, profile) ? "target-met" : "best-tested" });
+}
+
+function findConversionGuardrail({ assets, scenario, taxProfile, runs, seed, sequences, profile, base, tracker }) {
+  if (scenario?.rothConversion?.enabled === false || !hasAccountType(assets, "traditional")) return null;
+  const firstYear = base?.planFirstYear;
+  if (!firstYear || (!Number.isFinite(firstYear.acaMagiCeiling) && scenario?.medicare?.irmaaEnabled === false)) return null;
+  const candidate = runCandidate({
+    id: "conversion-guardrail",
+    kind: "conversionGuardrail",
+    label: "Throttle conversions at MAGI cliffs",
+    scenario: scenarioWithConversionGuardrails(scenario, {
+      maxAcaFplPercent: firstYear.acaMagiCeilingFplPercent ?? 400,
+      magiBuffer: DEFAULT_MAGI_BUFFER
+    }),
+    assets,
+    taxProfile,
+    runs: solverSearchRuns(runs),
+    seed,
+    sequences,
+    profile,
+    metadata: {
+      magiBuffer: DEFAULT_MAGI_BUFFER,
+      maxAcaFplPercent: firstYear.acaMagiCeilingFplPercent ?? 400
+    },
+    includeHistorical: false,
+    tracker
+  });
+  const finalized = finalizeCandidate({ candidate, assets, taxProfile, runs, seed, sequences, profile });
+  const magiImproved = Number.isFinite(finalized.planFirstYear?.magi)
+    && Number.isFinite(base.planFirstYear?.magi)
+    && finalized.planFirstYear.magi + EPSILON < base.planFirstYear.magi;
+  if (!isWorthwhileRescue(finalized, base, profile) && !(firstYearSubsidyGain(finalized, base) > 1) && !magiImproved) {
+    return null;
+  }
+  return optionWithDelta(finalized, base, { status: meetsTarget(finalized, profile) ? "target-met" : "best-tested" });
+}
+
+function findMagiSpendTrim({ assets, scenario, taxProfile, runs, seed, sequences, profile, base, tracker }) {
+  if (scenario?.aca?.enabled === false || !(profile.flexibleSpend > 0)) return null;
+  const firstYear = base?.planFirstYear;
+  if (!firstYear || !Number.isFinite(firstYear.acaMagiCeiling) || !Number.isFinite(firstYear.magi)) return null;
+  const targetMagi = Math.max(0, firstYear.acaMagiCeiling - DEFAULT_MAGI_BUFFER);
+  const gap = firstYear.magi - targetMagi;
+  if (!(gap > 1)) return null;
+  const trimAmount = Math.min(profile.flexibleSpend, gap);
+  const candidate = runCandidate({
+    id: "magi-spend-trim",
+    kind: "magiSpendTrim",
+    label: "Trim spending enough to protect ACA MAGI",
+    scenario: scenarioWithMagiSpendTrim(scenario, profile, trimAmount),
+    assets,
+    taxProfile,
+    runs: solverSearchRuns(runs),
+    seed,
+    sequences,
+    profile,
+    metadata: {
+      trimAmount: round(trimAmount, 2),
+      magiGap: round(gap, 2),
+      magiBuffer: DEFAULT_MAGI_BUFFER
+    },
+    includeHistorical: false,
+    tracker
+  });
+  const finalized = finalizeCandidate({ candidate, assets, taxProfile, runs, seed, sequences, profile });
+  if (!isWorthwhileRescue(finalized, base, profile) && !(firstYearSubsidyGain(finalized, base) > 1)) return null;
+  return optionWithDelta(finalized, base, { status: meetsTarget(finalized, profile) ? "target-met" : "best-tested" });
+}
+
+function findIrmaaLookbackRescue({ assets, scenario, taxProfile, runs, seed, sequences, profile, base, tracker }) {
+  const firstYear = base?.planFirstYear;
+  const age = Number(firstYear?.age ?? scenario?.currentAge);
+  if (!Number.isFinite(age) || age < 63 || age >= 65) return null;
+  if (scenario?.medicare?.irmaaEnabled === false) return null;
+  if (scenario?.rothConversion?.enabled === false && scenario?.taxGainHarvesting?.enabled === false) return null;
+  const candidate = runCandidate({
+    id: "irmaa-lookback",
+    kind: "irmaaLookbackRescue",
+    label: "Smooth MAGI before Medicare IRMAA lookback",
+    scenario: scenarioWithIrmaaLookbackGuardrails(scenario, { maxIrmaaTier: 0 }),
+    assets,
+    taxProfile,
+    runs: solverSearchRuns(runs),
+    seed,
+    sequences,
+    profile,
+    metadata: { maxIrmaaTier: 0 },
+    includeHistorical: false,
+    tracker
+  });
+  const finalized = finalizeCandidate({ candidate, assets, taxProfile, runs, seed, sequences, profile });
+  const magiImproved = Number.isFinite(finalized.planFirstYear?.magi)
+    && Number.isFinite(base.planFirstYear?.magi)
+    && finalized.planFirstYear.magi + EPSILON < base.planFirstYear.magi;
+  if (!isWorthwhileRescue(finalized, base, profile) && !magiImproved) return null;
+  return optionWithDelta(finalized, base, { status: meetsTarget(finalized, profile) ? "target-met" : "best-tested" });
+}
+
+function findSocialSecurityBridge({ assets, scenario, taxProfile, runs, seed, sequences, profile, base, tracker }) {
+  const annualBenefit = Number(scenario?.socialSecurityAnnualBenefit);
+  const currentStart = Number(scenario?.socialSecurityStartAge ?? 67);
+  if (!(annualBenefit > 0) || !Number.isFinite(currentStart) || currentStart >= 70) return null;
+  const searchRuns = solverSearchRuns(runs);
+  const candidates = SOCIAL_SECURITY_BRIDGE_AGES
+    .filter((age) => age > currentStart)
+    .map((age) => runCandidate({
+      id: `social-security-${age}`,
+      kind: "socialSecurityBridge",
+      label: "Bridge spending to delay Social Security",
+      scenario: scenarioWithSocialSecurityBridge(scenario, age),
+      assets,
+      taxProfile,
+      runs: searchRuns,
+      seed,
+      sequences,
+      profile,
+      metadata: {
+        startAge: age,
+        annualBenefit: scenarioWithSocialSecurityBridge(scenario, age).socialSecurityAnnualBenefit
+      },
+      includeHistorical: false,
+      tracker
+    }));
+  const winner = candidates
+    .filter((candidate) => isWorthwhileRescue(candidate, base, profile))
+    .sort((a, b) => b.monteCarlo.successRate - a.monteCarlo.successRate)[0] ?? null;
+  if (!winner) return null;
+  const finalized = finalizeCandidate({ candidate: winner, assets, taxProfile, runs, seed, sequences, profile });
+  if (!isWorthwhileRescue(finalized, base, profile)) return null;
+  return optionWithDelta(finalized, base, { status: meetsTarget(finalized, profile) ? "target-met" : "best-tested" });
+}
+
 // A rescue is worth surfacing only if the finalized full-run candidate meets
 // the target or improves the success rate by at least a visible point.
 // A smaller gain is within Monte Carlo noise and renders as a "+0 pts" card.
@@ -820,6 +1127,14 @@ function isWorthwhileRescue(candidate, base, profile) {
 
 function healthcareSortScore(candidate) {
   return candidate.monteCarlo.successRate * 1000 + (candidate.planFirstYear?.acaSubsidy ?? 0) / 1000;
+}
+
+function firstYearSubsidyGain(candidate, base) {
+  return (candidate?.planFirstYear?.acaSubsidy ?? 0) - (base?.planFirstYear?.acaSubsidy ?? 0);
+}
+
+function hasAccountType(assets = [], accountType) {
+  return assets.some((asset) => asset?.accountType === accountType && Number(asset.units) * Number(asset.price) > 0);
 }
 
 function diagnoseFailure({ base, safeSpending }) {
@@ -843,17 +1158,17 @@ function diagnoseFailure({ base, safeSpending }) {
     primary = "healthcareCliff";
     label = "Healthcare subsidy cliff";
     reason = "Modeled MAGI is above the subsidy ceiling, so losing the healthcare subsidy is the likely failure driver.";
-    recommendedKinds = ["healthcareRescue", "withdrawalShift", "discretionaryCut"];
+    recommendedKinds = ["rothBasisCliffRescue", "conversionGuardrail", "healthcareRescue", "magiSpendTrim", "taxableLotRescue", "withdrawalShift", "discretionaryCut"];
   } else if (failedCount > 0 && anatomy.commonTrigger === "Early sequence risk") {
     primary = "earlySequenceRisk";
     label = "Early sequence risk";
     reason = "Failures cluster in the first ten years, so an early bad-market sequence is the likely failure driver.";
-    recommendedKinds = ["sequenceReserve", "allocationShift", "discretionaryCut"];
+    recommendedKinds = ["sequenceReserve", "allocationShift", "discretionaryCut", "socialSecurityBridge"];
   } else if (failedCount > 0) {
     primary = "longHorizonDepletion";
     label = "Long-horizon depletion";
     reason = "Failures cluster later in the plan, so structural overspend or portfolio drag is the likely failure driver.";
-    recommendedKinds = ["discretionaryCut", "allocationShift", "withdrawalShift"];
+    recommendedKinds = ["discretionaryCut", "allocationShift", "withdrawalShift", "socialSecurityBridge", "irmaaLookbackRescue"];
   }
 
   if (requiredUnsustainable) {
@@ -955,6 +1270,7 @@ function summarizeCandidate({ id, kind, label, scenario, plan, monteCarlo, backt
     failureAnatomy: failureAnatomy(mcScenarios),
     planFirstYear: planFirstYear ? {
       year: planFirstYear.year,
+      age: round(planFirstYear.age ?? 0, 2),
       magi: round(planFirstYear.magi ?? 0, 2),
       acaMagiCeiling: Number.isFinite(planFirstYear.acaMagiCeiling) ? round(planFirstYear.acaMagiCeiling, 2) : null,
       acaMagiCeilingFplPercent: Number.isFinite(planFirstYear.acaMagiCeilingFplPercent)
@@ -966,6 +1282,9 @@ function summarizeCandidate({ id, kind, label, scenario, plan, monteCarlo, backt
         ? round(planFirstYear.aca.fplPercent * 100, 2)
         : null,
       earnedIncome: round(planFirstYear.earnedIncome ?? 0, 2),
+      rothConversionAmount: round(planFirstYear.rothConversionAmount ?? 0, 2),
+      rothBasisUsed: round(planFirstYear.rothBasisUsed ?? 0, 2),
+      rothBasisAvailable: round(planFirstYear.rothBasisAvailable ?? planFirstYear.rothBasisRemaining ?? 0, 2),
       discretionaryTrim: round(Math.max(0, (planFirstYear.discretionarySpendingBudget ?? 0) - (planFirstYear.discretionarySpending ?? 0)), 2)
     } : null
   };
@@ -1019,6 +1338,7 @@ function lifestyleCost(candidate) {
     case "combined":
       return 2;
     case "discretionaryCut":
+    case "magiSpendTrim":
       return 1;
     default:
       return 0;
@@ -1149,6 +1469,21 @@ function normalizedIncomeType(value) {
   return ["medicareWages", "selfEmploymentIncome", "rrtaCompensation", "taxableOrdinaryIncome", "taxFreeIncome"].includes(value)
     ? value
     : DEFAULT_DECISION_PROFILE.incomeBridge.incomeType;
+}
+
+function ensureWithdrawalOrderIncludes(order = [], accountType) {
+  const normalized = Array.isArray(order) && order.length ? [...order] : ["taxable", "traditional", "hsa", "roth"];
+  return normalized.includes(accountType) ? normalized : [...normalized, accountType];
+}
+
+function socialSecurityClaimFactor(age, fullRetirementAge = 67) {
+  const months = Math.round((Number(age) - fullRetirementAge) * 12);
+  if (!Number.isFinite(months) || months === 0) return 1;
+  if (months > 0) return 1 + Math.min(months, 36) * (2 / 3 / 100);
+  const earlyMonths = Math.abs(months);
+  const firstReduction = Math.min(36, earlyMonths) * (5 / 9 / 100);
+  const additionalReduction = Math.max(0, earlyMonths - 36) * (5 / 12 / 100);
+  return Math.max(0, 1 - firstReduction - additionalReduction);
 }
 
 function clampNumber(value, min, max, fallback) {

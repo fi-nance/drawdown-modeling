@@ -611,17 +611,18 @@ textarea {
   position: sticky;
   bottom: 0;
   z-index: 3;
-  height: 14px;
+  display: none;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 2px;
   margin-top: 0.2rem;
-  overflow-x: auto;
-  overflow-y: hidden;
   border-top: 1px solid var(--border);
   background: var(--bg-base);
-  visibility: hidden;
 }
 
 .sticky-x-scroll.is-needed {
-  visibility: visible;
+  display: flex;
 }
 
 .sticky-x-scroll.is-fixed {
@@ -634,8 +635,57 @@ textarea {
   box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.4);
 }
 
+.sticky-x-scroll-track {
+  flex: 1 1 auto;
+  height: 100%;
+  overflow-x: scroll;
+  overflow-y: hidden;
+  scrollbar-color: var(--text-secondary) var(--bg-elevated);
+}
+
+/* Keep the horizontal scrollbar painted — macOS hides overlay scrollbars. */
+.sticky-x-scroll-track::-webkit-scrollbar {
+  height: 12px;
+}
+.sticky-x-scroll-track::-webkit-scrollbar-track {
+  background: var(--bg-elevated);
+  border-radius: 6px;
+}
+.sticky-x-scroll-track::-webkit-scrollbar-thumb {
+  background: var(--text-secondary);
+  border-radius: 6px;
+  border: 2px solid var(--bg-elevated);
+}
+.sticky-x-scroll-track::-webkit-scrollbar-thumb:hover {
+  background: var(--text-primary);
+}
+
 .sticky-x-scroll-spacer {
   height: 1px;
+}
+
+.table-scroll-arrow {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--text-primary);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-light);
+  border-radius: 4px;
+  cursor: pointer;
+}
+.table-scroll-arrow:hover:not(:disabled) {
+  background: var(--border-light);
+}
+.table-scroll-arrow:disabled {
+  opacity: 0.3;
+  cursor: default;
 }
 
 table {

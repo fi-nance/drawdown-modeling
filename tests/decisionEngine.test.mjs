@@ -6,11 +6,17 @@ import {
   normalizeDecisionProfile,
   runDecisionBatch,
   scenarioWithAllocationTarget,
+  scenarioWithConversionGuardrails,
   scenarioWithDiscretionaryCut,
   scenarioWithFlatSpend,
   scenarioWithIncomeBridge,
+  scenarioWithIrmaaLookbackGuardrails,
   scenarioWithMagiDiscipline,
-  scenarioWithSequenceReserve
+  scenarioWithMagiSpendTrim,
+  scenarioWithRothBasisCliffRescue,
+  scenarioWithSequenceReserve,
+  scenarioWithSocialSecurityBridge,
+  scenarioWithTaxableLotRescue
 } from "../src/core/decisionEngine.mjs";
 import { DEFAULT_SCENARIO } from "../src/core/simulation.mjs";
 import { buildTaxProfile } from "../src/data/taxData.mjs";
@@ -48,6 +54,21 @@ const noTaxProfile = {
     treatCapitalGainsAsOrdinary: true
   }
 };
+
+function cliffAcaConfig() {
+  return {
+    enabled: true,
+    fpl: 20000,
+    benchmarkPremium: 60000,
+    selectedPlanPremium: 60000,
+    applicablePercentageTable: [
+      { minFplPercent: 0, maxFplPercent: 400, initialRate: 0, finalRate: 0 }
+    ],
+    requiredContributionPercentage: 0.1,
+    maxEligibleFplPercent: 400,
+    minEligibleFplPercent: 0
+  };
+}
 
 test("decision evidence stays fragile when Monte Carlo and history disagree", () => {
   const verdict = classifyDecisionEvidence({
@@ -179,6 +200,141 @@ test("decision batch returns base, income bridge, and combined rescue summaries"
   assert.ok(decision.rescueOptions.some((option) => option.kind === "incomeBridge"));
   assert.ok(decision.rescueOptions.some((option) => option.kind === "combined"));
   assert.equal(decision.verdict.historicalKnown, false);
+});
+
+test("decision batch surfaces Roth basis cliff rescue when it preserves ACA subsidy", () => {
+  const scenario = {
+    ...DEFAULT_SCENARIO,
+    startYear: 2026,
+    planYears: 1,
+    currentAge: 50,
+    rothBasis: 0,
+    targetSpend: 81000,
+    targetSpendIncludesTaxes: true,
+    targetSpendIncludesMedical: true,
+    withdrawalOrder: ["traditional", "roth"],
+    withdrawalStrategy: { mode: "heuristic" },
+    rothBasisOptimization: { enabled: false },
+    earlyWithdrawalPenaltyRate: 0,
+    taxLossHarvesting: { enabled: false },
+    taxGainHarvesting: { enabled: false },
+    rothConversion: { enabled: false },
+    aca: cliffAcaConfig(),
+    returnAssumptions: { ...DEFAULT_SCENARIO.returnAssumptions, cash: { mean: 0, stdev: 0 }, inflation: { mean: 0, stdev: 0 } }
+  };
+
+  const decision = runDecisionBatch({
+    assets: [{
+      id: "traditional",
+      accountType: "traditional",
+      assetClass: "cash",
+      units: 100000,
+      price: 1,
+      costBasisPerUnit: 1
+    }, {
+      id: "seasoned-conversion",
+      accountType: "roth",
+      assetClass: "cash",
+      units: 10000,
+      price: 1,
+      costBasisPerUnit: 1,
+      rothSource: "conversion",
+      conversionYear: 2020
+    }],
+    scenario,
+    taxProfile: noTaxProfile,
+    runs: 10,
+    seed: 1,
+    sequences: [],
+    decisionProfile: { requiredSpend: 81000, flexibleSpend: 0, targetSuccessRate: 1, incomeBridge: { enabled: false } }
+  });
+
+  const rescue = decision.rescueOptions.find((option) => option.kind === "rothBasisCliffRescue");
+  assert.ok(rescue);
+  assert.equal(rescue.delta.firstYearSubsidy, 60000);
+  assert.equal(rescue.planFirstYear.magi, 79000);
+});
+
+test("decision batch surfaces conversion guardrails when manual conversions cross ACA cliffs", () => {
+  const scenario = {
+    ...DEFAULT_SCENARIO,
+    planYears: 1,
+    currentAge: 50,
+    targetSpend: 0,
+    targetSpendIncludesTaxes: true,
+    targetSpendIncludesMedical: true,
+    medicareWages: 70000,
+    earnedIncomeInflationAdjusted: false,
+    withdrawalOrder: ["traditional"],
+    withdrawalStrategy: { mode: "lifetime" },
+    taxLossHarvesting: { enabled: false },
+    taxGainHarvesting: { enabled: false },
+    rothConversion: { enabled: true, annualAmount: 50000 },
+    aca: cliffAcaConfig(),
+    returnAssumptions: { ...DEFAULT_SCENARIO.returnAssumptions, cash: { mean: 0, stdev: 0 }, inflation: { mean: 0, stdev: 0 } }
+  };
+
+  const decision = runDecisionBatch({
+    assets: [{
+      id: "traditional",
+      accountType: "traditional",
+      assetClass: "cash",
+      units: 100000,
+      price: 1,
+      costBasisPerUnit: 1
+    }],
+    scenario,
+    taxProfile: noTaxProfile,
+    runs: 10,
+    seed: 1,
+    sequences: [],
+    decisionProfile: { requiredSpend: 0, flexibleSpend: 0, targetSuccessRate: 1, incomeBridge: { enabled: false } }
+  });
+
+  const rescue = decision.rescueOptions.find((option) => option.kind === "conversionGuardrail");
+  assert.ok(rescue);
+  assert.equal(rescue.delta.firstYearSubsidy, 60000);
+  assert.equal(rescue.planFirstYear.rothConversionAmount, 9000);
+});
+
+test("decision batch surfaces MAGI spend trim when a small flexible cut protects ACA", () => {
+  const scenario = {
+    ...DEFAULT_SCENARIO,
+    planYears: 1,
+    currentAge: 50,
+    targetSpend: 81000,
+    targetSpendIncludesTaxes: true,
+    targetSpendIncludesMedical: true,
+    withdrawalOrder: ["traditional"],
+    withdrawalStrategy: { mode: "lifetime" },
+    taxLossHarvesting: { enabled: false },
+    taxGainHarvesting: { enabled: false },
+    rothConversion: { enabled: false },
+    aca: cliffAcaConfig(),
+    returnAssumptions: { ...DEFAULT_SCENARIO.returnAssumptions, cash: { mean: 0, stdev: 0 }, inflation: { mean: 0, stdev: 0 } }
+  };
+
+  const decision = runDecisionBatch({
+    assets: [{
+      id: "traditional",
+      accountType: "traditional",
+      assetClass: "cash",
+      units: 100000,
+      price: 1,
+      costBasisPerUnit: 1
+    }],
+    scenario,
+    taxProfile: noTaxProfile,
+    runs: 10,
+    seed: 1,
+    sequences: [],
+    decisionProfile: { requiredSpend: 79000, flexibleSpend: 2000, targetSuccessRate: 1, incomeBridge: { enabled: false } }
+  });
+
+  const rescue = decision.rescueOptions.find((option) => option.kind === "magiSpendTrim");
+  assert.ok(rescue);
+  assert.equal(rescue.metadata.trimAmount, 2000);
+  assert.equal(rescue.delta.firstYearSubsidy, 60000);
 });
 
 test("discretionary rescue falls back to the full cut when the searched cut misses on finalized runs", () => {
@@ -350,6 +506,160 @@ test("MAGI discipline transform makes Roth conversions ACA-aware", () => {
   assert.equal(disciplined.taxGainHarvesting.enabled, false);
 });
 
+test("Roth basis cliff rescue enables dynamic basis substitution with a MAGI buffer", () => {
+  const rescued = scenarioWithRothBasisCliffRescue({
+    ...DEFAULT_SCENARIO,
+    withdrawalOrder: ["traditional"],
+    rothBasisOptimization: { enabled: false, minSavingsRate: 0.4 }
+  }, {
+    maxAcaFplPercent: 400,
+    magiBuffer: 1500
+  });
+
+  assert.equal(rescued.withdrawalStrategy.mode, "lifetime");
+  assert.deepEqual(rescued.withdrawalOrder, ["traditional", "roth"]);
+  assert.equal(rescued.rothBasisOptimization.enabled, true);
+  assert.equal(rescued.rothBasisOptimization.opportunityCostMode, "dynamic");
+  assert.equal(rescued.rothBasisOptimization.magiBuffer, 1500);
+  assert.equal(rescued.rothConversion.magiBuffer, 1500);
+});
+
+test("conversion guardrails cap manual conversions with ACA buffers", () => {
+  const guarded = scenarioWithConversionGuardrails({
+    ...DEFAULT_SCENARIO,
+    rothConversion: {
+      enabled: true,
+      annualAmount: 50000,
+      optimizeForAca: false
+    }
+  }, {
+    maxAcaFplPercent: 300,
+    magiBuffer: 2000
+  });
+
+  assert.equal(guarded.rothConversion.applyMagiGuardrails, true);
+  assert.equal(guarded.rothConversion.optimizeForAca, true);
+  assert.equal(guarded.rothConversion.maxAcaFplPercent, 300);
+  assert.equal(guarded.rothConversion.magiBuffer, 2000);
+});
+
+test("MAGI spend trim lowers flexible spend without changing required spend", () => {
+  const trimmed = scenarioWithMagiSpendTrim(DEFAULT_SCENARIO, {
+    requiredSpend: 70000,
+    flexibleSpend: 30000
+  }, 12000);
+
+  assert.equal(trimmed.targetSpend, 88000);
+  assert.equal(trimmed.spendingStrategy.mode, "fixed");
+  assert.equal(trimmed.spendingStrategy.essentialSpend, 70000);
+  assert.equal(trimmed.spendingStrategy.discretionarySpend, 18000);
+});
+
+test("IRMAA lookback guardrail disables gain harvesting and caps IRMAA tier", () => {
+  const guarded = scenarioWithIrmaaLookbackGuardrails(DEFAULT_SCENARIO, { maxIrmaaTier: 0 });
+
+  assert.equal(guarded.medicare.irmaaEnabled, true);
+  assert.equal(guarded.medicare.maxIrmaaTier, 0);
+  assert.equal(guarded.taxGainHarvesting.enabled, false);
+  assert.equal(guarded.rothConversion.applyMagiGuardrails, true);
+});
+
+test("decision batch surfaces the IRMAA lookback rescue only in the 63-64 window", () => {
+  const taxProfile = buildTaxProfile({
+    taxYear: 2026,
+    filingStatus: "marriedFilingJointly",
+    state: "Florida",
+    dependentCount: 0
+  });
+  const assets = [{
+    id: "trad",
+    name: "Traditional",
+    accountType: "traditional",
+    assetClass: "stock",
+    units: 900000,
+    price: 1,
+    costBasisPerUnit: 1,
+    dividendYield: 0,
+    qualifiedDividendShare: 0
+  }, {
+    id: "taxable",
+    name: "Taxable",
+    accountType: "taxable",
+    assetClass: "stock",
+    units: 250000,
+    price: 1,
+    costBasisPerUnit: 0.4,
+    dividendYield: 0,
+    qualifiedDividendShare: 1
+  }];
+  const baseScenario = {
+    ...DEFAULT_SCENARIO,
+    planYears: 6,
+    targetSpend: 90000,
+    aca: { enabled: false },
+    rothConversion: {
+      ...DEFAULT_SCENARIO.rothConversion,
+      enabled: true,
+      mode: "auto",
+      optimizeForAca: false,
+      targetMarginalRate: 0.32
+    }
+  };
+  const decisionProfile = { requiredSpend: 68000, flexibleSpend: 22000, targetSuccessRate: 0.9 };
+
+  // Ages 63-64 are the Medicare IRMAA lookback window. The rescue must be
+  // reachable here, which requires planFirstYear.age to carry the real age
+  // rather than a 0 fallback that would silently gate the rescue out.
+  const inWindow = runDecisionBatch({
+    assets,
+    scenario: { ...baseScenario, currentAge: 63, spouseAge: 63 },
+    taxProfile,
+    runs: 12,
+    seed: 7,
+    sequences: [],
+    decisionProfile
+  });
+  assert.equal(inWindow.base.planFirstYear.age, 63);
+  assert.ok(inWindow.rescueOptions.some((option) => option.kind === "irmaaLookbackRescue"));
+
+  // Outside the lookback window the rescue must not appear.
+  const tooYoung = runDecisionBatch({
+    assets,
+    scenario: { ...baseScenario, currentAge: 44, spouseAge: 44 },
+    taxProfile,
+    runs: 12,
+    seed: 7,
+    sequences: [],
+    decisionProfile
+  });
+  assert.equal(tooYoung.base.planFirstYear.age, 44);
+  assert.ok(tooYoung.rescueOptions.every((option) => option.kind !== "irmaaLookbackRescue"));
+});
+
+test("Social Security bridge delay applies SSA early/delayed claiming factors", () => {
+  const bridged = scenarioWithSocialSecurityBridge({
+    ...DEFAULT_SCENARIO,
+    socialSecurityAnnualBenefit: 21000,
+    socialSecurityStartAge: 62
+  }, 70);
+
+  assert.equal(bridged.socialSecurityStartAge, 70);
+  assert.equal(Math.round(bridged.socialSecurityAnnualBenefit), 37200);
+});
+
+test("taxable lot rescue uses lifetime taxable-first ordering and protects ACA years from gain harvests", () => {
+  const rescued = scenarioWithTaxableLotRescue({
+    ...DEFAULT_SCENARIO,
+    aca: { enabled: true },
+    taxGainHarvesting: { enabled: true }
+  });
+
+  assert.equal(rescued.withdrawalStrategy.mode, "lifetime");
+  assert.deepEqual(rescued.withdrawalOrder, ["taxable", "hsa", "traditional", "roth"]);
+  assert.equal(rescued.taxLossHarvesting.enabled, true);
+  assert.equal(rescued.taxGainHarvesting.enabled, false);
+});
+
 test("decision batch surfaces a safe spending boundary and a failure diagnosis", () => {
   const scenario = {
     ...DEFAULT_SCENARIO,
@@ -509,7 +819,13 @@ test("decision batch runs every rescue solver and only returns known rescue kind
     "sequenceReserve",
     "allocationShift",
     "withdrawalShift",
-    "healthcareRescue"
+    "healthcareRescue",
+    "rothBasisCliffRescue",
+    "taxableLotRescue",
+    "conversionGuardrail",
+    "magiSpendTrim",
+    "irmaaLookbackRescue",
+    "socialSecurityBridge"
   ]);
   for (const option of decision.rescueOptions) {
     assert.ok(validKinds.has(option.kind), `unexpected rescue kind: ${option.kind}`);

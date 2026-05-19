@@ -701,7 +701,7 @@ test("Roth withdrawals after penalty-free age default to qualified distributions
   assert.equal(plan.years[0].rothFiveYearRuleSatisfied, true);
 });
 
-test("Roth basis is preserved when only income-tax savings are below the hurdle", () => {
+test("Roth basis is preserved when income-tax savings are below the dynamic hurdle", () => {
   const plan = simulatePlan({
     assets: [
       {
@@ -746,7 +746,8 @@ test("Roth basis is preserved when only income-tax savings are below the hurdle"
   assert.equal(Math.round(plan.years[0].rothBasisUsed), 0);
   assert.equal(plan.years[0].rothBasisOptimization.accepted, false);
   assert.equal(Math.round(plan.years[0].rothBasisOptimization.modeledSavings), 10);
-  assert.equal(Math.round(plan.years[0].rothBasisOptimization.requiredSavings), 50);
+  assert.equal(Math.round(plan.years[0].rothBasisOptimization.requiredSavings), 12);
+  assert.equal(Math.round(plan.years[0].rothBasisOptimization.opportunityCostRate * 1000), 119);
 });
 
 test("Roth basis is used before an avoidable early traditional withdrawal penalty", () => {
@@ -959,7 +960,7 @@ test("Roth basis can replace taxable sales when taxable room is too expensive", 
   assert.equal(plan.years[0].rothBasisOptimization.accepted, true);
 });
 
-test("Roth basis is used when ACA savings clear the 50 percent hurdle", () => {
+test("Roth basis is used when ACA savings clear the dynamic opportunity-cost hurdle", () => {
   const plan = simulatePlan({
     assets: [
       {
@@ -1018,7 +1019,8 @@ test("Roth basis is used when ACA savings clear the 50 percent hurdle", () => {
   assert.equal(Math.round(plan.years[0].rothBasisUsed), 90000);
   assert.equal(plan.years[0].rothBasisOptimization.accepted, true);
   assert.equal(Math.round(plan.years[0].rothBasisOptimization.modeledSavings), 60000);
-  assert.equal(Math.round(plan.years[0].rothBasisOptimization.requiredSavings), 45000);
+  assert.equal(Math.round(plan.years[0].rothBasisOptimization.requiredSavings), 10693);
+  assert.equal(Math.round(plan.years[0].rothBasisOptimization.opportunityCostRate * 1000), 119);
 });
 
 test("early Roth basis withdrawals sell low-return Roth assets before growth assets", () => {
@@ -2024,6 +2026,191 @@ test("Roth conversion principal inside five years has penalty recapture but no i
   assert.equal(Math.round(plan.years[0].taxes.incomeTax), 0);
   assert.equal(Math.round(plan.years[0].penaltyTax), 10);
   assert.equal(Math.round(plan.years[0].taxes.totalTax), 10);
+});
+
+test("Roth basis available includes conversion principal after the five-year clock", () => {
+  const plan = simulatePlan({
+    assets: [{
+      id: "seasoned-conversion",
+      accountType: "roth",
+      assetClass: "bond",
+      units: 100,
+      price: 1,
+      costBasisPerUnit: 1,
+      rothSource: "conversion",
+      conversionYear: 2026
+    }],
+    scenario: {
+      startYear: 2031,
+      planYears: 1,
+      targetSpend: 0,
+      targetSpendIncludesTaxes: true,
+      targetSpendIncludesMedical: true,
+      withdrawalOrder: ["roth"],
+      currentAge: 50,
+      rothBasis: 50,
+      returnAssumptions: { bond: { mean: 0, stdev: 0 } },
+      rothConversion: { enabled: false },
+      aca: { enabled: false }
+    },
+    taxProfile: flatOrdinaryTaxProfile,
+    returnSequence: [{ bond: 0 }],
+    inflationSequence: [0]
+  });
+
+  assert.equal(plan.years[0].rothContributionBasisRemaining, 50);
+  assert.equal(plan.years[0].rothConversionPrincipalRemaining, 100);
+  assert.equal(plan.years[0].rothPenaltyFreeConversionPrincipal, 100);
+  assert.equal(plan.years[0].rothBasisAvailable, 150);
+});
+
+test("Roth basis available excludes early conversion principal still inside five years", () => {
+  const plan = simulatePlan({
+    assets: [{
+      id: "recent-conversion-remaining",
+      accountType: "roth",
+      assetClass: "bond",
+      units: 100,
+      price: 1,
+      costBasisPerUnit: 1,
+      rothSource: "conversion",
+      conversionYear: 2026
+    }],
+    scenario: {
+      startYear: 2028,
+      planYears: 1,
+      targetSpend: 0,
+      targetSpendIncludesTaxes: true,
+      targetSpendIncludesMedical: true,
+      withdrawalOrder: ["roth"],
+      currentAge: 50,
+      rothBasis: 50,
+      returnAssumptions: { bond: { mean: 0, stdev: 0 } },
+      rothConversion: { enabled: false },
+      aca: { enabled: false }
+    },
+    taxProfile: flatOrdinaryTaxProfile,
+    returnSequence: [{ bond: 0 }],
+    inflationSequence: [0]
+  });
+
+  assert.equal(plan.years[0].rothContributionBasisRemaining, 50);
+  assert.equal(plan.years[0].rothConversionPrincipalRemaining, 100);
+  assert.equal(plan.years[0].rothPenaltyFreeConversionPrincipal, 0);
+  assert.equal(plan.years[0].rothBasisAvailable, 50);
+});
+
+test("seasoned Roth conversion principal can protect ACA MAGI without contribution basis", () => {
+  const plan = simulatePlan({
+    assets: [{
+      id: "traditional",
+      accountType: "traditional",
+      assetClass: "cash",
+      units: 100000,
+      price: 1,
+      costBasisPerUnit: 1
+    }, {
+      id: "seasoned-conversion",
+      accountType: "roth",
+      assetClass: "cash",
+      units: 10000,
+      price: 1,
+      costBasisPerUnit: 1,
+      rothSource: "conversion",
+      conversionYear: 2020
+    }],
+    scenario: {
+      startYear: 2026,
+      planYears: 1,
+      targetSpend: 81000,
+      targetSpendIncludesTaxes: true,
+      targetSpendIncludesMedical: true,
+      withdrawalOrder: ["traditional", "roth"],
+      withdrawalStrategy: { mode: "lifetime" },
+      currentAge: 50,
+      rothBasis: 0,
+      earlyWithdrawalPenaltyRate: 0,
+      returnAssumptions: { cash: { mean: 0, stdev: 0 } },
+      taxLossHarvesting: { enabled: false },
+      taxGainHarvesting: { enabled: false },
+      rothConversion: { enabled: false },
+      aca: {
+        enabled: true,
+        fpl: 20000,
+        benchmarkPremium: 60000,
+        selectedPlanPremium: 60000,
+        applicablePercentageTable: [
+          { minFplPercent: 0, maxFplPercent: 400, initialRate: 0, finalRate: 0 }
+        ],
+        requiredContributionPercentage: 0.1,
+        maxEligibleFplPercent: 400,
+        minEligibleFplPercent: 0
+      }
+    },
+    taxProfile: noTaxProfile,
+    returnSequence: [{ cash: 0 }],
+    inflationSequence: [0]
+  });
+
+  assert.equal(Math.round(plan.years[0].cashRaised), 81000);
+  assert.equal(Math.round(plan.years[0].rothWithdrawals), 2000);
+  assert.equal(Math.round(plan.years[0].magi), 79000);
+  assert.equal(Math.round(plan.years[0].aca.subsidy), 60000);
+  assert.equal(plan.years[0].rothBasisOptimization.accepted, true);
+});
+
+test("manual Roth conversion guardrails cap conversions below the ACA cliff buffer", () => {
+  const plan = simulatePlan({
+    assets: [{
+      id: "traditional",
+      accountType: "traditional",
+      assetClass: "cash",
+      units: 100000,
+      price: 1,
+      costBasisPerUnit: 1
+    }],
+    scenario: {
+      planYears: 1,
+      targetSpend: 0,
+      targetSpendIncludesTaxes: true,
+      targetSpendIncludesMedical: true,
+      withdrawalOrder: ["traditional"],
+      withdrawalStrategy: { mode: "lifetime" },
+      currentAge: 50,
+      medicareWages: 70000,
+      earnedIncomeInflationAdjusted: false,
+      returnAssumptions: { cash: { mean: 0, stdev: 0 } },
+      taxLossHarvesting: { enabled: false },
+      taxGainHarvesting: { enabled: false },
+      rothConversion: {
+        enabled: true,
+        annualAmount: 50000,
+        applyMagiGuardrails: true,
+        optimizeForAca: true,
+        maxAcaFplPercent: 400,
+        magiBuffer: 1000
+      },
+      aca: {
+        enabled: true,
+        fpl: 20000,
+        benchmarkPremium: 60000,
+        selectedPlanPremium: 60000,
+        applicablePercentageTable: [
+          { minFplPercent: 0, maxFplPercent: 400, initialRate: 0, finalRate: 0 }
+        ],
+        requiredContributionPercentage: 0.1,
+        maxEligibleFplPercent: 400,
+        minEligibleFplPercent: 0
+      }
+    },
+    taxProfile: noTaxProfile,
+    returnSequence: [{ cash: 0 }],
+    inflationSequence: [0]
+  });
+
+  assert.equal(Math.round(plan.years[0].rothConversionAmount), 9000);
+  assert.equal(Math.round(plan.years[0].magi), 79000);
+  assert.equal(Math.round(plan.years[0].aca.subsidy), 60000);
 });
 
 test("one-off expenses can be inflation adjusted by year", () => {

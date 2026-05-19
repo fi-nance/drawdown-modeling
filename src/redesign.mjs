@@ -131,7 +131,7 @@ const OUTCOMES = [
     sub: "Find my safe spend number.",
     focus: "kpiStrip",
     enable: [],
-    note: "(Solver coming soon — for now, the safe-spend rate KPI is highlighted.)"
+    note: "(Solver coming soon — for now, the all-in spend rate KPI is highlighted.)"
   },
   {
     id: "roth",
@@ -728,11 +728,11 @@ function syncWorkspaceSummary() {
   labelEl.textContent = `Money lasts at $${targetSpend.toLocaleString()}/yr`;
   const median = pickEndingValue(latest, 0.5);
   const fifth  = pickEndingValue(latest, 0.05);
-  const swr = targetSpend > 0 && median > 0 ? targetSpend / pickStartingValue(latest) : null;
+  const spendRate = allInSpendRate(latest);
   const subParts = [];
   if (Number.isFinite(median)) subParts.push(`Median ${formatCurrencyShort(median)} ending`);
   if (Number.isFinite(fifth))  subParts.push(`5th pct ${formatCurrencyShort(fifth)}`);
-  if (Number.isFinite(swr))    subParts.push(`${(swr*100).toFixed(1)}% SWR`);
+  if (Number.isFinite(spendRate)) subParts.push(`${(spendRate*100).toFixed(1)}% all-in spend rate`);
   subEl.textContent = subParts.join(" · ");
   if (sparkEl) renderSpark(sparkEl, latest);
 }
@@ -835,7 +835,7 @@ function snapshotSummary(latest) {
     fifth: pickEndingValue(latest, 0.05),
     lifetimeTax: sumLifetimeTax(latest),
     healthcare: sumLifetimeHealthcare(latest),
-    safeRate: safeWithdrawalRate(latest),
+    allInSpendRate: allInSpendRate(latest),
     years: planYears(latest).length
   };
 }
@@ -866,7 +866,7 @@ function renderKpiStrip() {
       <div class="dh-kpis">
         <div class="dh-kpi"><span class="kpi-label">Lifetime tax</span><span class="kpi-big mono">—</span></div>
         <div class="dh-kpi"><span class="kpi-label">Healthcare</span><span class="kpi-big mono">—</span></div>
-        <div class="dh-kpi"><span class="kpi-label">Safe spend rate</span><span class="kpi-big mono">—</span></div>
+        <div class="dh-kpi"><span class="kpi-label">All-in spend rate</span><span class="kpi-big mono">—</span></div>
         <div class="dh-kpi"><span class="kpi-label">Years modeled</span><span class="kpi-big mono">—</span></div>
       </div>`;
     return;
@@ -902,7 +902,7 @@ function renderKpiStrip() {
       <div class="dh-kpis">
         <div class="dh-kpi"><span class="kpi-label">Lifetime tax</span><span class="kpi-big mono">—</span></div>
         <div class="dh-kpi"><span class="kpi-label">Healthcare</span><span class="kpi-big mono">—</span></div>
-        <div class="dh-kpi"><span class="kpi-label">Safe spend rate</span><span class="kpi-big mono">—</span></div>
+        <div class="dh-kpi"><span class="kpi-label">All-in spend rate</span><span class="kpi-big mono">—</span></div>
         <div class="dh-kpi"><span class="kpi-label">Years modeled</span><span class="kpi-big mono">—</span></div>
       </div>`;
     return;
@@ -942,7 +942,7 @@ function renderKpiStrip() {
     <div class="dh-kpis">
       <div class="dh-kpi"><span class="kpi-label">Lifetime tax</span><span class="kpi-big mono">${formatCurrencyShort(summary.lifetimeTax)}</span></div>
       <div class="dh-kpi"><span class="kpi-label">Healthcare</span><span class="kpi-big mono">${formatCurrencyShort(summary.healthcare)}</span></div>
-      <div class="dh-kpi"><span class="kpi-label">Safe spend rate</span><span class="kpi-big mono">${(summary.safeRate*100).toFixed(1)}%</span></div>
+      <div class="dh-kpi"><span class="kpi-label">All-in spend rate</span><span class="kpi-big mono">${(summary.allInSpendRate*100).toFixed(1)}%</span></div>
       <div class="dh-kpi"><span class="kpi-label">Years modeled</span><span class="kpi-big mono">${summary.years}</span></div>
     </div>`;
 }
@@ -1072,6 +1072,18 @@ function rescueTitle(option) {
       return "reorder account withdrawals";
     case "healthcareRescue":
       return "discipline MAGI to protect the subsidy";
+    case "rothBasisCliffRescue":
+      return `use Roth basis with a ${formatCurrencyShort(meta.magiBuffer ?? 0)} MAGI buffer`;
+    case "taxableLotRescue":
+      return "spend high-basis taxable lots first";
+    case "conversionGuardrail":
+      return "throttle Roth conversions near MAGI cliffs";
+    case "magiSpendTrim":
+      return `trim ${formatCurrencyShort(meta.trimAmount ?? 0)} to protect ACA MAGI`;
+    case "irmaaLookbackRescue":
+      return "smooth MAGI before Medicare";
+    case "socialSecurityBridge":
+      return `delay Social Security to age ${meta.startAge ?? 70}`;
     default:
       return option?.label ?? "rescue option";
   }
@@ -1079,7 +1091,7 @@ function rescueTitle(option) {
 
 function rescueTierLabel(kind) {
   if (kind === "incomeBridge" || kind === "combined") return "Income change";
-  if (kind === "discretionaryCut") return "Spending change";
+  if (kind === "discretionaryCut" || kind === "magiSpendTrim") return "Spending change";
   return "No lifestyle change";
 }
 
@@ -1985,12 +1997,38 @@ function sumLifetimeTax(latest) {
   return planYears(latest).reduce((t, y) => t + displayAmount(y?.taxes?.totalTax ?? 0, y), 0);
 }
 function sumLifetimeHealthcare(latest) {
-  return planYears(latest).reduce((t, y) => t + displayAmount(y?.medicalTotal ?? 0, y), 0);
+  return planYears(latest).reduce((t, y) => t + displayAmount(yearHealthcareCost(y), y), 0);
 }
-function safeWithdrawalRate(latest) {
+export function allInSpendRate(latest) {
   const start = pickStartingValue(latest);
+  const annualSpend = allInAnnualSpend(latest);
+  return start > 0 ? annualSpend / start : 0;
+}
+export function allInAnnualSpend(latest) {
+  const years = planYears(latest);
   const targetSpend = Number(document.getElementById("targetSpend")?.value) || 0;
-  return start > 0 ? targetSpend / start : 0;
+  if (!years.length) return targetSpend;
+  const averageTax = targetSpendIncludes("includeTaxes")
+    ? 0
+    : averageDisplayedAmount(years, (year) => year?.taxes?.totalTax ?? 0);
+  const averageHealthcare = targetSpendIncludes("includeMedical")
+    ? 0
+    : averageDisplayedAmount(years, yearHealthcareCost);
+  return targetSpend + averageTax + averageHealthcare;
+}
+function targetSpendIncludes(id) {
+  return document.getElementById(id)?.checked === true;
+}
+function averageDisplayedAmount(years, selector) {
+  if (!years.length) return 0;
+  const total = years.reduce((sum, year) => {
+    const value = Number(selector(year));
+    return sum + (Number.isFinite(value) ? displayAmount(value, year) : 0);
+  }, 0);
+  return total / years.length;
+}
+function yearHealthcareCost(year) {
+  return year?.medicalCost ?? year?.medicalTotal ?? 0;
 }
 function currentDollarMode() {
   return document.getElementById("viewMode")?.value === "nominal" ? "nominal" : "real";

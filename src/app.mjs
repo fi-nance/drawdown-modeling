@@ -14,7 +14,7 @@ import {
   runHistoricalBacktests,
   runMonteCarlo,
   simulatePlan
-} from "./core/simulation.mjs?v=20260518-decision-engine";
+} from "./core/simulation.mjs?v=20260518-rescue-levers";
 import { round } from "./core/utils.mjs";
 import { defaultOneOffExpenses, sampleAssets } from "./data/sample.mjs";
 import {
@@ -1334,7 +1334,7 @@ function downloadJsonText(text, filename) {
 function getSimulationWorker() {
   if (!simulationWorker) {
     simulationWorker = new Worker(
-      new URL("./core/simulation.worker.mjs?v=20260518-decision", import.meta.url),
+      new URL("./core/simulation.worker.mjs?v=20260518-rescue-levers", import.meta.url),
       { type: "module" }
     );
     simulationWorker.addEventListener("error", (ev) => {
@@ -1892,7 +1892,7 @@ function acaPlanLabel(year) {
 function renderYearTable() {
   const years = activeVisibleYears();
   const magiColumn = selectedMagiColumn();
-  const headers = ["Year", "Age", "Stock", "Bond", "Real estate", "TIPS", "Crypto", "Inflation", "Start value", "End value", "Sales / withdrawals", "Dividends", "Social Security", "Earned income", "One-off income", "RMD", "Total cash", "Total need", "Tax", "Fed income tax", "CG/QD tax", "NIIT", "Addl Medicare", "Credits", "State tax", magiColumn.header, "Taxable SS", "65+ deduction", "CTC children", "ACA plan", "ACA SLCSP", "ACA gross", "ACA subsidy", "ACA net", "Medicare", "Spend", "Essential", "Discretionary", "Disc. %", "Market DD", "Medical", "Tax gain harvest", "Roth conv.", "Roth basis left", "Penalty", "Loss carry"];
+  const headers = ["Year", "Age", "Stock", "Bond", "Real estate", "TIPS", "Crypto", "Inflation", "Start value", "End value", "Sales / withdrawals", "Dividends", "Social Security", "Earned income", "One-off income", "RMD", "Total cash", "Total need", "Tax", "Fed income tax", "CG/QD tax", "NIIT", "Addl Medicare", "Credits", "State tax", magiColumn.header, "Taxable SS", "65+ deduction", "CTC children", "ACA plan", "ACA SLCSP", "ACA gross", "ACA subsidy", "ACA net", "Medicare", "Spend", "Essential", "Discretionary", "Disc. %", "Market DD", "Medical", "Tax gain harvest", "Roth conv.", "Roth basis available", "Penalty", "Loss carry"];
   const rows = years.map((year) => [
     yearDisplayLabel(year),
     ageLabel(year.age),
@@ -1937,7 +1937,7 @@ function renderYearTable() {
     money(year.medicalCost, year),
     money(year.taxGainHarvested, year),
     money(year.rothConversionAmount, year),
-    money(year.rothBasisRemaining ?? 0, year),
+    money(year.rothBasisAvailable ?? year.rothBasisRemaining ?? 0, year),
     money(year.penaltyTax, year),
     money(year.lossCarryforward, year)
   ]);
@@ -2524,30 +2524,66 @@ function addStickyHorizontalScrollbar(container) {
   if (!table) return;
   const scrollbar = document.createElement("div");
   scrollbar.className = "sticky-x-scroll";
+
+  const leftArrow = document.createElement("button");
+  leftArrow.type = "button";
+  leftArrow.className = "table-scroll-arrow";
+  leftArrow.setAttribute("aria-label", "Scroll table left");
+  leftArrow.textContent = "‹";
+
+  const track = document.createElement("div");
+  track.className = "sticky-x-scroll-track";
   const spacer = document.createElement("div");
   spacer.className = "sticky-x-scroll-spacer";
-  scrollbar.append(spacer);
+  track.append(spacer);
+
+  const rightArrow = document.createElement("button");
+  rightArrow.type = "button";
+  rightArrow.className = "table-scroll-arrow";
+  rightArrow.setAttribute("aria-label", "Scroll table right");
+  rightArrow.textContent = "›";
+
+  scrollbar.append(leftArrow, track, rightArrow);
   container.append(scrollbar);
+
+  const maxScrollLeft = () => Math.max(0, table.scrollWidth - container.clientWidth);
+  const updateArrows = () => {
+    const max = maxScrollLeft();
+    leftArrow.disabled = container.scrollLeft <= 1;
+    rightArrow.disabled = container.scrollLeft >= max - 1;
+  };
 
   const updateWidth = () => {
     spacer.style.width = `${table.scrollWidth}px`;
     scrollbar.classList.toggle("is-needed", table.scrollWidth > container.clientWidth + 1);
+    updateArrows();
     updateFixedState();
   };
 
   let syncing = false;
   container.addEventListener("scroll", () => {
+    if (!syncing) {
+      syncing = true;
+      track.scrollLeft = container.scrollLeft;
+      syncing = false;
+    }
+    updateArrows();
+  });
+  track.addEventListener("scroll", () => {
     if (syncing) return;
     syncing = true;
-    scrollbar.scrollLeft = container.scrollLeft;
+    container.scrollLeft = track.scrollLeft;
     syncing = false;
   });
-  scrollbar.addEventListener("scroll", () => {
-    if (syncing) return;
-    syncing = true;
-    container.scrollLeft = scrollbar.scrollLeft;
-    syncing = false;
-  });
+
+  const scrollByStep = (direction) => {
+    // Instant, not smooth: a smooth animation gets cancelled by the
+    // container <-> track scroll sync, which fires across separate frames.
+    const step = Math.max(120, container.clientWidth * 0.6);
+    container.scrollLeft += direction * step;
+  };
+  leftArrow.addEventListener("click", () => scrollByStep(-1));
+  rightArrow.addEventListener("click", () => scrollByStep(1));
 
   const updateFixedState = () => {
     const rect = container.getBoundingClientRect();
@@ -3290,7 +3326,9 @@ function sankeyNodeDetailsForYear(year) {
     details["Roth basis used"] = [
       `Roth basis used: ${money(total, year)}`,
       ...rothBasisSales.map((sale) => `${sale.name}: ${money(sale.rothBasisUsed ?? 0, year)} basis from ${money(sale.proceeds ?? 0, year)} withdrawn`),
-      `Roth basis left: ${money(year.rothBasisRemaining ?? 0, year)}`
+      `Roth contribution basis left: ${money(year.rothContributionBasisRemaining ?? year.rothBasisRemaining ?? 0, year)}`,
+      `Penalty-free conversion principal: ${money(year.rothPenaltyFreeConversionPrincipal ?? 0, year)}`,
+      `Roth basis available: ${money(year.rothBasisAvailable ?? year.rothBasisRemaining ?? 0, year)}`
     ].join("\n");
   }
 
