@@ -1529,7 +1529,7 @@ async function runModels(opts = {}) {
           latest.monteCarlo.progress = { done, total, complete: false };
           if (firstScenarioId == null && latest.monteCarlo.scenarios[0]) {
             firstScenarioId = latest.monteCarlo.scenarios[0].id;
-            selectedScenarioId = firstScenarioId;
+            selectedScenarioId = firstResultWithYears(latest.monteCarlo.scenarios)?.id ?? null;
             // First MC scenario landed — redesign.mjs uses this to swap to
             // the results screen so the user sees something live.
             window.dispatchEvent(new CustomEvent("psl:first-scenario-ready"));
@@ -1569,7 +1569,7 @@ async function runModels(opts = {}) {
       latest.monteCarlo.summary = result.summary;
       latest.monteCarlo.progress = { done: runs, total: runs, complete: true };
       if (selectedScenarioId == null) {
-        selectedScenarioId = latest.monteCarlo.scenarios[0]?.id ?? null;
+        selectedScenarioId = firstResultWithYears(latest.monteCarlo.scenarios)?.id ?? null;
       }
     } else {
       latest = {
@@ -1593,7 +1593,7 @@ async function runModels(opts = {}) {
       selectedYearIndex = Math.min(selectedYearIndex, scenario.planYears - 1);
       els.yearRange.max = String(scenario.planYears);
       els.yearRange.value = String(selectedYearIndex + 1);
-      selectedScenarioId = latest.monteCarlo.scenarios[0]?.id ?? null;
+      selectedScenarioId = firstResultWithYears(latest.monteCarlo.scenarios)?.id ?? null;
       selectedBacktestIndex = null;
     }
     if (runToken !== runModelsToken) return;
@@ -2058,7 +2058,7 @@ function renderScenarioTable() {
       ].filter(Boolean).join(" ");
       const attrs = selectable
         ? `data-scenario="${id}"`
-        : `aria-disabled="true" title="Full path details are reloading"`;
+        : `aria-disabled="true" title="Full path details are unavailable for compact Monte Carlo paths"`;
       return `${attrs} class="${classes}"`;
     },
     streaming ? scenarioStreamingFooter(progress) : ""

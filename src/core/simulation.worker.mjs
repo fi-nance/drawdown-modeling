@@ -9,6 +9,8 @@ import {
 } from "./simulation.mjs";
 import { runDecisionBatch } from "./decisionEngine.mjs";
 
+const UI_MONTE_CARLO_TIMELINE_LIMIT = 5;
+
 self.addEventListener("message", (ev) => {
   const msg = ev.data;
   if (!msg || msg.type !== "run") return;
@@ -28,6 +30,7 @@ self.addEventListener("message", (ev) => {
       taxProfile,
       runs,
       seed,
+      scenarioTimelineLimit: UI_MONTE_CARLO_TIMELINE_LIMIT,
       onBatch: ({ scenarios, done, total }) => {
         self.postMessage({
           type: "scenarios-batch",

@@ -43,6 +43,7 @@ const WITHDRAWAL_ORDERS = [
   ["traditional", "taxable", "hsa", "roth"],
   ["taxable", "hsa", "traditional", "roth"]
 ];
+const SUMMARY_ONLY_MONTE_CARLO_TIMELINES = 0;
 
 export function normalizeDecisionProfile(profile = {}, scenario = {}) {
   const targetSuccessRate = clampNumber(
@@ -107,7 +108,14 @@ export function runDecisionBatch({
     label: "Base plan",
     scenario,
     plan: basePlan ?? simulatePlan({ assets, scenario, taxProfile }),
-    monteCarlo: baseMonteCarlo ?? runMonteCarlo({ assets, scenario, taxProfile, runs, seed }),
+    monteCarlo: baseMonteCarlo ?? runMonteCarlo({
+      assets,
+      scenario,
+      taxProfile,
+      runs,
+      seed,
+      scenarioTimelineLimit: SUMMARY_ONLY_MONTE_CARLO_TIMELINES
+    }),
     backtests: baseBacktests ?? runHistoricalBacktests({ assets, scenario, taxProfile, sequences }),
     profile
   });
@@ -1209,7 +1217,14 @@ function runCandidate({
     label,
     scenario,
     plan: simulatePlan({ assets, scenario, taxProfile }),
-    monteCarlo: runMonteCarlo({ assets, scenario, taxProfile, runs, seed }),
+    monteCarlo: runMonteCarlo({
+      assets,
+      scenario,
+      taxProfile,
+      runs,
+      seed,
+      scenarioTimelineLimit: SUMMARY_ONLY_MONTE_CARLO_TIMELINES
+    }),
     backtests: includeHistorical ? runHistoricalBacktests({ assets, scenario, taxProfile, sequences }) : [],
     profile,
     metadata

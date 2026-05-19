@@ -67,6 +67,13 @@ test("HTML Monte Carlo controls match the core default preset", async () => {
   }
 });
 
+test("browser worker limits retained Monte Carlo timelines for 1000-run defaults", async () => {
+  const source = await readFile(new URL("../src/core/simulation.worker.mjs", import.meta.url), "utf8");
+
+  assert.match(source, /UI_MONTE_CARLO_TIMELINE_LIMIT\s*=\s*5/);
+  assert.match(source, /scenarioTimelineLimit:\s*UI_MONTE_CARLO_TIMELINE_LIMIT/);
+});
+
 function inputValue(html, id) {
   const pattern = new RegExp(`<input id="${id}"[^>]*value="([^"]+)"`);
   const match = html.match(pattern);

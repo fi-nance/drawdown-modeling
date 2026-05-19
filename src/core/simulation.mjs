@@ -328,12 +328,14 @@ export function runMonteCarlo({
   seed = 42,
   onProgress = null,
   onBatch = null,
-  progressInterval = 25
+  progressInterval = 25,
+  scenarioTimelineLimit = Number.POSITIVE_INFINITY
 }) {
   const mergedScenario = ensureReturnAssumptionsForAssets(mergeScenario(scenario), assets);
   const rng = createRng(seed);
   const scenarios = [];
   const reportEvery = Math.max(1, Math.trunc(progressInterval) || 25);
+  const timelineLimit = normalizeScenarioTimelineLimit(scenarioTimelineLimit);
   let batchStart = 0;
 
   for (let run = 0; run < runs; run += 1) {
@@ -357,14 +359,12 @@ export function runMonteCarlo({
     });
 
     const depletion = firstDepletionDetails(plan.years);
-    scenarios.push({
+    scenarios.push(monteCarloScenarioResult({
       id: run + 1,
-      success: plan.success,
-      endingValue: plan.endingValue,
-      heirValue: plan.heirValue,
-      ...depletion,
-      years: plan.years
-    });
+      plan,
+      depletion,
+      includeTimeline: run < timelineLimit
+    }));
 
     if ((run + 1) % reportEvery === 0 || run + 1 === runs) {
       if (typeof onBatch === "function") {
@@ -393,6 +393,42 @@ export function runMonteCarlo({
       p90EndingValue: round(percentile(endingValues, 0.9), 2),
       medianHeirValue: round(percentile(heirValues, 0.5), 2)
     }
+  };
+}
+
+function normalizeScenarioTimelineLimit(value) {
+  if (value === Number.POSITIVE_INFINITY || value === Infinity) return Number.POSITIVE_INFINITY;
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return Number.POSITIVE_INFINITY;
+  return Math.max(0, Math.trunc(numeric));
+}
+
+function monteCarloScenarioResult({ id, plan, depletion, includeTimeline }) {
+  const result = {
+    id,
+    success: plan.success,
+    endingValue: plan.endingValue,
+    heirValue: plan.heirValue,
+    ...depletion
+  };
+  if (includeTimeline) {
+    return {
+      ...result,
+      years: plan.years
+    };
+  }
+  return {
+    ...result,
+    lastYear: lastYearThumbnail(plan.years.at(-1))
+  };
+}
+
+function lastYearThumbnail(year) {
+  if (!year) return null;
+  return {
+    year: year.year,
+    yearIndex: year.yearIndex,
+    inflationIndex: year.inflationIndex
   };
 }
 

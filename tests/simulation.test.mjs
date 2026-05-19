@@ -2871,6 +2871,65 @@ test("Monte Carlo scenarios are deterministic with the same seed", () => {
   assert.equal(first.scenarios.length, 5);
 });
 
+test("Monte Carlo can limit retained scenario timelines without changing summary fields", () => {
+  const input = {
+    assets: [{
+      id: "stock",
+      accountType: "taxable",
+      assetClass: "stock",
+      holdingPeriod: "long",
+      units: 100,
+      price: 100,
+      costBasisPerUnit: 100
+    }],
+    scenario: {
+      planYears: 2,
+      targetSpend: 0,
+      targetSpendIncludesTaxes: true,
+      targetSpendIncludesMedical: true,
+      withdrawalOrder: ["taxable"],
+      returnAssumptions: {
+        stock: { mean: 0.05, stdev: 0.1 },
+        inflation: { mean: 0.02, stdev: 0.01 }
+      },
+      aca: { enabled: false }
+    },
+    taxProfile: noTaxProfile,
+    runs: 3,
+    seed: 77
+  };
+
+  const limited = runMonteCarlo({ ...input, scenarioTimelineLimit: 1 });
+  assert.equal(limited.scenarios.length, 3);
+  assert.ok(Array.isArray(limited.scenarios[0].years), "first retained path should keep its timeline");
+  const expectedLastYearIndex = limited.scenarios[0].years.at(-1).yearIndex;
+  assert.equal(limited.scenarios[1].years, undefined, "later paths should be compact");
+  assert.equal(limited.scenarios[2].years, undefined, "later paths should be compact");
+  assert.equal(limited.scenarios[1].lastYear.yearIndex, expectedLastYearIndex);
+  assert.equal(limited.summary.runs, 3);
+  assert.equal(typeof limited.summary.successRate, "number");
+
+  const compact = runMonteCarlo({ ...input, scenarioTimelineLimit: 0 });
+  assert.ok(compact.scenarios.every((scenarioResult) => scenarioResult.years === undefined));
+  assert.ok(compact.scenarios.every((scenarioResult) => scenarioResult.lastYear?.yearIndex === expectedLastYearIndex));
+  assert.deepEqual(
+    compact.scenarios.map(({ id, success, endingValue, heirValue, depletionYear }) => ({
+      id,
+      success,
+      endingValue,
+      heirValue,
+      depletionYear
+    })),
+    runMonteCarlo(input).scenarios.map(({ id, success, endingValue, heirValue, depletionYear }) => ({
+      id,
+      success,
+      endingValue,
+      heirValue,
+      depletionYear
+    }))
+  );
+});
+
 test("Monte Carlo correlated sampling stays deterministic and changes the sampled path", () => {
   const baseInput = {
     assets: [

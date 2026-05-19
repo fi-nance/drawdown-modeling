@@ -7,8 +7,9 @@
    above the ~5 MB quota. We strip the per-scenario year
    timelines (which dominate the size) and keep just the summary + each
    scenario's top-level outcome fields plus a thumbnail "lastYear" so
-   inflation-adjusted formatting still works. When the background re-run
-   finishes, the full data overwrites this compact snapshot. */
+   inflation-adjusted formatting still works. The live browser run also keeps
+   only a small number of full Monte Carlo timelines so high-run-count plans do
+   not exhaust the renderer. */
 
 export const RESULTS_CACHE_KEY = "portfolio-success-lab:results-cache:current";
 

@@ -10,11 +10,11 @@ import { compactLatestForCache } from "../src/core/resultsCache.mjs";
 import { runHistoricalBacktests, runMonteCarlo, simulatePlan } from "../src/core/simulation.mjs";
 import { sampleAssets } from "../src/data/sample.mjs";
 
-function buildLatest(runs) {
+function buildLatest(runs, monteCarloOptions = {}) {
   const assets = sampleAssets.map((asset) => ({ ...asset }));
   const scenario = { planYears: 35, currentAge: 55, targetSpend: 90_000 };
   const plan = simulatePlan({ assets, scenario });
-  const monteCarlo = runMonteCarlo({ assets, scenario, runs, seed: 42 });
+  const monteCarlo = runMonteCarlo({ assets, scenario, runs, seed: 42, ...monteCarloOptions });
   const backtests = runHistoricalBacktests({ assets, scenario, sequences: [] });
   return { scenario, plan, monteCarlo, backtests };
 }
@@ -55,4 +55,11 @@ test("real-world: compact 1000-run latest still fits under the sessionStorage qu
   const compactKb = sizeKb(compactLatestForCache(latest));
   console.log(`  compact 1000 runs → ${compactKb} KB`);
   assert.ok(compactKb < BROWSER_QUOTA_KB, `compact 1000-run form ${compactKb} KB must fit under ~5 MB quota`);
+});
+
+test("real-world: worker-style 1000-run latest avoids the uncompacted live payload", () => {
+  const latest = buildLatest(1000, { scenarioTimelineLimit: 5 });
+  const kb = sizeKb(latest);
+  console.log(`  worker-style 1000 runs → ${kb} KB`);
+  assert.ok(kb < 15 * 1024, `worker-style 1000-run payload (${kb} KB) should stay comfortably below crash-prone sizes`);
 });
