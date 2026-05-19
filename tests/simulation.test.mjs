@@ -468,6 +468,7 @@ test("automatic Roth conversions skip when even the cheapest band is too expensi
       targetSpendIncludesTaxes: true,
       targetSpendIncludesMedical: true,
       withdrawalOrder: ["traditional"],
+      withdrawalStrategy: { mode: "heuristic" },
       currentAge: 65,
       returnAssumptions: { bond: { mean: 0, stdev: 0 } },
       rothConversion: { enabled: true, mode: "auto", targetMarginalRate: 0.01 },
@@ -3423,6 +3424,203 @@ test("combined target marginal rate deducts state marginal from federal ceiling"
   // Federal target = 0.20 - 0.05 = 0.15. Highest bracket ≤ 0.15 is the 0.10
   // bracket whose ceiling is 10000. Conversion ≈ 10000.
   assert.equal(plan.years[0].rothConversionAmount, 10000);
+});
+
+test("capital loss netting on AGI in simulation", () => {
+  // Verify that AGI, ACA MAGI, and IRMAA MAGI correctly net capital gains and losses,
+  // applying the Schedule D $3,000 ordinary income offset ceiling, and carrying forward.
+  const plan = simulatePlan({
+    assets: [
+      {
+        id: "taxable-loss",
+        accountType: "taxable",
+        assetClass: "stock",
+        holdingPeriod: "long",
+        units: 100,
+        price: 1,
+        costBasisPerUnit: 100 // $99 loss per unit * 100 = $9900 unrealized loss
+      }
+    ],
+    scenario: {
+      planYears: 2,
+      targetSpend: 50, // sells 50 units, realizing $4950 of long-term capital loss
+      targetSpendIncludesTaxes: false,
+      targetSpendIncludesMedical: false,
+      withdrawalOrder: ["taxable"],
+      currentAge: 60,
+      oneOffExpenses: [
+        {
+          name: "Consulting Year 1",
+          cashFlowType: "taxableOrdinaryIncome",
+          startYear: 1,
+          endYear: 1,
+          amount: 10000,
+          inflationAdjusted: false
+        },
+        {
+          name: "Expense Year 1",
+          cashFlowType: "expense",
+          startYear: 1,
+          endYear: 1,
+          amount: 10000,
+          inflationAdjusted: false
+        },
+        {
+          name: "Consulting Year 2",
+          cashFlowType: "taxableOrdinaryIncome",
+          startYear: 2,
+          endYear: 2,
+          amount: 10000,
+          inflationAdjusted: false
+        },
+        {
+          name: "Expense Year 2",
+          cashFlowType: "expense",
+          startYear: 2,
+          endYear: 2,
+          amount: 10000,
+          inflationAdjusted: false
+        }
+      ],
+      returnAssumptions: { stock: { mean: 0, stdev: 0 } },
+      rothConversion: { enabled: false },
+      aca: { enabled: false },
+      taxLossHarvesting: { enabled: false }
+    },
+    taxProfile: {
+      ...noTaxProfile,
+      capitalLossOrdinaryIncomeOffset: 3000,
+      ordinaryBrackets: [{ upTo: Infinity, rate: 0 }]
+    },
+    returnSequence: [{ stock: 0 }, { stock: 0 }],
+    inflationSequence: [0, 0]
+  });
+
+  // Year 1:
+  // Ordinary Income = 10000
+  // Realized Loss = 50 * (100 - 1) = 4950.
+  // Netting: offsets ordinary income up to 3000.
+  // AGI/MAGI = 10000 - 3000 = 7000.
+  // Carryforward remaining loss = 4950 - 3000 = 1950.
+  assert.equal(plan.years[0].magi, 7000);
+  assert.equal(plan.years[0].taxes.lossCarryforward, 1950);
+
+  // Year 2:
+  // Start with 1950 loss carryforward.
+  // Ordinary Income = 10000
+  // Sells remaining 50 units (under 0 return assumption).
+  // Realized Loss = 50 * (100 - 1) = 4950.
+  // Total long-term loss pool = 1950 (carryforward) + 4950 (new loss) = 6900.
+  // Offset ordinary income = 3000.
+  // AGI/MAGI = 10000 - 3000 = 7000.
+  // New carryforward = 6900 - 3000 = 3900.
+  assert.equal(plan.years[1].magi, 7000);
+  assert.equal(plan.years[1].taxes.lossCarryforward, 3900);
+});
+
+test("Medicare split-eligibility premium computation (65+ spouse when primary is under 65)", () => {
+  // Primary (62) is not eligible, spouse (65) is eligible.
+  const plan = simulatePlan({
+    assets: [{
+      id: "cash",
+      accountType: "taxable",
+      assetClass: "cash",
+      holdingPeriod: "long",
+      units: 20000,
+      price: 1,
+      costBasisPerUnit: 1
+    }],
+    scenario: {
+      planYears: 1,
+      targetSpend: 0,
+      targetSpendIncludesTaxes: true,
+      targetSpendIncludesMedical: false,
+      withdrawalOrder: ["taxable"],
+      currentAge: 62,
+      spouseAge: 65,
+      medicalExpensesBase: 0,
+      expectedOopMaxUsePercent: 0,
+      oopMaxOverride: 0,
+      returnAssumptions: { cash: { mean: 0, stdev: 0 } },
+      rothConversion: { enabled: false },
+      aca: { enabled: false },
+      medicare: {
+        irmaaEnabled: true,
+        twoYearsPriorMagi: 100000 // In the base bracket
+      }
+    },
+    taxProfile: {
+      ...noTaxProfile,
+      filingStatus: "marriedFilingJointly"
+    },
+    returnSequence: [{ cash: 0 }],
+    inflationSequence: [0]
+  });
+
+  // Only the spouse is 65+, so the premium covers 1 enrollee at the base bracket
+  // (twoYearsPriorMagi 100000 is below the MFJ first-tier threshold of 218000).
+  // 2026 Part B standard premium = 202.9/mo, Part D base premium unset (0).
+  // Annual = 202.9 * 12 * 1 = 2434.8.
+  assert.equal(plan.years[0].medicare.partBEnrollees, 1);
+  assert.equal(plan.years[0].medicare.partDEnrollees, 1);
+  assert.equal(plan.years[0].medicare.partBMonthlyIrmaa, 0);
+  assert.equal(plan.years[0].medicare.totalAnnualPremium, 2434.8);
+});
+
+test("ACA split-eligibility household transition (younger spouse rating factor preserved; 65+ partner rating factor excluded)", () => {
+  // With spouse Age 65+, their rating factor must be excluded (treated as 0) from the ACA premium rating curve,
+  // while the younger spouse (64) is rated.
+  const plan = simulatePlan({
+    assets: [{
+      id: "cash",
+      accountType: "taxable",
+      assetClass: "cash",
+      holdingPeriod: "long",
+      units: 20000,
+      price: 1,
+      costBasisPerUnit: 1
+    }],
+    scenario: {
+      planYears: 1,
+      targetSpend: 0,
+      targetSpendIncludesTaxes: true,
+      targetSpendIncludesMedical: true,
+      withdrawalOrder: ["taxable"],
+      currentAge: 64,
+      spouseAge: 65,
+      returnAssumptions: { cash: { mean: 0, stdev: 0 } },
+      rothConversion: { enabled: false },
+      aca: {
+        enabled: true,
+        fpl: 20000,
+        benchmarkPremium: 10000, // base premium for a reference age of 21
+        ageRatedBenchmarkPremium: true,
+        benchmarkPremiumReferenceAge: 21,
+        memberAges: [64, 65],
+        benchmarkPremiumReferenceAges: [21, 21],
+        maxEligibleFplPercent: 400,
+        applicablePercentageTable: [
+          { minFplPercent: 0, maxFplPercent: 400, initialRate: 0.1, finalRate: 0.1 }
+        ]
+      }
+    },
+    taxProfile: {
+      ...noTaxProfile,
+      filingStatus: "marriedFilingJointly"
+    },
+    returnSequence: [{ cash: 0 }],
+    inflationSequence: [0]
+  });
+
+  // Because spouse is 65, they are excluded from the current rating curve factor.
+  // Only the 64-year-old rating factor is counted.
+  // Reference ages are [21, 21] (both under 65, so both counted).
+  // Total current rating / total reference rating will be ageRating(64) / (ageRating(21) + ageRating(21)).
+  // Age 64 rating factor is 3.0. Age 21 rating factor is 1.0.
+  // So currentRatingTotal = 3.0. referenceRatingTotal = 1.0 + 1.0 = 2.0.
+  // Ratio is 3.0 / 2.0 = 1.5.
+  // Adjusted premium = 10000 * 1.5 = 15000.
+  assert.equal(plan.years[0].aca.benchmarkPremium, 15000);
 });
 
 function round6(value) {

@@ -42,39 +42,24 @@ export function taxPreferentialIncome({ ordinaryTaxableIncome, preferentialIncom
   return round(tax, 6);
 }
 
-export function computeIncomeTax({
-  ordinaryIncome = 0,
-  retirementOrdinaryIncome = 0,
+// Schedule D / IRC §1212(b) netting: short-term and long-term losses retain
+// their character when carried forward. Within-character losses offset
+// within-character gains first; any remaining loss may then offset gains of
+// the other character; any remaining loss offsets up to $3,000 of ordinary
+// income (ST first, then LT per the Capital Loss Carryover Worksheet);
+// the rest carries forward by character.
+export function netCapitalGainsAndLosses({
   shortTermCapitalGains = 0,
   longTermCapitalGains = 0,
-  qualifiedDividends = 0,
-  ordinaryInvestmentIncome = 0,
-  taxableSocialSecurity = 0,
-  adjustmentsToIncome = 0,
-  medicareWages = 0,
-  selfEmploymentIncome = 0,
-  rrtaCompensation = 0,
-  capitalLosses = 0,
   shortTermCapitalLosses,
   longTermCapitalLosses,
-  capitalLossCarryforward = 0,
-  profile = DEFAULT_TAX_PROFILE
+  capitalLosses = 0,
+  carryforwardShort = 0,
+  carryforwardLong = 0,
+  ordinaryIncome = 0,
+  adjustments = 0,
+  ordinaryOffsetCap = 3000
 } = {}) {
-  // Schedule D / IRC §1212(b) netting: short-term and long-term losses retain
-  // their character when carried forward. Within-character losses offset
-  // within-character gains first; any remaining loss may then offset gains of
-  // the other character; any remaining loss offsets up to $3,000 of ordinary
-  // income (ST first, then LT per the Capital Loss Carryover Worksheet);
-  // the rest carries forward by character.
-  const carryforwardShort = typeof capitalLossCarryforward === "object" && capitalLossCarryforward !== null
-    ? Math.max(0, capitalLossCarryforward.shortTerm ?? 0)
-    : 0;
-  // Legacy callers pass `capitalLossCarryforward` as a single number with no
-  // character info; treat that number as long-term to match the long-standing
-  // (and dominant in retirement) case.
-  const carryforwardLong = typeof capitalLossCarryforward === "object" && capitalLossCarryforward !== null
-    ? Math.max(0, capitalLossCarryforward.longTerm ?? 0)
-    : Math.max(0, capitalLossCarryforward);
   const hasCharacterizedLosses = Number.isFinite(shortTermCapitalLosses) || Number.isFinite(longTermCapitalLosses);
   const currentShortLosses = hasCharacterizedLosses
     ? Math.max(0, shortTermCapitalLosses ?? 0)
@@ -85,9 +70,8 @@ export function computeIncomeTax({
 
   const shortGains = Math.max(0, shortTermCapitalGains);
   let longGains = Math.max(0, longTermCapitalGains);
-  const dividendPreferentialIncome = Math.max(0, qualifiedDividends);
-  let shortLossPool = currentShortLosses + carryforwardShort;
-  let longLossPool = currentLongLosses + carryforwardLong;
+  let shortLossPool = currentShortLosses + Math.max(0, carryforwardShort);
+  let longLossPool = currentLongLosses + Math.max(0, carryforwardLong);
 
   // Step 1: same-character netting.
   const shortGainOffset = Math.min(shortGains, shortLossPool);
@@ -109,17 +93,72 @@ export function computeIncomeTax({
 
   // Step 3: offset against ordinary income (ST loss first, then LT, capped at
   // §1211(b) threshold — $3,000 for MFJ/Single, $1,500 for MFS).
-  const adjustments = Math.max(0, adjustmentsToIncome);
-  const ordinaryBeforeLossOffset = Math.max(0, ordinaryIncome + netShortGains - adjustments);
-  const ordinaryOffsetCap = Math.min(
-    profile.capitalLossOrdinaryIncomeOffset ?? 3000,
-    ordinaryBeforeLossOffset
-  );
-  const shortOrdOffset = Math.min(shortLossPool, ordinaryOffsetCap);
+  const adjustmentsAmount = Math.max(0, adjustments);
+  const ordinaryBeforeLossOffset = Math.max(0, ordinaryIncome + netShortGains - adjustmentsAmount);
+  const cap = Math.min(Math.max(0, ordinaryOffsetCap), ordinaryBeforeLossOffset);
+  const shortOrdOffset = Math.min(shortLossPool, cap);
   shortLossPool -= shortOrdOffset;
-  const longOrdOffset = Math.min(longLossPool, ordinaryOffsetCap - shortOrdOffset);
+  const longOrdOffset = Math.min(longLossPool, cap - shortOrdOffset);
   longLossPool -= longOrdOffset;
-  const ordinaryLossOffset = shortOrdOffset + longOrdOffset;
+
+  return {
+    netShortGains,
+    netLongGains: longGains,
+    ordinaryLossOffset: shortOrdOffset + longOrdOffset,
+    ordinaryBeforeLossOffset,
+    lossCarryforwardShort: shortLossPool,
+    lossCarryforwardLong: longLossPool
+  };
+}
+
+export function computeIncomeTax({
+  ordinaryIncome = 0,
+  retirementOrdinaryIncome = 0,
+  shortTermCapitalGains = 0,
+  longTermCapitalGains = 0,
+  qualifiedDividends = 0,
+  ordinaryInvestmentIncome = 0,
+  taxableSocialSecurity = 0,
+  adjustmentsToIncome = 0,
+  medicareWages = 0,
+  selfEmploymentIncome = 0,
+  rrtaCompensation = 0,
+  capitalLosses = 0,
+  shortTermCapitalLosses,
+  longTermCapitalLosses,
+  capitalLossCarryforward = 0,
+  profile = DEFAULT_TAX_PROFILE
+} = {}) {
+  // Legacy callers pass `capitalLossCarryforward` as a single number with no
+  // character info; treat that number as long-term to match the long-standing
+  // (and dominant in retirement) case.
+  const carryforwardShort = typeof capitalLossCarryforward === "object" && capitalLossCarryforward !== null
+    ? Math.max(0, capitalLossCarryforward.shortTerm ?? 0)
+    : 0;
+  const carryforwardLong = typeof capitalLossCarryforward === "object" && capitalLossCarryforward !== null
+    ? Math.max(0, capitalLossCarryforward.longTerm ?? 0)
+    : Math.max(0, capitalLossCarryforward);
+
+  const adjustments = Math.max(0, adjustmentsToIncome);
+  const netting = netCapitalGainsAndLosses({
+    shortTermCapitalGains,
+    longTermCapitalGains,
+    shortTermCapitalLosses,
+    longTermCapitalLosses,
+    capitalLosses,
+    carryforwardShort,
+    carryforwardLong,
+    ordinaryIncome,
+    adjustments,
+    ordinaryOffsetCap: profile.capitalLossOrdinaryIncomeOffset ?? 3000
+  });
+  const netShortGains = netting.netShortGains;
+  const longGains = netting.netLongGains;
+  const dividendPreferentialIncome = Math.max(0, qualifiedDividends);
+  const ordinaryBeforeLossOffset = netting.ordinaryBeforeLossOffset;
+  const ordinaryLossOffset = netting.ordinaryLossOffset;
+  const shortLossPool = netting.lossCarryforwardShort;
+  const longLossPool = netting.lossCarryforwardLong;
   const lossPool = shortLossPool + longLossPool;
 
   const ordinaryAfterLossOffset = Math.max(0, ordinaryBeforeLossOffset - ordinaryLossOffset);

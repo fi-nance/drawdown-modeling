@@ -211,13 +211,15 @@ function ageAdjustedHouseholdPremium(options = {}, ageContext = {}) {
     ages: options.memberAges,
     fallbackAge: currentFallbackAge,
     members,
-    ageOffset: Array.isArray(options.memberAges) ? yearIndex : 0
+    ageOffset: Array.isArray(options.memberAges) ? yearIndex : 0,
+    exclude65Plus: true
   });
   const referenceRatingTotal = householdAgeRatingTotal({
     ages: options.referenceAges,
     fallbackAge: referenceFallbackAge,
     members,
-    ageOffset: 0
+    ageOffset: 0,
+    exclude65Plus: false
   });
 
   if (referenceRatingTotal <= 0) return round(premium, 6);
@@ -267,10 +269,14 @@ function inflateBackupPlan(config, inflationIndex, ageContext) {
   };
 }
 
-function householdAgeRatingTotal({ ages, fallbackAge, members, ageOffset }) {
+function householdAgeRatingTotal({ ages, fallbackAge, members, ageOffset, exclude65Plus = false }) {
   return Array.from({ length: members }, (_, index) => {
     const age = finiteAge(ages?.[index]) ?? fallbackAge;
-    return acaAgeRatingFactor(age + ageOffset);
+    const currentAge = age + ageOffset;
+    if (exclude65Plus && currentAge >= 65) {
+      return 0;
+    }
+    return acaAgeRatingFactor(currentAge);
   }).reduce((total, factor) => total + factor, 0);
 }
 
