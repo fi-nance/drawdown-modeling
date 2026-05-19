@@ -202,6 +202,58 @@ test("decision batch returns base, income bridge, and combined rescue summaries"
   assert.equal(decision.verdict.historicalKnown, false);
 });
 
+test("decision batch omits the income bridge and combined rescues when the household opts out", () => {
+  const scenario = {
+    ...DEFAULT_SCENARIO,
+    planYears: 3,
+    currentAge: 44,
+    spouseAge: 44,
+    targetSpend: 600000,
+    targetSpendIncludesTaxes: false,
+    targetSpendIncludesMedical: true,
+    medicalExpensesBase: 0,
+    aca: { enabled: false },
+    spendingStrategy: {
+      ...DEFAULT_SCENARIO.spendingStrategy,
+      mode: "fixed",
+      essentialSpend: 500000,
+      discretionarySpend: 100000
+    },
+    returnAssumptions: {
+      ...DEFAULT_SCENARIO.returnAssumptions,
+      cash: { mean: 0, stdev: 0 },
+      inflation: { mean: 0, stdev: 0 }
+    }
+  };
+  const taxProfile = buildTaxProfile({
+    taxYear: 2026,
+    filingStatus: "marriedFilingJointly",
+    state: "Florida",
+    dependentCount: 0
+  });
+
+  const decision = runDecisionBatch({
+    assets: cashAssets,
+    scenario,
+    taxProfile,
+    runs: 10,
+    seed: 7,
+    sequences: [],
+    decisionProfile: {
+      requiredSpend: 500000,
+      flexibleSpend: 100000,
+      targetSuccessRate: 1,
+      incomeBridge: { enabled: false }
+    }
+  });
+
+  assert.equal(decision.status, "ready");
+  assert.ok(decision.rescueOptions.every((option) => option.kind !== "incomeBridge"));
+  assert.ok(decision.rescueOptions.every((option) => option.kind !== "combined"));
+  // The failure diagnosis must not push a return to work the household ruled out.
+  assert.ok(!decision.diagnosis.reason.includes("income bridge"));
+});
+
 test("decision batch surfaces Roth basis cliff rescue when it preserves ACA subsidy", () => {
   const scenario = {
     ...DEFAULT_SCENARIO,

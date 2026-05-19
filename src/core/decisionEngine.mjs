@@ -147,7 +147,7 @@ export function runDecisionBatch({
     historicalCount: base.historical.count,
     targetSuccessRate: profile.targetSuccessRate
   });
-  const diagnosis = diagnoseFailure({ base, safeSpending });
+  const diagnosis = diagnoseFailure({ base, safeSpending, profile });
 
   const rescueOptions = [
     discretionaryCut,
@@ -1148,7 +1148,7 @@ function hasAccountType(assets = [], accountType) {
   return assets.some((asset) => asset?.accountType === accountType && Number(asset.units) * Number(asset.price) > 0);
 }
 
-function diagnoseFailure({ base, safeSpending }) {
+function diagnoseFailure({ base, safeSpending, profile }) {
   const anatomy = base?.failureAnatomy ?? {};
   const failedCount = anatomy.failedCount ?? 0;
   const firstYear = base?.planFirstYear;
@@ -1183,8 +1183,14 @@ function diagnoseFailure({ base, safeSpending }) {
   }
 
   if (requiredUnsustainable) {
-    reason += " Required spending alone is not sustainable, so an income bridge may be necessary.";
-    recommendedKinds = ["incomeBridge", ...recommendedKinds.filter((kind) => kind !== "incomeBridge")];
+    // Respect a household that has opted out of bridge income — do not keep
+    // recommending a return to work they have already ruled out.
+    if (profile?.incomeBridge?.enabled === false) {
+      reason += " Required spending alone is not sustainable, so the required-spending floor itself has to come down.";
+    } else {
+      reason += " Required spending alone is not sustainable, so an income bridge may be necessary.";
+      recommendedKinds = ["incomeBridge", ...recommendedKinds.filter((kind) => kind !== "incomeBridge")];
+    }
   }
 
   return {

@@ -103,6 +103,7 @@ const CONTROL_IDS = [
   "decisionRequiredSpend",
   "decisionFlexibleSpend",
   "decisionTargetSuccessRate",
+  "decisionIncomeBridgeEnabled",
   "historicalDataSource",
   "backtestMode",
   "historicalStartYear",
@@ -252,6 +253,7 @@ const els = {
   decisionRequiredSpend: document.querySelector("#decisionRequiredSpend"),
   decisionFlexibleSpend: document.querySelector("#decisionFlexibleSpend"),
   decisionTargetSuccessRate: document.querySelector("#decisionTargetSuccessRate"),
+  decisionIncomeBridgeEnabled: document.querySelector("#decisionIncomeBridgeEnabled"),
   historicalDataSource: document.querySelector("#historicalDataSource"),
   backtestMode: document.querySelector("#backtestMode"),
   historicalStartYear: document.querySelector("#historicalStartYear"),
@@ -1254,7 +1256,7 @@ function decisionProfileStateSnapshot() {
     verdictObjective: "avoidDepletion",
     evidenceWeights: { monteCarlo: 0.5, historical: 0.5 },
     incomeBridge: {
-      enabled: true,
+      enabled: els.decisionIncomeBridgeEnabled?.checked !== false,
       startYear: 1,
       maxYears: 6,
       maxAnnualIncome: 150000,
@@ -3643,7 +3645,7 @@ function readDecisionProfile(scenario) {
       historical: 0.5
     },
     incomeBridge: {
-      enabled: true,
+      enabled: els.decisionIncomeBridgeEnabled?.checked !== false,
       startYear: 1,
       maxYears: 6,
       maxAnnualIncome: 150000,
