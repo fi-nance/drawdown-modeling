@@ -803,7 +803,9 @@ function findSequenceReserve({ assets, scenario, taxProfile, runs, seed, sequenc
     ?? null;
   if (!winner) return null;
   const finalized = finalizeCandidate({ candidate: winner, assets, taxProfile, runs, seed, sequences, profile });
-  if (!isWorthwhileRescue(finalized, base, profile)) return null;
+  if (!isWorthwhileRescue(finalized, base, profile)) {
+    return optionWithDelta(finalized, base, { status: "discarded" });
+  }
   return optionWithDelta(finalized, base, { status: meetsTarget(finalized, profile) ? "target-met" : "best-tested" });
 }
 
@@ -848,7 +850,12 @@ function findAllocationShift({ assets, scenario, taxProfile, runs, seed, sequenc
   const worsensWorstPath = baseWorst != null
     && Number.isFinite(finalizedWorst)
     && finalizedWorst + EPSILON < baseWorst;
-  if (worsensWorstPath || !isWorthwhileRescue(finalized, base, profile)) return null;
+  if (worsensWorstPath || !isWorthwhileRescue(finalized, base, profile)) {
+    return optionWithDelta(finalized, base, {
+      status: "discarded",
+      worstPathGuardrail: baseWorst != null
+    });
+  }
   return optionWithDelta(finalized, base, {
     status: meetsTarget(finalized, profile) ? "target-met" : "best-tested",
     worstPathGuardrail: baseWorst != null
@@ -894,7 +901,9 @@ function findWithdrawalShift({ assets, scenario, taxProfile, runs, seed, sequenc
     .sort((a, b) => b.monteCarlo.successRate - a.monteCarlo.successRate)[0];
   if (!winner) return null;
   const finalized = finalizeCandidate({ candidate: winner, assets, taxProfile, runs, seed, sequences, profile });
-  if (!isWorthwhileRescue(finalized, base, profile)) return null;
+  if (!isWorthwhileRescue(finalized, base, profile)) {
+    return optionWithDelta(finalized, base, { status: "discarded" });
+  }
   return optionWithDelta(finalized, base, { status: meetsTarget(finalized, profile) ? "target-met" : "best-tested" });
 }
 
@@ -933,7 +942,9 @@ function findHealthcareRescue({ assets, scenario, taxProfile, runs, seed, sequen
   if (!winner) return null;
   const finalized = finalizeCandidate({ candidate: winner, assets, taxProfile, runs, seed, sequences, profile });
   const subsidyGain = (finalized.planFirstYear?.acaSubsidy ?? 0) > (base.planFirstYear?.acaSubsidy ?? 0) + 1;
-  if (!isWorthwhileRescue(finalized, base, profile) && !subsidyGain) return null;
+  if (!isWorthwhileRescue(finalized, base, profile) && !subsidyGain) {
+    return optionWithDelta(finalized, base, { status: "discarded" });
+  }
   return optionWithDelta(finalized, base, { status: meetsTarget(finalized, profile) ? "target-met" : "best-tested" });
 }
 
@@ -964,7 +975,9 @@ function findRothBasisCliffRescue({ assets, scenario, taxProfile, runs, seed, se
   });
   const finalized = finalizeCandidate({ candidate, assets, taxProfile, runs, seed, sequences, profile });
   const subsidyGain = firstYearSubsidyGain(finalized, base);
-  if (!isWorthwhileRescue(finalized, base, profile) && !(subsidyGain > MEANINGFUL_SUBSIDY_GAIN)) return null;
+  if (!isWorthwhileRescue(finalized, base, profile) && !(subsidyGain > MEANINGFUL_SUBSIDY_GAIN)) {
+    return optionWithDelta(finalized, base, { status: "discarded" });
+  }
   return optionWithDelta(finalized, base, { status: meetsTarget(finalized, profile) ? "target-met" : "best-tested" });
 }
 
@@ -989,7 +1002,9 @@ function findTaxableLotRescue({ assets, scenario, taxProfile, runs, seed, sequen
     tracker
   });
   const finalized = finalizeCandidate({ candidate, assets, taxProfile, runs, seed, sequences, profile });
-  if (!isWorthwhileRescue(finalized, base, profile) && !(firstYearSubsidyGain(finalized, base) > MEANINGFUL_SUBSIDY_GAIN)) return null;
+  if (!isWorthwhileRescue(finalized, base, profile) && !(firstYearSubsidyGain(finalized, base) > MEANINGFUL_SUBSIDY_GAIN)) {
+    return optionWithDelta(finalized, base, { status: "discarded" });
+  }
   return optionWithDelta(finalized, base, { status: meetsTarget(finalized, profile) ? "target-met" : "best-tested" });
 }
 
@@ -1022,7 +1037,7 @@ function findConversionGuardrail({ assets, scenario, taxProfile, runs, seed, seq
   // A bare MAGI drop with no success or subsidy gain just renders a "+0 pts"
   // no-op card; a real MAGI win shows up in the success rate or the subsidy.
   if (!isWorthwhileRescue(finalized, base, profile) && !(firstYearSubsidyGain(finalized, base) > MEANINGFUL_SUBSIDY_GAIN)) {
-    return null;
+    return optionWithDelta(finalized, base, { status: "discarded" });
   }
   return optionWithDelta(finalized, base, { status: meetsTarget(finalized, profile) ? "target-met" : "best-tested" });
 }
@@ -1055,7 +1070,9 @@ function findMagiSpendTrim({ assets, scenario, taxProfile, runs, seed, sequences
     tracker
   });
   const finalized = finalizeCandidate({ candidate, assets, taxProfile, runs, seed, sequences, profile });
-  if (!isWorthwhileRescue(finalized, base, profile) && !(firstYearSubsidyGain(finalized, base) > MEANINGFUL_SUBSIDY_GAIN)) return null;
+  if (!isWorthwhileRescue(finalized, base, profile) && !(firstYearSubsidyGain(finalized, base) > MEANINGFUL_SUBSIDY_GAIN)) {
+    return optionWithDelta(finalized, base, { status: "discarded" });
+  }
   return optionWithDelta(finalized, base, { status: meetsTarget(finalized, profile) ? "target-met" : "best-tested" });
 }
 
@@ -1083,7 +1100,9 @@ function findIrmaaLookbackRescue({ assets, scenario, taxProfile, runs, seed, seq
   const finalized = finalizeCandidate({ candidate, assets, taxProfile, runs, seed, sequences, profile });
   // Surface only on a real success gain; a MAGI drop that does not move the
   // success rate is not worth a "+0 pts" card.
-  if (!isWorthwhileRescue(finalized, base, profile)) return null;
+  if (!isWorthwhileRescue(finalized, base, profile)) {
+    return optionWithDelta(finalized, base, { status: "discarded" });
+  }
   return optionWithDelta(finalized, base, { status: meetsTarget(finalized, profile) ? "target-met" : "best-tested" });
 }
 
@@ -1112,12 +1131,12 @@ function findSocialSecurityBridge({ assets, scenario, taxProfile, runs, seed, se
       includeHistorical: false,
       tracker
     }));
-  const winner = candidates
-    .filter((candidate) => isWorthwhileRescue(candidate, base, profile))
-    .sort((a, b) => b.monteCarlo.successRate - a.monteCarlo.successRate)[0] ?? null;
-  if (!winner) return null;
+  if (!candidates.length) return null;
+  const winner = [...candidates].sort((a, b) => b.monteCarlo.successRate - a.monteCarlo.successRate)[0];
   const finalized = finalizeCandidate({ candidate: winner, assets, taxProfile, runs, seed, sequences, profile });
-  if (!isWorthwhileRescue(finalized, base, profile)) return null;
+  if (!isWorthwhileRescue(finalized, base, profile)) {
+    return optionWithDelta(finalized, base, { status: "discarded" });
+  }
   return optionWithDelta(finalized, base, { status: meetsTarget(finalized, profile) ? "target-met" : "best-tested" });
 }
 

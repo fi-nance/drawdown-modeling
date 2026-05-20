@@ -985,7 +985,8 @@ function renderDecisionPanel() {
   const target = decision.targetSuccessRate ?? 0.9;
   const diagnosis = decision.diagnosis ?? {};
   const safe = decision.safeSpending;
-  const rescues = Array.isArray(decision.rescueOptions) ? decision.rescueOptions : [];
+  const rescues = (Array.isArray(decision.rescueOptions) ? decision.rescueOptions : [])
+    .filter(opt => opt.status !== "discarded");
   const headline = decisionHeadline(decision);
   const rescueCards = rescues.map((option) => rescueCardHtml(option, base)).join("");
   const anatomy = decision.failureAnatomy ?? {};
@@ -2120,10 +2121,15 @@ function renderRescueComparisonTable() {
     } else if (option.status === "best-tested") {
       statusText = "Best Tested";
       statusClass = "positive";
+    } else if (option.status === "discarded") {
+      statusText = "Negligible Effect";
+      statusClass = "text-muted";
     }
 
+    const rowStyle = option.status === "discarded" ? ' style="opacity: 0.6;"' : "";
+
     return `
-      <tr data-status="${escapeHtml(option.status ?? "tested")}">
+      <tr data-status="${escapeHtml(option.status ?? "tested")}"${rowStyle}>
         <td style="font-family:'Inter',sans-serif; font-weight:600; color:var(--text-primary); white-space:normal;">${escapeHtml(title)}</td>
         <td style="font-family:'Inter',sans-serif; font-size:0.75rem; color:var(--text-muted);">${escapeHtml(tier)}</td>
         <td class="mono">${mcText}</td>
