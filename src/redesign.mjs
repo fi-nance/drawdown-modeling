@@ -1847,6 +1847,7 @@ function hookRunCompletion() {
 function rerenderResults() {
   renderKpiStrip();
   renderDecisionPanel();
+  renderRescueComparisonTable();
   renderActionList();
   renderBracketFill();
   renderWithdrawalMix();
@@ -2063,4 +2064,82 @@ function escapeHtml(value) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
+}
+
+function renderRescueComparisonTable() {
+  const root = document.getElementById("rescueComparisonTable");
+  if (!root) return;
+  const latest = window.__pslLatest;
+  const decision = latest?.decision;
+  const base = decision?.base;
+  const rescues = Array.isArray(decision?.rescueOptions) ? decision.rescueOptions : [];
+
+  if (!latest || !decision || decision.status === "running") {
+    root.innerHTML = `<p class="empty-state">Solving rescue options... Run simulation to see comparative breakdown.</p>`;
+    return;
+  }
+  if (decision.status !== "ready") {
+    root.innerHTML = `<p class="empty-state">Rescue solver did not return results.</p>`;
+    return;
+  }
+  if (rescues.length === 0) {
+    root.innerHTML = `<p class="empty-state">No rescue candidates were available for the current inputs.</p>`;
+    return;
+  }
+
+  const headers = ["Rescue Strategy", "Lifestyle Impact", "MC Success", "Historical Success", "Subsidy Change", "Result"];
+  const thead = `<thead><tr>${headers.map(h => `<th>${escapeHtml(h)}</th>`).join("")}</tr></thead>`;
+
+  const rowsHtml = rescues.map((option) => {
+    const title = capitalizeFirst(rescueTitle(option));
+    const tier = rescueTierLabel(option.kind);
+    const mcRate = option.monteCarlo?.successRate;
+    const mcDelta = option.delta?.monteCarloSuccessRate ?? 0;
+    
+    // MC Success formatting with bold + delta pill
+    const mcText = `${formatRate(mcRate)} <span class="ink-3" style="font-size:0.72rem;">(${signedRate(mcDelta)})</span>`;
+    
+    // Historical Success formatting
+    const histRate = option.historical?.successRate;
+    const histText = formatOptionalRate(histRate);
+
+    // Subsidy formatting
+    const firstYearSubsidy = option.delta?.firstYearSubsidy;
+    let subsidyText = "—";
+    if (firstYearSubsidy != null) {
+      const sign = firstYearSubsidy >= 0 ? "+" : "";
+      subsidyText = `${sign}${formatCurrencyShort(firstYearSubsidy)} / yr`;
+    }
+
+    // Result badge/text
+    let statusText = "Tested";
+    let statusClass = "text-secondary";
+    if (option.status === "target-met") {
+      statusText = "Target Met";
+      statusClass = "positive";
+    } else if (option.status === "best-tested") {
+      statusText = "Best Tested";
+      statusClass = "positive";
+    }
+
+    return `
+      <tr data-status="${escapeHtml(option.status ?? "tested")}">
+        <td style="font-family:'Inter',sans-serif; font-weight:600; color:var(--text-primary); white-space:normal;">${escapeHtml(title)}</td>
+        <td style="font-family:'Inter',sans-serif; font-size:0.75rem; color:var(--text-muted);">${escapeHtml(tier)}</td>
+        <td class="mono">${mcText}</td>
+        <td class="mono">${escapeHtml(histText)}</td>
+        <td class="mono" style="color: ${firstYearSubsidy > 0 ? "var(--emerald)" : (firstYearSubsidy < 0 ? "var(--coral)" : "inherit")}">${escapeHtml(subsidyText)}</td>
+        <td><span class="${statusClass}" style="font-size:0.75rem; font-weight:700;">${escapeHtml(statusText)}</span></td>
+      </tr>
+    `;
+  }).join("");
+
+  root.innerHTML = `
+    <table>
+      ${thead}
+      <tbody>
+        ${rowsHtml}
+      </tbody>
+    </table>
+  `;
 }
