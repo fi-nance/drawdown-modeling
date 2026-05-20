@@ -884,3 +884,144 @@ test("decision batch runs every rescue solver and only returns known rescue kind
     assert.equal(typeof option.monteCarlo.successRate, "number");
   }
 });
+
+test("failed scenario analysis aggregates high inflation cause and warning signs", () => {
+  const scenario = {
+    ...DEFAULT_SCENARIO,
+    planYears: 10,
+    currentAge: 60,
+    spouseAge: 60,
+    targetSpend: 150000,
+    targetSpendIncludesTaxes: true,
+    targetSpendIncludesMedical: true,
+    medicalExpensesBase: 0,
+    withdrawalOrder: ["taxable"],
+    withdrawalStrategy: { mode: "heuristic" },
+    taxLossHarvesting: { enabled: false },
+    taxGainHarvesting: { enabled: false },
+    rothConversion: { enabled: false },
+    aca: { enabled: false },
+    monteCarlo: { ...DEFAULT_SCENARIO.monteCarlo, samplingMode: "independent" },
+    returnAssumptions: {
+      ...DEFAULT_SCENARIO.returnAssumptions,
+      stock: { mean: 0.05, stdev: 0.05 },
+      inflation: { mean: 0.08, stdev: 0.01 } // VERY HIGH INFLATION
+    },
+    spendingStrategy: {
+      ...DEFAULT_SCENARIO.spendingStrategy,
+      mode: "fixed",
+      essentialSpend: 150000,
+      discretionarySpend: 0
+    }
+  };
+
+  const decision = runDecisionBatch({
+    assets: [{
+      id: "stock",
+      name: "Stock",
+      accountType: "taxable",
+      assetClass: "stock",
+      units: 200000, // Small asset base so it fails easily
+      price: 1,
+      costBasisPerUnit: 1,
+      dividendYield: 0,
+      qualifiedDividendShare: 1
+    }],
+    scenario,
+    taxProfile: noTaxProfile,
+    runs: 5,
+    seed: 3,
+    sequences: [],
+    decisionProfile: {
+      requiredSpend: 150000,
+      flexibleSpend: 0,
+      targetSuccessRate: 0.9,
+      incomeBridge: { enabled: false }
+    }
+  });
+
+  assert.equal(decision.status, "ready");
+  const anatomy = decision.failureAnatomy;
+  assert.ok(anatomy.failedCount > 0);
+  assert.ok(anatomy.causesBreakdown);
+
+  // Inflation should be a primary driver
+  assert.ok(anatomy.causesBreakdown.highInflation.count > 0 || anatomy.causesBreakdown.earlySequenceRiskWithInflation.count > 0);
+  assert.ok(anatomy.warningSigns.length > 0);
+  assert.ok(anatomy.portfolioPivots.length > 0);
+
+  // Assert warning sign contains risk percentage context
+  const inflationSign = anatomy.warningSigns.find((sign) => sign.title === "Macroeconomic Inflation Spike" || sign.title === "Stagflationary Retirement Launch");
+  assert.ok(inflationSign);
+  assert.equal(typeof inflationSign.riskPercentage, "number");
+  assert.ok(inflationSign.context.includes("%"));
+});
+
+test("failed scenario analysis aggregates early sequence risk and consecutive down years causes", () => {
+  const scenario = {
+    ...DEFAULT_SCENARIO,
+    planYears: 10,
+    currentAge: 60,
+    spouseAge: 60,
+    targetSpend: 100000,
+    targetSpendIncludesTaxes: true,
+    targetSpendIncludesMedical: true,
+    medicalExpensesBase: 0,
+    withdrawalOrder: ["taxable"],
+    withdrawalStrategy: { mode: "heuristic" },
+    taxLossHarvesting: { enabled: false },
+    taxGainHarvesting: { enabled: false },
+    rothConversion: { enabled: false },
+    aca: { enabled: false },
+    monteCarlo: { ...DEFAULT_SCENARIO.monteCarlo, samplingMode: "independent" },
+    returnAssumptions: {
+      ...DEFAULT_SCENARIO.returnAssumptions,
+      stock: { mean: -0.15, stdev: 0.02 }, // SHARP NEGATIVE RETURNS
+      inflation: { mean: 0.01, stdev: 0 }
+    },
+    spendingStrategy: {
+      ...DEFAULT_SCENARIO.spendingStrategy,
+      mode: "fixed",
+      essentialSpend: 100000,
+      discretionarySpend: 0
+    }
+  };
+
+  const decision = runDecisionBatch({
+    assets: [{
+      id: "stock",
+      name: "Stock",
+      accountType: "taxable",
+      assetClass: "stock",
+      units: 400000,
+      price: 1,
+      costBasisPerUnit: 1,
+      dividendYield: 0,
+      qualifiedDividendShare: 1
+    }],
+    scenario,
+    taxProfile: noTaxProfile,
+    runs: 5,
+    seed: 3,
+    sequences: [],
+    decisionProfile: {
+      requiredSpend: 100000,
+      flexibleSpend: 0,
+      targetSuccessRate: 0.9,
+      incomeBridge: { enabled: false }
+    }
+  });
+
+  assert.equal(decision.status, "ready");
+  const anatomy = decision.failureAnatomy;
+  assert.ok(anatomy.failedCount > 0);
+
+  // Either consecutiveDownYears or earlySequenceRisk should be primary
+  const consecutiveCount = anatomy.causesBreakdown.consecutiveDownYears.count;
+  const earlyCount = anatomy.causesBreakdown.earlySequenceRisk.count;
+  assert.ok(consecutiveCount > 0 || earlyCount > 0);
+
+  const downMarketSign = anatomy.warningSigns.find((sign) => sign.title === "Prolonged Equity Downturn" || sign.title === "Initial Decade Equity Decline");
+  assert.ok(downMarketSign);
+  assert.equal(typeof downMarketSign.riskPercentage, "number");
+});

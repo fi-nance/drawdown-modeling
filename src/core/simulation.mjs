@@ -404,13 +404,62 @@ function normalizeScenarioTimelineLimit(value) {
   return Math.max(0, Math.trunc(numeric));
 }
 
+function analyzeFailedScenario(years = []) {
+  let consecutiveDownYears = 0;
+  let maxConsecutiveDownYears = 0;
+  let earlyDownYearsCount = 0;
+  let totalDownYearsCount = 0;
+  let inflationSumFirstDecade = 0;
+  let inflationCountFirstDecade = 0;
+  let stockReturnSumFirstDecade = 0;
+  let stockReturnCountFirstDecade = 0;
+
+  for (let i = 0; i < years.length; i++) {
+    const yr = years[i];
+    const stockReturn = yr?.assetClassReturns?.stock ?? 0;
+    const inflation = yr?.assetClassReturns?.inflation ?? 0;
+
+    if (stockReturn < 0) {
+      consecutiveDownYears++;
+      if (consecutiveDownYears > maxConsecutiveDownYears) {
+        maxConsecutiveDownYears = consecutiveDownYears;
+      }
+      totalDownYearsCount++;
+      if (i < 10) {
+        earlyDownYearsCount++;
+      }
+    } else {
+      consecutiveDownYears = 0;
+    }
+
+    if (i < 10) {
+      inflationSumFirstDecade += inflation;
+      inflationCountFirstDecade++;
+      stockReturnSumFirstDecade += stockReturn;
+      stockReturnCountFirstDecade++;
+    }
+  }
+
+  const avgInflationFirstDecade = inflationCountFirstDecade > 0 ? inflationSumFirstDecade / inflationCountFirstDecade : 0;
+  const avgStockReturnFirstDecade = stockReturnCountFirstDecade > 0 ? stockReturnSumFirstDecade / stockReturnCountFirstDecade : 0;
+
+  return {
+    maxConsecutiveDownYears,
+    earlyDownYearsCount,
+    totalDownYearsCount,
+    avgInflationFirstDecade: round(avgInflationFirstDecade, 6),
+    avgStockReturnFirstDecade: round(avgStockReturnFirstDecade, 6)
+  };
+}
+
 function monteCarloScenarioResult({ id, plan, depletion, includeTimeline }) {
   const result = {
     id,
     success: plan.success,
     endingValue: plan.endingValue,
     heirValue: plan.heirValue,
-    ...depletion
+    ...depletion,
+    diagnostics: plan.success ? null : analyzeFailedScenario(plan.years)
   };
   if (includeTimeline) {
     return {

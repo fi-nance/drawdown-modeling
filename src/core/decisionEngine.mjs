@@ -1198,7 +1198,11 @@ function diagnoseFailure({ base, safeSpending, profile }) {
     label,
     reason,
     recommendedKinds,
-    magiBuffer: magiBuffer != null ? round(magiBuffer, 2) : null
+    magiBuffer: magiBuffer != null ? round(magiBuffer, 2) : null,
+    warningSigns: anatomy.warningSigns ?? [],
+    portfolioPivots: anatomy.portfolioPivots ?? [],
+    causesBreakdown: anatomy.causesBreakdown ?? {},
+    summaryText: anatomy.summaryText ?? ""
   };
 }
 
@@ -1389,6 +1393,143 @@ function historicalEvidence(backtests = []) {
   };
 }
 
+const DIAGNOSTIC_MAP = {
+  highInflation: {
+    label: "High Inflation Drag",
+    description: "A high-inflation environment (average annual inflation exceeding 4% in the first decade) eroded the purchasing power of the portfolio. To maintain the same real spending standard, nominal withdrawals had to scale up rapidly, accelerating depletion.",
+    warningSigns: [
+      {
+        metricTrigger: "CPI-U annualized inflation rate persistently above 3.5% for >12 consecutive months.",
+        title: "Macroeconomic Inflation Spike",
+        description: "Watch for sustained high inflation prints that force nominal budget increases."
+      },
+      {
+        metricTrigger: "Nominal spending requirements increase by >10% over any 2-year period.",
+        title: "Cost of Living Acceleration",
+        description: "Keep a close eye on your household cost of living scaling faster than historic norms."
+      }
+    ],
+    portfolioPivots: [
+      {
+        title: "Reallocate to Inflation Hedges",
+        description: "Shift a portion of the fixed-income portfolio into inflation-protected assets such as Treasury Inflation-Protected Securities (TIPS), I-Bonds, or real estate investment trusts (REITs)."
+      },
+      {
+        title: "Spending Adjustments (Caps)",
+        description: "Temporarily cap the annual inflation adjustment of your spending at 2% or 3% rather than matching the full CPI-U print during high-inflation spikes."
+      }
+    ]
+  },
+  consecutiveDownYears: {
+    label: "Consecutive Down Markets",
+    description: "The portfolio was depleted due to a prolonged, consecutive multi-year decline in asset values (e.g. 3+ consecutive years of negative stock returns). This prevents the portfolio from recovering because withdrawals are made from a shrinking asset base.",
+    warningSigns: [
+      {
+        metricTrigger: "Two consecutive years of negative equity index returns.",
+        title: "Prolonged Equity Downturn",
+        description: "Monitor index benchmarks; consecutive down years indicate sustained market stress."
+      },
+      {
+        metricTrigger: "Portfolio value declines by >15% from its peak while in active decumulation.",
+        title: "Peak-to-Trough Portfolio Drop",
+        description: "Track your maximum portfolio drawdown from its starting retirement balance."
+      }
+    ],
+    portfolioPivots: [
+      {
+        title: "Dynamic Spending Cut (Guardrails)",
+        description: "Immediately reduce discretionary spending by 10% to 20% to reduce the withdrawal drag on the declining portfolio."
+      },
+      {
+        title: "Sequence Buffer Activation",
+        description: "Temporarily halt withdrawals from equities. Fund lifestyle needs entirely using defensive assets (short-term bonds, cash, or a dedicated sequence reserve) to avoid selling equities at a loss."
+      }
+    ]
+  },
+  earlySequenceRisk: {
+    label: "Early Sequence of Returns Risk",
+    description: "Poor stock market returns or concentrated down years occurred in the critical first decade of retirement. When large withdrawals are made during an early market downturn, the compounding power of the remaining portfolio is permanently damaged (Sequence of Returns Risk).",
+    warningSigns: [
+      {
+        metricTrigger: "Cumulative equity return is negative over the first 3 to 5 years of the retirement plan.",
+        title: "Initial Decade Equity Decline",
+        description: "A negative total return early in your plan poses a severe sequence risk threat."
+      },
+      {
+        metricTrigger: "Actual withdrawal rate (annual spending / current portfolio value) rises above 5.5% in the first 5 years.",
+        title: "Elevated Early Withdrawal Rate",
+        description: "A rising withdrawal rate caused by declining asset values is a key leading indicator of failure."
+      }
+    ],
+    portfolioPivots: [
+      {
+        title: "Establish a Sequence Buffer",
+        description: "If not already present, carve out a 2-to-3-year spending reserve in ultra-low-volatility assets (cash, high-yield savings) to insulate the portfolio from short-term market swings."
+      },
+      {
+        title: "Equity Glidepath (Rising Equity Allocation)",
+        description: "Start with a slightly more conservative allocation (e.g., 50% equities) and gradually increase the equity exposure by 1% per year back to 60-70% over the first decade to mitigate the impact of an early crash."
+      },
+      {
+        title: "Delay Social Security Claiming",
+        description: "Delay claiming Social Security benefits to age 70. This increases the guaranteed, inflation-adjusted lifetime income floor by 8% per year of delay, permanently reducing the future withdrawal pressure."
+      }
+    ]
+  },
+  earlySequenceRiskWithInflation: {
+    label: "Early Market Stress & High Inflation",
+    description: "The most challenging combination: a severe equity market downturn in the first 5-10 years combined with high inflation. The portfolio suffered from both declining asset values and the pressure of rapidly escalating nominal spending needs.",
+    warningSigns: [
+      {
+        metricTrigger: "Simultaneous occurrence of negative annual equity returns and CPI-U inflation >4%.",
+        title: "Stagflationary Retirement Launch",
+        description: "High inflation combined with falling markets is the ultimate test of portfolio durability."
+      },
+      {
+        metricTrigger: "Portfolio value declines by >20% while nominal withdrawals increase by >5% in a single year.",
+        title: "Rapid Scissors Effect",
+        description: "Watch for the widening gap where your assets shrink but your nominal cash needs expand."
+      }
+    ],
+    portfolioPivots: [
+      {
+        title: "Execute Severe Spending Cuts",
+        description: "Enact a substantial 15-20% discretionary spending reduction and transition to a sequence buffer to avoid selling depressed equities."
+      },
+      {
+        title: "Temporary Part-Time Income Bridge",
+        description: "Consider a temporary part-time income bridge (earning a small amount of active income) to cover inflation-bloated expenses and avoid withdrawals during market lows."
+      }
+    ]
+  },
+  standardDrawdown: {
+    label: "Standard Drawdown / Structural Overspending",
+    description: "The portfolio was depleted over a long horizon. This is typically driven by a structural overspend—where the target spending rate is permanently set too high relative to the portfolio size—or long-term investment drag.",
+    warningSigns: [
+      {
+        metricTrigger: "Long-term average withdrawal rate exceeds 4.5% over any 10-year period.",
+        title: "Unsustainable Withdrawal Rate Floor",
+        description: "A sustained baseline withdrawal rate above 4% creates immense drag in a standard drawdown scenario."
+      },
+      {
+        metricTrigger: "Portfolio growth fails to outpace the combined drag of spending and taxes over a rolling 7-year window.",
+        title: "Stagnant Long-term Balance Growth",
+        description: "Track your long-term compound growth; it must exceed your withdrawal rate plus tax drag."
+      }
+    ],
+    portfolioPivots: [
+      {
+        title: "Permanent Spending Calibration",
+        description: "Re-evaluate and permanently lower the base spending target. Shifting the spending target down by 0.5% to 1.0% can add a decade or more to portfolio longevity."
+      },
+      {
+        title: "Asset Rebalancing and Low Fees",
+        description: "Ensure the portfolio is optimally diversified across global equities and fixed income, and minimize expense ratios and tax drag."
+      }
+    ]
+  }
+};
+
 function failureAnatomy(scenarios = []) {
   const failed = scenarios.filter((item) => item && item.success === false);
   if (!failed.length) {
@@ -1396,9 +1537,14 @@ function failureAnatomy(scenarios = []) {
       failedCount: 0,
       earliestFailureYear: null,
       medianFailureYear: null,
-      commonTrigger: "No failures in tested paths"
+      commonTrigger: "No failures in tested paths",
+      causesBreakdown: {},
+      warningSigns: [],
+      portfolioPivots: [],
+      summaryText: "No failures detected in tested paths."
     };
   }
+
   const failureYears = failed
     .map((item) => item.depletionYearIndex)
     .filter(Number.isFinite)
@@ -1407,11 +1553,132 @@ function failureAnatomy(scenarios = []) {
   const trigger = earlyFailures / failed.length >= 0.5
     ? "Early sequence risk"
     : "Long-horizon depletion";
+
+  const counts = {
+    highInflation: 0,
+    earlySequenceRisk: 0,
+    consecutiveDownYears: 0,
+    earlySequenceRiskWithInflation: 0,
+    standardDrawdown: 0
+  };
+
+  for (const item of failed) {
+    const diag = item.diagnostics;
+    let cause = "standardDrawdown";
+    if (diag) {
+      const factors = [];
+      if (diag.avgInflationFirstDecade >= 0.04) {
+        factors.push("highInflation");
+      }
+      if (diag.maxConsecutiveDownYears >= 3) {
+        factors.push("consecutiveDownYears");
+      }
+      if (diag.earlyDownYearsCount >= 5 || diag.avgStockReturnFirstDecade < 0.01) {
+        factors.push("earlySequenceRisk");
+      }
+
+      if (factors.length > 0) {
+        if (factors.includes("earlySequenceRisk") && factors.includes("highInflation")) {
+          cause = "earlySequenceRiskWithInflation";
+        } else if (factors.includes("consecutiveDownYears")) {
+          cause = "consecutiveDownYears";
+        } else if (factors.includes("earlySequenceRisk")) {
+          cause = "earlySequenceRisk";
+        } else if (factors.includes("highInflation")) {
+          cause = "highInflation";
+        } else {
+          cause = factors[0];
+        }
+      }
+    }
+    counts[cause]++;
+  }
+
+  const causesBreakdown = {};
+  for (const [key, count] of Object.entries(counts)) {
+    causesBreakdown[key] = {
+      count,
+      percentage: failed.length > 0 ? round(count / failed.length, 4) : 0
+    };
+  }
+
+  // Generate dynamic warning signs and portfolio pivots
+  // Include any cause that affected >= 15% of failures, sorted by percentage descending
+  const activeCauses = Object.entries(causesBreakdown)
+    .filter(([key, info]) => info.percentage >= 0.15 && key !== "standardDrawdown")
+    .sort((a, b) => b[1].percentage - a[1].percentage);
+
+  if (activeCauses.length === 0) {
+    const topCause = Object.entries(causesBreakdown)
+      .sort((a, b) => b[1].percentage - a[1].percentage)[0]?.[0];
+    if (topCause && topCause !== "standardDrawdown") {
+      activeCauses.push([topCause, causesBreakdown[topCause]]);
+    }
+  }
+
+  const warningSigns = [];
+  const portfolioPivots = [];
+  const summaryParts = [];
+
+  for (const [cause, info] of activeCauses) {
+    const data = DIAGNOSTIC_MAP[cause];
+    if (!data) continue;
+    const pctStr = `${round(info.percentage * 100, 1)}%`;
+
+    for (const sign of data.warningSigns) {
+      warningSigns.push({
+        ...sign,
+        riskPercentage: info.percentage,
+        context: `Triggered in ${pctStr} of failure scenarios (Primary Cause: ${data.label})`
+      });
+    }
+
+    for (const pivot of data.portfolioPivots) {
+      portfolioPivots.push({
+        ...pivot,
+        riskPercentage: info.percentage,
+        context: `Addresses risk associated with ${data.label} (${pctStr} of failures)`
+      });
+    }
+
+    summaryParts.push(`${data.label} (${pctStr} of failures)`);
+  }
+
+  // Include standardDrawdown if it had high percentage or no other drivers triggered
+  if (causesBreakdown.standardDrawdown.percentage > 0.15 || summaryParts.length === 0) {
+    const info = causesBreakdown.standardDrawdown;
+    const pctStr = `${round(info.percentage * 100, 1)}%`;
+    const data = DIAGNOSTIC_MAP.standardDrawdown;
+    if (data) {
+      for (const sign of data.warningSigns) {
+        warningSigns.push({
+          ...sign,
+          riskPercentage: info.percentage,
+          context: `Triggered in ${pctStr} of failure scenarios (Primary Cause: ${data.label})`
+        });
+      }
+      for (const pivot of data.portfolioPivots) {
+        portfolioPivots.push({
+          ...pivot,
+          riskPercentage: info.percentage,
+          context: `Addresses risk associated with ${data.label} (${pctStr} of failures)`
+        });
+      }
+      summaryParts.push(`${data.label} (${pctStr} of failures)`);
+    }
+  }
+
+  const summaryText = `Analysis of the ${failed.length} failed scenarios indicates that the primary drivers of depletion are: ${summaryParts.join(", ")}.`;
+
   return {
     failedCount: failed.length,
     earliestFailureYear: failureYears.length ? failureYears[0] + 1 : null,
     medianFailureYear: failureYears.length ? percentile(failureYears, 0.5) + 1 : null,
-    commonTrigger: trigger
+    commonTrigger: trigger,
+    causesBreakdown,
+    warningSigns,
+    portfolioPivots,
+    summaryText
   };
 }
 
