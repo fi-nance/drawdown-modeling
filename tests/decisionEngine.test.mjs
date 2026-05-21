@@ -180,6 +180,7 @@ test("decision batch returns base, income bridge, and combined rescue summaries"
     state: "Florida",
     dependentCount: 0
   });
+  const progressEvents = [];
 
   const decision = runDecisionBatch({
     assets: cashAssets,
@@ -192,13 +193,27 @@ test("decision batch returns base, income bridge, and combined rescue summaries"
       requiredSpend: 500000,
       flexibleSpend: 100000,
       targetSuccessRate: 1
-    }
+    },
+    onProgress: (progress) => progressEvents.push(progress)
   });
 
   assert.equal(decision.status, "ready");
   assert.equal(decision.base.kind, "base");
   assert.ok(decision.rescueOptions.some((option) => option.kind === "incomeBridge"));
   assert.ok(decision.rescueOptions.some((option) => option.kind === "combined"));
+  assert.ok(progressEvents.length > 0);
+  assert.equal(progressEvents[0].done, 1);
+  assert.equal(progressEvents[0].candidate.sequence, 1);
+  assert.equal(progressEvents[0].candidate.kind, "safeSpending");
+  assert.equal(progressEvents[0].candidate.scenario, undefined);
+  assert.equal(typeof progressEvents[0].candidate.delta.monteCarloSuccessRate, "number");
+  assert.equal(decision.testedRescueOptions.length, progressEvents.length);
+  assert.ok(decision.testedRescueOptions.some((option) => option.kind === "safeSpending"));
+  const finalOptionIds = new Set(decision.rescueOptions.map((option) => option.id));
+  assert.ok(
+    decision.testedRescueOptions.some((option) => !finalOptionIds.has(option.id)),
+    "live comparison rows should include solver probes that are not final rescue options"
+  );
   assert.equal(decision.verdict.historicalKnown, false);
 });
 

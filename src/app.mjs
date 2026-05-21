@@ -1542,13 +1542,17 @@ async function runModels(opts = {}) {
         }
       },
       onDecisionProgress: (progress) => {
+        const runningDecision = {
+          status: "running",
+          progress: mergeDecisionProgress(stream ? latest?.decision : buffered.decision, progress)
+        };
         if (stream) {
           if (!latest) return;
-          latest.decision = { status: "running", progress };
+          latest.decision = runningDecision;
           setStatus(`Solving rescue options... ${progress.done} candidates tested.`);
           renderLatest({ streaming: true });
         } else {
-          buffered.decision = { status: "running", progress };
+          buffered.decision = runningDecision;
         }
       },
       onDecision: (decision) => {
@@ -1617,6 +1621,20 @@ async function runModels(opts = {}) {
       setTimeout(() => runModels(), 0);
     }
   }
+}
+
+function mergeDecisionProgress(previousDecision, progress = {}) {
+  const priorCandidates = Array.isArray(previousDecision?.progress?.candidates)
+    ? previousDecision.progress.candidates
+    : [];
+  const candidates = [...priorCandidates];
+  if (progress.candidate) {
+    candidates.push(progress.candidate);
+  }
+  return {
+    ...progress,
+    candidates
+  };
 }
 
 function renderLatest(options = {}) {

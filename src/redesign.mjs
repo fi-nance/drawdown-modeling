@@ -2072,14 +2072,18 @@ function renderRescueComparisonTable() {
   if (!root) return;
   const latest = window.__pslLatest;
   const decision = latest?.decision;
-  const base = decision?.base;
-  const rescues = Array.isArray(decision?.rescueOptions) ? decision.rescueOptions : [];
+  const running = decision?.status === "running";
+  const rescues = rescueComparisonRows(decision);
 
-  if (!latest || !decision || decision.status === "running") {
-    root.innerHTML = `<p class="empty-state">Solving rescue options... Run simulation to see comparative breakdown.</p>`;
+  if (!latest || !decision) {
+    root.innerHTML = `<p class="empty-state">Run simulation to see comparative breakdown.</p>`;
     return;
   }
-  if (decision.status !== "ready") {
+  if (running && rescues.length === 0) {
+    root.innerHTML = `<p class="empty-state">Solving rescue options... candidates will appear here as they are tested.</p>`;
+    return;
+  }
+  if (!running && decision.status !== "ready") {
     root.innerHTML = `<p class="empty-state">Rescue solver did not return results.</p>`;
     return;
   }
@@ -2088,17 +2092,21 @@ function renderRescueComparisonTable() {
     return;
   }
 
-  const headers = ["Rescue Strategy", "Lifestyle Impact", "MC Success", "Historical Success", "Subsidy Change", "Result"];
+  const headers = ["Rescue Strategy", "Optimized For", "Lifestyle Impact", "MC Success", "Historical Success", "Subsidy Change", "Result"];
   const thead = `<thead><tr>${headers.map(h => `<th>${escapeHtml(h)}</th>`).join("")}</tr></thead>`;
 
   const rowsHtml = rescues.map((option) => {
     const title = capitalizeFirst(rescueTitle(option));
+    const optimization = rescueOptimizationText(option);
     const tier = rescueTierLabel(option.kind);
     const mcRate = option.monteCarlo?.successRate;
     const mcDelta = option.delta?.monteCarloSuccessRate ?? 0;
+    const mcRuns = Number.isFinite(option.monteCarlo?.runs)
+      ? `<span class="ink-3" style="display:block;font-size:0.68rem;">${option.monteCarlo.runs.toLocaleString("en-US")} MC runs</span>`
+      : "";
     
     // MC Success formatting with bold + delta pill
-    const mcText = `${formatRate(mcRate)} <span class="ink-3" style="font-size:0.72rem;">(${signedRate(mcDelta)})</span>`;
+    const mcText = `${formatRate(mcRate)} <span class="ink-3" style="font-size:0.72rem;">(${signedRate(mcDelta)})</span>${mcRuns}`;
     
     // Historical Success formatting
     const histRate = option.historical?.successRate;
@@ -2115,6 +2123,7 @@ function renderRescueComparisonTable() {
     // Result badge/text
     let statusText = "Tested";
     let statusClass = "text-secondary";
+    const searchProbe = !(option.historical?.count > 0);
     if (option.status === "target-met") {
       statusText = "Target Met";
       statusClass = "positive";
@@ -2124,6 +2133,9 @@ function renderRescueComparisonTable() {
     } else if (option.status === "discarded") {
       statusText = "Negligible Effect";
       statusClass = "text-muted";
+    } else if (searchProbe) {
+      statusText = running ? "Testing" : "Search Probe";
+      statusClass = "text-muted";
     }
 
     const rowStyle = option.status === "discarded" ? ' style="opacity: 0.6;"' : "";
@@ -2131,6 +2143,7 @@ function renderRescueComparisonTable() {
     return `
       <tr data-status="${escapeHtml(option.status ?? "tested")}"${rowStyle}>
         <td style="font-family:'Inter',sans-serif; font-weight:600; color:var(--text-primary); white-space:normal;">${escapeHtml(title)}</td>
+        <td style="font-family:'Inter',sans-serif; font-size:0.75rem; color:var(--text-secondary); white-space:normal;">${escapeHtml(optimization)}</td>
         <td style="font-family:'Inter',sans-serif; font-size:0.75rem; color:var(--text-muted);">${escapeHtml(tier)}</td>
         <td class="mono">${mcText}</td>
         <td class="mono">${escapeHtml(histText)}</td>
@@ -2148,4 +2161,67 @@ function renderRescueComparisonTable() {
       </tbody>
     </table>
   `;
+}
+
+function rescueComparisonRows(decision) {
+  if (!decision) return [];
+  if (decision.status === "running") {
+    return Array.isArray(decision.progress?.candidates) ? decision.progress.candidates : [];
+  }
+  const attempts = Array.isArray(decision.testedRescueOptions) ? decision.testedRescueOptions : [];
+  const finalOptions = Array.isArray(decision.rescueOptions) ? decision.rescueOptions : [];
+  if (!attempts.length) return finalOptions;
+
+  const finalById = new Map(finalOptions.map((option) => [option.id, option]));
+  const usedFinalIds = new Set();
+  const merged = attempts.map((attempt) => {
+    const final = finalById.get(attempt.id);
+    if (!final) return attempt;
+    usedFinalIds.add(final.id);
+    return {
+      ...attempt,
+      ...final,
+      sequence: attempt.sequence
+    };
+  });
+  finalOptions.forEach((option) => {
+    if (!usedFinalIds.has(option.id)) merged.push(option);
+  });
+  return merged;
+}
+
+function rescueOptimizationText(option) {
+  const meta = option?.metadata ?? {};
+  switch (option?.kind) {
+    case "safeSpending":
+      return "Maximum annual spending that still clears the decision target";
+    case "discretionaryCut":
+      return "Flexible-spending cut during early market stress";
+    case "incomeBridge":
+      return `Bridge-income amount for ${meta.durationYears ?? 0} years`;
+    case "combined":
+      return "Pair the chosen spending cut with bridge income";
+    case "sequenceReserve":
+      return `${capitalizeFirst(meta.reserveMode ?? "cash")} reserve size for early sequence risk`;
+    case "allocationShift":
+      return "Target allocation with the historical worst-path guardrail";
+    case "withdrawalShift":
+      return "Withdrawal mode or account order with the best success rate";
+    case "healthcareRescue":
+      return `MAGI discipline near ${meta.maxAcaFplPercent ?? "ACA"}% FPL`;
+    case "rothBasisCliffRescue":
+      return "Roth-basis substitution to stay below MAGI cliffs";
+    case "taxableLotRescue":
+      return "High-basis taxable-lot sales to reduce taxes and MAGI";
+    case "conversionGuardrail":
+      return "Roth conversion throttling near MAGI cliffs";
+    case "magiSpendTrim":
+      return "Spending trim sized to regain ACA subsidy room";
+    case "irmaaLookbackRescue":
+      return "MAGI smoothing before Medicare IRMAA lookback";
+    case "socialSecurityBridge":
+      return `Social Security delay to age ${meta.startAge ?? 70}`;
+    default:
+      return option?.label ?? "Tested rescue configuration";
+  }
 }

@@ -101,7 +101,6 @@ export function runDecisionBatch({
   onProgress = null
 } = {}) {
   const profile = normalizeDecisionProfile(decisionProfile, scenario);
-  const tracker = progressTracker(onProgress);
   const base = summarizeCandidate({
     id: "base",
     kind: "base",
@@ -119,6 +118,8 @@ export function runDecisionBatch({
     backtests: baseBacktests ?? runHistoricalBacktests({ assets, scenario, taxProfile, sequences }),
     profile
   });
+  const testedRescueOptions = [];
+  const tracker = progressTracker({ onProgress, base, candidates: testedRescueOptions });
 
   const solverContext = { assets, scenario, taxProfile, runs, seed, sequences, profile, base, tracker };
 
@@ -175,6 +176,7 @@ export function runDecisionBatch({
     safeSpending,
     targetSuccessRate: profile.targetSuccessRate,
     base,
+    testedRescueOptions,
     rescueOptions,
     bestOption,
     failureAnatomy: base.failureAnatomy,
@@ -1354,6 +1356,24 @@ function optionWithDelta(option, base, extra = {}) {
   };
 }
 
+function comparisonOption(option, base, extra = {}) {
+  const withDelta = optionWithDelta(option, base, extra);
+  return {
+    id: withDelta.id,
+    sequence: withDelta.sequence,
+    kind: withDelta.kind,
+    label: withDelta.label,
+    status: withDelta.status,
+    metadata: withDelta.metadata,
+    scenarioSummary: withDelta.scenarioSummary,
+    verdict: withDelta.verdict,
+    monteCarlo: withDelta.monteCarlo,
+    historical: withDelta.historical,
+    planFirstYear: withDelta.planFirstYear,
+    delta: withDelta.delta
+  };
+}
+
 function meetsTarget(candidate, profile) {
   return candidate?.verdict?.monteCarloPasses === true
     && (candidate.verdict.historicalKnown === false || candidate.verdict.historicalPasses === true)
@@ -1750,17 +1770,25 @@ function spendingSplit(profile, scenario) {
   };
 }
 
-function progressTracker(onProgress) {
-  if (typeof onProgress !== "function") return null;
+function progressTracker({ onProgress, base, candidates = [] } = {}) {
+  if (!base) return null;
   let done = 0;
   return (candidate) => {
     done += 1;
-    onProgress({
-      done,
-      candidateId: candidate.id,
-      candidateKind: candidate.kind,
-      label: candidate.label
+    const comparison = comparisonOption(candidate, base, {
+      sequence: done,
+      status: candidate.status ?? "tested"
     });
+    candidates.push(comparison);
+    if (typeof onProgress === "function") {
+      onProgress({
+        done,
+        candidateId: candidate.id,
+        candidateKind: candidate.kind,
+        label: candidate.label,
+        candidate: comparison
+      });
+    }
   };
 }
 
