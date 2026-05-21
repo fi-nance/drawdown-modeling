@@ -1365,6 +1365,7 @@ function comparisonOption(option, base, extra = {}) {
     label: withDelta.label,
     status: withDelta.status,
     metadata: withDelta.metadata,
+    scenario: withDelta.scenario,
     scenarioSummary: withDelta.scenarioSummary,
     verdict: withDelta.verdict,
     monteCarlo: withDelta.monteCarlo,

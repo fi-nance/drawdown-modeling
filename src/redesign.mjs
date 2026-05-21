@@ -2074,6 +2074,7 @@ function renderRescueComparisonTable() {
   const decision = latest?.decision;
   const running = decision?.status === "running";
   const rescues = rescueComparisonRows(decision);
+  const baseScenario = decision?.base?.scenario ?? latest?.scenario ?? {};
 
   if (!latest || !decision) {
     root.innerHTML = `<p class="empty-state">Run simulation to see comparative breakdown.</p>`;
@@ -2092,12 +2093,12 @@ function renderRescueComparisonTable() {
     return;
   }
 
-  const headers = ["Rescue Strategy", "Optimized For", "Lifestyle Impact", "MC Success", "Historical Success", "Subsidy Change", "Result"];
+  const headers = ["Rescue Strategy", "Optimized For", "Lifestyle Impact", "MC Success", "Historical Success", "Subsidy Change", "Result", "Apply"];
   const thead = `<thead><tr>${headers.map(h => `<th>${escapeHtml(h)}</th>`).join("")}</tr></thead>`;
 
-  const rowsHtml = rescues.map((option) => {
+  const rowsHtml = rescues.map((option, index) => {
     const title = capitalizeFirst(rescueTitle(option));
-    const optimization = rescueOptimizationText(option);
+    const optimization = rescueOptimizationText(option, baseScenario);
     const tier = rescueTierLabel(option.kind);
     const mcRate = option.monteCarlo?.successRate;
     const mcDelta = option.delta?.monteCarloSuccessRate ?? 0;
@@ -2139,6 +2140,7 @@ function renderRescueComparisonTable() {
     }
 
     const rowStyle = option.status === "discarded" ? ' style="opacity: 0.6;"' : "";
+    const canApply = !!option.scenario && typeof window !== "undefined" && typeof window.__pslApplyRescueScenarioToWorkspace === "function";
 
     return `
       <tr data-status="${escapeHtml(option.status ?? "tested")}"${rowStyle}>
@@ -2149,6 +2151,7 @@ function renderRescueComparisonTable() {
         <td class="mono">${escapeHtml(histText)}</td>
         <td class="mono" style="color: ${firstYearSubsidy > 0 ? "var(--emerald)" : (firstYearSubsidy < 0 ? "var(--coral)" : "inherit")}">${escapeHtml(subsidyText)}</td>
         <td><span class="${statusClass}" style="font-size:0.75rem; font-weight:700;">${escapeHtml(statusText)}</span></td>
+        <td><button class="rescue-apply-button" type="button" data-rescue-apply="${index}" ${canApply ? "" : "disabled"}>${canApply ? "Apply" : "n/a"}</button></td>
       </tr>
     `;
   }).join("");
@@ -2161,6 +2164,22 @@ function renderRescueComparisonTable() {
       </tbody>
     </table>
   `;
+  root.querySelectorAll("[data-rescue-apply]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const option = rescues[Number(button.dataset.rescueApply)];
+      if (!option?.scenario || typeof window.__pslApplyRescueScenarioToWorkspace !== "function") return;
+      const title = rescueTitle(option);
+      const changes = rescueChangeList(option, baseScenario);
+      const changeText = changes.length ? changes.map((change) => `- ${change}`).join("\n") : "- Apply the tested rescue scenario values.";
+      const confirmed = window.confirm(`Apply "${capitalizeFirst(title)}" to the workspace and rerun projections?\n\n${changeText}`);
+      if (!confirmed) return;
+      window.__pslApplyRescueScenarioToWorkspace(option.scenario, {
+        label: title,
+        changes
+      });
+      runModelFromRedesign({ cancelActive: true, stream: true });
+    });
+  });
 }
 
 function rescueComparisonRows(decision) {
@@ -2190,38 +2209,169 @@ function rescueComparisonRows(decision) {
   return merged;
 }
 
-function rescueOptimizationText(option) {
+export function rescueChangeList(option = {}, baseScenario = {}) {
+  const scenario = option?.scenario ?? {};
+  const changes = [];
+  addNumberChange(changes, "Target spend", baseScenario.targetSpend, scenario.targetSpend, formatCurrencyShort);
+
+  const baseSpend = baseScenario.spendingStrategy ?? {};
+  const nextSpend = scenario.spendingStrategy ?? {};
+  addTextChange(changes, "Spending mode", baseSpend.mode, nextSpend.mode);
+  addNumberChange(changes, "Essential spend", baseSpend.essentialSpend, nextSpend.essentialSpend, formatCurrencyShort);
+  addNumberChange(changes, "Discretionary spend", baseSpend.discretionarySpend, nextSpend.discretionarySpend, formatCurrencyShort);
+  addNumberChange(changes, "Correction discretionary", baseSpend.correctionDiscretionaryPercent, nextSpend.correctionDiscretionaryPercent, formatPercentValue);
+  addNumberChange(changes, "Bear discretionary", baseSpend.bearDiscretionaryPercent, nextSpend.bearDiscretionaryPercent, formatPercentValue);
+
+  const addedCashFlows = addedOneOffCashFlows(baseScenario.oneOffExpenses, scenario.oneOffExpenses);
+  if (addedCashFlows.length) {
+    changes.push(`One-off cash flows: add ${addedCashFlows.map(oneOffSummary).join(", ")}`);
+  }
+
+  const baseReserve = baseScenario.sequenceRiskReserve ?? {};
+  const nextReserve = scenario.sequenceRiskReserve ?? {};
+  addBooleanChange(changes, "Reserve enabled", baseReserve.enabled, nextReserve.enabled);
+  addTextChange(changes, "Reserve mode", baseReserve.mode, nextReserve.mode);
+  addNumberChange(changes, "Reserve years", baseReserve.targetYears, nextReserve.targetYears, formatPlainNumber);
+
+  const baseAllocation = baseScenario.allocationStrategy ?? {};
+  const nextAllocation = scenario.allocationStrategy ?? {};
+  addBooleanChange(changes, "Tax-aware rebalancing", baseAllocation.rebalanceEnabled, nextAllocation.rebalanceEnabled);
+  addBooleanChange(changes, "Equity glidepath", baseAllocation.glidepathEnabled, nextAllocation.glidepathEnabled);
+  addNumberChange(changes, "Stock target", baseAllocation.targetStockPercent, nextAllocation.targetStockPercent, formatWholePercent);
+
+  addTextChange(changes, "Withdrawal strategy", baseScenario.withdrawalStrategy?.mode, scenario.withdrawalStrategy?.mode);
+  addTextChange(changes, "Withdrawal order", withdrawalOrderLabel(baseScenario.withdrawalOrder), withdrawalOrderLabel(scenario.withdrawalOrder));
+
+  addBooleanChange(changes, "Tax-loss harvesting", baseScenario.taxLossHarvesting?.enabled, scenario.taxLossHarvesting?.enabled);
+  addBooleanChange(changes, "Tax-gain harvesting", baseScenario.taxGainHarvesting?.enabled, scenario.taxGainHarvesting?.enabled);
+  addNumberChange(changes, "Gain harvest MAGI buffer", baseScenario.taxGainHarvesting?.magiBuffer, scenario.taxGainHarvesting?.magiBuffer, formatCurrencyShort);
+
+  const baseRoth = baseScenario.rothConversion ?? {};
+  const nextRoth = scenario.rothConversion ?? {};
+  addBooleanChange(changes, "Roth conversions", baseRoth.enabled, nextRoth.enabled);
+  addBooleanChange(changes, "ACA-aware Roth conversions", baseRoth.optimizeForAca, nextRoth.optimizeForAca);
+  addBooleanChange(changes, "MAGI conversion guardrails", baseRoth.applyMagiGuardrails, nextRoth.applyMagiGuardrails);
+  addNumberChange(changes, "Conversion max ACA FPL", baseRoth.maxAcaFplPercent, nextRoth.maxAcaFplPercent, formatWholePercent);
+  addNumberChange(changes, "Conversion MAGI buffer", baseRoth.magiBuffer, nextRoth.magiBuffer, formatCurrencyShort);
+
+  const baseBasis = baseScenario.rothBasisOptimization ?? {};
+  const nextBasis = scenario.rothBasisOptimization ?? {};
+  addBooleanChange(changes, "Roth basis optimization", baseBasis.enabled, nextBasis.enabled);
+  addTextChange(changes, "Roth basis hurdle", baseBasis.opportunityCostMode, nextBasis.opportunityCostMode);
+  addNumberChange(changes, "Roth basis MAGI buffer", baseBasis.magiBuffer, nextBasis.magiBuffer, formatCurrencyShort);
+
+  addBooleanChange(changes, "IRMAA enabled", baseScenario.medicare?.irmaaEnabled, scenario.medicare?.irmaaEnabled);
+  addNumberChange(changes, "Max IRMAA tier", baseScenario.medicare?.maxIrmaaTier, scenario.medicare?.maxIrmaaTier, formatPlainNumber);
+  addNumberChange(changes, "Social Security start age", baseScenario.socialSecurityStartAge, scenario.socialSecurityStartAge, formatPlainNumber);
+  addNumberChange(changes, "Social Security benefit", baseScenario.socialSecurityAnnualBenefit, scenario.socialSecurityAnnualBenefit, formatCurrencyShort);
+
+  return changes;
+}
+
+function addTextChange(changes, label, before, after) {
+  if (after == null || before === after) return;
+  changes.push(`${label}: ${displayTextValue(before)} -> ${displayTextValue(after)}`);
+}
+
+function addBooleanChange(changes, label, before, after) {
+  if (typeof after !== "boolean" || before === after) return;
+  const beforeText = typeof before === "boolean" ? (before ? "on" : "off") : "unset";
+  changes.push(`${label}: ${beforeText} -> ${after ? "on" : "off"}`);
+}
+
+function addNumberChange(changes, label, before, after, formatter) {
+  const next = Number(after);
+  if (!Number.isFinite(next)) return;
+  const prev = Number(before);
+  if (Number.isFinite(prev) && Math.abs(prev - next) < 0.0001) return;
+  changes.push(`${label}: ${Number.isFinite(prev) ? formatter(prev) : "unset"} -> ${formatter(next)}`);
+}
+
+function displayTextValue(value) {
+  if (value == null || value === "") return "unset";
+  return String(value);
+}
+
+function formatPercentValue(value) {
+  return `${Math.round(Number(value) * 100)}%`;
+}
+
+function formatWholePercent(value) {
+  return `${Math.round(Number(value))}%`;
+}
+
+function formatPlainNumber(value) {
+  return Number.isFinite(Number(value)) ? String(Number(value)) : "unset";
+}
+
+function withdrawalOrderLabel(order) {
+  return Array.isArray(order) && order.length ? order.join(" > ") : null;
+}
+
+function addedOneOffCashFlows(before = [], after = []) {
+  const used = new Set();
+  const baseKeys = (before ?? []).map(oneOffKey);
+  return (after ?? []).filter((item) => {
+    const key = oneOffKey(item);
+    const index = baseKeys.findIndex((baseKey, candidateIndex) => baseKey === key && !used.has(candidateIndex));
+    if (index === -1) return true;
+    used.add(index);
+    return false;
+  });
+}
+
+function oneOffKey(item = {}) {
+  return [
+    item.name,
+    item.cashFlowType,
+    item.startYear,
+    item.endYear,
+    item.amount,
+    item.inflationAdjusted === true ? "1" : "0"
+  ].join("|");
+}
+
+function oneOffSummary(item = {}) {
+  const years = item.startYear === item.endYear ? `year ${item.startYear}` : `years ${item.startYear}-${item.endYear}`;
+  return `${item.name || "cash flow"} ${formatCurrencyShort(Number(item.amount) || 0)} ${years}`;
+}
+
+export function rescueOptimizationText(option, baseScenario = {}) {
   const meta = option?.metadata ?? {};
+  const changes = rescueChangeList(option, baseScenario);
+  const changeSummary = changes.length
+    ? ` Changes: ${changes.slice(0, 4).join("; ")}${changes.length > 4 ? "; ..." : ""}.`
+    : "";
   switch (option?.kind) {
     case "safeSpending":
-      return "Maximum annual spending that still clears the decision target";
+      return `Maximum annual spending that still clears the decision target.${changeSummary}`;
     case "discretionaryCut":
-      return "Flexible-spending cut during early market stress";
+      return `Flexible-spending cut during early market stress.${changeSummary}`;
     case "incomeBridge":
-      return `Bridge-income amount for ${meta.durationYears ?? 0} years`;
+      return `Bridge-income amount for ${meta.durationYears ?? 0} years.${changeSummary}`;
     case "combined":
-      return "Pair the chosen spending cut with bridge income";
+      return `Pair the chosen spending cut with bridge income.${changeSummary}`;
     case "sequenceReserve":
-      return `${capitalizeFirst(meta.reserveMode ?? "cash")} reserve size for early sequence risk`;
+      return `${capitalizeFirst(meta.reserveMode ?? "cash")} reserve size for early sequence risk.${changeSummary}`;
     case "allocationShift":
-      return "Target allocation with the historical worst-path guardrail";
+      return `Target allocation with the historical worst-path guardrail.${changeSummary}`;
     case "withdrawalShift":
-      return "Withdrawal mode or account order with the best success rate";
+      return `Withdrawal mode or account order with the best success rate.${changeSummary}`;
     case "healthcareRescue":
-      return `MAGI discipline near ${meta.maxAcaFplPercent ?? "ACA"}% FPL`;
+      return `MAGI discipline near ${meta.maxAcaFplPercent ?? "ACA"}% FPL.${changeSummary}`;
     case "rothBasisCliffRescue":
-      return "Roth-basis substitution to stay below MAGI cliffs";
+      return `Roth-basis substitution to stay below MAGI cliffs.${changeSummary}`;
     case "taxableLotRescue":
-      return "High-basis taxable-lot sales to reduce taxes and MAGI";
+      return `High-basis taxable-lot sales to reduce taxes and MAGI.${changeSummary}`;
     case "conversionGuardrail":
-      return "Roth conversion throttling near MAGI cliffs";
+      return `Roth conversion throttling near MAGI cliffs.${changeSummary}`;
     case "magiSpendTrim":
-      return "Spending trim sized to regain ACA subsidy room";
+      return `Spending trim sized to regain ACA subsidy room.${changeSummary}`;
     case "irmaaLookbackRescue":
-      return "MAGI smoothing before Medicare IRMAA lookback";
+      return `MAGI smoothing before Medicare IRMAA lookback.${changeSummary}`;
     case "socialSecurityBridge":
-      return `Social Security delay to age ${meta.startAge ?? 70}`;
+      return `Social Security delay to age ${meta.startAge ?? 70}.${changeSummary}`;
     default:
-      return option?.label ?? "Tested rescue configuration";
+      return `${option?.label ?? "Tested rescue configuration"}.${changeSummary}`;
   }
 }

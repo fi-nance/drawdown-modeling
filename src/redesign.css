@@ -1740,6 +1740,26 @@ body[data-screen="persona"]::before {
   margin: 0;
   width: 100%;
 }
+.rescue-apply-button {
+  appearance: none;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  background: var(--bg-glass);
+  color: var(--text-primary);
+  font-size: 0.72rem;
+  font-weight: 800;
+  padding: 0.38rem 0.55rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.rescue-apply-button:hover:not(:disabled) {
+  border-color: var(--border-focus);
+  background: var(--bg-glass-2);
+}
+.rescue-apply-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
 
 /* The action plan ledger lives inside a no-pad span-3 cell; let its
    internal table scroll horizontally on narrow screens. */

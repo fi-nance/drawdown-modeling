@@ -205,7 +205,8 @@ test("decision batch returns base, income bridge, and combined rescue summaries"
   assert.equal(progressEvents[0].done, 1);
   assert.equal(progressEvents[0].candidate.sequence, 1);
   assert.equal(progressEvents[0].candidate.kind, "safeSpending");
-  assert.equal(progressEvents[0].candidate.scenario, undefined);
+  assert.equal(typeof progressEvents[0].candidate.scenario, "object");
+  assert.equal(progressEvents[0].candidate.scenario.spendingStrategy.mode, "fixed");
   assert.equal(typeof progressEvents[0].candidate.delta.monteCarloSuccessRate, "number");
   assert.equal(decision.testedRescueOptions.length, progressEvents.length);
   assert.ok(decision.testedRescueOptions.some((option) => option.kind === "safeSpending"));

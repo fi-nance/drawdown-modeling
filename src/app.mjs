@@ -112,9 +112,12 @@ const CONTROL_IDS = [
   "cryptoStockProxy",
   "tipsBondProxy",
   "withdrawalStrategyMode",
+  "withdrawalOrder",
   "spendingStrategyMode",
   "essentialSpend",
   "discretionarySpend",
+  "guardrailCorrectionDiscretionaryPercent",
+  "guardrailBearDiscretionaryPercent",
   "sequenceReserveMode",
   "sequenceReserveTargetYears",
   "sequenceReserveTentYears",
@@ -153,6 +156,7 @@ const CONTROL_IDS = [
   "rmdEnabled",
   "rmdStartAge",
   "irmaaEnabled",
+  "maxIrmaaTier",
   "medicarePartBEnrollees",
   "medicarePartDEnrollees",
   "medicarePartDMonthlyPremium",
@@ -206,9 +210,17 @@ const CONTROL_IDS = [
   "tlhMax",
   "taxGainHarvesting",
   "tghMax",
+  "taxGainMagiBuffer",
   "rothConversion",
+  "rothConversionOptimizeForAca",
+  "rothConversionMagiGuardrails",
   "rothAmount",
   "rothTargetRate",
+  "rothConversionMaxAcaFplPercent",
+  "rothConversionMagiBuffer",
+  "rothBasisOptimization",
+  "rothBasisMagiBuffer",
+  "rothBasisOpportunityCostMode",
   "oneOffName",
   "oneOffType",
   "oneOffStart",
@@ -262,9 +274,12 @@ const els = {
   cryptoStockProxy: document.querySelector("#cryptoStockProxy"),
   tipsBondProxy: document.querySelector("#tipsBondProxy"),
   withdrawalStrategyMode: document.querySelector("#withdrawalStrategyMode"),
+  withdrawalOrder: document.querySelector("#withdrawalOrder"),
   spendingStrategyMode: document.querySelector("#spendingStrategyMode"),
   essentialSpend: document.querySelector("#essentialSpend"),
   discretionarySpend: document.querySelector("#discretionarySpend"),
+  guardrailCorrectionDiscretionaryPercent: document.querySelector("#guardrailCorrectionDiscretionaryPercent"),
+  guardrailBearDiscretionaryPercent: document.querySelector("#guardrailBearDiscretionaryPercent"),
   sequenceReserveMode: document.querySelector("#sequenceReserveMode"),
   sequenceReserveTargetYears: document.querySelector("#sequenceReserveTargetYears"),
   sequenceReserveTentYears: document.querySelector("#sequenceReserveTentYears"),
@@ -303,6 +318,7 @@ const els = {
   rmdEnabled: document.querySelector("#rmdEnabled"),
   rmdStartAge: document.querySelector("#rmdStartAge"),
   irmaaEnabled: document.querySelector("#irmaaEnabled"),
+  maxIrmaaTier: document.querySelector("#maxIrmaaTier"),
   medicarePartBEnrollees: document.querySelector("#medicarePartBEnrollees"),
   medicarePartDEnrollees: document.querySelector("#medicarePartDEnrollees"),
   medicarePartDMonthlyPremium: document.querySelector("#medicarePartDMonthlyPremium"),
@@ -361,9 +377,17 @@ const els = {
   tlhMax: document.querySelector("#tlhMax"),
   taxGainHarvesting: document.querySelector("#taxGainHarvesting"),
   tghMax: document.querySelector("#tghMax"),
+  taxGainMagiBuffer: document.querySelector("#taxGainMagiBuffer"),
   rothConversion: document.querySelector("#rothConversion"),
+  rothConversionOptimizeForAca: document.querySelector("#rothConversionOptimizeForAca"),
+  rothConversionMagiGuardrails: document.querySelector("#rothConversionMagiGuardrails"),
   rothAmount: document.querySelector("#rothAmount"),
   rothTargetRate: document.querySelector("#rothTargetRate"),
+  rothConversionMaxAcaFplPercent: document.querySelector("#rothConversionMaxAcaFplPercent"),
+  rothConversionMagiBuffer: document.querySelector("#rothConversionMagiBuffer"),
+  rothBasisOptimization: document.querySelector("#rothBasisOptimization"),
+  rothBasisMagiBuffer: document.querySelector("#rothBasisMagiBuffer"),
+  rothBasisOpportunityCostMode: document.querySelector("#rothBasisOpportunityCostMode"),
   oneOffName: document.querySelector("#oneOffName"),
   oneOffType: document.querySelector("#oneOffType"),
   oneOffStart: document.querySelector("#oneOffStart"),
@@ -410,6 +434,8 @@ let runModelsToken = 0;
 let activeSimulationCancel = null;
 let workspaceDirty = false;
 let streamingRenderRaf = 0;
+let appliedRescueScenarioOverride = null;
+let applyingRescueScenario = false;
 let rememberSetupEnabled = loadRememberSetupPreference();
 
 const PINNED_YEAR_STORAGE_KEY = "portfolio-success-lab:pinned-year-columns";
@@ -621,8 +647,8 @@ function bindEvents() {
   CONTROL_IDS.forEach((id) => {
     const input = document.querySelector(`#${id}`);
     if (!input) return;
-    input.addEventListener("change", saveStoredState);
-    input.addEventListener("input", saveStoredState);
+    input.addEventListener("change", handleWorkspaceControlChange);
+    input.addEventListener("input", handleWorkspaceControlChange);
   });
   els.spendingStrategyMode?.addEventListener("change", () => {
     syncSpendingStrategyControls();
@@ -1200,6 +1226,13 @@ function loadStoredState() {
   }
 }
 
+function handleWorkspaceControlChange() {
+  if (!applyingRescueScenario) {
+    appliedRescueScenarioOverride = null;
+  }
+  saveStoredState();
+}
+
 function saveStoredState(options = {}) {
   const shouldMarkDirty = options?.markDirty !== false;
   if (!rememberSetupEnabled) {
@@ -1312,6 +1345,159 @@ function applySetupState(stored) {
       els.decisionTargetSuccessRate.value = Number.isFinite(rate) ? String(Math.round(rate * 100)) : "90";
     }
   }
+}
+
+function applyRescueScenarioToWorkspace(scenario = {}, { label = "rescue scenario", changes = [] } = {}) {
+  if (!scenario || typeof scenario !== "object") {
+    return { applied: false, changed: [] };
+  }
+  applyingRescueScenario = true;
+  try {
+    applyScenarioControls(scenario);
+    if (Array.isArray(scenario.oneOffExpenses)) {
+      oneOffExpenses = scenario.oneOffExpenses.map((expense) => ({ ...expense }));
+      renderOneOffs();
+    }
+    appliedRescueScenarioOverride = extractRescueScenarioOverride(scenario);
+    syncSpendingStrategyControls();
+    saveStoredState();
+  } finally {
+    applyingRescueScenario = false;
+  }
+
+  const appliedChanges = Array.isArray(changes) ? changes : [];
+  const suffix = appliedChanges.length ? ` Applied: ${appliedChanges.slice(0, 3).join("; ")}${appliedChanges.length > 3 ? "; ..." : ""}` : "";
+  setStatus(`Applied ${label} to the workspace.${suffix}`);
+  window.dispatchEvent(new CustomEvent("psl:rescue-scenario-applied", {
+    detail: { label, scenario, changes: appliedChanges }
+  }));
+  return { applied: true, changed: appliedChanges };
+}
+
+function applyScenarioControls(scenario) {
+  setNumberControl("targetSpend", scenario.targetSpend);
+  setCheckedControl("includeTaxes", scenario.targetSpendIncludesTaxes);
+  setCheckedControl("includeMedical", scenario.targetSpendIncludesMedical);
+  setNumberControl("medicalBase", scenario.medicalExpensesBase);
+
+  const spending = scenario.spendingStrategy ?? {};
+  setValueControl("spendingStrategyMode", spending.mode);
+  setNumberControl("essentialSpend", spending.essentialSpend);
+  setNumberControl("discretionarySpend", spending.discretionarySpend);
+  setPercentControl("guardrailCorrectionDiscretionaryPercent", spending.correctionDiscretionaryPercent);
+  setPercentControl("guardrailBearDiscretionaryPercent", spending.bearDiscretionaryPercent);
+  if (Number.isFinite(Number(spending.essentialSpend)) && Number.isFinite(Number(spending.discretionarySpend))) {
+    setNumberControl("decisionRequiredSpend", spending.essentialSpend);
+    setNumberControl("decisionFlexibleSpend", spending.discretionarySpend);
+  }
+
+  const reserve = scenario.sequenceRiskReserve ?? {};
+  setValueControl("sequenceReserveMode", reserve.enabled === false ? "none" : reserve.mode);
+  setNumberControl("sequenceReserveTargetYears", reserve.targetYears);
+  setNumberControl("sequenceReserveTentYears", reserve.tentYears);
+
+  const allocation = scenario.allocationStrategy ?? {};
+  setCheckedControl("allocationAwareWithdrawals", allocation.withdrawalBiasEnabled);
+  setCheckedControl("taxAwareRebalancing", allocation.rebalanceEnabled);
+  setCheckedControl("equityGlidepath", allocation.glidepathEnabled);
+  setNumberControl("targetStockAllocation", allocation.targetStockPercent);
+  setNumberControl("rebalanceBand", allocation.rebalanceBandPercent);
+  setNumberControl("glidepathStartStockAllocation", allocation.glidepathStartStockPercent);
+  setNumberControl("glidepathEndStockAllocation", allocation.glidepathEndStockPercent);
+  setNumberControl("glidepathYears", allocation.glidepathYears);
+
+  setValueControl("withdrawalStrategyMode", scenario.withdrawalStrategy?.mode);
+  if (Array.isArray(scenario.withdrawalOrder)) {
+    setValueControl("withdrawalOrder", scenario.withdrawalOrder.join(","));
+  }
+  setCheckedControl("taxLossHarvesting", scenario.taxLossHarvesting?.enabled);
+  setCheckedControl("taxGainHarvesting", scenario.taxGainHarvesting?.enabled);
+  setNumberControl("taxGainMagiBuffer", scenario.taxGainHarvesting?.magiBuffer);
+  setCheckedControl("rothConversion", scenario.rothConversion?.enabled);
+  setCheckedControl("rothConversionOptimizeForAca", scenario.rothConversion?.optimizeForAca);
+  setCheckedControl("rothConversionMagiGuardrails", scenario.rothConversion?.applyMagiGuardrails);
+  setOptionalNumberControl("rothAmount", scenario.rothConversion?.mode === "manual" ? scenario.rothConversion?.overrideAmount : null);
+  if (Number.isFinite(Number(scenario.rothConversion?.targetMarginalRate))) {
+    setNumberControl("rothTargetRate", Number(scenario.rothConversion.targetMarginalRate) * 100);
+  }
+  setNumberControl("rothConversionMaxAcaFplPercent", scenario.rothConversion?.maxAcaFplPercent);
+  setNumberControl("rothConversionMagiBuffer", scenario.rothConversion?.magiBuffer);
+  setCheckedControl("rothBasisOptimization", scenario.rothBasisOptimization?.enabled);
+  setNumberControl("rothBasisMagiBuffer", scenario.rothBasisOptimization?.magiBuffer);
+  setValueControl("rothBasisOpportunityCostMode", scenario.rothBasisOptimization?.opportunityCostMode);
+
+  setNumberControl("socialSecurityAnnualBenefit", scenario.socialSecurityAnnualBenefit);
+  setNumberControl("socialSecurityStartAge", scenario.socialSecurityStartAge);
+  setCheckedControl("socialSecurityInflationAdjusted", scenario.socialSecurityInflationAdjusted);
+  setCheckedControl("irmaaEnabled", scenario.medicare?.irmaaEnabled);
+  setOptionalNumberControl("maxIrmaaTier", scenario.medicare?.maxIrmaaTier);
+}
+
+function extractRescueScenarioOverride(scenario = {}) {
+  const keys = [
+    "targetSpend",
+    "spendingStrategy",
+    "sequenceRiskReserve",
+    "allocationStrategy",
+    "withdrawalStrategy",
+    "withdrawalOrder",
+    "taxLossHarvesting",
+    "taxGainHarvesting",
+    "rothConversion",
+    "rothBasisOptimization",
+    "medicare",
+    "socialSecurityStartAge",
+    "socialSecurityAnnualBenefit"
+  ];
+  const override = {};
+  for (const key of keys) {
+    if (Object.prototype.hasOwnProperty.call(scenario, key)) {
+      override[key] = cloneJsonSafe(scenario[key]);
+    }
+  }
+  return override;
+}
+
+function cloneJsonSafe(value) {
+  if (Array.isArray(value)) return value.map(cloneJsonSafe);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, cloneJsonSafe(item)]));
+  }
+  return value;
+}
+
+function setValueControl(id, value) {
+  if (value == null) return;
+  const input = document.querySelector(`#${id}`);
+  if (!input || input.type === "file") return;
+  input.value = String(value);
+  input.dispatchEvent(new Event("change", { bubbles: true }));
+}
+
+function setNumberControl(id, value) {
+  if (!Number.isFinite(Number(value))) return;
+  setValueControl(id, round(Number(value), 4));
+}
+
+function setOptionalNumberControl(id, value) {
+  if (value == null || !Number.isFinite(Number(value))) {
+    setValueControl(id, "");
+    return;
+  }
+  setNumberControl(id, value);
+}
+
+function setPercentControl(id, value) {
+  if (!Number.isFinite(Number(value))) return;
+  setNumberControl(id, Number(value) * 100);
+}
+
+function setCheckedControl(id, value) {
+  if (typeof value !== "boolean") return;
+  const input = document.querySelector(`#${id}`);
+  if (!input || input.type !== "checkbox") return;
+  input.checked = value;
+  input.dispatchEvent(new Event("change", { bubbles: true }));
 }
 
 function downloadJsonFile(value, filename) {
@@ -1694,6 +1880,7 @@ if (typeof window !== "undefined") {
   window.__pslIsWorkspaceDirty = () => workspaceDirty;
   window.__pslRunModels = (opts) => runModels(opts);
   window.__pslSelectHistoricalBacktest = (index) => selectHistoricalBacktest(index);
+  window.__pslApplyRescueScenarioToWorkspace = (scenario, options) => applyRescueScenarioToWorkspace(scenario, options);
 }
 
 // Returns the Monte Carlo summary if the run completed, otherwise recomputes
@@ -3525,11 +3712,13 @@ function readScenario() {
     : "fixed";
   const essentialSpend = Math.max(0, Number(els.essentialSpend?.value) || 0);
   const discretionarySpend = Math.max(0, Number(els.discretionarySpend?.value) || 0);
+  const correctionDiscretionaryPercent = percentInputValue("guardrailCorrectionDiscretionaryPercent", 0.5);
+  const bearDiscretionaryPercent = percentInputValue("guardrailBearDiscretionaryPercent", 0);
   const targetSpend = spendingStrategyMode === "discretionaryGuardrails"
     ? essentialSpend + discretionarySpend
     : Number(els.targetSpend.value) || 0;
 
-  return {
+  const scenario = {
     ...DEFAULT_SCENARIO,
     taxYear,
     state,
@@ -3560,6 +3749,7 @@ function readScenario() {
       partDMonthlyPremium: numberOrNull(els.medicarePartDMonthlyPremium.value) ?? 0,
       twoYearsPriorMagi: numberOrNull(els.twoYearsPriorMagi.value),
       priorYearMagi: numberOrNull(els.priorYearMagi.value),
+      maxIrmaaTier: numberOrNull(els.maxIrmaaTier?.value),
       marriedFilingSeparatelyLivedTogether: els.mfsLivedTogether.checked
     },
     planYears: clampInteger(Number(els.planYears.value), 1, 80),
@@ -3572,6 +3762,7 @@ function readScenario() {
     withdrawalStrategy: {
       mode: els.withdrawalStrategyMode?.value === "lifetime" ? "lifetime" : "heuristic"
     },
+    withdrawalOrder: readWithdrawalOrder(),
     spendingStrategy: {
       mode: spendingStrategyMode,
       essentialSpend,
@@ -3580,8 +3771,8 @@ function readScenario() {
       discretionaryInflationAdjusted: false,
       correctionDrawdownThreshold: 0.1,
       bearDrawdownThreshold: 0.2,
-      correctionDiscretionaryPercent: 0.5,
-      bearDiscretionaryPercent: 0,
+      correctionDiscretionaryPercent,
+      bearDiscretionaryPercent,
       marketAssetClass: "stock"
     },
     sequenceRiskReserve: {
@@ -3628,17 +3819,62 @@ function readScenario() {
     taxGainHarvesting: {
       enabled: els.taxGainHarvesting.checked,
       mode: numberOrNull(els.tghMax.value) == null ? "auto" : "manual",
-      overrideMaxGain: numberOrNull(els.tghMax.value)
+      overrideMaxGain: numberOrNull(els.tghMax.value),
+      magiBuffer: numberOrNull(els.taxGainMagiBuffer?.value) ?? 0
     },
     rothConversion: {
       enabled: els.rothConversion.checked,
       mode: numberOrNull(els.rothAmount.value) == null ? "auto" : "manual",
       overrideAmount: numberOrNull(els.rothAmount.value),
       targetMarginalRate: Math.max(0, (Number(els.rothTargetRate.value) || 12) / 100),
-      maxAcaFplPercent: 400
+      optimizeForAca: els.rothConversionOptimizeForAca?.checked !== false,
+      maxAcaFplPercent: Math.max(100, Math.min(600, Number(els.rothConversionMaxAcaFplPercent?.value) || 400)),
+      magiBuffer: Math.max(0, Number(els.rothConversionMagiBuffer?.value) || 0),
+      applyMagiGuardrails: els.rothConversionMagiGuardrails?.checked === true
+    },
+    rothBasisOptimization: {
+      enabled: els.rothBasisOptimization?.checked !== false,
+      minSavingsRate: DEFAULT_SCENARIO.rothBasisOptimization?.minSavingsRate ?? 0.5,
+      opportunityCostMode: els.rothBasisOpportunityCostMode?.value === "fixed" ? "fixed" : "dynamic",
+      magiBuffer: Math.max(0, Number(els.rothBasisMagiBuffer?.value) || 1000)
     },
     aca
   };
+  return applyRescueScenarioOverride(scenario);
+}
+
+function readWithdrawalOrder() {
+  const raw = String(els.withdrawalOrder?.value || "").trim();
+  const order = raw.split(",").map((item) => item.trim()).filter(Boolean);
+  const allowed = new Set(["taxable", "traditional", "hsa", "roth"]);
+  return order.length ? order.filter((item) => allowed.has(item)) : [...DEFAULT_SCENARIO.withdrawalOrder];
+}
+
+function percentInputValue(id, fallback) {
+  const value = Number(document.querySelector(`#${id}`)?.value);
+  return Number.isFinite(value) ? Math.max(0, Math.min(100, value)) / 100 : fallback;
+}
+
+function applyRescueScenarioOverride(scenario) {
+  if (!appliedRescueScenarioOverride || typeof appliedRescueScenarioOverride !== "object") {
+    return scenario;
+  }
+  return mergePlainObjects(scenario, appliedRescueScenarioOverride);
+}
+
+function mergePlainObjects(base, override) {
+  if (!override || typeof override !== "object" || Array.isArray(override)) return base;
+  const merged = { ...base };
+  for (const [key, value] of Object.entries(override)) {
+    if (value && typeof value === "object" && !Array.isArray(value) && base?.[key] && typeof base[key] === "object" && !Array.isArray(base[key])) {
+      merged[key] = mergePlainObjects(base[key], value);
+    } else if (Array.isArray(value)) {
+      merged[key] = value.map((item) => item && typeof item === "object" ? { ...item } : item);
+    } else {
+      merged[key] = value;
+    }
+  }
+  return merged;
 }
 
 function presetIdIsKnown(value) {
