@@ -444,6 +444,18 @@ const TABLE_HEIGHT_STORAGE_KEY = "portfolio-success-lab:table-heights";
 const ASSET_SORT_STORAGE_KEY = "portfolio-success-lab:asset-sort";
 const ALWAYS_PINNED_YEAR = ["Year", "Age"];
 const ALWAYS_PINNED_ASSET = ["Asset", "Account"];
+const ASSET_COLUMN_META = {
+  "Asset":        { value: (r) => r.currentAsset.name,         numeric: false, defaultDir: "asc"  },
+  "Account":      { value: (r) => r.currentAsset.accountType,  numeric: false, defaultDir: "asc"  },
+  "Class":        { value: (r) => r.currentAsset.assetClass,   numeric: false, defaultDir: "asc"  },
+  "Units":        { value: (r) => r.currentAsset.units,        numeric: true,  defaultDir: "desc" },
+  "Price":        { value: (r) => r.currentAsset.price,        numeric: true,  defaultDir: "desc" },
+  "Ending value": { value: (r) => r.currentAsset.value,        numeric: true,  defaultDir: "desc" },
+  "Change":       { value: (r) => r.change,                    numeric: true,  defaultDir: "desc" },
+  "Change %":     { value: (r) => r.changePercent,             numeric: true,  defaultDir: "desc" },
+  "Basis":        { value: (r) => r.currentAsset.costBasis,    numeric: true,  defaultDir: "desc" },
+  "Unrealized":   { value: (r) => r.currentAsset.unrealizedGain, numeric: true, defaultDir: "desc" }
+};
 const RUN_CANCELED_MESSAGE = "Simulation run canceled.";
 let pinnedYearColumns = loadPinnedColumns(PINNED_YEAR_STORAGE_KEY);
 let pinnedAssetColumns = loadPinnedColumns(PINNED_ASSET_STORAGE_KEY);
@@ -2270,19 +2282,6 @@ function renderAssetBreakdown() {
   bindResizeObserver(els.assetBreakdownTable, "assetBreakdown");
   addStickyHorizontalScrollbar(els.assetBreakdownTable);
 }
-
-const ASSET_COLUMN_META = {
-  "Asset":        { value: (r) => r.currentAsset.name,         numeric: false, defaultDir: "asc"  },
-  "Account":      { value: (r) => r.currentAsset.accountType,  numeric: false, defaultDir: "asc"  },
-  "Class":        { value: (r) => r.currentAsset.assetClass,   numeric: false, defaultDir: "asc"  },
-  "Units":        { value: (r) => r.currentAsset.units,        numeric: true,  defaultDir: "desc" },
-  "Price":        { value: (r) => r.currentAsset.price,        numeric: true,  defaultDir: "desc" },
-  "Ending value": { value: (r) => r.currentAsset.value,        numeric: true,  defaultDir: "desc" },
-  "Change":       { value: (r) => r.change,                    numeric: true,  defaultDir: "desc" },
-  "Change %":     { value: (r) => r.changePercent,             numeric: true,  defaultDir: "desc" },
-  "Basis":        { value: (r) => r.currentAsset.costBasis,    numeric: true,  defaultDir: "desc" },
-  "Unrealized":   { value: (r) => r.currentAsset.unrealizedGain, numeric: true, defaultDir: "desc" }
-};
 
 function compareSortValues(a, b, numeric) {
   if (numeric) {
