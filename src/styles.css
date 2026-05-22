@@ -930,6 +930,37 @@ th .pin-toggle {
   top: 0;
 }
 
+/* ─── Sortable column headers ────────────────────────────────────── */
+
+th.is-sortable {
+  cursor: pointer;
+  user-select: none;
+}
+
+th.is-sortable:hover {
+  color: var(--teal);
+}
+
+.sort-indicator {
+  display: inline-block;
+  margin-left: 4px;
+  font-size: 9px;
+  line-height: 1;
+  color: var(--text-muted);
+  opacity: 0.35;
+  vertical-align: middle;
+  transition: opacity 0.15s ease, color 0.15s ease;
+}
+
+th.is-sortable:hover .sort-indicator {
+  opacity: 0.8;
+}
+
+.sort-indicator.is-active {
+  color: var(--teal);
+  opacity: 1;
+}
+
 /* ─── Scrollbar Styling ──────────────────────────────────────────── */
 
 ::-webkit-scrollbar {

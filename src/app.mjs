@@ -441,11 +441,13 @@ let rememberSetupEnabled = loadRememberSetupPreference();
 const PINNED_YEAR_STORAGE_KEY = "portfolio-success-lab:pinned-year-columns";
 const PINNED_ASSET_STORAGE_KEY = "portfolio-success-lab:pinned-asset-columns";
 const TABLE_HEIGHT_STORAGE_KEY = "portfolio-success-lab:table-heights";
+const ASSET_SORT_STORAGE_KEY = "portfolio-success-lab:asset-sort";
 const ALWAYS_PINNED_YEAR = ["Year", "Age"];
 const ALWAYS_PINNED_ASSET = ["Asset", "Account"];
 const RUN_CANCELED_MESSAGE = "Simulation run canceled.";
 let pinnedYearColumns = loadPinnedColumns(PINNED_YEAR_STORAGE_KEY);
 let pinnedAssetColumns = loadPinnedColumns(PINNED_ASSET_STORAGE_KEY);
+let assetSortState = loadAssetSortState();
 
 function loadPinnedColumns(key) {
   try {
@@ -457,6 +459,26 @@ function loadPinnedColumns(key) {
 function savePinnedColumns(key, set) {
   try { localStorage.setItem(key, JSON.stringify([...set])); }
   catch { /* ignore */ }
+}
+
+function loadAssetSortState() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(ASSET_SORT_STORAGE_KEY) || "null");
+    if (stored && typeof stored.column === "string" && (stored.direction === "asc" || stored.direction === "desc")) {
+      return { column: stored.column, direction: stored.direction };
+    }
+  } catch { /* ignore */ }
+  return { column: null, direction: "desc" };
+}
+
+function saveAssetSortState(state) {
+  try {
+    if (!state || !state.column) {
+      localStorage.removeItem(ASSET_SORT_STORAGE_KEY);
+    } else {
+      localStorage.setItem(ASSET_SORT_STORAGE_KEY, JSON.stringify(state));
+    }
+  } catch { /* ignore */ }
 }
 
 function loadTableHeights() {
@@ -549,6 +571,7 @@ function clearLocalData() {
     PINNED_YEAR_STORAGE_KEY,
     PINNED_ASSET_STORAGE_KEY,
     TABLE_HEIGHT_STORAGE_KEY,
+    ASSET_SORT_STORAGE_KEY,
     ...REDESIGN_STORAGE_KEYS
   ].forEach((key) => {
     try { localStorage.removeItem(key); } catch { /* ignore */ }
@@ -557,6 +580,7 @@ function clearLocalData() {
   clearCachedLatest();
   pinnedYearColumns = new Set();
   pinnedAssetColumns = new Set();
+  assetSortState = { column: null, direction: "desc" };
 
   if (typeof window !== "undefined") {
     window.dispatchEvent(new CustomEvent("psl:local-data-cleared"));
@@ -2203,27 +2227,37 @@ function renderAssetBreakdown() {
     : year.beginningAssets);
   const keys = new Set([...current.keys(), ...previous.keys()]);
   const assetHeaders = ["Asset", "Account", "Class", "Units", "Price", "Ending value", "Change", "Change %", "Basis", "Unrealized"];
-  const rows = [...keys]
-    .map((key) => {
-      const currentAsset = current.get(key) ?? emptyAssetFromKey(key);
-      const previousAsset = previous.get(key) ?? emptyAssetFromKey(key);
-      const change = currentAsset.value - previousAsset.value;
-      const changePercent = previousAsset.value > 0 ? change / previousAsset.value : null;
-      return { currentAsset, change, changePercent };
-    })
-    .sort((a, b) => Math.abs(b.currentAsset.value) - Math.abs(a.currentAsset.value))
-    .map(({ currentAsset, change, changePercent }) => [
-      escapeHtml(currentAsset.name),
-      escapeHtml(currentAsset.accountType),
-      escapeHtml(currentAsset.assetClass),
-      unitFormatter.format(currentAsset.units),
-      money(currentAsset.price, year),
-      money(currentAsset.value, year),
-      signedMoney(change, year),
-      changePercent == null ? "n/a" : signedPercent(changePercent),
-      money(currentAsset.costBasis, year),
-      signedMoney(currentAsset.unrealizedGain, year)
-    ]);
+  const rowData = [...keys].map((key) => {
+    const currentAsset = current.get(key) ?? emptyAssetFromKey(key);
+    const previousAsset = previous.get(key) ?? emptyAssetFromKey(key);
+    const change = currentAsset.value - previousAsset.value;
+    const changePercent = previousAsset.value > 0 ? change / previousAsset.value : null;
+    return { currentAsset, change, changePercent };
+  });
+
+  const activeSort = assetSortState.column && ASSET_COLUMN_META[assetSortState.column]
+    ? assetSortState
+    : null;
+  if (activeSort) {
+    const meta = ASSET_COLUMN_META[activeSort.column];
+    const dir = activeSort.direction === "asc" ? 1 : -1;
+    rowData.sort((a, b) => compareSortValues(meta.value(a), meta.value(b), meta.numeric) * dir);
+  } else {
+    rowData.sort((a, b) => Math.abs(b.currentAsset.value) - Math.abs(a.currentAsset.value));
+  }
+
+  const rows = rowData.map(({ currentAsset, change, changePercent }) => [
+    escapeHtml(currentAsset.name),
+    escapeHtml(currentAsset.accountType),
+    escapeHtml(currentAsset.assetClass),
+    unitFormatter.format(currentAsset.units),
+    money(currentAsset.price, year),
+    money(currentAsset.value, year),
+    signedMoney(change, year),
+    changePercent == null ? "n/a" : signedPercent(changePercent),
+    money(currentAsset.costBasis, year),
+    signedMoney(currentAsset.unrealizedGain, year)
+  ]);
 
   els.assetBreakdownTable.className = "pinnable-table-wrap";
   restoreTableHeight(els.assetBreakdownTable, "assetBreakdown");
@@ -2232,8 +2266,73 @@ function renderAssetBreakdown() {
   );
   applyPinnedColumnOffsets(els.assetBreakdownTable);
   bindPinToggles(els.assetBreakdownTable, pinnedAssetColumns, ALWAYS_PINNED_ASSET, PINNED_ASSET_STORAGE_KEY, () => renderAssetBreakdown());
+  bindAssetSortHandlers(els.assetBreakdownTable);
   bindResizeObserver(els.assetBreakdownTable, "assetBreakdown");
   addStickyHorizontalScrollbar(els.assetBreakdownTable);
+}
+
+const ASSET_COLUMN_META = {
+  "Asset":        { value: (r) => r.currentAsset.name,         numeric: false, defaultDir: "asc"  },
+  "Account":      { value: (r) => r.currentAsset.accountType,  numeric: false, defaultDir: "asc"  },
+  "Class":        { value: (r) => r.currentAsset.assetClass,   numeric: false, defaultDir: "asc"  },
+  "Units":        { value: (r) => r.currentAsset.units,        numeric: true,  defaultDir: "desc" },
+  "Price":        { value: (r) => r.currentAsset.price,        numeric: true,  defaultDir: "desc" },
+  "Ending value": { value: (r) => r.currentAsset.value,        numeric: true,  defaultDir: "desc" },
+  "Change":       { value: (r) => r.change,                    numeric: true,  defaultDir: "desc" },
+  "Change %":     { value: (r) => r.changePercent,             numeric: true,  defaultDir: "desc" },
+  "Basis":        { value: (r) => r.currentAsset.costBasis,    numeric: true,  defaultDir: "desc" },
+  "Unrealized":   { value: (r) => r.currentAsset.unrealizedGain, numeric: true, defaultDir: "desc" }
+};
+
+function compareSortValues(a, b, numeric) {
+  if (numeric) {
+    const aNull = a == null || !Number.isFinite(a);
+    const bNull = b == null || !Number.isFinite(b);
+    if (aNull && bNull) return 0;
+    if (aNull) return 1;
+    if (bNull) return -1;
+    return a - b;
+  }
+  return String(a ?? "").localeCompare(String(b ?? ""), undefined, { sensitivity: "base" });
+}
+
+function handleAssetSortClick(headerName) {
+  const meta = ASSET_COLUMN_META[headerName];
+  if (!meta) return;
+  if (assetSortState.column === headerName) {
+    if (assetSortState.direction === meta.defaultDir) {
+      assetSortState = { column: headerName, direction: meta.defaultDir === "asc" ? "desc" : "asc" };
+    } else {
+      assetSortState = { column: null, direction: "desc" };
+    }
+  } else {
+    assetSortState = { column: headerName, direction: meta.defaultDir };
+  }
+  saveAssetSortState(assetSortState);
+  renderAssetBreakdown();
+}
+
+function bindAssetSortHandlers(container) {
+  container.querySelectorAll("thead th").forEach((th) => {
+    const pinBtn = th.querySelector(".pin-toggle");
+    const headerName = pinBtn?.dataset.pinHeader;
+    if (!headerName || !ASSET_COLUMN_META[headerName]) return;
+    th.classList.add("is-sortable");
+    const isActive = assetSortState.column === headerName;
+    const arrow = isActive ? (assetSortState.direction === "asc" ? "▲" : "▼") : "↕";
+    const indicator = document.createElement("span");
+    indicator.className = "sort-indicator" + (isActive ? " is-active" : "");
+    indicator.textContent = arrow;
+    indicator.setAttribute("aria-hidden", "true");
+    th.appendChild(indicator);
+    if (isActive) {
+      th.setAttribute("aria-sort", assetSortState.direction === "asc" ? "ascending" : "descending");
+    }
+    th.addEventListener("click", (event) => {
+      if (event.target.closest(".pin-toggle")) return;
+      handleAssetSortClick(headerName);
+    });
+  });
 }
 
 function renderScenarioTable() {
