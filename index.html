@@ -323,7 +323,7 @@
                   <summary>Plan & premium overrides</summary>
                   <p class="assumption-note">Assumption: exact plan mode calculates PTC from the household SLCSP and applies the selected plan gross premium and OOP max. Quoted net premium mode trusts the quote and bypasses PTC recalculation.</p>
                   <div class="control-grid">
-                    <label><span>Additional medical costs</span><input id="medicalBase" type="number" min="0" step="500" value="0"></label>
+                    <label><span>Annual additional medical costs</span><input id="medicalBase" type="number" min="0" step="500" value="0"></label>
                     <label><span>MA ConnectorCare plan type</span><select id="maConnectorCarePlanType"></select><small>Official 2026 plan-type estimate, not a carrier quote.</small></label>
                     <label>
                       <span>Plan cost mode</span>
@@ -396,9 +396,9 @@
                     <label class="check-row"><input id="marketplaceUsesTobacco" type="checkbox"><span>Tobacco rating</span></label>
                   </div>
                   <div class="button-row"><button id="findMarketplacePlans" type="button">Find federal Marketplace plans</button></div>
-                  <div id="acaPlanLookupStatus" class="status" role="status" aria-live="polite">ACA plan helper ready.</div>
                   <div id="marketplacePlanResults" class="span-full"></div>
                 </details>
+                <div id="acaPlanLookupStatus" class="status" role="status" aria-live="polite">ACA plan helper ready.</div>
               </div>
             </section>
 
