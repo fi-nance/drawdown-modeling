@@ -37,6 +37,7 @@ const RESERVE_MAX_YEARS = 5;
 const RESERVE_MODES = ["cash", "hybrid"];
 const ALLOCATION_TARGETS = [40, 55, 70, 85];
 const DEFAULT_MAGI_BUFFER = 1000;
+const SENSITIVITY_TOP_COUNT = 3;
 const SOCIAL_SECURITY_BRIDGE_AGES = [67, 70];
 const WITHDRAWAL_ORDERS = [
   ["taxable", "traditional", "hsa", "roth"],
@@ -149,6 +150,16 @@ export function runDecisionBatch({
     targetSuccessRate: profile.targetSuccessRate
   });
   const diagnosis = diagnoseFailure({ base, safeSpending, profile });
+  const sensitivity = buildSensitivityAnalysis({
+    assets,
+    scenario,
+    taxProfile,
+    runs,
+    seed,
+    sequences,
+    profile,
+    base
+  });
 
   const rescueOptions = [
     discretionaryCut,
@@ -181,6 +192,7 @@ export function runDecisionBatch({
     bestOption,
     failureAnatomy: base.failureAnatomy,
     healthcare: healthcareSummary(base.planFirstYear, profile),
+    sensitivity,
     generatedAt: new Date().toISOString()
   };
 }
@@ -1569,6 +1581,248 @@ const DIAGNOSTIC_MAP = {
     ]
   }
 };
+
+function buildSensitivityAnalysis({
+  assets,
+  scenario,
+  taxProfile,
+  runs,
+  seed,
+  sequences,
+  profile,
+  base
+} = {}) {
+  if (!base) return { top: [], all: [] };
+  const sensitivityRuns = solverSearchRuns(runs);
+  const variants = sensitivityVariants({ assets, scenario, profile });
+  const baseCombined = Number.isFinite(base?.verdict?.combinedSuccessRate)
+    ? base.verdict.combinedSuccessRate
+    : base?.monteCarlo?.successRate ?? 0;
+  const baseMonteCarlo = Number.isFinite(base?.monteCarlo?.successRate) ? base.monteCarlo.successRate : null;
+  const baseHistorical = Number.isFinite(base?.historical?.successRate) ? base.historical.successRate : null;
+  const baseVerdict = base?.verdict?.label ?? "unknown";
+  const baseVerdictRank = verdictRank(baseVerdict);
+
+  const all = variants.map((variant) => {
+    const candidate = runCandidate({
+      id: `sensitivity-${variant.id}`,
+      kind: "sensitivity",
+      label: variant.label,
+      scenario: variant.scenario,
+      assets,
+      taxProfile,
+      runs: sensitivityRuns,
+      seed,
+      sequences,
+      profile,
+      metadata: { shockId: variant.id },
+      includeHistorical: true
+    });
+    const combined = Number.isFinite(candidate?.verdict?.combinedSuccessRate)
+      ? candidate.verdict.combinedSuccessRate
+      : candidate?.monteCarlo?.successRate ?? 0;
+    const monteCarlo = Number.isFinite(candidate?.monteCarlo?.successRate) ? candidate.monteCarlo.successRate : null;
+    const historical = Number.isFinite(candidate?.historical?.successRate) ? candidate.historical.successRate : null;
+    const stressedVerdict = candidate?.verdict?.label ?? "unknown";
+    const verdictDelta = verdictRank(stressedVerdict) - baseVerdictRank;
+    const combinedDelta = round(combined - baseCombined, 4);
+    const monteCarloDelta = Number.isFinite(monteCarlo) && Number.isFinite(baseMonteCarlo)
+      ? round(monteCarlo - baseMonteCarlo, 4)
+      : null;
+    const historicalDelta = Number.isFinite(historical) && Number.isFinite(baseHistorical)
+      ? round(historical - baseHistorical, 4)
+      : null;
+    const impactScore = round(
+      Math.abs(combinedDelta)
+        + Math.abs(verdictDelta)
+        + (Number.isFinite(monteCarloDelta) ? Math.abs(monteCarloDelta) * 0.25 : 0)
+        + (Number.isFinite(historicalDelta) ? Math.abs(historicalDelta) * 0.25 : 0),
+      4
+    );
+    return {
+      id: variant.id,
+      label: variant.label,
+      question: variant.question,
+      change: variant.change,
+      controlHint: variant.controlHint,
+      base: {
+        verdict: baseVerdict,
+        combinedSuccessRate: round(baseCombined, 4),
+        monteCarloSuccessRate: baseMonteCarlo,
+        historicalSuccessRate: baseHistorical
+      },
+      stressed: {
+        verdict: stressedVerdict,
+        combinedSuccessRate: round(combined, 4),
+        monteCarloSuccessRate: monteCarlo,
+        historicalSuccessRate: historical
+      },
+      delta: {
+        combinedSuccessRate: combinedDelta,
+        monteCarloSuccessRate: monteCarloDelta,
+        historicalSuccessRate: historicalDelta
+      },
+      verdictMoved: stressedVerdict !== baseVerdict,
+      direction: combinedDelta < -EPSILON ? "worse" : combinedDelta > EPSILON ? "better" : "flat",
+      impactScore
+    };
+  }).sort((a, b) => b.impactScore - a.impactScore || Math.abs(b.delta.combinedSuccessRate) - Math.abs(a.delta.combinedSuccessRate));
+
+  return {
+    runs: sensitivityRuns,
+    top: all.slice(0, SENSITIVITY_TOP_COUNT).map((item, index) => ({ ...item, rank: index + 1 })),
+    all
+  };
+}
+
+function sensitivityVariants({ assets = [], scenario = {}, profile = {} } = {}) {
+  const growthClasses = sensitivityReturnClasses(assets, scenario);
+  return [
+    {
+      id: "portfolio-return-1pp-lower",
+      label: "Portfolio returns 1pp lower",
+      question: "What if expected returns are one percentage point lower?",
+      change: `${growthClasses.join(", ")} expected returns -1.0 percentage point.`,
+      controlHint: "Return assumptions module",
+      scenario: scenarioWithReturnMeanShift(scenario, growthClasses, -0.01)
+    },
+    {
+      id: "inflation-1pp-higher",
+      label: "Inflation 1pp higher",
+      question: "What if inflation runs one percentage point higher?",
+      change: "General inflation mean +1.0 percentage point.",
+      controlHint: "Return assumptions module -> inflation",
+      scenario: scenarioWithInflationMeanShift(scenario, 0.01)
+    },
+    {
+      id: "spending-5pct-higher",
+      label: "Spending 5% higher",
+      question: "What if the household spends 5% more?",
+      change: "Target, essential, and discretionary spending +5%.",
+      controlHint: "Basics / Spending strategy module",
+      scenario: scenarioWithSpendingScale(scenario, profile, 1.05)
+    },
+    {
+      id: "healthcare-10pct-higher",
+      label: "Healthcare costs 10% higher",
+      question: "What if health costs and ACA premiums are 10% higher?",
+      change: "Medical base, ACA premiums, OOP maximums, and Part D premium +10%.",
+      controlHint: "Healthcare module",
+      scenario: scenarioWithHealthcareScale(scenario, 1.1)
+    }
+  ];
+}
+
+function sensitivityReturnClasses(assets = [], scenario = {}) {
+  const fromAssets = [...new Set((assets ?? [])
+    .map((asset) => asset?.assetClass)
+    .filter((assetClass) => assetClass && !["cash", "inflation"].includes(assetClass)))];
+  if (fromAssets.length) return fromAssets;
+  const assumptions = scenario?.returnAssumptions ?? DEFAULT_SCENARIO.returnAssumptions ?? {};
+  const fromAssumptions = Object.keys(assumptions)
+    .filter((assetClass) => !["cash", "inflation"].includes(assetClass));
+  return fromAssumptions.length ? fromAssumptions : ["stock", "bond"];
+}
+
+function scenarioWithReturnMeanShift(scenario = {}, assetClasses = [], meanDelta = 0) {
+  const assumptions = {
+    ...DEFAULT_SCENARIO.returnAssumptions,
+    ...(plainObject(scenario.returnAssumptions) ? scenario.returnAssumptions : {})
+  };
+  for (const assetClass of assetClasses) {
+    const current = plainObject(assumptions[assetClass])
+      ? assumptions[assetClass]
+      : DEFAULT_SCENARIO.returnAssumptions?.[assetClass] ?? { mean: 0, stdev: 0 };
+    assumptions[assetClass] = {
+      ...current,
+      mean: round((Number(current.mean) || 0) + meanDelta, 6)
+    };
+  }
+  return { ...scenario, returnAssumptions: assumptions };
+}
+
+function scenarioWithInflationMeanShift(scenario = {}, meanDelta = 0) {
+  const assumptions = {
+    ...DEFAULT_SCENARIO.returnAssumptions,
+    ...(plainObject(scenario.returnAssumptions) ? scenario.returnAssumptions : {})
+  };
+  const current = plainObject(assumptions.inflation)
+    ? assumptions.inflation
+    : DEFAULT_SCENARIO.returnAssumptions?.inflation ?? { mean: 0, stdev: 0 };
+  return {
+    ...scenario,
+    returnAssumptions: {
+      ...assumptions,
+      inflation: {
+        ...current,
+        mean: round((Number(current.mean) || 0) + meanDelta, 6)
+      }
+    }
+  };
+}
+
+function scenarioWithSpendingScale(scenario = {}, profile = {}, factor = 1) {
+  const normalized = normalizeDecisionProfile(profile, scenario);
+  const targetSpend = Number.isFinite(Number(scenario.targetSpend))
+    ? Number(scenario.targetSpend)
+    : normalized.targetSpend;
+  const existing = plainObject(scenario.spendingStrategy) ? scenario.spendingStrategy : {};
+  const nextStrategy = { ...existing };
+  if (Number.isFinite(Number(existing.essentialSpend))) {
+    nextStrategy.essentialSpend = round(Number(existing.essentialSpend) * factor, 2);
+  }
+  if (Number.isFinite(Number(existing.discretionarySpend))) {
+    nextStrategy.discretionarySpend = round(Number(existing.discretionarySpend) * factor, 2);
+  }
+  return {
+    ...scenario,
+    targetSpend: round(Math.max(0, targetSpend) * factor, 2),
+    spendingStrategy: nextStrategy
+  };
+}
+
+function scenarioWithHealthcareScale(scenario = {}, factor = 1) {
+  const aca = plainObject(scenario.aca) ? scenario.aca : {};
+  const backup = plainObject(aca.backupPlan) ? aca.backupPlan : null;
+  return {
+    ...scenario,
+    medicalExpensesBase: scaleFinite(scenario.medicalExpensesBase, factor),
+    medicare: plainObject(scenario.medicare)
+      ? {
+          ...scenario.medicare,
+          partDMonthlyPremium: scaleFinite(scenario.medicare.partDMonthlyPremium, factor)
+        }
+      : scenario.medicare,
+    aca: plainObject(scenario.aca)
+      ? {
+          ...aca,
+          benchmarkPremium: scaleFinite(aca.benchmarkPremium, factor),
+          selectedPlanPremium: scaleFinite(aca.selectedPlanPremium, factor),
+          planPremium: scaleFinite(aca.planPremium, factor),
+          oopMaximum: scaleFinite(aca.oopMaximum, factor),
+          backupPlan: backup ? {
+            ...backup,
+            benchmarkPremium: scaleFinite(backup.benchmarkPremium, factor),
+            selectedPlanPremium: scaleFinite(backup.selectedPlanPremium, factor),
+            planPremium: scaleFinite(backup.planPremium, factor),
+            oopMaximum: scaleFinite(backup.oopMaximum, factor)
+          } : aca.backupPlan
+        }
+      : scenario.aca
+  };
+}
+
+function scaleFinite(value, factor) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? round(Math.max(0, numeric) * factor, 2) : value;
+}
+
+function verdictRank(label) {
+  if (label === "safe") return 2;
+  if (label === "fragile") return 1;
+  if (label === "unsafe") return 0;
+  return -1;
+}
 
 function failureAnatomy(scenarios = []) {
   const failed = scenarios.filter((item) => item && item.success === false);

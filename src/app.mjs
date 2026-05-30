@@ -6,8 +6,10 @@ import {
   toGoogleCsvUrl
 } from "./core/importers.mjs";
 import { portfolioValue } from "./core/portfolio.mjs";
+import { actionConfidenceFor, buildConfidenceReport } from "./core/confidence.mjs";
 import { createSetupBackup, parseSetupBackup } from "./core/setupBackup.mjs";
 import { cacheLatestResults, clearCachedLatest, restoreCachedLatest } from "./core/resultsCache.mjs";
+import { createResultAuditBundle, RESULT_AUDIT_BUNDLE_PRIVACY_NOTICE } from "./core/resultAuditBundle.mjs";
 import {
   DEFAULT_SCENARIO,
   MONTE_CARLO_ASSUMPTION_PRESETS,
@@ -25,7 +27,7 @@ import {
   HISTORICAL_RETURN_DATA_VERSION,
   makeHistoricalSequences
 } from "./data/historicalReturns.mjs";
-import { buildAcaConfig, buildTaxProfile, STATE_OPTIONS, getMonthlyBenchmarkPremium } from "./data/taxData.mjs";
+import { buildAcaConfig, buildTaxProfile, STATE_OPTIONS, TAX_DATA_VERSION, getMonthlyBenchmarkPremium } from "./data/taxData.mjs";
 import { massachusettsConnectorCareEstimate, massachusettsConnectorCarePlanOptions } from "./data/acaPlanPresets.mjs";
 import {
   buildMarketplacePlanSearchRequest,
@@ -251,6 +253,7 @@ const els = {
   sheetRange: document.querySelector("#sheetRange"),
   loadPrivateSheet: document.querySelector("#loadPrivateSheet"),
   downloadSetup: document.querySelector("#downloadSetup"),
+  downloadResultAuditBundle: document.querySelector("#downloadResultAuditBundle"),
   rememberSetup: document.querySelector("#rememberSetup"),
   clearLocalData: document.querySelector("#clearLocalData"),
   restoreSetupFile: document.querySelector("#restoreSetupFile"),
@@ -804,6 +807,7 @@ function bindEvents() {
     downloadJsonFile(backup, `portfolio-success-lab-setup-${backup.exportedAt.slice(0, 10)}.json`);
     setImportStatus("Setup JSON downloaded.");
   });
+  els.downloadResultAuditBundle?.addEventListener("click", downloadResultAuditBundle);
 
   const restoreInputs = els.restoreSetupFiles.length ? els.restoreSetupFiles : [els.restoreSetupFile].filter(Boolean);
   restoreInputs.forEach((input) => input.addEventListener("change", handleSetupRestoreFile));
@@ -1687,6 +1691,13 @@ async function runModels(opts = {}) {
     let firstScenarioId = null;
     // Buffer used when stream=false so the cached display stays put until
     // we have the full new result.
+    const confidenceContext = () => ({
+      scenario,
+      taxProfile,
+      decision: latest?.decision ?? buffered.decision,
+      historicalCoverage,
+      historicalAssetClasses
+    });
     const buffered = { plan: null, backtests: [], scenarios: [], decision: null };
 
     if (stream) {
@@ -1702,6 +1713,7 @@ async function runModels(opts = {}) {
         historicalMode: els.backtestMode.value,
         plan: null,
         decision: { status: "running" },
+        confidence: buildConfidenceReport({ scenario, taxProfile, historicalCoverage, historicalAssetClasses }),
         monteCarlo: {
           scenarios: [],
           summary: null,
@@ -1771,6 +1783,7 @@ async function runModels(opts = {}) {
         if (stream) {
           if (!latest) return;
           latest.decision = runningDecision;
+          latest.confidence = buildConfidenceReport(confidenceContext());
           setStatus(`Solving rescue options... ${progress.done} candidates tested.`);
           renderLatest({ streaming: true });
         } else {
@@ -1781,6 +1794,7 @@ async function runModels(opts = {}) {
         if (stream) {
           if (!latest) return;
           latest.decision = decision;
+          latest.confidence = buildConfidenceReport(confidenceContext());
           renderLatest({ streaming: true });
         } else {
           buffered.decision = decision;
@@ -1796,6 +1810,7 @@ async function runModels(opts = {}) {
     if (stream) {
       latest.monteCarlo.summary = result.summary;
       latest.monteCarlo.progress = { done: runs, total: runs, complete: true };
+      latest.confidence = buildConfidenceReport(confidenceContext());
       if (selectedScenarioId == null) {
         selectedScenarioId = firstResultWithYears(latest.monteCarlo.scenarios)?.id ?? null;
       }
@@ -1811,6 +1826,13 @@ async function runModels(opts = {}) {
         historicalMode: els.backtestMode.value,
         plan: buffered.plan,
         decision: buffered.decision,
+        confidence: buildConfidenceReport({
+          scenario,
+          taxProfile,
+          decision: buffered.decision,
+          historicalCoverage,
+          historicalAssetClasses
+        }),
         monteCarlo: {
           scenarios: buffered.scenarios,
           summary: result.summary,
@@ -1954,15 +1976,7 @@ function renderAuditPanel() {
     return;
   }
 
-  const rows = [
-    ["Dollar basis", dollarAuditLine()],
-    ["Tax assumptions", taxAuditLine(scenario)],
-    ["Strategy mode", strategyAuditLine(scenario)],
-    ["ACA locality", acaLocalityAuditLine(scenario)],
-    ["ACA plan inputs", acaPlanAuditLine(scenario)],
-    ["Simulation inputs", simulationAuditLine()],
-    ["Known limits", knownLimitsAuditLine()]
-  ];
+  const rows = auditRowsForScenario(scenario);
 
   els.auditPanel.innerHTML = `
     <dl class="audit-list">
@@ -1974,6 +1988,55 @@ function renderAuditPanel() {
       `).join("")}
     </dl>
   `;
+}
+
+function auditRowsForScenario(scenario) {
+  return [
+    ["Dollar basis", dollarAuditLine()],
+    ["Tax assumptions", taxAuditLine(scenario)],
+    ["Strategy mode", strategyAuditLine(scenario)],
+    ["ACA locality", acaLocalityAuditLine(scenario)],
+    ["ACA plan inputs", acaPlanAuditLine(scenario)],
+    ["Simulation inputs", simulationAuditLine()],
+    ["Known limits", knownLimitsAuditLine()]
+  ];
+}
+
+function downloadResultAuditBundle() {
+  if (!latest?.plan || !latest?.monteCarlo) {
+    setStatus("Run a completed model before exporting an audit bundle.", true);
+    return;
+  }
+  const confirmed = typeof window === "undefined"
+    || window.confirm(`${RESULT_AUDIT_BUNDLE_PRIVACY_NOTICE}\n\nExport this result audit bundle?`);
+  if (!confirmed) return;
+
+  syncJsonFromAssets();
+  const exportedAt = new Date().toISOString();
+  const bundle = createResultAuditBundle({
+    latest,
+    setupState: setupStateSnapshot(),
+    auditRows: auditRowsForScenario(latest.scenario),
+    sourceVersions: resultAuditSourceVersions(),
+    exportedAt
+  });
+  downloadJsonFile(bundle, `portfolio-success-lab-audit-${exportedAt.slice(0, 10)}.json`);
+  setStatus("Result audit bundle downloaded.");
+  setImportStatus("Result audit bundle downloaded.");
+}
+
+function resultAuditSourceVersions() {
+  return {
+    taxDataVersion: TAX_DATA_VERSION,
+    historicalReturnDataVersion: HISTORICAL_RETURN_DATA_VERSION,
+    historicalDataSource: latest?.historicalDataSource ?? readHistoricalDataSource(),
+    historicalRange: latest?.historicalRange ?? null,
+    monteCarloPreset: latest?.scenario?.monteCarlo?.assumptionPreset ?? els.mcPreset?.value,
+    monteCarloRuns: latest?.monteCarlo?.summary?.runs ?? latest?.monteCarlo?.progress?.total ?? null,
+    seed: Number(els.seed?.value) || 42,
+    taxYear: latest?.scenario?.taxYear ?? null,
+    state: latest?.scenario?.state ?? null
+  };
 }
 
 function dollarAuditLine() {
@@ -2473,9 +2536,12 @@ function renderActionPlan() {
 
   els.actionPlanNote.textContent = `${year.year} selected`;
   const rows = [];
+  const addAction = (kind, cells) => {
+    rows.push([...cells, actionConfidenceHtml(actionConfidenceFor(kind, latest?.confidence))]);
+  };
   const magiTarget = year.acaMagiCeiling;
   if (Number.isFinite(magiTarget) && year.aca?.enabled !== false) {
-    rows.push([
+    addAction("magiManagement", [
       "Manage MAGI",
       money(magiTarget, year),
       "ACA threshold",
@@ -2485,7 +2551,7 @@ function renderActionPlan() {
   }
 
   if ((year.rothConversionAmount ?? 0) > 0) {
-    rows.push([
+    addAction("rothConversion", [
       "Convert traditional to Roth",
       money(year.rothConversionAmount, year),
       "Traditional accounts",
@@ -2495,7 +2561,7 @@ function renderActionPlan() {
   }
 
   if ((year.rmdAmount ?? 0) > 0) {
-    rows.push([
+    addAction("traditionalWithdrawal", [
       "Take required minimum distribution",
       money(year.rmdAmount, year),
       "Traditional accounts",
@@ -2505,7 +2571,7 @@ function renderActionPlan() {
   }
 
   if ((year.socialSecurityBenefits ?? 0) > 0) {
-    rows.push([
+    addAction("socialSecurity", [
       "Collect Social Security",
       money(year.socialSecurityBenefits, year),
       "Social Security",
@@ -2515,7 +2581,7 @@ function renderActionPlan() {
   }
 
   if ((year.earnedIncome ?? 0) > 0) {
-    rows.push([
+    addAction("earnedIncome", [
       "Receive earned income",
       money(year.earnedIncome, year),
       "Earned income",
@@ -2525,7 +2591,7 @@ function renderActionPlan() {
   }
 
   if ((year.oneOffIncome ?? 0) > 0) {
-    rows.push([
+    addAction("oneOffIncome", [
       "Receive one-off income",
       money(year.oneOffIncome, year),
       "One-off income",
@@ -2536,7 +2602,7 @@ function renderActionPlan() {
 
   const discretionaryTrim = Math.max(0, (year.discretionarySpendingBudget ?? 0) - (year.discretionarySpending ?? 0));
   if (discretionaryTrim > 1 && year.spendingGuardrail?.enabled) {
-    rows.push([
+    addAction("spendingGuardrail", [
       "Trim discretionary spending",
       money(discretionaryTrim, year),
       "Lifestyle budget",
@@ -2546,7 +2612,7 @@ function renderActionPlan() {
   }
 
   if ((year.taxGainHarvested ?? 0) > 0) {
-    rows.push([
+    addAction("taxGainHarvesting", [
       "Harvest taxable gains",
       money(year.taxGainHarvested, year),
       "Taxable lots",
@@ -2556,7 +2622,7 @@ function renderActionPlan() {
   }
 
   if ((year.realizedCapitalLosses ?? 0) > 0) {
-    rows.push([
+    addAction("taxLossHarvesting", [
       "Harvest taxable losses",
       money(year.realizedCapitalLosses, year),
       "Taxable lots",
@@ -2567,7 +2633,7 @@ function renderActionPlan() {
 
   const taxableDividendsForSpending = Math.min(year.taxableDividendsCash ?? 0, year.totalCashRequired ?? 0);
   if (taxableDividendsForSpending > 1) {
-    rows.push([
+    addAction("taxableDividends", [
       "Collect taxable dividends for spending",
       money(taxableDividendsForSpending, year),
       "Taxable account dividends",
@@ -2577,7 +2643,7 @@ function renderActionPlan() {
   }
 
   for (const sale of year.sales ?? []) {
-    rows.push([
+    addAction(sale.accountType === "traditional" ? "traditionalWithdrawal" : "withdrawal", [
       saleActionLabel(sale),
       money(sale.proceeds, year),
       escapeHtml(sale.name),
@@ -2587,7 +2653,7 @@ function renderActionPlan() {
   }
 
   if ((year.taxes?.totalTax ?? 0) > 0) {
-    rows.push([
+    addAction("taxReserve", [
       "Reserve for taxes",
       money(year.taxes.totalTax, year),
       "Spending reserve",
@@ -2598,7 +2664,7 @@ function renderActionPlan() {
 
   if ((year.medicalCost ?? 0) > 0) {
     const medicarePremium = year.medicare?.totalAnnualPremium ?? 0;
-    rows.push([
+    addAction("medicalReserve", [
       "Reserve for medical",
       money(year.medicalCost, year),
       "Spending reserve",
@@ -2608,7 +2674,7 @@ function renderActionPlan() {
   }
 
   if ((year.unfunded ?? 0) > 1) {
-    rows.push([
+    addAction("fundingGap", [
       "Close funding gap",
       money(year.unfunded, year),
       "Portfolio",
@@ -2618,9 +2684,22 @@ function renderActionPlan() {
   }
 
   els.actionPlan.innerHTML = rows.length
-    ? tableHtml(["Move", "Amount", "Source", "Tax / cash impact", "Why"], rows)
+    ? tableHtml(["Move", "Amount", "Source", "Tax / cash impact", "Why", "Confidence"], rows)
     : `<p class="empty-state">No portfolio moves are needed in ${year.year}.</p>`;
   addStickyHorizontalScrollbar(els.actionPlan);
+}
+
+function actionConfidenceHtml(confidence = {}) {
+  const level = confidence.level ?? "high-confidence";
+  const label = confidence.label ?? "High";
+  const title = confidence.title ?? "Source-versioned rule";
+  const detail = confidence.detail ?? "";
+  return `
+    <span class="action-confidence" data-level="${escapeHtml(level)}" title="${escapeHtml(detail)}">
+      <strong>${escapeHtml(label)}</strong>
+      <span>${escapeHtml(title)}</span>
+    </span>
+  `;
 }
 
 function taxAttributionFor(year, source) {

@@ -1,4 +1,5 @@
 import { RESULTS_CACHE_KEY } from "./core/resultsCache.mjs";
+import { actionConfidenceFor, rescueConfidenceFor } from "./core/confidence.mjs";
 
 /* ──────────────────────────────────────────────────────────────────
    redesign.mjs
@@ -988,9 +989,10 @@ function renderDecisionPanel() {
   const rescues = (Array.isArray(decision.rescueOptions) ? decision.rescueOptions : [])
     .filter(opt => opt.status !== "discarded");
   const headline = decisionHeadline(decision);
-  const rescueCards = rescues.map((option) => rescueCardHtml(option, base)).join("");
   const anatomy = decision.failureAnatomy ?? {};
   const healthcare = decision.healthcare ?? {};
+  const confidence = latest.confidence ?? { headline: "Confidence not evaluated", flags: [] };
+  const rescueCards = rescues.map((option) => rescueCardHtml(option, base, confidence)).join("");
   const diagnosisLine = diagnosis.primary && diagnosis.primary !== "none"
     ? `<p class="decision-sub"><strong>${escapeHtml(diagnosis.label)}.</strong> ${escapeHtml(diagnosis.reason)}</p>`
     : "";
@@ -1027,6 +1029,8 @@ function renderDecisionPanel() {
           <strong>${healthcare.magiCeiling != null ? formatCurrencyShort(healthcare.magiCeiling) : "No ceiling"}</strong>
           <small>${healthcareText(healthcare)}</small>
         </div>
+        ${sensitivityCardHtml(decision.sensitivity)}
+        ${confidenceCardHtml(confidence)}
       </div>
     </div>`;
 }
@@ -1114,10 +1118,11 @@ function capitalizeFirst(text) {
   return str ? str.charAt(0).toUpperCase() + str.slice(1) : str;
 }
 
-function rescueCardHtml(option, base) {
+function rescueCardHtml(option, base, confidenceReport = {}) {
   const delta = option.delta?.monteCarloSuccessRate ?? 0;
   const title = rescueTitle(option);
   const tier = rescueTierLabel(option.kind);
+  const confidence = rescueConfidenceFor(option, confidenceReport);
   const sideEffect = option.delta?.firstYearSubsidy == null
     ? "No healthcare delta"
     : `${option.delta.firstYearSubsidy >= 0 ? "+" : ""}${formatCurrencyShort(option.delta.firstYearSubsidy)} year-1 subsidy`;
@@ -1128,6 +1133,7 @@ function rescueCardHtml(option, base) {
       <small>${formatRate(base?.monteCarlo?.successRate)} -> ${formatRate(option.monteCarlo?.successRate)} (${signedRate(delta)})</small>
       <small>Historical ${formatOptionalRate(base?.historical?.successRate)} -> ${formatOptionalRate(option.historical?.successRate)}</small>
       <small>${escapeHtml(sideEffect)}</small>
+      ${confidenceBadgeHtml(confidence)}
     </article>`;
 }
 
@@ -1166,6 +1172,68 @@ function healthcareText(healthcare = {}) {
   if (healthcare.magiCeiling == null) return "No ACA/ConnectorCare ceiling was available for year 1.";
   const buffer = healthcare.magiBuffer ?? 0;
   return `${formatCurrencyShort(Math.abs(buffer))} ${buffer >= 0 ? "under" : "over"} modeled MAGI ceiling.`;
+}
+
+function confidenceCardHtml(confidence = {}) {
+  const flags = Array.isArray(confidence.flags) ? confidence.flags.slice(0, 3) : [];
+  const headline = confidence.headline ?? "Confidence not evaluated";
+  const flagList = flags.length
+    ? `<ul class="confidence-list">${flags.map((flag) => `
+      <li>
+        <strong>${escapeHtml(confidenceLevelText(flag.level))}</strong>
+        <span>${escapeHtml(flag.title ?? "Review flag")}</span>
+      </li>
+    `).join("")}</ul>`
+    : `<small>No confidence flags were reported for this run.</small>`;
+  return `
+    <div class="confidence-card">
+      <span>Confidence</span>
+      <strong>${escapeHtml(headline)}</strong>
+      ${flagList}
+    </div>`;
+}
+
+function sensitivityCardHtml(sensitivity = {}) {
+  const items = Array.isArray(sensitivity.top) ? sensitivity.top.slice(0, 3) : [];
+  const list = items.length
+    ? `<ol class="sensitivity-list">${items.map((item) => `
+      <li>
+        <strong>${escapeHtml(item.label ?? "Sensitivity")}</strong>
+        <span>${escapeHtml(sensitivityDeltaText(item))}</span>
+      </li>
+    `).join("")}</ol>`
+    : `<small>No ranked sensitivity checks are available for this run.</small>`;
+  return `
+    <div class="sensitivity-card">
+      <span>What moves this</span>
+      <strong>${items.length ? `${items.length} assumption checks` : "Not evaluated"}</strong>
+      ${list}
+    </div>`;
+}
+
+function sensitivityDeltaText(item = {}) {
+  const delta = item.delta?.combinedSuccessRate;
+  const stressed = item.stressed?.verdict ? `${item.stressed.verdict} verdict` : "same verdict";
+  const change = Number.isFinite(delta) ? `${signedRate(delta)} combined evidence` : "no rate delta";
+  const hint = item.controlHint ? ` (${item.controlHint})` : "";
+  return `${change}; ${stressed}${hint}.`;
+}
+
+function confidenceLevelText(level) {
+  switch (level) {
+    case "high-confidence":
+      return "High";
+    case "input-limited":
+      return "Input";
+    case "assumption-sensitive":
+      return "Sensitive";
+    case "cpa-review-recommended":
+      return "CPA";
+    case "out-of-model":
+      return "Excluded";
+    default:
+      return "Flag";
+  }
 }
 
 function historicalSummary(latest) {
@@ -1286,17 +1354,17 @@ function renderActionList() {
   const taxableW = withdrawals.filter(s => s.accountType === "taxable").reduce((t, s) => t + (s.proceeds ?? 0), 0);
   const traditionalW = withdrawals.filter(s => s.accountType === "traditional").reduce((t, s) => t + (s.proceeds ?? 0), 0);
   const rothW = withdrawals.filter(s => s.accountType === "roth").reduce((t, s) => t + (s.proceeds ?? 0), 0);
-  if (taxableW > 0) items.push({ kind: "withdraw", title: "Sell from taxable", sub: "0% LTCG bracket where possible", amt: taxableW });
-  if (traditionalW > 0) items.push({ kind: "withdraw", title: "Sell from Traditional", sub: "Ordinary income", amt: traditionalW });
-  if (rothW > 0) items.push({ kind: "withdraw", title: "Sell from Roth", sub: "Tax-free draws", amt: rothW });
-  if (year.rothConversionAmount > 0) items.push({ kind: "convert", title: "Convert Trad → Roth", sub: `In ${(Number(document.getElementById("rothTargetRate")?.value) || 12)}% bracket target`, amt: year.rothConversionAmount });
-  if (year.aca?.subsidy > 0) items.push({ kind: "aca", title: "Cap MAGI for PTC", sub: `+${formatYearCurrencyShort(year.aca.subsidy, year)} PTC`, amt: year.magi });
-  if (year.taxGainHarvested > 0) items.push({ kind: "harvest", title: "Realize gains", sub: "Use favorable gain room", amt: year.taxGainHarvested });
-  if (year.realizedCapitalLosses > 0) items.push({ kind: "harvest", title: "Tax-loss harvest", sub: "$3k ordinary offset + carryforward", amt: year.realizedCapitalLosses });
-  if ((year.assetLocation?.relocatedAmount ?? 0) > 0) items.push({ kind: "rebalance", title: "Relocate assets", sub: "Move income assets into sheltered accounts", amt: year.assetLocation.relocatedAmount });
-  if ((year.allocationStrategy?.rebalancedAmount ?? 0) > 0) items.push({ kind: "rebalance", title: "Rebalance allocation", sub: `Target ${Math.round(year.allocationStrategy.targetStockPercent ?? 70)}% stock sleeve`, amt: year.allocationStrategy.rebalancedAmount });
-  if ((year.hsaContribution?.amount ?? 0) > 0) items.push({ kind: "convert", title: "Fund HSA", sub: "Above-the-line deduction + invested medical reserve", amt: year.hsaContribution.amount });
-  if ((year.rmdAmount ?? 0) > 0) items.push({ kind: "rmd", title: "Take RMD", sub: "IRS-mandated distribution", amt: year.rmdAmount });
+  if (taxableW > 0) items.push({ kind: "withdraw", confidenceKind: "withdrawal", title: "Sell from taxable", sub: "0% LTCG bracket where possible", amt: taxableW });
+  if (traditionalW > 0) items.push({ kind: "withdraw", confidenceKind: "traditionalWithdrawal", title: "Sell from Traditional", sub: "Ordinary income", amt: traditionalW });
+  if (rothW > 0) items.push({ kind: "withdraw", confidenceKind: "withdrawal", title: "Sell from Roth", sub: "Tax-free draws", amt: rothW });
+  if (year.rothConversionAmount > 0) items.push({ kind: "convert", confidenceKind: "rothConversion", title: "Convert Trad → Roth", sub: `In ${(Number(document.getElementById("rothTargetRate")?.value) || 12)}% bracket target`, amt: year.rothConversionAmount });
+  if (year.aca?.subsidy > 0) items.push({ kind: "aca", confidenceKind: "magiManagement", title: "Cap MAGI for PTC", sub: `+${formatYearCurrencyShort(year.aca.subsidy, year)} PTC`, amt: year.magi });
+  if (year.taxGainHarvested > 0) items.push({ kind: "harvest", confidenceKind: "taxGainHarvesting", title: "Realize gains", sub: "Use favorable gain room", amt: year.taxGainHarvested });
+  if (year.realizedCapitalLosses > 0) items.push({ kind: "harvest", confidenceKind: "taxLossHarvesting", title: "Tax-loss harvest", sub: "$3k ordinary offset + carryforward", amt: year.realizedCapitalLosses });
+  if ((year.assetLocation?.relocatedAmount ?? 0) > 0) items.push({ kind: "rebalance", confidenceKind: "assetLocation", title: "Relocate assets", sub: "Move income assets into sheltered accounts", amt: year.assetLocation.relocatedAmount });
+  if ((year.allocationStrategy?.rebalancedAmount ?? 0) > 0) items.push({ kind: "rebalance", confidenceKind: "assetAllocation", title: "Rebalance allocation", sub: `Target ${Math.round(year.allocationStrategy.targetStockPercent ?? 70)}% stock sleeve`, amt: year.allocationStrategy.rebalancedAmount });
+  if ((year.hsaContribution?.amount ?? 0) > 0) items.push({ kind: "convert", confidenceKind: "hsaContribution", title: "Fund HSA", sub: "Above-the-line deduction + invested medical reserve", amt: year.hsaContribution.amount });
+  if ((year.rmdAmount ?? 0) > 0) items.push({ kind: "rmd", confidenceKind: "traditionalWithdrawal", title: "Take RMD", sub: "IRS-mandated distribution", amt: year.rmdAmount });
 
   root.innerHTML = items.length ? items.map(it => `
     <li>
@@ -1304,9 +1372,22 @@ function renderActionList() {
       <div class="action-text">
         <span class="action-title">${it.title}</span>
         <span class="action-sub">${it.sub}</span>
+        ${actionListConfidenceHtml(actionConfidenceFor(it.confidenceKind, latest?.confidence))}
       </div>
       <span class="action-amt">${formatYearCurrencyShort(it.amt, year)}</span>
     </li>`).join("") : `<li><div class="action-text"><span class="action-sub">No actions for year 1.</span></div></li>`;
+}
+
+function actionListConfidenceHtml(confidence = {}) {
+  return confidenceBadgeHtml(confidence);
+}
+
+function confidenceBadgeHtml(confidence = {}) {
+  return `
+    <span class="action-confidence" data-level="${escapeHtml(confidence.level ?? "high-confidence")}" title="${escapeHtml(confidence.detail ?? "")}">
+      ${escapeHtml(confidenceLevelText(confidence.level))}
+      <span>${escapeHtml(confidence.title ?? "Source-versioned rule")}</span>
+    </span>`;
 }
 
 // ─── Bracket fill ──────────────────────────────────────────────────
@@ -2093,13 +2174,14 @@ function renderRescueComparisonTable() {
     return;
   }
 
-  const headers = ["Rescue Strategy", "Optimized For", "Lifestyle Impact", "MC Success", "Historical Success", "Subsidy Change", "Result", "Apply"];
+  const headers = ["Rescue Strategy", "Optimized For", "Lifestyle Impact", "MC Success", "Historical Success", "Subsidy Change", "Confidence", "Result", "Apply"];
   const thead = `<thead><tr>${headers.map(h => `<th>${escapeHtml(h)}</th>`).join("")}</tr></thead>`;
 
   const rowsHtml = rescues.map((option, index) => {
     const title = capitalizeFirst(rescueTitle(option));
     const optimization = rescueOptimizationText(option, baseScenario);
     const tier = rescueTierLabel(option.kind);
+    const confidence = rescueConfidenceFor(option, latest?.confidence);
     const mcRate = option.monteCarlo?.successRate;
     const mcDelta = option.delta?.monteCarloSuccessRate ?? 0;
     const mcRuns = Number.isFinite(option.monteCarlo?.runs)
@@ -2150,6 +2232,7 @@ function renderRescueComparisonTable() {
         <td class="mono">${mcText}</td>
         <td class="mono">${escapeHtml(histText)}</td>
         <td class="mono" style="color: ${firstYearSubsidy > 0 ? "var(--emerald)" : (firstYearSubsidy < 0 ? "var(--coral)" : "inherit")}">${escapeHtml(subsidyText)}</td>
+        <td>${confidenceBadgeHtml(confidence)}</td>
         <td><span class="${statusClass}" style="font-size:0.75rem; font-weight:700;">${escapeHtml(statusText)}</span></td>
         <td><button class="rescue-apply-button" type="button" data-rescue-apply="${index}" ${canApply ? "" : "disabled"}>${canApply ? "Apply" : "n/a"}</button></td>
       </tr>

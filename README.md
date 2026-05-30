@@ -71,7 +71,7 @@ Private Google Sheets can be imported with Google OAuth by entering a Google OAu
 
 Private data can also be imported without OAuth by downloading the sheet as CSV and selecting it with the CSV file input.
 
-Use the Save setup / Load setup controls in the persona, workspace, or results flow to export or restore the full setup, including assets, scenario controls, decision profile, and one-off cash flows.
+Use the Save setup / Load setup controls in the persona, workspace, or results flow to export or restore the full setup, including assets, scenario controls, decision profile, and one-off cash flows. The results screen can also export a result audit bundle: setup, compacted modeled results, confidence flags, sensitivity output, source-version metadata, and the plain-language model-audit rows in one JSON file. It includes sensitive household data, so share it only intentionally.
 
 ## Accuracy Notes
 
@@ -93,6 +93,8 @@ Monte Carlo defaults use the 2026 market-neutral preset: 1000 correlated annual 
 
 ## Documentation
 
+- [Project goal and north-star roadmap](docs/GOAL.md)
+- [Continuous CPA / engineering / design review bar](docs/REVIEW_BAR.md)
 - [Data sources and annual update runbook](docs/DATA_SOURCES.md)
 - [Known modeling limitations](docs/KNOWN_LIMITATIONS.md)
 - [Product design review for the post-job decision engine](docs/PRODUCT_DESIGN_REVIEW.md)

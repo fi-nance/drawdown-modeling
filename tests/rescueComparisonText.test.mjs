@@ -118,3 +118,17 @@ test("rescue scenario workspace knobs are visible and persisted", async () => {
     assert.match(appSource, new RegExp(`"${id}"`), `${id} should be part of app control wiring`);
   }
 });
+
+test("rescue comparison table includes per-option confidence labels", async () => {
+  const source = await readFile(new URL("../src/redesign.mjs", import.meta.url), "utf8");
+
+  assert.match(source, /rescueConfidenceFor/, "rescue rows should use core rescue confidence mapping");
+  assert.match(source, /"Confidence"/, "rescue comparison table should expose a Confidence column");
+});
+
+test("decision panel includes ranked sensitivity output", async () => {
+  const source = await readFile(new URL("../src/redesign.mjs", import.meta.url), "utf8");
+
+  assert.match(source, /sensitivityCardHtml/, "decision panel should render sensitivity results");
+  assert.match(source, /What moves this/, "sensitivity card should use plain-language heading");
+});

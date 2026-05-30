@@ -728,6 +728,45 @@ tbody tr:hover {
   background: rgba(52, 209, 182, 0.04);
 }
 
+.action-confidence {
+  display: inline-flex;
+  width: max-content;
+  max-width: 260px;
+  align-items: center;
+  gap: 0.35rem;
+  border: 1px solid var(--border-light);
+  border-radius: 7px;
+  padding: 0.13rem 0.34rem;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-secondary);
+  font-family: 'Inter', sans-serif;
+  font-size: 0.68rem;
+  font-weight: 800;
+  line-height: 1.25;
+  white-space: normal;
+}
+.action-confidence strong {
+  color: var(--text-primary);
+  font-size: 0.66rem;
+  text-transform: uppercase;
+}
+.action-confidence span {
+  color: var(--text-muted);
+  font-weight: 600;
+}
+.action-confidence[data-level="cpa-review-recommended"] {
+  border-color: rgba(240, 168, 72, 0.48);
+}
+.action-confidence[data-level="assumption-sensitive"] {
+  border-color: rgba(91, 141, 239, 0.48);
+}
+.action-confidence[data-level="input-limited"] {
+  border-color: rgba(52, 209, 182, 0.42);
+}
+.action-confidence[data-level="out-of-model"] {
+  border-color: rgba(240, 96, 96, 0.5);
+}
+
 .asset-table input,
 .asset-table select {
   min-width: 88px;

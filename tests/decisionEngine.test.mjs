@@ -218,6 +218,55 @@ test("decision batch returns base, income bridge, and combined rescue summaries"
   assert.equal(decision.verdict.historicalKnown, false);
 });
 
+test("decision batch ranks assumption sensitivities by verdict impact", () => {
+  const scenario = {
+    ...DEFAULT_SCENARIO,
+    planYears: 3,
+    currentAge: 55,
+    spouseAge: 55,
+    targetSpend: 333000,
+    targetSpendInflationAdjusted: false,
+    targetSpendIncludesTaxes: true,
+    targetSpendIncludesMedical: true,
+    medicalExpensesBase: 0,
+    aca: { enabled: false },
+    spendingStrategy: {
+      ...DEFAULT_SCENARIO.spendingStrategy,
+      mode: "fixed",
+      essentialSpend: 250000,
+      discretionarySpend: 83000
+    },
+    returnAssumptions: {
+      ...DEFAULT_SCENARIO.returnAssumptions,
+      cash: { mean: 0, stdev: 0 },
+      inflation: { mean: 0, stdev: 0 }
+    }
+  };
+
+  const decision = runDecisionBatch({
+    assets: cashAssets,
+    scenario,
+    taxProfile: noTaxProfile,
+    runs: 10,
+    seed: 9,
+    sequences: [],
+    decisionProfile: {
+      requiredSpend: 250000,
+      flexibleSpend: 83000,
+      targetSuccessRate: 1
+    }
+  });
+
+  assert.equal(decision.sensitivity.runs, 10);
+  assert.equal(decision.sensitivity.all.length, 4);
+  assert.equal(decision.sensitivity.top.length, 3);
+  assert.equal(decision.sensitivity.top[0].id, "spending-5pct-higher");
+  assert.equal(decision.sensitivity.top[0].verdictMoved, true);
+  assert.equal(decision.sensitivity.top[0].base.verdict, "safe");
+  assert.equal(decision.sensitivity.top[0].stressed.verdict, "fragile");
+  assert.match(decision.sensitivity.top[0].controlHint, /Spending/);
+});
+
 test("decision batch omits the income bridge and combined rescues when the household opts out", () => {
   const scenario = {
     ...DEFAULT_SCENARIO,

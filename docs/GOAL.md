@@ -1,0 +1,404 @@
+# Project Goal
+
+## North Star
+
+> Build the most rigorous explainable U.S. household drawdown model an individual
+> can run without an advisor. Starting from the simplest viable inputs and
+> improving confidence as more household detail is added, it produces a
+> CPA-auditable year-by-year action plan for withdrawals, Roth conversions,
+> Social Security claiming, asset location, healthcare/MAGI management, and
+> legacy strategy. It optimizes the household's stated tradeoff between after-tax
+> lifetime spending, failure resilience, healthcare stability, and after-tax
+> bequest under quantified uncertainty. It uses source-versioned current federal
+> and state law for all 50 states and DC, with explicit assumptions, exclusions,
+> confidence levels, and review flags. Every result must be reproducible, tested,
+> inspectable from a CPA and engineering perspective, and designed so a
+> non-advisor can understand the tradeoff well enough to act or know when to seek
+> professional review.
+
+The compact version:
+
+> The most rigorous explainable personal drawdown planner: current-law accurate,
+> tax and healthcare aware, uncertainty tested, legacy aware, CPA-auditable,
+> engineering-reproducible, and simple enough for a household to use directly.
+
+This document is the north-star. It is intentionally larger than what is shipped.
+The repo's two companion docs ground that ambition in reality:
+
+- [`README.md`](../README.md) — what is implemented today.
+- [`docs/KNOWN_LIMITATIONS.md`](KNOWN_LIMITATIONS.md) — what is explicitly out of
+  scope or deferred, and what overrides exist for power users.
+- [`docs/DATA_SOURCES.md`](DATA_SOURCES.md) — where every versioned data table
+  comes from and the annual refresh runbook.
+- [`docs/REVIEW_BAR.md`](REVIEW_BAR.md) — the continuous CPA, engineering, and
+  design bar every change should satisfy.
+
+GOAL.md exists to keep the gap between today and the north-star visible, prioritized,
+and reviewable.
+
+## Product Contract
+
+The goal is not "produce the highest success percentage." The product contract is
+to make household drawdown decisions legible and auditable:
+
+1. **Start simple, then grade confidence.** A ZIP code, ages, filing status,
+   account totals by tax type, target spend, and healthcare status should produce
+   a useful first verdict. More detail — lots, basis, Social Security earnings,
+   heirs, state-specific tax facts, exact ACA plans — should raise confidence,
+   not be required before the app is useful.
+2. **Optimize stated tradeoffs.** Spending, resilience, healthcare stability,
+   and after-tax bequest conflict. The app must ask or infer the household's
+   tradeoff and show the efficient frontier instead of hiding value judgments in
+   one score.
+3. **Explain every recommendation.** A recommendation is incomplete unless the
+   user can see what changed, why the solver tried it, what rules applied, which
+   outcomes improved, which outcomes worsened, and which missing inputs or legal
+   assumptions could invalidate it.
+4. **Version rules, not vibes.** Tax, ACA, Medicare, Social Security, state, and
+   historical-return facts must carry source, tax/plan year, retrieval date where
+   practical, and tests or review flags. "Current law" means year-by-year rule
+   selection with documented fallback behavior.
+5. **Protect household data.** The model asks for sensitive financial, health
+   coverage, family, and legacy information. Local-first operation, explicit
+   import/export boundaries, and no surprise network submission are product
+   requirements, not polish.
+
+## Product Wedge (Why This Goal Now)
+
+The first user is the post-job decision moment (see
+[`docs/PRODUCT_DESIGN_REVIEW.md`](PRODUCT_DESIGN_REVIEW.md)): a household that
+recently left work and needs to know — with a fallback plan — whether they can
+stay retired. Drawdown rigor is the wedge because it makes the answer
+defensible. Heir maximization, ACA accuracy, and state portability are what turn
+a one-time decision tool into a model the household trusts year after year.
+
+## What "Done" Looks Like
+
+A household enters a ZIP code, ages, account balances by tax type, Social
+Security PIA(s) or earnings history, heirs, goals, and only the extra fields
+needed to raise confidence for its situation. The model returns:
+
+1. **A verdict.** Can they stay retired at their target spend, with a
+   quantified failure rate from both Monte Carlo and historical cohorts, and
+   the disagreement between the two surfaced rather than averaged away.
+2. **A year-by-year action plan.** Each year: withdrawal sources and amounts,
+   Roth conversion size, SS claiming year (when first computed), tax payment,
+   ACA plan and net premium, IRMAA tier, and bequest trajectory.
+3. **Rescue scenarios with cost.** If fragile, what spending cut, bridge income,
+   tax move, healthcare move, asset-allocation shift, or claiming change improves
+   the plan, plus the cost to lifestyle and heirs.
+4. **Tradeoff frontier.** A ranked set of alternatives across lifetime spending,
+   failure resilience, healthcare stability, and after-tax bequest.
+5. **Sensitivity.** Which three assumptions move the verdict most, ranked.
+6. **Confidence and review flags.** Which outputs are high-confidence,
+   assumption-sensitive, missing-input-limited, or CPA-review-recommended.
+7. **An audit trail.** Every dollar of tax, subsidy, and withdrawal is
+   traceable to a rule with a source link and model-year selection.
+
+## Confidence Levels
+
+Every verdict, action row, rescue option, and tax/healthcare estimate should
+eventually carry one of these labels:
+
+- **High confidence.** Rule is source-versioned, inputs are specific, and tests
+  cover representative and boundary cases.
+- **Input-limited.** Rule is modeled, but the household has not supplied enough
+  detail for a precise result. The UI must show the specific input that would
+  improve confidence.
+- **Assumption-sensitive.** Result materially changes under plausible return,
+  inflation, healthcare, tax-law, or life-event assumptions.
+- **CPA review recommended.** Rule involves state-form nuance, estate/beneficiary
+  law, business income, itemization, AMT/QBI, unusual retirement-plan rules, or
+  other areas where the app should not imply filing-grade certainty.
+- **Out of model.** The product explicitly does not model the rule yet; results
+  must name the exclusion instead of silently ignoring it.
+
+## Held To Three Lenses, Continuously
+
+These are not one-time reviews. They are continuous bars every PR is held to.
+
+### CPA Lens
+- Every tax-law fact has a source link in [`docs/DATA_SOURCES.md`](DATA_SOURCES.md)
+  and a primary-source citation (IRS Pub, Rev. Proc., CFR, state revenue
+  instructions) — not a secondary aggregator.
+- Annual refresh runbook executes deterministically; tests assert the new
+  brackets, FPL, IRMAA tiers, ACA applicable percentages, and SLCSP defaults
+  before the year defaults forward.
+- Golden worked examples derived from IRS publications (Pub 590-B RMDs, Pub 915
+  Social Security worksheet, Form 8962 ACA reconciliation, Schedule D capital
+  gains stacking) live in `tests/` and never break silently.
+- 2026 TCJA sunset and the post-2025 ACA enhanced-subsidy expiration are
+  modeled with year-by-year rule selection, not a single "current law" snapshot.
+
+### Engineering Lens
+- Pure-function core in `src/core/`; UI in `src/redesign.mjs` and `src/app.mjs`.
+- Deterministic with explicit seeds. Monte Carlo and historical paths are
+  reproducible from a setup file.
+- Tests cover: tax math (per-bracket and per-credit), ACA math against worked
+  CMS examples, RMD against IRS Uniform Lifetime Table, IRMAA tier transitions,
+  state-by-state edge cases, and end-to-end simulation invariants
+  (no negative balances except by design, conservation of cash flows, etc.).
+- Versioned data tables (`TAX_DATA_VERSION`, `HISTORICAL_RETURN_DATA_VERSION`).
+- No hidden assumptions: every modeled rule is either a labeled control or a
+  documented default with a source.
+
+### Design Lens
+- A spouse can read the verdict together in under 60 seconds and understand
+  what is decided.
+- ZIP code is the only geographic input required for the common case. State,
+  rating area, county, exchange, and Medicaid-expansion status are derived.
+- The healthcare bridge to 65 is a first-class screen, not a tab the user has
+  to find.
+- Every number the user can act on links to its assumption and the override
+  that would change it.
+- Missing data is presented as a confidence ladder, not a scolding checklist.
+- Results separate "do this now," "consider this," and "ask a professional"
+  actions so a non-advisor does not confuse planning output with advice.
+- **Works on desktop and mobile.** The full decision flow — persona selection,
+  setup import, results verdict, action plan, rescue options, and Sankey
+  cash-flow views — must be usable on a phone-sized viewport (≥320 px wide)
+  with touch input, not just on a desktop browser. Tables reflow to readable
+  layouts on narrow screens; charts adapt or expose a tabular alternative;
+  numeric inputs use appropriate mobile keyboards. The same setup file works
+  identically across devices, so a household can start on a laptop together
+  and continue on a phone, or vice versa.
+
+## Scope Pillars
+
+These are the load-bearing capability areas the goal requires. Each links to
+its status today.
+
+### 1. Tax engine, current-year-accurate
+
+Shipped today (see README and `src/data/taxData.mjs`):
+- Federal 2026 brackets, standard deduction, age-65 bump, LTCG/QDI stacking,
+  NIIT, Additional Medicare Tax, child tax credit (nonrefundable).
+- Capital loss carryforwards, ordinary loss offsets.
+- 50-state ordinary + capital-gains tax tables with retirement-income and
+  Social Security rule overlays.
+- Roth contribution basis, 5-year clock, conversion 5-year penalty recapture,
+  early-withdrawal penalty exception input.
+- RMDs (SECURE 2.0 ages with override), forced-RMD cash retention.
+- Social Security provisional-income taxation.
+- IRMAA Part B + Part D tier estimation with 2-year MAGI lookback.
+
+Goal-level gaps (today flagged in KNOWN_LIMITATIONS as "not planning to address"
+but in scope for the north-star if we want CPA-grade coverage):
+- **2026 TCJA sunset path** modeled as a selectable law-year regime so plans
+  spanning the sunset use the correct brackets and standard deductions year by
+  year.
+- **Itemized deductions** (SALT cap, mortgage interest, charitable, medical
+  threshold) as opt-in inputs rather than override-only.
+- **QBI deduction** for households with pass-through income (relevant to
+  consulting-bridge users — see decision-engine "earn bridge income").
+- **AMT** check, at minimum as a tripwire that flags affected households.
+- **Self-employment tax** for bridge-income scenarios.
+- **Refundable credits**: ACTC, EITC, education, dependent-care — when household
+  composition triggers them.
+- **NUA** (Net Unrealized Appreciation) for employer-stock-heavy households.
+- **72(t) SEPP** as an explicit early-withdrawal mode, not a manual exception.
+- **Form 8606 ordering** and separate Roth IRA vs designated Roth 401(k) clocks.
+- **Wash sales** in the TLH path.
+
+### 2. ACA + healthcare bridge, simple input, nationwide accuracy
+
+Shipped today:
+- 2026 applicable percentages, FPL, required contribution percentage from
+  `taxData.mjs`.
+- State-level SLCSP fallback, age-rated with the federal default age curve.
+- Exact selected-plan mode (user enters or API-fills SLCSP, plan premium, OOP).
+- CMS Marketplace API helper for HealthCare.gov states.
+- MA ConnectorCare estimator with public plan-type tables.
+- Backup plan triggered above a configurable FPL threshold (default 400%).
+- MAGI computation feeds ACA subsidy sizing inside the lifetime optimizer.
+- Coverage gap detection (low-income years that lose PTC in non-expansion
+  states) is **not** yet modeled.
+
+Goal-level gaps:
+- **Rating-area-level SLCSP from ZIP code alone**, not state-level fallback.
+  This is the highest-leverage gap for "simple input, highly accurate." It
+  requires loading CMS Plan Attributes + Rate + Service Area PUFs (already
+  documented in DATA_SOURCES.md), aggregating to a ZIP × age × household-size
+  SLCSP lookup, and falling back gracefully when PUF coverage is partial.
+- **State-based exchange (SBE) coverage**, including CA, NY, WA, CO, CT, DC, ID,
+  KY, ME, MD, MA, MN, NV, NJ, NM, PA, RI, VT. Each SBE publishes its own data;
+  the goal is a per-state ingestion plan documented in DATA_SOURCES.md, with a
+  ZIP → state-exchange routing layer in the UI.
+- **Medicaid expansion + coverage gap** modeling: when a planned low-income
+  year (often a Roth-conversion-light year) drops MAGI below 138% FPL in
+  expansion states or below 100% FPL in non-expansion states, the model should
+  flag the gap and warn before recommending it.
+- **Post-2025 ACA enhanced subsidy expiration** (ARPA/IRA) explicitly modeled
+  as a year-by-year regime, with a clear "what changes in 2026+ if subsidies
+  expire vs are extended" comparison.
+- **CSR (cost-sharing reduction) variants** at 100–250% FPL households —
+  modeled OOP maximum and effective AV change.
+- **Employer-affordability** check for households where one spouse has an
+  employer offer (disqualifies family from PTC).
+- **Premium-credit reconciliation** (Form 8962 true-up) modeled at year-end so
+  underestimated MAGI does not silently inflate the modeled subsidy.
+
+### 3. Heir maximization
+
+Shipped today: bequest is the residual portfolio at end of horizon. No
+inherited-account modeling.
+
+Goal-level gaps (the largest single area):
+- **Inherited IRA 10-year rule (SECURE Act 2.0)** for non-eligible designated
+  beneficiaries, with a beneficiary-side tax model that uses each heir's
+  expected marginal bracket and the choice of when in the 10 years to draw.
+- **Eligible designated beneficiary** rules (surviving spouse, minor child,
+  disabled/chronically ill, < 10 years younger) with spousal rollover and
+  stretch options.
+- **Step-up basis on taxable accounts**, modeled at death year so the
+  "Roth vs taxable" bequest tradeoff is honest. Today the optimizer cannot
+  reason about this.
+- **Bequest-aware lifetime optimizer mode** that weights heir's after-tax
+  inheritance into the objective function, not just owner-lifetime after-tax
+  spending. The Roth-favorability for heirs (no RMDs, tax-free 10-year window)
+  changes Roth-conversion sizing materially.
+- **Beneficiary designation aware**: per-account beneficiary (spouse vs non-spouse
+  vs trust) drives the inherited-account rule selection.
+- **Estate tax** (federal exclusion + state inheritance/estate taxes in MA, OR,
+  WA, etc.) as a check, at minimum a tripwire.
+- **Charitable strategies** that change tax cost — QCDs after 70½, DAF
+  bunching, charitable remainder trusts — for households with charitable
+  intent.
+
+### 4. Modeling rigor
+
+Shipped today: Monte Carlo with correlated paths, 1928-present historical
+cohorts, opt-in 1872 reconstructed source, sequence-risk reserves,
+essential/discretionary guardrails, lifetime optimizer, and a first-pass ranked
+sensitivity analysis for return, inflation, spending, and healthcare shocks.
+
+Goal-level gaps:
+- **Deeper sensitivity analysis output** — today's first pass ranks a small set
+  of standard shocks. The north-star version should search household-specific
+  breakpoints, e.g. "if your expected return is 1pp lower, the verdict moves
+  from safe to fragile," so the user knows which assumptions to argue with.
+- **Two-stream inflation** (general CPI + healthcare CPI, which historically
+  runs 1.5–2pp higher) for the pre-Medicare bridge and Medicare years.
+- **Spending guardrails beyond the current discretionary-trim mode** —
+  Guyton-Klinger inflation-skip, Kitces ratcheting, variable-percentage
+  withdrawal — as selectable strategies.
+- **Failure attribution** — when a Monte Carlo path fails, attribute the
+  failure to tax drag vs healthcare cost vs sequence-of-returns vs spending
+  drift. (KNOWN_LIMITATIONS already calls this out.)
+- **Joint-life modeling** for couples with different ages, including widowhood
+  single-filer-bracket transition and survivor SS optimization.
+
+### 5. Nationwide, ZIP-only input
+
+Shipped today: state tax table for all 50 states + DC; manual state overrides.
+
+Goal-level gaps:
+- **ZIP → state, county, rating area, Medicaid expansion status, exchange
+  type** resolver built into the app. Today the user picks a state; the goal
+  is the user types a ZIP and everything geographic is derived.
+- **State estate/inheritance tax** modeling (12+ states levy one).
+- **State-specific retirement-income exclusions** at form-level detail (NY's
+  $20K exclusion + 100% public-pension exclusion, IL's full retirement-income
+  exemption, PA's tax treatment of retirement distributions, etc.). Today the
+  table is broad IRA/401(k) treatment + override.
+- **Cross-state move year** support so a planned retirement-state relocation is
+  modeled correctly across the move boundary.
+
+### 6. CPA / Engineering / Design review as a continuous bar
+
+Goal-level gaps:
+- **Per-PR CPA-lens checklist** — does this PR change a tax-law fact, and if
+  so, what primary source backs it, and is there a golden test?
+- **Per-year CPA review cycle** in January when IRS releases the new year's
+  data, executed against the runbook in DATA_SOURCES.md, with checklist
+  output committed.
+- **Verdict-readability rubric** for the design lens — a non-advisor reads
+  the verdict cold and can explain to a spouse what changed in under 60s.
+
+### 7. Privacy, data custody, and household trust
+
+Shipped today: browser-based app, local setup backup/restore, result audit bundle
+export with setup + compact results + confidence/sensitivity/audit metadata,
+local storage for remembered setup, optional explicit imports from CSV/JSON/Google
+Sheets, and live CMS Marketplace lookup only when the user invokes it.
+
+Goal-level gaps:
+- **Local-first guarantee** stated in the UI and docs: what stays in the browser,
+  what is stored locally, and what leaves the machine during Marketplace or
+  Google integrations.
+- **Privacy-mode run path** that disables all external lookup helpers and keeps
+  assumptions manually entered.
+- **Sensitive-data export warning** for setup backups. Result audit bundles have
+  this warning; plain setup backups still need the same explicit warning because
+  they can include household ages, account balances, tax facts, healthcare data,
+  and heir goals.
+- **Data minimization by confidence tier** so the app asks for exact details only
+  when they change a decision or materially improve confidence.
+- **Reproducibility bundle depth** beyond today's JSON bundle: add a smaller
+  CPA-review summary that can prove rule/source/version choices without exposing
+  every Monte Carlo result.
+
+## Roadmap (Phased)
+
+Phasing reflects: highest user-visible impact first, lowest CPA-correctness
+risk first, then breadth.
+
+### Phase 1 — ACA "simple input" payoff
+
+- ZIP → state / county / rating area / exchange / Medicaid-expansion resolver.
+- Rating-area-level SLCSP from CMS PUFs (federal-platform states), with the
+  state-level fallback retained for SBE states until Phase 2.
+- Coverage-gap warning when modeled MAGI drops below the relevant FPL floor.
+- Post-2025 enhanced-subsidy expiration regime, switchable by law-year.
+- Golden tests built from CMS worked examples.
+
+### Phase 2 — Heir maximization
+
+- Per-account beneficiary input + inherited-account rule engine
+  (10-year rule, EDB stretch, spousal rollover).
+- Step-up basis at death year on taxable lots.
+- Bequest-aware optimizer mode in the lifetime optimizer.
+- Federal estate-tax tripwire + state estate/inheritance tax tables for the
+  12 states that levy one.
+
+### Phase 3 — Tax-engine breadth
+
+- Itemized deductions as first-class inputs (SALT cap, mortgage, charitable,
+  medical).
+- QBI deduction for SE bridge income.
+- AMT tripwire.
+- 2026 TCJA sunset regime modeling.
+- Self-employment tax for bridge-income scenarios.
+
+### Phase 4 — State-based exchange coverage
+
+- Per-SBE ingestion plan in DATA_SOURCES.md.
+- ZIP-routed SBE plan lookup for the largest SBE states first (CA, NY, WA,
+  MA already partially shipped via ConnectorCare).
+
+### Phase 5 — Modeling rigor upgrades
+
+- Sensitivity-analysis output (three assumptions ranked by verdict impact).
+- Two-stream inflation (general + healthcare).
+- Failure attribution on Monte Carlo failed paths.
+- Additional spending-guardrail strategies.
+
+### Continuous
+
+- January refresh against DATA_SOURCES.md runbook every year.
+- Per-PR CPA-lens checklist.
+- Design rubric on every verdict change.
+- Privacy/data-custody review whenever a feature imports, stores, exports, or
+  transmits household data.
+- Confidence-label coverage: every new recommendation or tax/healthcare estimate
+  states whether it is high-confidence, input-limited, assumption-sensitive,
+  CPA-review-recommended, or out-of-model.
+
+## Non-Goals
+
+These remain outside the model and are documented as user responsibilities:
+- Individual-equity selection and active management.
+- Tax-return filing software.
+- Investment, tax, legal, or employment advice.
+- Insurance product recommendations (annuities, life, LTC).
+- Real-time intraday data.
