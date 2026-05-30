@@ -1175,11 +1175,19 @@ function healthcareText(healthcare = {}) {
 }
 
 function confidenceCardHtml(confidence = {}) {
-  const flags = Array.isArray(confidence.flags) ? confidence.flags.slice(0, 3) : [];
+  // Permanent scope notes (out-of-model, e.g. the always-on
+  // legacy-tax-out-of-model flag) sink below situational findings so the
+  // card leads with what's actually actionable for this run, then names the
+  // exclusions. data-level lets the CSS mute the scope-note styling so it
+  // reads as a boundary statement, not a fresh red flag.
+  const allFlags = Array.isArray(confidence.flags) ? confidence.flags : [];
+  const actionable = allFlags.filter((flag) => flag.level !== "out-of-model");
+  const scope = allFlags.filter((flag) => flag.level === "out-of-model");
+  const flags = [...actionable, ...scope].slice(0, 3);
   const headline = confidence.headline ?? "Confidence not evaluated";
   const flagList = flags.length
     ? `<ul class="confidence-list">${flags.map((flag) => `
-      <li>
+      <li data-level="${escapeHtml(flag.level ?? "")}">
         <strong>${escapeHtml(confidenceLevelText(flag.level))}</strong>
         <span>${escapeHtml(flag.title ?? "Review flag")}</span>
       </li>
