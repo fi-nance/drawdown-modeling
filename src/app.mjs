@@ -2002,13 +2002,18 @@ function auditRowsForScenario(scenario) {
   ];
 }
 
-function downloadResultAuditBundle() {
+async function downloadResultAuditBundle() {
   if (!latest?.plan || !latest?.monteCarlo) {
     setStatus("Run a completed model before exporting an audit bundle.", true);
     return;
   }
   const confirmed = typeof window === "undefined"
-    || window.confirm(`${RESULT_AUDIT_BUNDLE_PRIVACY_NOTICE}\n\nExport this result audit bundle?`);
+    || await confirmDialog({
+      title: "Export audit bundle?",
+      body: RESULT_AUDIT_BUNDLE_PRIVACY_NOTICE,
+      confirmLabel: "Export bundle",
+      cancelLabel: "Cancel"
+    });
   if (!confirmed) return;
 
   syncJsonFromAssets();
@@ -2023,6 +2028,44 @@ function downloadResultAuditBundle() {
   downloadJsonFile(bundle, `portfolio-success-lab-audit-${exportedAt.slice(0, 10)}.json`);
   setStatus("Result audit bundle downloaded.");
   setImportStatus("Result audit bundle downloaded.");
+}
+
+function confirmDialog({ title, body, confirmLabel = "Confirm", cancelLabel = "Cancel" } = {}) {
+  return new Promise((resolve) => {
+    const overlay = document.createElement("div");
+    overlay.className = "confirm-overlay";
+    overlay.setAttribute("role", "dialog");
+    overlay.setAttribute("aria-modal", "true");
+    const titleId = `confirm-title-${Date.now()}`;
+    overlay.setAttribute("aria-labelledby", titleId);
+    overlay.innerHTML = `
+      <div class="confirm-card">
+        <h2 class="confirm-title" id="${titleId}">${escapeHtml(title ?? "Confirm")}</h2>
+        <p class="confirm-body">${escapeHtml(body ?? "")}</p>
+        <div class="confirm-actions">
+          <button type="button" class="subtle-button" data-action="cancel">${escapeHtml(cancelLabel)}</button>
+          <button type="button" class="primary-button" data-action="confirm">${escapeHtml(confirmLabel)}</button>
+        </div>
+      </div>
+    `;
+    const cleanup = (result) => {
+      document.removeEventListener("keydown", onKey);
+      overlay.remove();
+      resolve(result);
+    };
+    const onKey = (event) => {
+      if (event.key === "Escape") cleanup(false);
+      else if (event.key === "Enter") cleanup(true);
+    };
+    overlay.addEventListener("click", (event) => {
+      const action = event.target?.dataset?.action;
+      if (action === "confirm") cleanup(true);
+      else if (action === "cancel" || event.target === overlay) cleanup(false);
+    });
+    document.addEventListener("keydown", onKey);
+    document.body.append(overlay);
+    overlay.querySelector('[data-action="confirm"]')?.focus();
+  });
 }
 
 function resultAuditSourceVersions() {
