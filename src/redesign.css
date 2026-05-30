@@ -1859,6 +1859,51 @@ body[data-screen="persona"]::before {
   .withdrawal-mix { grid-template-columns: repeat(3, 1fr); }
 }
 
+/* Action plan table reflows to stacked cards on narrow viewports — a 6-column
+   horizontal scroll forces ~6x sideways scrolling at 320px and buries the
+   Confidence column off-screen by default. data-label on each <td> is emitted
+   by tableHtml() in app.mjs. */
+@media (max-width: 640px) {
+  #actionPlan { overflow-x: visible; }
+  #actionPlan .sticky-x-scroll { display: none; }
+  #actionPlan table,
+  #actionPlan thead,
+  #actionPlan tbody,
+  #actionPlan tr,
+  #actionPlan td { display: block; width: auto; }
+  #actionPlan thead { position: absolute; left: -9999px; }
+  #actionPlan tbody { display: flex; flex-direction: column; gap: 0.55rem; }
+  #actionPlan tr {
+    border: 1px solid var(--border-light);
+    border-radius: 10px;
+    padding: 0.65rem 0.8rem 0.7rem;
+    background: rgba(255, 255, 255, 0.03);
+  }
+  #actionPlan td {
+    padding: 0.2rem 0;
+    border: 0;
+    font-size: 0.84rem;
+    line-height: 1.35;
+    /* styles.css sets a global td { white-space: nowrap } that would clip the
+       longer cells (Tax / cash impact, Why) off the side of the card. */
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  #actionPlan td::before {
+    content: attr(data-label);
+    display: block;
+    color: var(--text-muted);
+    font-size: 0.62rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-bottom: 0.1rem;
+  }
+  /* Empty cells (e.g. no rmd amount) collapse so the card doesn't get blank
+     rows with just a label. */
+  #actionPlan td:empty { display: none; }
+}
+
 /* ─── Run-model overlay ────────────────────────────────────────────── */
 
 .run-overlay {

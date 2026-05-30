@@ -4042,11 +4042,15 @@ function syncJsonFromAssets() {
 }
 
 function tableHtml(headers, rows, rowAttrs = () => "", footerHtml = "") {
+  // data-label on each <td> lets narrow-viewport CSS reflow the table into a
+  // stacked card layout (see #actionPlan rule in redesign.css). Unused by
+  // tables that keep the default table presentation.
+  const labels = headers.map((header) => escapeHtml(header));
   return `
     <table>
       <thead><tr>${headers.map((header) => `<th>${escapeHtml(header)}</th>`).join("")}</tr></thead>
       <tbody>
-        ${rows.map((row, index) => `<tr ${rowAttrs(index)}>${row.map((cell) => `<td>${cell}</td>`).join("")}</tr>`).join("")}
+        ${rows.map((row, index) => `<tr ${rowAttrs(index)}>${row.map((cell, cellIndex) => `<td data-label="${labels[cellIndex] ?? ""}">${cell}</td>`).join("")}</tr>`).join("")}
       </tbody>
       ${footerHtml ? `<tfoot>${footerHtml}</tfoot>` : ""}
     </table>
