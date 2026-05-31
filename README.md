@@ -71,7 +71,7 @@ Private Google Sheets can be imported with Google OAuth by entering a Google OAu
 
 Private data can also be imported without OAuth by downloading the sheet as CSV and selecting it with the CSV file input.
 
-Use the Save setup / Load setup controls in the persona, workspace, or results flow to export or restore the full setup, including assets, scenario controls, decision profile, and one-off cash flows. The results screen can also export a result audit bundle: setup, compacted modeled results, confidence flags, sensitivity output, source-version metadata, and the plain-language model-audit rows in one JSON file. It includes sensitive household data, so share it only intentionally.
+Use the Save setup / Load setup controls in the persona, workspace, or results flow to export or restore the full setup, including assets, scenario controls, decision profile, and one-off cash flows. The results screen can also export a result audit bundle: setup, compacted modeled results, confidence flags, sensitivity output, source-version metadata, and the plain-language model-audit rows in one JSON file. Setup backups and result audit bundles both include sensitive household data; the app asks for confirmation before exporting either, and they should be shared only intentionally.
 
 ## Accuracy Notes
 

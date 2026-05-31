@@ -1,5 +1,6 @@
 export const SETUP_BACKUP_SCHEMA_VERSION = 1;
 export const SETUP_BACKUP_TYPE = "portfolio-success-lab-full-setup";
+export const SETUP_BACKUP_PRIVACY_NOTICE = "Setup backups can include household ages, account balances, tax assumptions, healthcare inputs, heirs/goals, and decision preferences. Keep them local unless you intentionally share them with a CPA or trusted reviewer.";
 
 export function createSetupBackup(state, { exportedAt = new Date().toISOString() } = {}) {
   return {
@@ -7,6 +8,7 @@ export function createSetupBackup(state, { exportedAt = new Date().toISOString()
     type: SETUP_BACKUP_TYPE,
     schemaVersion: SETUP_BACKUP_SCHEMA_VERSION,
     exportedAt,
+    privacyNotice: SETUP_BACKUP_PRIVACY_NOTICE,
     state: normalizeSetupState(state)
   };
 }

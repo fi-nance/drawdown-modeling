@@ -7,7 +7,7 @@ import {
 } from "./core/importers.mjs";
 import { portfolioValue } from "./core/portfolio.mjs";
 import { actionConfidenceFor, buildConfidenceReport } from "./core/confidence.mjs";
-import { createSetupBackup, parseSetupBackup } from "./core/setupBackup.mjs";
+import { createSetupBackup, parseSetupBackup, SETUP_BACKUP_PRIVACY_NOTICE } from "./core/setupBackup.mjs";
 import { cacheLatestResults, clearCachedLatest, restoreCachedLatest } from "./core/resultsCache.mjs";
 import { createResultAuditBundle, RESULT_AUDIT_BUNDLE_PRIVACY_NOTICE } from "./core/resultAuditBundle.mjs";
 import {
@@ -801,12 +801,7 @@ function bindEvents() {
     }
   });
 
-  els.downloadSetup.addEventListener("click", () => {
-    syncJsonFromAssets();
-    const backup = createSetupBackup(setupStateSnapshot());
-    downloadJsonFile(backup, `portfolio-success-lab-setup-${backup.exportedAt.slice(0, 10)}.json`);
-    setImportStatus("Setup JSON downloaded.");
-  });
+  els.downloadSetup.addEventListener("click", downloadSetupBackup);
   els.downloadResultAuditBundle?.addEventListener("click", downloadResultAuditBundle);
 
   const restoreInputs = els.restoreSetupFiles.length ? els.restoreSetupFiles : [els.restoreSetupFile].filter(Boolean);
@@ -2003,6 +1998,22 @@ function auditRowsForScenario(scenario) {
     ["Simulation inputs", simulationAuditLine()],
     ["Known limits", knownLimitsAuditLine()]
   ];
+}
+
+async function downloadSetupBackup() {
+  const confirmed = typeof window === "undefined"
+    || await confirmDialog({
+      title: "Export setup backup?",
+      body: SETUP_BACKUP_PRIVACY_NOTICE,
+      confirmLabel: "Export setup",
+      cancelLabel: "Cancel"
+    });
+  if (!confirmed) return;
+
+  syncJsonFromAssets();
+  const backup = createSetupBackup(setupStateSnapshot());
+  downloadJsonFile(backup, `portfolio-success-lab-setup-${backup.exportedAt.slice(0, 10)}.json`);
+  setImportStatus("Setup JSON downloaded.");
 }
 
 async function downloadResultAuditBundle() {

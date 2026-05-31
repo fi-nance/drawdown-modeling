@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import {
   createSetupBackup,
   parseSetupBackup,
+  SETUP_BACKUP_PRIVACY_NOTICE,
   SETUP_BACKUP_SCHEMA_VERSION,
   SETUP_BACKUP_TYPE
 } from "../src/core/setupBackup.mjs";
@@ -48,6 +50,7 @@ test("setup backup wraps full setup state with metadata", () => {
   assert.equal(backup.type, SETUP_BACKUP_TYPE);
   assert.equal(backup.schemaVersion, SETUP_BACKUP_SCHEMA_VERSION);
   assert.equal(backup.exportedAt, "2026-05-01T00:00:00.000Z");
+  assert.equal(backup.privacyNotice, SETUP_BACKUP_PRIVACY_NOTICE);
   assert.deepEqual(backup.state, setupState);
 });
 
@@ -74,4 +77,18 @@ test("setup backup parser rejects malformed backups clearly", () => {
     () => parseSetupBackup(JSON.stringify({ ...setupState, decisionProfile: [] })),
     /decision profile/i
   );
+});
+
+test("setup backup export is privacy-gated and wired", async () => {
+  const [html, appSource] = await Promise.all([
+    readFile(new URL("../index.html", import.meta.url), "utf8"),
+    readFile(new URL("../src/app.mjs", import.meta.url), "utf8")
+  ]);
+
+  assert.match(html, /id="downloadSetup"/);
+  assert.match(appSource, /els\.downloadSetup\.addEventListener\("click", downloadSetupBackup\)/);
+  assert.match(appSource, /async function downloadSetupBackup\(\)/);
+  assert.match(appSource, /body: SETUP_BACKUP_PRIVACY_NOTICE/);
+  assert.match(appSource, /confirmLabel: "Export setup"/);
+  assert.match(appSource, /createSetupBackup/);
 });

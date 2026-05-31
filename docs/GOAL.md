@@ -337,9 +337,10 @@ Goal-level gaps:
 
 ### 7. Privacy, data custody, and household trust
 
-Shipped today: browser-based app, local setup backup/restore, result audit bundle
-export with setup + compact results + confidence/sensitivity/audit metadata,
-local storage for remembered setup, optional explicit imports from CSV/JSON/Google
+Shipped today: browser-based app, local setup backup/restore with sensitive-data
+confirmation, result audit bundle export with setup + compact results +
+confidence/sensitivity/audit metadata and sensitive-data confirmation, local
+storage for remembered setup, optional explicit imports from CSV/JSON/Google
 Sheets, and live CMS Marketplace lookup only when the user invokes it.
 
 Goal-level gaps:
@@ -348,10 +349,6 @@ Goal-level gaps:
   Google integrations.
 - **Privacy-mode run path** that disables all external lookup helpers and keeps
   assumptions manually entered.
-- **Sensitive-data export warning** for setup backups. Result audit bundles have
-  this warning; plain setup backups still need the same explicit warning because
-  they can include household ages, account balances, tax facts, healthcare data,
-  and heir goals.
 - **Data minimization by confidence tier** so the app asks for exact details only
   when they change a decision or materially improve confidence.
 - **Reproducibility bundle depth** beyond today's JSON bundle: add a smaller
