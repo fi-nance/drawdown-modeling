@@ -1165,7 +1165,18 @@ function failureTimingText(anatomy = {}) {
   if (!(anatomy.failedCount > 0)) return "No modeled depletion paths in the tested run.";
   const earliest = anatomy.earliestFailureYear ? `earliest Y${anatomy.earliestFailureYear}` : "earliest n/a";
   const median = anatomy.medianFailureYear ? `median Y${Math.round(anatomy.medianFailureYear)}` : "median n/a";
-  return `${earliest}; ${median}.`;
+  const stress = failureStressText(anatomy);
+  return `${earliest}; ${median}.${stress ? ` ${stress}` : ""}`;
+}
+
+function failureStressText(anatomy = {}) {
+  const stressors = Array.isArray(anatomy.topStressors) ? anatomy.topStressors.slice(0, 2) : [];
+  if (!stressors.length) return "";
+  const summary = stressors.map((item) => {
+    const pct = Number.isFinite(item.percentage) ? `${Math.round(item.percentage * 100)}%` : "some";
+    return `${item.label ?? "stressor"} ${pct}`;
+  }).join(", ");
+  return `Top stressors: ${summary}.`;
 }
 
 function healthcareText(healthcare = {}) {

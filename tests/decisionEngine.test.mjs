@@ -1022,6 +1022,96 @@ test("failed scenario analysis aggregates high inflation cause and warning signs
   assert.ok(inflationSign.context.includes("%"));
 });
 
+test("failed scenario analysis attributes tax, healthcare, spending, reserve, and allocation stressors", () => {
+  const scenario = {
+    ...DEFAULT_SCENARIO,
+    planYears: 1,
+    currentAge: 60,
+    spouseAge: 60,
+    targetSpend: 120000,
+    targetSpendIncludesTaxes: true,
+    targetSpendIncludesMedical: true,
+    medicalExpensesBase: 0,
+    withdrawalOrder: ["taxable"],
+    aca: { enabled: false },
+    returnAssumptions: {
+      ...DEFAULT_SCENARIO.returnAssumptions,
+      cash: { mean: 0, stdev: 0 },
+      inflation: { mean: 0, stdev: 0 }
+    }
+  };
+  const fakeFailure = (id, stressors) => ({
+    id,
+    success: false,
+    endingValue: 0,
+    heirValue: 0,
+    depletionYear: 2026,
+    depletionYearIndex: 1,
+    diagnostics: {
+      avgInflationFirstDecade: 0.02,
+      avgStockReturnFirstDecade: 0.04,
+      maxConsecutiveDownYears: 0,
+      earlyDownYearsCount: 0,
+      stressors
+    }
+  });
+  const decision = runDecisionBatch({
+    assets: cashAssets,
+    scenario,
+    taxProfile: noTaxProfile,
+    runs: 1,
+    seed: 1,
+    sequences: [],
+    basePlan: {
+      success: false,
+      years: [{
+        year: 2026,
+        age: 60,
+        magi: 0,
+        aca: { subsidy: 0, netPremium: 0 },
+        earnedIncome: 0,
+        rothConversionAmount: 0,
+        rothBasisUsed: 0
+      }],
+      endingValue: 0,
+      heirValue: 0
+    },
+    baseMonteCarlo: {
+      scenarios: [
+        fakeFailure(1, [{ id: "taxDrag", value: 0.22 }, { id: "healthcareDrag", value: 0.16 }]),
+        fakeFailure(2, [{ id: "taxDrag", value: 0.18 }, { id: "spendingPressure", value: 0.08 }]),
+        fakeFailure(3, [{ id: "reserveShortfall", value: 0.75 }, { id: "allocationMismatch", value: 0.85 }])
+      ],
+      summary: {
+        runs: 3,
+        successRate: 0,
+        medianEndingValue: 0,
+        p10EndingValue: 0,
+        p90EndingValue: 0,
+        medianHeirValue: 0
+      }
+    },
+    baseBacktests: [],
+    decisionProfile: {
+      requiredSpend: 120000,
+      flexibleSpend: 0,
+      targetSuccessRate: 0.9
+    }
+  });
+
+  const anatomy = decision.failureAnatomy;
+  assert.equal(anatomy.stressBreakdown.taxDrag.count, 2);
+  assert.equal(anatomy.stressBreakdown.taxDrag.percentage, 0.6667);
+  assert.equal(anatomy.stressBreakdown.healthcareDrag.count, 1);
+  assert.equal(anatomy.stressBreakdown.spendingPressure.count, 1);
+  assert.equal(anatomy.stressBreakdown.reserveShortfall.count, 1);
+  assert.equal(anatomy.stressBreakdown.allocationMismatch.count, 1);
+  assert.equal(anatomy.topStressors[0].id, "taxDrag");
+  assert.match(anatomy.summaryText, /Top stressors/);
+  assert.match(decision.diagnosis.reason, /tax drag/i);
+  assert.equal(decision.diagnosis.recommendedKinds[0], "withdrawalShift");
+});
+
 test("failed scenario analysis aggregates early sequence risk and consecutive down years causes", () => {
   const scenario = {
     ...DEFAULT_SCENARIO,

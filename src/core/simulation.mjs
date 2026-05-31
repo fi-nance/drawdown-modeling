@@ -413,11 +413,45 @@ function analyzeFailedScenario(years = []) {
   let inflationCountFirstDecade = 0;
   let stockReturnSumFirstDecade = 0;
   let stockReturnCountFirstDecade = 0;
+  let taxTotal = 0;
+  let medicalTotal = 0;
+  let spendingTotal = 0;
+  let requiredCashTotal = 0;
+  let beginningPortfolioTotal = 0;
+  let withdrawalRateSum = 0;
+  let withdrawalRateCount = 0;
+  let riskShareSum = 0;
+  let riskShareCount = 0;
+  let negativeStockYears = 0;
+  let defensiveShortfallYears = 0;
 
-  for (let i = 0; i < years.length; i++) {
-    const yr = years[i];
+  const depletionIndex = years.findIndex(isPortfolioDepleted);
+  const analyzedYears = years.slice(0, depletionIndex >= 0 ? depletionIndex + 1 : years.length);
+
+  for (let i = 0; i < analyzedYears.length; i++) {
+    const yr = analyzedYears[i];
     const stockReturn = yr?.assetClassReturns?.stock ?? 0;
     const inflation = yr?.assetClassReturns?.inflation ?? 0;
+    const requiredCash = Math.max(0, Number(yr?.totalCashRequired) || 0);
+    const beginningPortfolio = Math.max(0, Number(yr?.beginningPortfolioValue) || 0);
+    const assets = Array.isArray(yr?.beginningAssets) ? yr.beginningAssets : [];
+    const riskValue = assetClassValue(assets, ["stock", "realEstate", "crypto"]);
+    const defensiveValue = assetClassValue(assets, ["cash", "bond", "tips"]);
+    const totalAssetValue = riskValue + defensiveValue;
+
+    taxTotal += Math.max(0, Number(yr?.taxes?.totalTax) || 0);
+    medicalTotal += Math.max(0, Number(yr?.medicalCost) || 0);
+    spendingTotal += Math.max(0, Number(yr?.plannedSpending) || 0);
+    requiredCashTotal += requiredCash;
+    beginningPortfolioTotal += beginningPortfolio;
+    if (beginningPortfolio > 0 && requiredCash > 0) {
+      withdrawalRateSum += requiredCash / beginningPortfolio;
+      withdrawalRateCount++;
+    }
+    if (totalAssetValue > 0) {
+      riskShareSum += riskValue / totalAssetValue;
+      riskShareCount++;
+    }
 
     if (stockReturn < 0) {
       consecutiveDownYears++;
@@ -425,6 +459,10 @@ function analyzeFailedScenario(years = []) {
         maxConsecutiveDownYears = consecutiveDownYears;
       }
       totalDownYearsCount++;
+      negativeStockYears++;
+      if (requiredCash > 0 && defensiveValue < requiredCash * 2) {
+        defensiveShortfallYears++;
+      }
       if (i < 10) {
         earlyDownYearsCount++;
       }
@@ -442,14 +480,74 @@ function analyzeFailedScenario(years = []) {
 
   const avgInflationFirstDecade = inflationCountFirstDecade > 0 ? inflationSumFirstDecade / inflationCountFirstDecade : 0;
   const avgStockReturnFirstDecade = stockReturnCountFirstDecade > 0 ? stockReturnSumFirstDecade / stockReturnCountFirstDecade : 0;
+  const avgWithdrawalRate = withdrawalRateCount > 0 ? withdrawalRateSum / withdrawalRateCount : 0;
+  const avgRiskShare = riskShareCount > 0 ? riskShareSum / riskShareCount : 0;
+  const taxShareOfNeed = requiredCashTotal > 0 ? taxTotal / requiredCashTotal : 0;
+  const healthcareShareOfNeed = requiredCashTotal > 0 ? medicalTotal / requiredCashTotal : 0;
+  const spendingRate = beginningPortfolioTotal > 0 ? spendingTotal / beginningPortfolioTotal : 0;
+  const stressors = failureStressors({
+    taxShareOfNeed,
+    healthcareShareOfNeed,
+    avgWithdrawalRate,
+    spendingRate,
+    avgRiskShare,
+    negativeStockYears,
+    defensiveShortfallYears,
+    earlyDownYearsCount,
+    avgStockReturnFirstDecade
+  });
 
   return {
     maxConsecutiveDownYears,
     earlyDownYearsCount,
     totalDownYearsCount,
     avgInflationFirstDecade: round(avgInflationFirstDecade, 6),
-    avgStockReturnFirstDecade: round(avgStockReturnFirstDecade, 6)
+    avgStockReturnFirstDecade: round(avgStockReturnFirstDecade, 6),
+    taxShareOfNeed: round(taxShareOfNeed, 6),
+    healthcareShareOfNeed: round(healthcareShareOfNeed, 6),
+    avgWithdrawalRate: round(avgWithdrawalRate, 6),
+    spendingRate: round(spendingRate, 6),
+    avgRiskShare: round(avgRiskShare, 6),
+    defensiveShortfallRate: negativeStockYears > 0 ? round(defensiveShortfallYears / negativeStockYears, 6) : 0,
+    stressors
   };
+}
+
+function assetClassValue(assets, classes) {
+  const wanted = new Set(classes);
+  return assets.reduce((total, asset) => {
+    return wanted.has(asset?.assetClass) ? total + Math.max(0, Number(asset.value) || 0) : total;
+  }, 0);
+}
+
+function failureStressors({
+  taxShareOfNeed,
+  healthcareShareOfNeed,
+  avgWithdrawalRate,
+  spendingRate,
+  avgRiskShare,
+  negativeStockYears,
+  defensiveShortfallYears,
+  earlyDownYearsCount,
+  avgStockReturnFirstDecade
+}) {
+  const stressors = [];
+  if (taxShareOfNeed >= 0.12) {
+    stressors.push({ id: "taxDrag", value: round(taxShareOfNeed, 4), metric: "tax share of required cash" });
+  }
+  if (healthcareShareOfNeed >= 0.12) {
+    stressors.push({ id: "healthcareDrag", value: round(healthcareShareOfNeed, 4), metric: "healthcare share of required cash" });
+  }
+  if (avgWithdrawalRate >= 0.055 || spendingRate >= 0.05) {
+    stressors.push({ id: "spendingPressure", value: round(Math.max(avgWithdrawalRate, spendingRate), 4), metric: "cash need / portfolio" });
+  }
+  if (negativeStockYears > 0 && defensiveShortfallYears / negativeStockYears >= 0.5) {
+    stressors.push({ id: "reserveShortfall", value: round(defensiveShortfallYears / negativeStockYears, 4), metric: "down-market years with <2 years defensive cash" });
+  }
+  if ((avgRiskShare >= 0.8 && earlyDownYearsCount >= 3) || (avgRiskShare <= 0.35 && avgStockReturnFirstDecade < 0.03)) {
+    stressors.push({ id: "allocationMismatch", value: round(avgRiskShare, 4), metric: "average risk-asset share" });
+  }
+  return stressors;
 }
 
 function monteCarloScenarioResult({ id, plan, depletion, includeTimeline }) {

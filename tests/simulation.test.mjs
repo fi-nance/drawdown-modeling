@@ -3036,6 +3036,9 @@ test("Monte Carlo depletion metadata includes failure year index and age", () =>
   assert.equal(scenario.depletionYear, 2031);
   assert.equal(scenario.depletionYearIndex, 2);
   assert.equal(scenario.depletionAge, 61);
+  assert.ok(Array.isArray(scenario.diagnostics.stressors));
+  assert.ok(scenario.diagnostics.stressors.some((item) => item.id === "spendingPressure"));
+  assert.equal(typeof scenario.diagnostics.avgWithdrawalRate, "number");
 });
 
 test("cash top-up sells non-preferred accounts before leaving a year unfunded", () => {

@@ -282,6 +282,9 @@ Shipped today: Monte Carlo with correlated paths, 1928-present historical
 cohorts, opt-in 1872 reconstructed source, sequence-risk reserves,
 essential/discretionary guardrails, lifetime optimizer, and a first-pass ranked
 sensitivity analysis for return, inflation, spending, and healthcare shocks.
+Failed Monte Carlo paths now include both a primary sequence/inflation trigger
+and a multi-factor stress breakdown for tax drag, healthcare drag, spending
+pressure, reserve shortfall, and allocation mismatch.
 
 Goal-level gaps:
 - **Deeper sensitivity analysis output** — today's first pass ranks a small set
@@ -293,9 +296,10 @@ Goal-level gaps:
 - **Spending guardrails beyond the current discretionary-trim mode** —
   Guyton-Klinger inflation-skip, Kitces ratcheting, variable-percentage
   withdrawal — as selectable strategies.
-- **Failure attribution** — when a Monte Carlo path fails, attribute the
-  failure to tax drag vs healthcare cost vs sequence-of-returns vs spending
-  drift. (KNOWN_LIMITATIONS already calls this out.)
+- **Deeper failure attribution** — today's first pass tags broad failed-path
+  stressors. The north-star version should quantify dollar contribution to
+  depletion by year and connect each factor to the exact action rows that would
+  have changed it.
 - **Joint-life modeling** for couples with different ages, including widowhood
   single-filer-bracket transition and survivor SS optimization.
 
@@ -402,7 +406,8 @@ risk first, then breadth.
 
 - Sensitivity-analysis output (three assumptions ranked by verdict impact).
 - Two-stream inflation (general + healthcare).
-- Failure attribution on Monte Carlo failed paths.
+- Deeper failure attribution on Monte Carlo failed paths, beyond the shipped
+  stressor tags.
 - Additional spending-guardrail strategies.
 
 ### Continuous

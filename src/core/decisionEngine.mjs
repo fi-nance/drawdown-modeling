@@ -1226,6 +1226,16 @@ function diagnoseFailure({ base, safeSpending, profile }) {
     }
   }
 
+  const stressPriorities = stressorRecommendedKinds(anatomy.topStressors);
+  if (stressPriorities.length) {
+    recommendedKinds = [
+      ...stressPriorities,
+      ...recommendedKinds.filter((kind) => !stressPriorities.includes(kind))
+    ];
+    const top = anatomy.topStressors[0];
+    reason += ` The failed paths also show ${top.label.toLowerCase()} in ${round(top.percentage * 100, 1)}% of failures.`;
+  }
+
   return {
     primary,
     label,
@@ -1237,6 +1247,16 @@ function diagnoseFailure({ base, safeSpending, profile }) {
     causesBreakdown: anatomy.causesBreakdown ?? {},
     summaryText: anatomy.summaryText ?? ""
   };
+}
+
+function stressorRecommendedKinds(stressors = []) {
+  const ranked = [];
+  for (const stressor of stressors) {
+    for (const kind of FAILURE_STRESSOR_MAP[stressor.id]?.recommendedKinds ?? []) {
+      if (!ranked.includes(kind)) ranked.push(kind);
+    }
+  }
+  return ranked;
 }
 
 function runCandidate({
@@ -1582,6 +1602,34 @@ const DIAGNOSTIC_MAP = {
   }
 };
 
+const FAILURE_STRESSOR_MAP = Object.freeze({
+  taxDrag: {
+    label: "Tax drag",
+    description: "Taxes consume a large share of the failed path's required cash flow.",
+    recommendedKinds: ["withdrawalShift", "conversionGuardrail", "taxableLotRescue", "irmaaLookbackRescue"]
+  },
+  healthcareDrag: {
+    label: "Healthcare drag",
+    description: "Medical premiums, OOP costs, or subsidy loss consume a large share of required cash flow.",
+    recommendedKinds: ["healthcareRescue", "rothBasisCliffRescue", "magiSpendTrim", "conversionGuardrail"]
+  },
+  spendingPressure: {
+    label: "Spending pressure",
+    description: "Required cash flow is high relative to the portfolio during failed paths.",
+    recommendedKinds: ["discretionaryCut", "incomeBridge", "socialSecurityBridge"]
+  },
+  reserveShortfall: {
+    label: "Reserve shortfall",
+    description: "Down-market years lack enough defensive assets to avoid selling volatile assets under stress.",
+    recommendedKinds: ["sequenceReserve", "allocationShift", "discretionaryCut"]
+  },
+  allocationMismatch: {
+    label: "Allocation mismatch",
+    description: "The risk-asset mix is poorly matched to the path: too exposed during early stress or too defensive for long-horizon growth.",
+    recommendedKinds: ["allocationShift", "sequenceReserve"]
+  }
+});
+
 function buildSensitivityAnalysis({
   assets,
   scenario,
@@ -1833,6 +1881,8 @@ function failureAnatomy(scenarios = []) {
       medianFailureYear: null,
       commonTrigger: "No failures in tested paths",
       causesBreakdown: {},
+      stressBreakdown: {},
+      topStressors: [],
       warningSigns: [],
       portfolioPivots: [],
       summaryText: "No failures detected in tested paths."
@@ -1855,6 +1905,10 @@ function failureAnatomy(scenarios = []) {
     earlySequenceRiskWithInflation: 0,
     standardDrawdown: 0
   };
+  const stressCounts = Object.fromEntries(Object.keys(FAILURE_STRESSOR_MAP).map((key) => [
+    key,
+    { count: 0, valueTotal: 0 }
+  ]));
 
   for (const item of failed) {
     const diag = item.diagnostics;
@@ -1884,6 +1938,11 @@ function failureAnatomy(scenarios = []) {
           cause = factors[0];
         }
       }
+      for (const stressor of diag.stressors ?? []) {
+        if (!stressCounts[stressor.id]) continue;
+        stressCounts[stressor.id].count += 1;
+        stressCounts[stressor.id].valueTotal += Number.isFinite(Number(stressor.value)) ? Number(stressor.value) : 0;
+      }
     }
     counts[cause]++;
   }
@@ -1895,6 +1954,28 @@ function failureAnatomy(scenarios = []) {
       percentage: failed.length > 0 ? round(count / failed.length, 4) : 0
     };
   }
+  const stressBreakdown = Object.fromEntries(Object.entries(stressCounts).map(([key, info]) => [
+    key,
+    {
+      count: info.count,
+      percentage: failed.length > 0 ? round(info.count / failed.length, 4) : 0,
+      averageValue: info.count > 0 ? round(info.valueTotal / info.count, 4) : 0,
+      label: FAILURE_STRESSOR_MAP[key].label,
+      description: FAILURE_STRESSOR_MAP[key].description
+    }
+  ]));
+  const topStressors = Object.entries(stressBreakdown)
+    .filter(([, info]) => info.count > 0)
+    .sort((a, b) => b[1].percentage - a[1].percentage || b[1].averageValue - a[1].averageValue)
+    .slice(0, 3)
+    .map(([id, info]) => ({
+      id,
+      label: info.label,
+      description: info.description,
+      count: info.count,
+      percentage: info.percentage,
+      averageValue: info.averageValue
+    }));
 
   // Generate dynamic warning signs and portfolio pivots
   // Include any cause that affected >= 15% of failures, sorted by percentage descending
@@ -1962,7 +2043,10 @@ function failureAnatomy(scenarios = []) {
     }
   }
 
-  const summaryText = `Analysis of the ${failed.length} failed scenarios indicates that the primary drivers of depletion are: ${summaryParts.join(", ")}.`;
+  const stressText = topStressors.length
+    ? ` Top stressors across failed paths: ${topStressors.map((item) => `${item.label} (${round(item.percentage * 100, 1)}%)`).join(", ")}.`
+    : "";
+  const summaryText = `Analysis of the ${failed.length} failed scenarios indicates that the primary drivers of depletion are: ${summaryParts.join(", ")}.${stressText}`;
 
   return {
     failedCount: failed.length,
@@ -1970,6 +2054,8 @@ function failureAnatomy(scenarios = []) {
     medianFailureYear: failureYears.length ? percentile(failureYears, 0.5) + 1 : null,
     commonTrigger: trigger,
     causesBreakdown,
+    stressBreakdown,
+    topStressors,
     warningSigns,
     portfolioPivots,
     summaryText

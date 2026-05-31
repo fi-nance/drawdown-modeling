@@ -147,3 +147,11 @@ test("confidence report receives the simulated plan for year-specific ACA flags"
   assert.match(appSource, /latest\.confidence = buildConfidenceReport\(confidenceContext\(\)\)/);
   assert.match(appSource, /plan: buffered\.plan/);
 });
+
+test("decision failure anatomy surfaces top stressors in the results UI", async () => {
+  const source = await readFile(new URL("../src/redesign.mjs", import.meta.url), "utf8");
+
+  assert.match(source, /failureStressText/);
+  assert.match(source, /Top stressors:/);
+  assert.match(source, /topStressors/);
+});

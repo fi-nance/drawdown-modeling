@@ -39,7 +39,7 @@ This app is a planning model, not tax advice. It should make assumptions explici
 - Decision verdicts are planning outputs, not investment, tax, legal, or employment advice. They are only as good as the household inputs, tax assumptions, return assumptions, and healthcare plan assumptions entered in the app.
 - The default Monte Carlo preset is a neutral 2026 capital-market-assumption baseline, not a guarantee. It uses normally sampled nominal annual returns, simplified correlation factors, and public CMA proxies for broad asset classes; real household portfolios can differ materially after fees, taxes, fund selection, and allocation drift.
 - Intermediate solver probes use a bounded Monte Carlo search for responsiveness. Final displayed rescue options are rerun with the selected Monte Carlo count and historical backtests, but the search path itself is still an approximation.
-- Failure anatomy currently summarizes failed Monte Carlo paths by depletion timing and early-versus-long-horizon sequence risk. It does not yet fully attribute failures across taxes, healthcare, allocation, cash reserves, and spending behavior.
+- Failure anatomy tags failed Monte Carlo paths with broad stressors for tax drag, healthcare drag, spending pressure, reserve shortfall, allocation mismatch, and sequence/inflation triggers. It is not yet a dollar-by-dollar causal attribution engine; it does not prove how much each factor contributed to depletion or which exact year/action would have prevented the failure.
 - Shareable spouse result links and the future shared fi-nance.com household profile are not implemented yet.
 
 ## Implementation Notes
