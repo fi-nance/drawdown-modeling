@@ -30,15 +30,16 @@ export function confidenceLevelLabel(level) {
 export function actionConfidenceFor(actionKind, confidenceReport = {}) {
   const flags = Array.isArray(confidenceReport.flags) ? confidenceReport.flags : [];
   const has = (id) => flags.some((flag) => flag.id === id);
-  const find = (ids) => flags.find((flag) => ids.includes(flag.id));
+  const find = (ids) => findFlagByPriority(flags, ids);
 
   if (["aca", "medicalReserve"].includes(actionKind)) {
-    const flag = find(["aca-plan-inputs", "aca-benchmark-state-fallback", "aca-benchmark-out-of-model", "aca-oop-inputs", "aca-net-premium-quote", "aca-magi-threshold"]);
+    const flag = find(["aca-coverage-gap-modeled", "aca-medicaid-handoff-modeled", "aca-coverage-gap-risk", "aca-plan-inputs", "aca-benchmark-state-fallback", "aca-benchmark-out-of-model", "aca-oop-inputs", "aca-net-premium-quote", "aca-magi-threshold"]);
     if (flag) return actionConfidenceFromFlag(flag);
   }
 
-  if (["magiManagement", "rothConversion", "taxGainHarvesting"].includes(actionKind) && has("aca-magi-threshold")) {
-    return actionConfidenceFromFlag(flags.find((flag) => flag.id === "aca-magi-threshold"));
+  if (["magiManagement", "rothConversion", "taxGainHarvesting"].includes(actionKind)) {
+    const flag = find(["aca-coverage-gap-modeled", "aca-medicaid-handoff-modeled", "aca-coverage-gap-risk", "aca-magi-threshold"]);
+    if (flag) return actionConfidenceFromFlag(flag);
   }
 
   if (["taxReserve", "traditionalWithdrawal", "stateTax"].includes(actionKind) && has("state-retirement-tax-review")) {
@@ -72,7 +73,7 @@ export function actionConfidenceFor(actionKind, confidenceReport = {}) {
 
 export function rescueConfidenceFor(option = {}, confidenceReport = {}) {
   const flags = Array.isArray(confidenceReport.flags) ? confidenceReport.flags : [];
-  const find = (ids) => flags.find((flag) => ids.includes(flag.id));
+  const find = (ids) => findFlagByPriority(flags, ids);
   const kind = option?.kind;
 
   if (option?.status === "discarded") {
@@ -120,12 +121,13 @@ export function buildConfidenceReport({
   scenario = {},
   taxProfile = {},
   decision = null,
+  plan = null,
   historicalCoverage = null,
   historicalAssetClasses = []
 } = {}) {
   const flags = [];
   addHealthcareFlags(flags, scenario, decision);
-  addCoverageGapFlags(flags, scenario);
+  addCoverageGapFlags(flags, scenario, plan);
   addStateTaxFlags(flags, taxProfile);
   addEvidenceFlags(flags, decision, historicalCoverage, historicalAssetClasses);
   addSocialSecurityFlags(flags, scenario);
@@ -265,22 +267,56 @@ function acaBenchmarkGeographyFlag(aca) {
   };
 }
 
-function addCoverageGapFlags(flags, scenario) {
+function addCoverageGapFlags(flags, scenario, plan = null) {
   // The Medicaid "coverage gap" exists in non-expansion states between
   // Medicaid eligibility and the 100% FPL PTC floor (IRC §36B(c)(1)(A)).
   // Roth-heavy retirement years can drop MAGI below 100% FPL, leaving the
-  // household with neither Medicaid nor a premium tax credit. This flag
-  // notifies users in affected states so they can model around it.
-  // Suppressed when ACA is disabled or the household has no state set.
+  // household with neither Medicaid nor a premium tax credit. When a simulated
+  // plan is available, prefer its actual year-by-year FPL percentages over a
+  // generic state-level warning.
   if (scenario?.aca?.enabled === false) return;
   const state = scenario?.state;
   if (!state) return;
 
   const medicaid = STATE_MEDICAID_EXPANSION_2026.states?.[state];
   if (!medicaid) return;
-  if (medicaid.expanded === true) return;
 
   const isPartial = medicaid.expanded === "partial";
+  const aca = scenario?.aca ?? {};
+  const ptcFloorPercent = Number.isFinite(Number(aca.minEligibleFplPercent))
+    ? Math.max(0, Number(aca.minEligibleFplPercent))
+    : 100;
+  const modeledGapYears = modeledMarketplaceYearsBelowFpl(plan, ptcFloorPercent);
+  if (modeledGapYears.length && medicaid.expanded !== true) {
+    flags.push({
+      id: "aca-coverage-gap-modeled",
+      level: CONFIDENCE_LEVELS.CPA_REVIEW,
+      lens: "cpa",
+      title: "Modeled MAGI enters the ACA coverage gap",
+      detail: `${state} ${isPartial ? "has only partial Medicaid expansion" : "has not adopted Medicaid expansion"}, and the modeled plan drops below the ${formatPercent(ptcFloorPercent)} FPL PTC floor in ${formatModeledFplYears(modeledGapYears)}.`,
+      action: "Before relying on healthcare or Roth-conversion actions, size income, Roth conversions, or taxable draws to keep ACA MAGI above the PTC floor, or model exact state Medicaid/alternative coverage for those years."
+    });
+    return;
+  }
+
+  if (medicaid.expanded === true) {
+    const medicaidFloorPercent = 138;
+    const modeledMedicaidYears = modeledMarketplaceYearsBelowFpl(plan, medicaidFloorPercent);
+    if (modeledMedicaidYears.length) {
+      flags.push({
+        id: "aca-medicaid-handoff-modeled",
+        level: CONFIDENCE_LEVELS.ASSUMPTION_SENSITIVE,
+        lens: "cpa",
+        title: "Modeled MAGI enters Medicaid/CHIP range",
+        detail: `${state} has adopted Medicaid expansion, and the modeled plan drops below ${formatPercent(medicaidFloorPercent)} FPL in ${formatModeledFplYears(modeledMedicaidYears)}. ACA PTC math may no longer describe the household's actual coverage path in those years.`,
+        action: "Check state Medicaid/CHIP eligibility, household member categories, and plan-transition timing before treating ACA premiums or MAGI-reduction moves as final."
+      });
+    }
+    return;
+  }
+
+  if (Array.isArray(plan?.years) && !modeledGapYears.length) return;
+
   const detail = isPartial
     ? `${state} has only partial Medicaid expansion under a §1115 waiver, so the household can still fall into a coverage gap if planned MAGI drops below 100% FPL in low-income years.`
     : `${state} has not adopted Medicaid expansion, so a household whose modeled MAGI drops below 100% FPL in any year (often during Roth-heavy or low-conversion years) loses access to both Medicaid and ACA premium tax credits for that year.`;
@@ -291,6 +327,22 @@ function addCoverageGapFlags(flags, scenario) {
     title: "Coverage-gap risk in a non-expansion state",
     detail,
     action: "Inspect modeled MAGI by year. Years below ~100% FPL in this state lose PTC and fall outside Medicaid; consider sizing Roth conversions or taxable draws to keep MAGI above the floor in those years."
+  });
+}
+
+function modeledMarketplaceYearsBelowFpl(plan, thresholdPercent) {
+  if (!Array.isArray(plan?.years)) return [];
+  return plan.years.filter((year) => {
+    const aca = year?.aca ?? {};
+    const fplPercent = Number(aca.fplPercent);
+    if (!Number.isFinite(fplPercent) || fplPercent >= thresholdPercent) return false;
+    return [
+      aca.benchmarkPremium,
+      aca.grossPremium,
+      aca.netPremium,
+      aca.subsidy,
+      year.medicalCost
+    ].some((value) => Number(value) > 0);
   });
 }
 
@@ -371,14 +423,22 @@ function actionConfidenceFromFlag(flag = {}) {
   };
 }
 
+function findFlagByPriority(flags, ids) {
+  for (const id of ids) {
+    const flag = flags.find((item) => item.id === id);
+    if (flag) return flag;
+  }
+  return null;
+}
+
 function rescueFlagIds(kind) {
   switch (kind) {
     case "healthcareRescue":
-      return ["aca-plan-inputs", "aca-benchmark-state-fallback", "aca-benchmark-out-of-model", "aca-oop-inputs", "aca-net-premium-quote", "aca-magi-threshold"];
+      return ["aca-coverage-gap-modeled", "aca-medicaid-handoff-modeled", "aca-coverage-gap-risk", "aca-plan-inputs", "aca-benchmark-state-fallback", "aca-benchmark-out-of-model", "aca-oop-inputs", "aca-net-premium-quote", "aca-magi-threshold"];
     case "rothBasisCliffRescue":
     case "conversionGuardrail":
     case "magiSpendTrim":
-      return ["aca-magi-threshold", "aca-plan-inputs", "aca-benchmark-state-fallback", "aca-benchmark-out-of-model", "aca-oop-inputs", "aca-net-premium-quote"];
+      return ["aca-coverage-gap-modeled", "aca-medicaid-handoff-modeled", "aca-coverage-gap-risk", "aca-magi-threshold", "aca-plan-inputs", "aca-benchmark-state-fallback", "aca-benchmark-out-of-model", "aca-oop-inputs", "aca-net-premium-quote"];
     case "taxableLotRescue":
       return ["aca-magi-threshold"];
     case "withdrawalShift":
@@ -440,4 +500,21 @@ function historicalCoverageAction(historicalCoverage, historicalAssetClasses) {
 function formatCurrency(value) {
   const amount = Math.round(Number(value) || 0);
   return `$${amount.toLocaleString("en-US")}`;
+}
+
+function formatPercent(value) {
+  const percent = Number(value);
+  if (!Number.isFinite(percent)) return "100%";
+  return `${Math.round(percent * 10) / 10}%`;
+}
+
+function formatModeledFplYears(years) {
+  const visible = years.slice(0, 3).map((year) => {
+    const label = Number.isFinite(Number(year.year)) ? String(year.year) : `year ${year.yearIndex ?? "?"}`;
+    return `${label} (${formatPercent(year.aca?.fplPercent)} FPL)`;
+  });
+  const remaining = years.length - visible.length;
+  return remaining > 0
+    ? `${visible.join(", ")}, and ${remaining} more year${remaining === 1 ? "" : "s"}`
+    : visible.join(", ");
 }

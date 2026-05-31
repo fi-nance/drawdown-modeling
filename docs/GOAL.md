@@ -220,6 +220,9 @@ Shipped today:
 - Confidence flags identify non-expansion/partial-expansion coverage-gap risk
   and distinguish bundled rating-area SLCSP from state fallback/out-of-model ZIP
   results.
+- When a simulated plan is available, confidence flags name the exact modeled
+  years where ACA MAGI falls below the PTC floor in non-expansion states, or
+  into Medicaid/CHIP handoff range in expansion states.
 
 Goal-level gaps:
 - **County/service-area-level SLCSP**, not only rating-area-level. The current
@@ -231,11 +234,11 @@ Goal-level gaps:
   KY, ME, MD, MA, MN, NV, NJ, NM, PA, RI, VT. Each SBE publishes its own data;
   the goal is a per-state ingestion plan documented in DATA_SOURCES.md, with a
   ZIP → state-exchange routing layer in the UI.
-- **Year-specific Medicaid/CHIP eligibility modeling** beyond today's
-  non-expansion confidence flag: when a planned low-income year drops MAGI into
-  Medicaid/CHIP territory, the model should distinguish Medicaid eligibility,
-  coverage-gap risk, CHIP children, immigration exceptions, and state-specific
-  waiver behavior before recommending MAGI-reduction moves.
+- **Eligibility-grade Medicaid/CHIP modeling** beyond today's confidence flags:
+  the app can now identify modeled low-income years, but still needs household
+  member categories, CHIP children, immigration exceptions, state-specific
+  waiver behavior, and actual Medicaid/transition cost assumptions before
+  recommending MAGI-reduction moves as final.
 - **Post-2025 ACA enhanced subsidy expiration** (ARPA/IRA) explicitly modeled
   as a year-by-year regime, with a clear "what changes in 2026+ if subsidies
   expire vs are extended" comparison.
@@ -365,8 +368,9 @@ risk first, then breadth.
   to SBE states where public PUFs or exchange APIs support it.
 - Move from rating-area-level to county/service-area-level SLCSP where data
   allows.
-- Coverage-gap warning should use modeled year-by-year MAGI and household
-  composition, not only state-level risk.
+- Upgrade the shipped modeled-year coverage-gap/Medicaid flags into an
+  eligibility engine that uses household composition and state-specific
+  Medicaid/CHIP rules.
 - Post-2025 enhanced-subsidy expiration regime, switchable by law-year.
 - Golden tests built from CMS worked examples.
 

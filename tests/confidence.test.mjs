@@ -270,6 +270,88 @@ test("coverage-gap flag fires for non-expansion states with ACA on", () => {
   assert.match(flag.detail, /100% FPL/);
 });
 
+test("coverage-gap flag names modeled years below the PTC floor", () => {
+  const report = buildConfidenceReport({
+    scenario: {
+      state: "Texas",
+      aca: {
+        enabled: true,
+        planCostMode: "selectedPlan",
+        premiumInputMode: "gross",
+        manualOopMaximum: true
+      }
+    },
+    plan: {
+      years: [
+        { year: 2026, aca: { fplPercent: 92, grossPremium: 12000, netPremium: 12000, subsidy: 0 }, medicalCost: 12000 },
+        { year: 2027, aca: { fplPercent: 101, grossPremium: 12300, netPremium: 4000, subsidy: 8300 }, medicalCost: 4000 },
+        { year: 2028, aca: { fplPercent: 88.4, grossPremium: 12600, netPremium: 12600, subsidy: 0 }, medicalCost: 12600 }
+      ]
+    }
+  });
+
+  const modeled = report.flags.find((item) => item.id === "aca-coverage-gap-modeled");
+  assert.ok(modeled);
+  assert.equal(modeled.level, CONFIDENCE_LEVELS.CPA_REVIEW);
+  assert.match(modeled.detail, /2026 \(92% FPL\)/);
+  assert.match(modeled.detail, /2028 \(88\.4% FPL\)/);
+  assert.equal(report.flags.find((item) => item.id === "aca-coverage-gap-risk"), undefined);
+  assert.equal(actionConfidenceFor("rothConversion", report).level, CONFIDENCE_LEVELS.CPA_REVIEW);
+  assert.equal(
+    rescueConfidenceFor({ kind: "conversionGuardrail", historical: { count: 5 } }, report).level,
+    CONFIDENCE_LEVELS.CPA_REVIEW
+  );
+});
+
+test("coverage-gap flag does not fire when modeled non-expansion years stay above the PTC floor", () => {
+  const report = buildConfidenceReport({
+    scenario: {
+      state: "Texas",
+      aca: {
+        enabled: true,
+        planCostMode: "selectedPlan",
+        premiumInputMode: "gross",
+        manualOopMaximum: true
+      }
+    },
+    plan: {
+      years: [
+        { year: 2026, aca: { fplPercent: 125, grossPremium: 12000, netPremium: 2400, subsidy: 9600 }, medicalCost: 2400 },
+        { year: 2027, aca: { fplPercent: 150, grossPremium: 12300, netPremium: 3600, subsidy: 8700 }, medicalCost: 3600 }
+      ]
+    }
+  });
+
+  assert.equal(report.flags.find((item) => item.id === "aca-coverage-gap-modeled"), undefined);
+  assert.equal(report.flags.find((item) => item.id === "aca-coverage-gap-risk"), undefined);
+});
+
+test("expanded states flag modeled Medicaid/CHIP handoff years below 138 percent FPL", () => {
+  const report = buildConfidenceReport({
+    scenario: {
+      state: "Massachusetts",
+      aca: {
+        enabled: true,
+        planCostMode: "selectedPlan",
+        premiumInputMode: "gross",
+        manualOopMaximum: true
+      }
+    },
+    plan: {
+      years: [
+        { year: 2026, aca: { fplPercent: 132.6, grossPremium: 9000, netPremium: 1200, subsidy: 7800 }, medicalCost: 1200 },
+        { year: 2027, aca: { fplPercent: 160, grossPremium: 9300, netPremium: 2200, subsidy: 7100 }, medicalCost: 2200 }
+      ]
+    }
+  });
+
+  const flag = report.flags.find((item) => item.id === "aca-medicaid-handoff-modeled");
+  assert.ok(flag);
+  assert.equal(flag.level, CONFIDENCE_LEVELS.ASSUMPTION_SENSITIVE);
+  assert.match(flag.detail, /2026 \(132\.6% FPL\)/);
+  assert.match(flag.action, /Medicaid\/CHIP/);
+});
+
 test("coverage-gap flag fires with partial-expansion language for Georgia", () => {
   const report = buildConfidenceReport({
     scenario: {

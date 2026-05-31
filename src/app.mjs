@@ -1695,6 +1695,7 @@ async function runModels(opts = {}) {
       scenario,
       taxProfile,
       decision: latest?.decision ?? buffered.decision,
+      plan: latest?.plan ?? buffered.plan,
       historicalCoverage,
       historicalAssetClasses
     });
@@ -1744,6 +1745,7 @@ async function runModels(opts = {}) {
         if (stream) {
           if (!latest) return;
           latest.plan = plan;
+          latest.confidence = buildConfidenceReport(confidenceContext());
           renderLatest({ streaming: true });
         } else {
           buffered.plan = plan;
@@ -1830,6 +1832,7 @@ async function runModels(opts = {}) {
           scenario,
           taxProfile,
           decision: buffered.decision,
+          plan: buffered.plan,
           historicalCoverage,
           historicalAssetClasses
         }),

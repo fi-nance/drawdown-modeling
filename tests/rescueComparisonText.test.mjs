@@ -139,3 +139,11 @@ test("workspace ZIP feeds the offline ACA benchmark path", async () => {
   assert.match(appSource, /const marketplaceZip = String\(els\.marketplaceZip\?\.value \|\| ""\)\.trim\(\)/);
   assert.match(appSource, /zip: marketplaceZip \|\| null/);
 });
+
+test("confidence report receives the simulated plan for year-specific ACA flags", async () => {
+  const appSource = await readFile(new URL("../src/app.mjs", import.meta.url), "utf8");
+
+  assert.match(appSource, /plan: latest\?\.plan \?\? buffered\.plan/);
+  assert.match(appSource, /latest\.confidence = buildConfidenceReport\(confidenceContext\(\)\)/);
+  assert.match(appSource, /plan: buffered\.plan/);
+});
