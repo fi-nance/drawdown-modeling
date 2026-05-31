@@ -1953,6 +1953,7 @@ function rerenderResults() {
   renderKpiStrip();
   renderDecisionPanel();
   renderRescueComparisonTable();
+  renderTradeoffFrontierTable();
   renderActionList();
   renderBracketFill();
   renderWithdrawalMix();
@@ -2300,6 +2301,71 @@ function renderRescueComparisonTable() {
       window.__pslApplyRescueScenarioToWorkspace(option.scenario, {
         label: title,
         changes
+      });
+      runModelFromRedesign({ cancelActive: true, stream: true });
+    });
+  });
+}
+
+function renderTradeoffFrontierTable() {
+  const root = document.getElementById("tradeoffFrontierTable");
+  if (!root) return;
+  const latest = window.__pslLatest;
+  const decision = latest?.decision;
+  const running = decision?.status === "running";
+  const baseScenario = decision?.base?.scenario ?? latest?.scenario ?? {};
+
+  if (!latest || !decision) {
+    root.innerHTML = `<p class="empty-state">Run simulation to see tradeoff frontier.</p>`;
+    return;
+  }
+  if (!decision.tradeoffFrontier) {
+    root.innerHTML = `<p class="empty-state">Tradeoff frontier comparison is not available for this run.</p>`;
+    return;
+  }
+
+  const headers = ["Alternative Plan", "Annual Spend", "MC Success", "Healthcare Subsidy", "Estimated Legacy", "Apply"];
+  const thead = `<thead><tr>${headers.map(h => `<th>${escapeHtml(h)}</th>`).join("")}</tr></thead>`;
+
+  const rowsHtml = decision.tradeoffFrontier.map((plan, index) => {
+    const title = plan.label;
+    const spendText = formatCurrencyShort(plan.spend) + " / yr";
+    const mcText = formatRate(plan.resilience);
+    const subsidyText = plan.healthcare > 0 ? formatCurrencyShort(plan.healthcare) + " / yr" : "—";
+    const bequestText = formatCurrencyShort(plan.bequest);
+
+    const canApply = !!plan.candidate?.scenario && typeof window !== "undefined" && typeof window.__pslApplyRescueScenarioToWorkspace === "function";
+
+    return `
+      <tr>
+        <td style="font-family:'Inter',sans-serif; font-weight:600; color:var(--text-primary); white-space:normal;">${escapeHtml(title)}</td>
+        <td class="mono">${escapeHtml(spendText)}</td>
+        <td class="mono" style="font-weight: 700; color: ${plan.resilience >= 0.8 ? "var(--emerald)" : (plan.resilience < 0.5 ? "var(--coral)" : "inherit")}">${escapeHtml(mcText)}</td>
+        <td class="mono" style="color: ${plan.healthcare > 0 ? "var(--emerald)" : "inherit"}">${escapeHtml(subsidyText)}</td>
+        <td class="mono" style="font-weight: 700; color: var(--accent-text);">${escapeHtml(bequestText)}</td>
+        <td><button class="rescue-apply-button" type="button" data-frontier-apply="${index}" ${canApply ? "" : "disabled"}>${canApply ? "Apply" : "n/a"}</button></td>
+      </tr>
+    `;
+  }).join("");
+
+  root.innerHTML = `
+    <table>
+      ${thead}
+      <tbody>
+        ${rowsHtml}
+      </tbody>
+    </table>
+  `;
+
+  root.querySelectorAll("[data-frontier-apply]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const plan = decision.tradeoffFrontier[Number(button.dataset.frontierApply)];
+      if (!plan?.candidate?.scenario || typeof window.__pslApplyRescueScenarioToWorkspace !== "function") return;
+      const confirmed = window.confirm(`Apply "${escapeHtml(plan.label)}" to the workspace and rerun projections?\n\nThis will update your target spending and roth conversion options accordingly.`);
+      if (!confirmed) return;
+      window.__pslApplyRescueScenarioToWorkspace(plan.candidate.scenario, {
+        label: plan.label,
+        changes: [`Adjust target spend to ${formatCurrencyShort(plan.spend)} / yr`, `Modify Roth conversion strategy for ${plan.label}`]
       });
       runModelFromRedesign({ cancelActive: true, stream: true });
     });

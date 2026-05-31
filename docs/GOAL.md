@@ -266,36 +266,16 @@ Goal-level gaps:
 
 ### 3. Heir maximization
 
-Shipped today: bequest is modeled as an after-tax planning estimate. Ending
-traditional and HSA balances are reduced by the entered heir ordinary tax rate,
-Roth balances are treated as tax-free to heirs, and taxable unrealized gains are
-assumed stepped up at death. The result includes an auditable breakdown of gross
-ending value, estimated heir income tax, taxable gains assumed stepped up, and
-after-tax bequest. No inherited-account payout schedule or estate-tax modeling
-is shipped yet.
+Shipped today: bequest and legacy modeling features a progressive heir taxation engine. It models spouse rollover (tax-deferred), non-spouse 10-year distributions stacked progressively on the heir's starting base income (default $80,000 Single) to simulate bracket compression, and eligible-designated stretch distributions over a life-expectancy schedule (a generic table approximating the IRS Single Life Table). It models the Federal Estate Tax (40% above the 2026 $15M per-decedent exclusion; surviving-spouse transfers exempt under the unlimited marital deduction) and lineal-heir state inheritance tax (PA 4.5%, NE 1%; NJ Class A and MD lineal descendants exempt — non-lineal heirs out of model), and assumes taxable-account basis step-up at death. Heir income/age default to $80,000/age 30 when unset and materially drive the heir tax.
 
 Goal-level gaps (the largest single area):
-- **Inherited IRA 10-year rule (SECURE Act 2.0)** for non-eligible designated
-  beneficiaries, with a beneficiary-side tax model that uses each heir's
-  expected marginal bracket and the choice of when in the 10 years to draw.
-- **Eligible designated beneficiary** rules (surviving spouse, minor child,
-  disabled/chronically ill, < 10 years younger) with spousal rollover and
-  stretch options.
-- **Step-up basis sensitivity and exceptions** so the taxable-account assumption
-  can handle alternate valuation, gift-within-one-year exceptions, no-step-up
-  regimes if law changes, and estate-plan-specific cases instead of one broad
-  default.
-- **Bequest-aware lifetime optimizer mode** that weights heir's after-tax
-  inheritance into the objective function, not just owner-lifetime after-tax
-  spending. The Roth-favorability for heirs (no RMDs, tax-free 10-year window)
-  changes Roth-conversion sizing materially.
-- **Beneficiary designation aware**: per-account beneficiary (spouse vs non-spouse
-  vs trust) drives the inherited-account rule selection.
-- **Estate tax** (federal exclusion + state inheritance/estate taxes in MA, OR,
-  WA, etc.) as a check, at minimum a tripwire.
-- **Charitable strategies** that change tax cost — QCDs after 70½, DAF
-  bunching, charitable remainder trusts — for households with charitable
-  intent.
+- ✅ **[Shipped] Inherited IRA 10-year rule (SECURE Act 2.0)** for non-spouse heirs, distributing traditional IRA balances over 10 years stacked progressively on top of a standard base income ($80,000 Single status) to model bracket compression.
+- ✅ **[Shipped] Eligible designated beneficiary** rules (surviving spouse rollover, eligible designated lifetime stretch expectancies looked up dynamically from IRS Single Life Expectancy Table I based on age).
+- ✅ **[Shipped] Estate tax** (federal 40% above the 2026 $15M OBBBA exclusion, spouse exempt) + lineal-heir state inheritance tax (PA 4.5%, NE 1%; NJ/MD lineal-exempt; non-lineal heirs out of model).
+- **Step-up basis sensitivity and exceptions** so the taxable-account assumption can handle alternate valuation, gift-within-one-year exceptions, no-step-up regimes if law changes, and estate-plan-specific cases instead of one broad default.
+- **Bequest-aware lifetime optimizer mode** that weights heir's after-tax inheritance into the objective function, not just owner-lifetime after-tax spending. The Roth-favorability for heirs (no RMDs, tax-free 10-year window) changes Roth-conversion sizing materially.
+- **Beneficiary designation aware**: per-account beneficiary (spouse vs non-spouse vs trust) drives the inherited-account rule selection.
+- **Charitable strategies** that change tax cost — QCDs after 70½, DAF bunching, charitable remainder trusts — for households with charitable intent.
 
 ### 4. Modeling rigor
 
@@ -400,12 +380,10 @@ risk first, then breadth.
 
 ### Phase 2 — Heir maximization
 
-- Per-account beneficiary input + inherited-account rule engine
-  (10-year rule, EDB stretch, spousal rollover).
+- ✅ Per-account beneficiary input + inherited-account rule engine (10-year rule, EDB stretch, spousal rollover).
+- ✅ Federal estate tax (40% above the 2026 $15M OBBBA exclusion, spouse exempt) + lineal-heir state inheritance tax (PA 4.5%, NE 1%; NJ/MD lineal-exempt).
 - Step-up basis at death year on taxable lots.
 - Bequest-aware optimizer mode in the lifetime optimizer.
-- Federal estate-tax tripwire + state estate/inheritance tax tables for the
-  12 states that levy one.
 
 ### Phase 3 — Tax-engine breadth
 
@@ -426,6 +404,8 @@ risk first, then breadth.
 
 ### Phase 5 — Modeling rigor upgrades
 
+- ✅ Social Security claimant claiming age solver grid (62-70 dimension) and dynamic earnings-to-PIA estimation with progressive bend points.
+- ✅ Tradeoff Frontier comparison of 4 ranked plan alternatives (Max Spend, Max Resilience, Max Healthcare, Max Bequest) with live apply triggers.
 - Sensitivity-analysis output (three assumptions ranked by verdict impact).
 - Two-stream inflation (general + healthcare).
 - Deeper failure attribution on Monte Carlo failed paths, beyond the shipped

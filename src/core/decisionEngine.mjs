@@ -38,7 +38,6 @@ const RESERVE_MODES = ["cash", "hybrid"];
 const ALLOCATION_TARGETS = [40, 55, 70, 85];
 const DEFAULT_MAGI_BUFFER = 1000;
 const SENSITIVITY_TOP_COUNT = 3;
-const SOCIAL_SECURITY_BRIDGE_AGES = [67, 70];
 const WITHDRAWAL_ORDERS = [
   ["taxable", "traditional", "hsa", "roth"],
   ["traditional", "taxable", "hsa", "roth"],
@@ -183,6 +182,8 @@ export function runDecisionBatch({
   rescueOptions.sort((a, b) => rescueSortScore(b, profile, diagnosis) - rescueSortScore(a, profile, diagnosis));
   const bestOption = rescueOptions[0] ?? null;
 
+  const tradeoffFrontier = buildTradeoffFrontier(solverContext);
+
   return {
     status: "ready",
     profile,
@@ -197,6 +198,7 @@ export function runDecisionBatch({
     failureAnatomy: base.failureAnatomy,
     healthcare: healthcareSummary(base.planFirstYear, profile),
     sensitivity,
+    tradeoffFrontier,
     generatedAt: new Date().toISOString()
   };
 }
@@ -1181,17 +1183,63 @@ function findIrmaaLookbackRescue({ assets, scenario, taxProfile, runs, seed, seq
 }
 
 function findSocialSecurityBridge({ assets, scenario, taxProfile, runs, seed, sequences, profile, base, tracker }) {
-  const annualBenefit = Number(scenario?.socialSecurityAnnualBenefit);
-  const currentStart = Number(scenario?.socialSecurityStartAge ?? 67);
-  if (!(annualBenefit > 0) || !Number.isFinite(currentStart) || currentStart >= 70) return null;
+  // Only optimize claiming when there is a real Social Security benefit to
+  // optimize: an entered benefit, or the explicit earnings-estimation opt-in.
+  // Bridge/earned-income inputs alone (medicareWages etc.) do NOT count —
+  // they are not lifetime career earnings and don't imply a SS benefit.
+  const estimateFromEarnings = scenario?.estimateSocialSecurityFromEarnings === true;
+  const primaryHasSS = Number(scenario?.socialSecurityAnnualBenefit) > 0 || estimateFromEarnings;
+  const spousePresent = scenario?.spouseAge !== null && scenario?.spouseAge !== undefined;
+  const spouseHasSS = Number(scenario?.spouseSocialSecurityAnnualBenefit) > 0 || (estimateFromEarnings && spousePresent);
+  if (!primaryHasSS && !spouseHasSS) return null;
+
+  // Coarse claiming grid (early / mid / FRA / max) keeps the search bounded:
+  // 4 ages → 16 couple candidates (was 9×9 = 81) or 4 single candidates.
+  const ages = [62, 65, 67, 70];
   const searchRuns = solverSearchRuns(runs);
-  const candidates = SOCIAL_SECURITY_BRIDGE_AGES
-    .filter((age) => age > currentStart)
-    .map((age) => runCandidate({
-      id: `social-security-${age}`,
+  const candidatesList = [];
+
+  if (spousePresent) {
+    for (const primaryAge of ages) {
+      for (const spouseAge of ages) {
+        candidatesList.push({ primaryAge, spouseAge });
+      }
+    }
+  } else {
+    for (const primaryAge of ages) {
+      candidatesList.push({ primaryAge, spouseAge: 67 });
+    }
+  }
+
+  // Entered benefits are quoted at the household's current start ages; rescale
+  // them to each candidate age so the sweep actually changes the benefit amount.
+  // (The PIA-from-earnings path scales inside socialSecurityBenefitsForYear, so
+  // for it we only set the start ages.)
+  const curPrimaryStart = Number(scenario.socialSecurityStartAge ?? 67);
+  const curSpouseStart = Number(scenario.spouseSocialSecurityStartAge ?? 67);
+  const enteredPrimary = Math.max(0, Number(scenario.socialSecurityAnnualBenefit) || 0);
+  const enteredSpouse = Math.max(0, Number(scenario.spouseSocialSecurityAnnualBenefit) || 0);
+
+  const candidates = candidatesList.map(({ primaryAge, spouseAge }) => {
+    const candidateScenario = {
+      ...scenario,
+      socialSecurityStartAge: primaryAge,
+      spouseSocialSecurityStartAge: spouseAge,
+      ...(enteredPrimary > 0 ? {
+        socialSecurityAnnualBenefit: round(enteredPrimary / socialSecurityClaimFactor(curPrimaryStart) * socialSecurityClaimFactor(primaryAge), 2)
+      } : {}),
+      ...(enteredSpouse > 0 ? {
+        spouseSocialSecurityAnnualBenefit: round(enteredSpouse / socialSecurityClaimFactor(curSpouseStart) * socialSecurityClaimFactor(spouseAge), 2)
+      } : {})
+    };
+
+    return runCandidate({
+      id: `social-security-${primaryAge}-${spouseAge}`,
       kind: "socialSecurityBridge",
-      label: "Bridge spending to delay Social Security",
-      scenario: scenarioWithSocialSecurityBridge(scenario, age),
+      label: spousePresent
+        ? `Optimize claiming (Primary: ${primaryAge}, Spouse: ${spouseAge})`
+        : `Optimize claiming (Age: ${primaryAge})`,
+      scenario: candidateScenario,
       assets,
       taxProfile,
       runs: searchRuns,
@@ -1199,19 +1247,43 @@ function findSocialSecurityBridge({ assets, scenario, taxProfile, runs, seed, se
       sequences,
       profile,
       metadata: {
-        startAge: age,
-        annualBenefit: scenarioWithSocialSecurityBridge(scenario, age).socialSecurityAnnualBenefit
+        primaryAge,
+        spouseAge,
+        socialSecurityStartAge: primaryAge,
+        spouseSocialSecurityStartAge: spouseAge
       },
       includeHistorical: false,
       tracker
-    }));
+    });
+  });
+
   if (!candidates.length) return null;
-  const winner = [...candidates].sort((a, b) => b.monteCarlo.successRate - a.monteCarlo.successRate)[0];
-  const finalized = finalizeCandidate({ candidate: winner, assets, taxProfile, runs, seed, sequences, profile });
+
+  const winner = [...candidates].sort((a, b) => {
+    const rateDiff = b.monteCarlo.successRate - a.monteCarlo.successRate;
+    if (Math.abs(rateDiff) > 1e-6) return rateDiff;
+    const aVal = a.monteCarlo.medianEndingValue ?? 0;
+    const bVal = b.monteCarlo.medianEndingValue ?? 0;
+    return bVal - aVal;
+  })[0];
+
+  const finalized = finalizeCandidate({
+    candidate: winner,
+    assets,
+    taxProfile,
+    runs,
+    seed,
+    sequences,
+    profile
+  });
+
   if (!isWorthwhileRescue(finalized, base, profile)) {
     return optionWithDelta(finalized, base, { status: "discarded" });
   }
-  return optionWithDelta(finalized, base, { status: meetsTarget(finalized, profile) ? "target-met" : "best-tested" });
+
+  return optionWithDelta(finalized, base, {
+    status: meetsTarget(finalized, profile) ? "target-met" : "best-tested"
+  });
 }
 
 // A rescue is worth surfacing only if the finalized full-run candidate meets
@@ -2380,4 +2452,87 @@ function plainObject(value) {
 
 function solverSearchRuns(runs) {
   return Math.max(10, Math.min(SEARCH_RUN_CAP, Math.trunc(Number(runs) || SEARCH_RUN_CAP)));
+}
+
+export function buildTradeoffFrontier({ assets, scenario, taxProfile, runs, seed, sequences, profile, tracker }) {
+  const activeProfile = profile ?? normalizeDecisionProfile({}, scenario);
+  const searchRuns = solverSearchRuns(runs);
+  
+  // 1. Max Spending Plan: target spend + 20%
+  const maxSpendingScenario = {
+    ...scenario,
+    targetSpend: round((scenario.targetSpend ?? 90000) * 1.20, 2)
+  };
+  
+  // 2. Base plan reference point (current settings, unchanged) — the frontier's
+  //    anchor for comparing the spending / healthcare / bequest alternatives
+  //    against. It is not a distinct "maximize resilience" lever.
+  const baseReferenceScenario = {
+    ...scenario
+  };
+  
+  // 3. Max Healthcare Plan: limit conversions to keep MAGI <= 150% FPL
+  const maxHealthcareScenario = {
+    ...scenario,
+    rothConversion: {
+      ...(scenario.rothConversion ?? {}),
+      enabled: true,
+      maxAcaFplPercent: 150,
+      applyMagiGuardrails: true
+    }
+  };
+  
+  // 4. Max Bequest Plan: Minimize discretionary spending (essential only)
+  const essentialOnlySpend = scenario.spendingStrategy?.essentialSpend ?? (scenario.targetSpend ?? 90000) * 0.7;
+  const maxBequestScenario = {
+    ...scenario,
+    targetSpend: essentialOnlySpend,
+    spendingStrategy: {
+      ...(scenario.spendingStrategy ?? {}),
+      discretionarySpend: 0
+    }
+  };
+  
+  const plans = [
+    { id: "max-spending", label: "Max Spending (+20% Spend)", scenario: maxSpendingScenario },
+    { id: "base-reference", label: "Base Plan (current settings)", scenario: baseReferenceScenario },
+    { id: "max-healthcare", label: "Max Healthcare Subsidy (MAGI <= 150% FPL)", scenario: maxHealthcareScenario },
+    { id: "max-bequest", label: "Max Bequest (Essential Only, High Shelter)", scenario: maxBequestScenario }
+  ];
+  
+  const results = plans.map(p => {
+    const cand = runCandidate({
+      id: p.id,
+      kind: "tradeoffFrontier",
+      label: p.label,
+      scenario: p.scenario,
+      assets,
+      taxProfile,
+      runs: searchRuns,
+      seed,
+      sequences,
+      profile: activeProfile,
+      metadata: {},
+      includeHistorical: false,
+      tracker
+    });
+    
+    const spend = p.scenario.targetSpend;
+    const resilience = cand.monteCarlo?.successRate ?? 0;
+    const healthcare = cand.planFirstYear?.acaSubsidy ?? 0;
+    const bequest = cand.monteCarlo?.medianHeirValue ?? cand.monteCarlo?.medianEndingValue ?? 0;
+    
+    return {
+      id: p.id,
+      label: p.label,
+      spend: round(spend, 2),
+      resilience: round(resilience, 4),
+      healthcare: round(healthcare, 2),
+      bequest: round(bequest, 2),
+      successRate: round(resilience, 4),
+      candidate: cand
+    };
+  });
+  
+  return results;
 }

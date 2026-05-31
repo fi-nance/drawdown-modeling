@@ -131,7 +131,7 @@ export function buildConfidenceReport({
   addStateTaxFlags(flags, taxProfile);
   addEvidenceFlags(flags, decision, historicalCoverage, historicalAssetClasses);
   addSocialSecurityFlags(flags, scenario);
-  addLegacyFlags(flags);
+  addLegacyFlags(flags, scenario);
 
   if (!flags.length) {
     flags.push({
@@ -407,14 +407,21 @@ function addSocialSecurityFlags(flags, scenario) {
   });
 }
 
-function addLegacyFlags(flags) {
+function addLegacyFlags(flags, scenario = {}) {
+  const heirIncome = Number(scenario?.heirBaseIncome);
+  const heirAge = Number(scenario?.heirAge);
+  const usesDefaultHeirIncome = !Number.isFinite(heirIncome) || heirIncome === 80000;
+  const usesDefaultHeirAge = !Number.isFinite(heirAge) || heirAge === 30;
+  const assumptionNote = (usesDefaultHeirIncome || usesDefaultHeirAge)
+    ? ` Heir income and age default to $${(Number.isFinite(heirIncome) ? heirIncome : 80000).toLocaleString("en-US")} and age ${Number.isFinite(heirAge) ? heirAge : 30} when not entered, which materially drives the modeled heir tax — set them for your heirs.`
+    : "";
   flags.push({
     id: "legacy-tax-out-of-model",
     level: CONFIDENCE_LEVELS.CPA_REVIEW,
     lens: "cpa",
-    title: "Legacy tax detail needs estate review",
-    detail: "The bequest estimate applies the entered heir ordinary tax rate to inherited traditional/HSA balances and assumes taxable-basis step-up. Inherited IRA payout timing, beneficiary type, estate/inheritance tax, and heir-specific brackets are not modeled yet.",
-    action: "Use the after-tax bequest as a planning estimate, not an estate plan; add CPA/estate review before optimizing for heirs."
+    title: "Legacy/estate estimate needs professional review",
+    detail: "The bequest estimate now models inherited-IRA payout (10-year rule / eligible-designated stretch) with heir bracket stacking, the federal estate tax (40% above the 2026 $15M exclusion, spouse exempt), and state inheritance tax for a lineal-descendant heir (PA/NE; NJ/MD lineal-exempt). These are planning approximations, not estate-plan-grade: heir relationship class beyond spouse/non-spouse, trust beneficiaries, portability/state estate taxes, and exact IRS Single Life Table divisors are not fully modeled." + assumptionNote,
+    action: "Use the after-tax bequest as a planning estimate; confirm heir inputs and add CPA/estate review before optimizing for heirs."
   });
 }
 

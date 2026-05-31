@@ -342,6 +342,9 @@ const els = {
   heirType: document.querySelector("#heirType"),
   nonSpouse10YrTaxDrag: document.querySelector("#nonSpouse10YrTaxDrag"),
   eligibleDesignatedTaxDiscount: document.querySelector("#eligibleDesignatedTaxDiscount"),
+  heirBaseIncome: document.querySelector("#heirBaseIncome"),
+  heirAge: document.querySelector("#heirAge"),
+  heirState: document.querySelector("#heirState"),
   rmdEnabled: document.querySelector("#rmdEnabled"),
   rmdStartAge: document.querySelector("#rmdStartAge"),
   irmaaEnabled: document.querySelector("#irmaaEnabled"),
@@ -1555,6 +1558,9 @@ function applyScenarioControls(scenario) {
   if (Number.isFinite(scenario.eligibleDesignatedTaxDiscount)) {
     setNumberControl("eligibleDesignatedTaxDiscount", scenario.eligibleDesignatedTaxDiscount * 100);
   }
+  setNumberControl("heirBaseIncome", scenario.heirBaseIncome ?? 80000);
+  setNumberControl("heirAge", scenario.heirAge ?? 30);
+  setValueControl("heirState", scenario.heirState ?? "");
   setCheckedControl("irmaaEnabled", scenario.medicare?.irmaaEnabled);
   setOptionalNumberControl("maxIrmaaTier", scenario.medicare?.maxIrmaaTier);
 }
@@ -1580,7 +1586,10 @@ function extractRescueScenarioOverride(scenario = {}) {
     "spouseMortalityAge",
     "heirType",
     "nonSpouse10YrTaxDrag",
-    "eligibleDesignatedTaxDiscount"
+    "eligibleDesignatedTaxDiscount",
+    "heirBaseIncome",
+    "heirAge",
+    "heirState"
   ];
   const override = {};
   for (const key of keys) {
@@ -4108,6 +4117,10 @@ function readScenario() {
     heirType: els.heirType.value || DEFAULT_SCENARIO.heirType,
     nonSpouse10YrTaxDrag: percentInputValue("nonSpouse10YrTaxDrag", DEFAULT_SCENARIO.nonSpouse10YrTaxDrag),
     eligibleDesignatedTaxDiscount: percentInputValue("eligibleDesignatedTaxDiscount", DEFAULT_SCENARIO.eligibleDesignatedTaxDiscount),
+    heirBaseIncome: Number(els.heirBaseIncome.value) || 80000,
+    heirAge: Number(els.heirAge.value) || 30,
+    heirState: els.heirState.value || null,
+    state: els.heirState.value || state,
     retirementPenaltyAge: Number(els.retirementPenaltyAge.value) || DEFAULT_SCENARIO.retirementPenaltyAge,
     rothBasis: Number(els.rothBasis.value) || 0,
     earlyWithdrawalPenaltyExceptionAmount: numberOrNull(els.earlyWithdrawalPenaltyExceptionAmount.value) ?? 0,

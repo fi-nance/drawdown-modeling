@@ -541,6 +541,27 @@
                     <input id="eligibleDesignatedTaxDiscount" type="number" min="0" max="20" step="1" value="0">
                     <small>Planning assumption (no primary source); subtracted from heir ordinary rate when beneficiary type is Eligible Stretch.</small>
                   </label>
+                  <label>
+                    <span>Heir base income ($/yr)</span>
+                    <input id="heirBaseIncome" type="number" min="0" step="5000" value="80000">
+                    <small>Assumed starting taxable ordinary income for non-spouse heirs stacked below inherited IRA distributions.</small>
+                  </label>
+                  <label>
+                    <span>Heir age</span>
+                    <input id="heirAge" type="number" min="0" max="100" step="1" value="30">
+                    <small>Assumed age of the EDB heir at inheritance for life-expectancy required minimum distributions.</small>
+                  </label>
+                  <label>
+                    <span>State inheritance tax</span>
+                    <select id="heirState">
+                      <option value="" selected>None (Exempt)</option>
+                      <option value="PA">Pennsylvania (PA - 4.5% lineal)</option>
+                      <option value="NJ">New Jersey (NJ - 15% non-spouse)</option>
+                      <option value="MD">Maryland (MD - 10%)</option>
+                      <option value="NE">Nebraska (NE - 1%)</option>
+                    </select>
+                    <small>State inheritance tax applied directly to the gross estate.</small>
+                  </label>
                   <label><span>Annual conversion override</span><input id="rothAmount" type="number" min="0" step="1000" placeholder="Auto"></label>
                   <label><span>Conversion max ACA FPL %</span><input id="rothConversionMaxAcaFplPercent" type="number" min="100" max="600" step="1" value="400"></label>
                   <label><span>Conversion MAGI buffer</span><input id="rothConversionMagiBuffer" type="number" min="0" step="100" value="0"></label>
@@ -1006,6 +1027,21 @@
             </div>
             <div class="ledger-wrap-dash">
               <div id="rescueComparisonTable" class="table-wrap"></div>
+            </div>
+          </section>
+
+          <!-- Tradeoff Frontier (span 3) -->
+          <section class="dash-cell span-3 no-pad">
+            <div class="dash-cell-pad">
+              <div class="r-card-head">
+                <div>
+                  <p class="r-section-eyebrow">Tradeoffs · Efficient Frontier</p>
+                  <h3 class="r-card-title">Tradeoff frontier comparison</h3>
+                </div>
+              </div>
+            </div>
+            <div class="ledger-wrap-dash">
+              <div id="tradeoffFrontierTable" class="table-wrap"></div>
             </div>
           </section>
 
