@@ -6274,3 +6274,46 @@ function embeddedGainRatio(asset) {
   if (value <= 0) return 0;
   return (value - (asset.costBasisPerUnit ?? asset.price) * asset.units) / value;
 }
+
+export function generateSingleMonteCarloPath({
+  assets,
+  scenario,
+  taxProfile,
+  seed = "finance",
+  scenarioId
+}) {
+  const mergedScenario = ensureReturnAssumptionsForAssets(mergeScenario(scenario), assets);
+  const rng = createRng(seed);
+  
+  for (let run = 0; run < scenarioId; run += 1) {
+    const returnSequence = [];
+    const inflationSequence = [];
+    const medicalInflationSequence = [];
+    for (let year = 0; year < mergedScenario.planYears; year += 1) {
+      returnSequence.push(sampleReturnsForYear(mergedScenario, rng));
+      inflationSequence.push(Math.max(-0.08, normalRandom(
+        rng,
+        mergedScenario.returnAssumptions.inflation?.mean ?? MONTE_CARLO_ASSUMPTION_PRESETS.marketNeutral.inflation.mean,
+        mergedScenario.returnAssumptions.inflation?.stdev ?? MONTE_CARLO_ASSUMPTION_PRESETS.marketNeutral.inflation.stdev
+      )));
+      medicalInflationSequence.push(Math.max(-0.08, normalRandom(
+        rng,
+        mergedScenario.returnAssumptions.medicalInflation?.mean ?? MONTE_CARLO_ASSUMPTION_PRESETS.marketNeutral.medicalInflation.mean,
+        mergedScenario.returnAssumptions.medicalInflation?.stdev ?? MONTE_CARLO_ASSUMPTION_PRESETS.marketNeutral.medicalInflation.stdev
+      )));
+    }
+    
+    if (run === scenarioId - 1) {
+      const plan = simulatePlan({
+        assets,
+        scenario: mergedScenario,
+        taxProfile,
+        returnSequence,
+        inflationSequence,
+        medicalInflationSequence
+      });
+      return plan;
+    }
+  }
+  return null;
+}

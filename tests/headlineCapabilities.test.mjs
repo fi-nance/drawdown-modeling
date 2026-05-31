@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { simulatePlan, DEFAULT_SCENARIO } from "../src/core/simulation.mjs";
+import { simulatePlan, DEFAULT_SCENARIO, runMonteCarlo, generateSingleMonteCarloPath } from "../src/core/simulation.mjs";
 import { buildTradeoffFrontier } from "../src/core/decisionEngine.mjs";
 
 test("Inherited-IRA 10-Year Payout & Heir Brackets progressive compression", () => {
@@ -260,4 +260,49 @@ test("Tradeoff frontier compiles alternative plans", () => {
 
   assert.ok(tradeoff[0].spend > tradeoff[1].spend, "Max spending plan has higher spending than the base plan");
   assert.ok(tradeoff[3].spend < tradeoff[1].spend, "Max bequest plan has lower spending than the base plan");
+});
+
+test("generateSingleMonteCarloPath reconstructs a deterministic run path matching Monte Carlo output", () => {
+  const assets = [
+    {
+      id: "stock",
+      name: "Stock Account",
+      accountType: "taxable",
+      assetClass: "stock",
+      units: 100_000,
+      price: 1,
+      costBasisPerUnit: 1
+    }
+  ];
+
+  const scenario = {
+    ...DEFAULT_SCENARIO,
+    planYears: 10,
+    targetSpend: 4000,
+    aca: { enabled: false }
+  };
+
+  const seed = "test-reconstruct-seed";
+  const mc = runMonteCarlo({
+    assets,
+    scenario,
+    runs: 5,
+    seed,
+    scenarioTimelineLimit: 2 // only first 2 get timelines
+  });
+
+  // Reconstruct scenario ID 3 (which was not included in timeline limit)
+  const plan = generateSingleMonteCarloPath({
+    assets,
+    scenario,
+    seed,
+    scenarioId: 3
+  });
+
+  assert.ok(plan, "Single MC path reconstruction succeeds");
+  assert.equal(plan.years.length, 10, "Reconstructed path has full 10 years of timeline");
+
+  // Reconstructed ending value should precisely match the cached summary ending value of run 3!
+  const scenarioResult3 = mc.scenarios[2];
+  assert.equal(plan.years[9].endingPortfolioValue, scenarioResult3.endingValue, "Reconstructed ending value matches Monte Carlo cached summary");
 });

@@ -15,7 +15,8 @@ import {
   MONTE_CARLO_ASSUMPTION_PRESETS,
   runHistoricalBacktests,
   runMonteCarlo,
-  simulatePlan
+  simulatePlan,
+  generateSingleMonteCarloPath
 } from "./core/simulation.mjs?v=20260531-ssa-pia";
 import { round } from "./core/utils.mjs";
 import { defaultOneOffExpenses, sampleAssets } from "./data/sample.mjs";
@@ -1806,6 +1807,8 @@ async function runModels(opts = {}) {
     if (stream) {
       selectedBacktestIndex = null;
       latest = {
+        assets: assets.map((a) => ({ ...a })),
+        seed,
         scenario,
         taxProfile,
         historicalCoverage,
@@ -1920,6 +1923,8 @@ async function runModels(opts = {}) {
       }
     } else {
       latest = {
+        assets: assets.map((a) => ({ ...a })),
+        seed,
         scenario,
         taxProfile,
         historicalCoverage,
@@ -2620,22 +2625,17 @@ function renderScenarioTable() {
     (index) => {
       const scenario = latest.monteCarlo.scenarios[index];
       const id = scenario.id;
-      const selectable = hasYearTimeline(scenario);
-      const classes = [
-        selectedBacktestIndex == null && id === selectedScenarioId ? "selected-row" : "",
-        selectable ? "" : "disabled-row"
-      ].filter(Boolean).join(" ");
-      const attrs = selectable
-        ? `data-scenario="${id}"`
-        : `aria-disabled="true" title="Full path details are unavailable for compact Monte Carlo paths"`;
-      return `${attrs} class="${classes}"`;
+      const classes = selectedBacktestIndex == null && id === selectedScenarioId ? "selected-row" : "";
+      return `data-scenario="${id}" class="${classes}"`;
     },
     streaming ? scenarioStreamingFooter(progress) : ""
   );
 
   els.scenarioTable.querySelectorAll("[data-scenario]").forEach((row) => {
     row.addEventListener("click", () => {
-      selectedScenarioId = Number(row.dataset.scenario);
+      const id = Number(row.dataset.scenario);
+      ensureScenarioTimeline(id);
+      selectedScenarioId = id;
       selectedBacktestIndex = null;
       clampSelectedYearToVisible();
       renderScenarioTable();
@@ -3037,6 +3037,29 @@ function firstResultWithYears(results = []) {
   return results.find(hasYearTimeline) ?? null;
 }
 
+function ensureScenarioTimeline(id) {
+  if (!latest) return;
+  const scenario = latest.monteCarlo.scenarios.find((s) => s.id === id);
+  if (!scenario) return;
+  if (!hasYearTimeline(scenario)) {
+    const activeAssets = latest.assets || assets || [];
+    const activeScenario = latest.scenario || readScenario();
+    const activeTaxProfile = latest.taxProfile || readTaxProfile();
+    const activeSeed = latest.seed || (Number(els.seed?.value) || 42);
+    
+    const plan = generateSingleMonteCarloPath({
+      assets: activeAssets,
+      scenario: activeScenario,
+      taxProfile: activeTaxProfile,
+      seed: activeSeed,
+      scenarioId: id
+    });
+    if (plan) {
+      scenario.years = plan.years;
+    }
+  }
+}
+
 function activeYears() {
   if (!latest) return [];
   const planYears = latest.plan?.years ?? [];
@@ -3044,6 +3067,7 @@ function activeYears() {
     const backtest = latest.backtests[selectedBacktestIndex];
     return hasYearTimeline(backtest) ? backtest.years : planYears;
   }
+  ensureScenarioTimeline(selectedScenarioId);
   const selectedScenario = latest.monteCarlo.scenarios.find((scenario) => scenario.id === selectedScenarioId);
   return hasYearTimeline(selectedScenario) ? selectedScenario.years : planYears;
 }
