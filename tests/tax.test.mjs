@@ -270,10 +270,31 @@ test("2026 Additional Medicare Tax applies to wage and self-employment threshold
   assert.equal(tax.additionalMedicareSelfEmploymentBase, 92350);
   assert.equal(tax.additionalMedicareRrtaBase, 10000);
   assert.equal(tax.additionalMedicareTax, 1371.15);
+  assert.equal(tax.employeePayrollTax, 15789);
   assert.equal(tax.selfEmploymentTax, 2678.15);
   assert.equal(tax.selfEmploymentTaxDeduction, 1339.075);
   assert.equal(tax.socialSecurityWages, 184500);
-  assert.equal(tax.totalTax, 4049.3);
+  assert.equal(tax.totalTax, 19838.3);
+});
+
+test("2026 W-2 employee FICA uses Social Security wage base and Medicare wages", () => {
+  const taxProfile = buildTaxProfile({
+    taxYear: 2026,
+    filingStatus: "marriedFilingJointly",
+    state: "Florida"
+  });
+  const tax = computeIncomeTax({
+    medicareWages: 300000,
+    profile: taxProfile
+  });
+
+  assert.equal(tax.socialSecurityWages, 184500);
+  assert.equal(tax.employeeSocialSecurityTaxableWages, 184500);
+  assert.equal(tax.employeeSocialSecurityTax, 11439);
+  assert.equal(tax.employeeMedicareTax, 4350);
+  assert.equal(tax.employeePayrollTax, 15789);
+  assert.equal(tax.additionalMedicareTax, 450);
+  assert.equal(tax.totalTax, 16239);
 });
 
 test("2026 self-employment tax uses Schedule SE net earnings, wage base, and half-tax deduction", () => {

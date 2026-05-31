@@ -18,7 +18,7 @@ import {
   DEFAULT_TAX_PROFILE,
   inflateTaxProfile,
   netCapitalGainsAndLosses
-} from "./tax.mjs?v=20260531-se-tax2";
+} from "./tax.mjs?v=20260531-fica";
 import { getMedicareIrmaaConfig, buildTaxProfile } from "../data/taxData.mjs";
 import { createRng, normalRandom, percentile, round } from "./utils.mjs";
 
@@ -3568,7 +3568,7 @@ function spouseSocialSecurityBenefitsForYear(scenario, spouseAge, inflationIndex
 function earnedIncomeForYear(scenario, inflationIndex) {
   const index = scenario.earnedIncomeInflationAdjusted === false ? 1 : inflationIndex;
   const medicareWages = round(Math.max(0, Number(scenario.medicareWages) || 0) * index, 6);
-  const socialSecurityWages = Number.isFinite(Number(scenario.socialSecurityWages))
+  const socialSecurityWages = scenario.socialSecurityWages != null && Number.isFinite(Number(scenario.socialSecurityWages))
     ? round(Math.max(0, Number(scenario.socialSecurityWages) || 0) * index, 6)
     : null;
   const selfEmploymentIncome = round(Math.max(0, Number(scenario.selfEmploymentIncome) || 0) * index, 6);
@@ -5226,8 +5226,11 @@ function buildPostMortalityYearResult({ scenario, yearIndex, portfolio, inflatio
       federal: 0,
       state: 0,
       fica: 0,
+      employeePayrollTax: 0,
       niit: 0,
+      selfEmploymentTax: 0,
       additionalMedicare: 0,
+      additionalMedicareTax: 0,
       penaltyTax: 0,
       total: 0,
       lossCarryforward: 0,

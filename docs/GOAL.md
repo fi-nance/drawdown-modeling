@@ -172,8 +172,8 @@ its status today.
 
 Shipped today (see README and `src/data/taxData.mjs`):
 - Federal 2026 brackets, standard deduction, age-65 bump, LTCG/QDI stacking,
-  NIIT, Additional Medicare Tax, self-employment tax, child tax credit
-  (nonrefundable).
+  NIIT, W-2 employee FICA, Additional Medicare Tax, self-employment tax, child
+  tax credit (nonrefundable).
 - Capital loss carryforwards, ordinary loss offsets.
 - 50-state ordinary + capital-gains tax tables with retirement-income and
   Social Security rule overlays.

@@ -1,5 +1,5 @@
 import { EPSILON, round } from "./utils.mjs";
-import { buildTaxProfile } from "../data/taxData.mjs?v=20260531-se-tax2";
+import { buildTaxProfile } from "../data/taxData.mjs?v=20260531-fica";
 import {
   stateRetirementIncomeExclusion,
   stateSocialSecurityExclusion
@@ -146,6 +146,11 @@ export function computeIncomeTax({
     socialSecurityWages,
     profile
   });
+  const employeePayroll = computeEmployeePayrollTax({
+    medicareWages,
+    socialSecurityWages,
+    profile
+  });
   const adjustments = round(Math.max(0, adjustmentsToIncome) + selfEmployment.deduction, 6);
   const netting = netCapitalGainsAndLosses({
     shortTermCapitalGains,
@@ -229,7 +234,7 @@ export function computeIncomeTax({
     taxableSocialSecurity: round(taxableSocialSecurity, 6),
     adjustmentsToIncome: round(adjustments, 6),
     medicareWages: round(medicareWages, 6),
-    socialSecurityWages: selfEmployment.socialSecurityWages,
+    socialSecurityWages: employeePayroll.socialSecurityWages,
     selfEmploymentIncome: round(selfEmploymentIncome, 6),
     rrtaCompensation: round(rrtaCompensation, 6),
     shortTermCapitalGains: round(shortTermCapitalGains, 6),
@@ -250,6 +255,11 @@ export function computeIncomeTax({
     federalCreditsUsed,
     federalIncomeTax,
     niitTax,
+    employeePayrollTax: employeePayroll.tax,
+    employeeSocialSecurityTax: employeePayroll.socialSecurityTax,
+    employeeSocialSecurityTaxableWages: employeePayroll.socialSecurityTaxableWages,
+    employeeMedicareTax: employeePayroll.medicareTax,
+    employeePayrollSocialSecurityWageBase: employeePayroll.socialSecurityWageBase,
     selfEmploymentTax: selfEmployment.tax,
     selfEmploymentTaxableEarnings: selfEmployment.taxableEarnings,
     selfEmploymentNetEarnings: selfEmployment.netEarnings,
@@ -266,7 +276,7 @@ export function computeIncomeTax({
     additionalMedicareRrtaBase: additionalMedicare.rrtaBase,
     additionalMedicareThreshold: additionalMedicare.threshold,
     stateTax,
-    totalTax: round(federalIncomeTax + niitTax + selfEmployment.tax + additionalMedicare.tax + stateTax, 6),
+    totalTax: round(federalIncomeTax + niitTax + employeePayroll.tax + selfEmployment.tax + additionalMedicare.tax + stateTax, 6),
     lossCarryforward: round(lossPool, 6),
     lossCarryforwardShort: round(shortLossPool, 6),
     lossCarryforwardLong: round(longLossPool, 6)
@@ -352,10 +362,7 @@ export function computeSelfEmploymentTax({
 } = {}) {
   const config = profile?.selfEmploymentTax;
   const wageBase = Math.max(0, Number(config?.socialSecurityWageBase) || 0);
-  const explicitSocialSecurityWages = socialSecurityWages != null && Number.isFinite(Number(socialSecurityWages));
-  const modeledSocialSecurityWages = explicitSocialSecurityWages
-    ? Math.max(0, Number(socialSecurityWages) || 0)
-    : Math.min(Math.max(0, Number(medicareWages) || 0), wageBase);
+  const modeledSocialSecurityWages = modeledW2SocialSecurityWages({ socialSecurityWages, medicareWages, wageBase });
   const rawSelfEmploymentIncome = Math.max(0, Number(selfEmploymentIncome) || 0);
   const empty = {
     tax: 0,
@@ -394,6 +401,46 @@ export function computeSelfEmploymentTax({
     socialSecurityWageBase: round(wageBase, 6),
     remainingSocialSecurityWageBase: round(remainingSocialSecurityWageBase, 6)
   };
+}
+
+export function computeEmployeePayrollTax({
+  medicareWages = 0,
+  socialSecurityWages = null,
+  profile = DEFAULT_TAX_PROFILE
+} = {}) {
+  const config = profile?.employeePayrollTax;
+  const wageBase = Math.max(0, Number(config?.socialSecurityWageBase) || 0);
+  const modeledSocialSecurityWages = modeledW2SocialSecurityWages({ socialSecurityWages, medicareWages, wageBase });
+  const socialSecurityTaxableWages = Math.min(modeledSocialSecurityWages, wageBase);
+  const medicareTaxableWages = Math.max(0, Number(medicareWages) || 0);
+  const empty = {
+    tax: 0,
+    socialSecurityTax: 0,
+    socialSecurityTaxableWages: 0,
+    medicareTax: 0,
+    medicareTaxableWages: round(medicareTaxableWages, 6),
+    socialSecurityWages: round(modeledSocialSecurityWages, 6),
+    socialSecurityWageBase: round(wageBase, 6)
+  };
+  if (!config || medicareTaxableWages <= EPSILON) return empty;
+
+  const socialSecurityTax = round(socialSecurityTaxableWages * (config.socialSecurityRate ?? 0), 6);
+  const medicareTax = round(medicareTaxableWages * (config.medicareRate ?? 0), 6);
+  return {
+    tax: round(socialSecurityTax + medicareTax, 6),
+    socialSecurityTax,
+    socialSecurityTaxableWages: round(socialSecurityTaxableWages, 6),
+    medicareTax,
+    medicareTaxableWages: round(medicareTaxableWages, 6),
+    socialSecurityWages: round(modeledSocialSecurityWages, 6),
+    socialSecurityWageBase: round(wageBase, 6)
+  };
+}
+
+function modeledW2SocialSecurityWages({ socialSecurityWages = null, medicareWages = 0, wageBase = 0 } = {}) {
+  return socialSecurityWages != null && Number.isFinite(Number(socialSecurityWages))
+    ? Math.max(0, Number(socialSecurityWages) || 0)
+    : Math.min(Math.max(0, Number(medicareWages) || 0), Math.max(0, Number(wageBase) || 0));
 }
 
 function computeAdditionalMedicareTax({

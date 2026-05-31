@@ -4,7 +4,7 @@ import {
   stateRetirementRulesFor
 } from "./stateRetirementTax2026.mjs";
 
-export const TAX_DATA_VERSION = "2026.2";
+export const TAX_DATA_VERSION = "2026.3";
 export const DEFAULT_TAX_YEAR = 2026;
 
 export const FILING_STATUSES = {
@@ -47,6 +47,12 @@ export const FEDERAL_TAX_2026 = {
     medicareRate: 0.029,
     socialSecurityWageBase: 184500,
     source: "IRS Topic 554; 2026 Form 1040-ES; SSA 2026 contribution and benefit base."
+  },
+  employeePayrollTax: {
+    socialSecurityRate: 0.062,
+    medicareRate: 0.0145,
+    socialSecurityWageBase: 184500,
+    source: "IRS Topic 751; IRS Publication 15 (2026); SSA 2026 contribution and benefit base."
   },
   childTaxCredit: {
     perChild: 2200,
@@ -263,6 +269,7 @@ export function buildFederalTaxProfile({
     niit: data.niit,
     additionalMedicareTax: data.additionalMedicareTax,
     selfEmploymentTax: data.selfEmploymentTax,
+    employeePayrollTax: data.employeePayrollTax,
     childTaxCredit: data.childTaxCredit,
     additionalStandardDeduction65: data.additionalStandardDeduction65,
     socialSecurityTaxation: data.socialSecurityTaxation,
