@@ -621,6 +621,11 @@ body[data-screen="persona"]::before {
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   box-shadow: var(--shadow-sm);
+  /* Grid items default to min-width:auto, which lets the card expand to its
+     content's min-size (the wide control-grid) instead of shrinking to its
+     module-grid track. On a 320px viewport that blew the card out to ~1260px
+     and forced horizontal scrolling. min-width:0 lets it shrink to the track. */
+  min-width: 0;
 }
 .module-card[hidden] { display: none !important; }
 .module-card .module-header {
@@ -752,11 +757,16 @@ body[data-screen="persona"]::before {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
+  min-width: 0;
 }
 .module-card .module-body .control-grid {
   margin: 0;
   gap: 0.75rem 1rem;
-  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  min-width: 0;
+  /* min(100%, 170px) lets a single column shrink below 170px when the
+     container is narrower than that, instead of overflowing. At desktop
+     widths min() resolves to 170px, so multi-column layout is unchanged. */
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr));
 }
 .module-card label {
   font-size: 0.78rem;

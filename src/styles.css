@@ -1112,6 +1112,58 @@ th.is-sortable:hover .sort-indicator {
   }
 }
 
+/* The editable holdings table has 10 columns and is ~1184px wide, so on a
+   phone it forces horizontal scrolling to reach Price/Basis/Yield. Reflow each
+   holding row into a stacked card where every field is full-width and labeled
+   from the td's data-label (emitted by renderAssetTable in app.mjs). Mirrors
+   the read-only action-plan reflow in redesign.css. */
+@media (max-width: 640px) {
+  .asset-table { overflow-x: visible; }
+  .asset-table table,
+  .asset-table thead,
+  .asset-table tbody,
+  .asset-table tr,
+  .asset-table td { display: block; width: auto; }
+  .asset-table thead { position: absolute; left: -9999px; }
+  .asset-table tbody { display: flex; flex-direction: column; gap: 0.6rem; }
+  .asset-table tr {
+    border: 1px solid var(--border-light, var(--border));
+    border-radius: 10px;
+    padding: 0.55rem 0.7rem 0.65rem;
+  }
+  .asset-table td {
+    display: grid;
+    grid-template-columns: 92px minmax(0, 1fr);
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.2rem 0;
+    border: 0;
+  }
+  /* Render the column name as an inline label before each field. */
+  .asset-table td::before {
+    content: attr(data-label);
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--text-secondary, var(--text-muted));
+  }
+  /* Cells with no label (the Remove button) span full width. */
+  .asset-table td[data-label=""] { grid-template-columns: 1fr; }
+  .asset-table td[data-label=""]::before { content: none; }
+  /* [data-field] raises specificity to (0,2,2) so this beats the wide
+     per-field min-widths set elsewhere (e.g. input[data-field="name"] at
+     min-width:180px, specificity (0,2,1)) — otherwise the name field alone
+     pushes the card past the viewport. */
+  .asset-table td input[data-field],
+  .asset-table td select[data-field] {
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+  }
+  .asset-table td[data-label=""] button { width: 100%; }
+}
+
 /* ─── Animations ─────────────────────────────────────────────────── */
 
 @keyframes fadeInUp {

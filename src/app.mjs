@@ -3130,18 +3130,21 @@ function renderAssetTable() {
   const accountOptions = ["taxable", "traditional", "roth", "hsa"];
   const assetClassOptions = ["stock", "bond", "cash", "realEstate", "tips", "crypto"];
   const holdingOptions = ["long", "short"];
+  // data-label on each <td> lets the narrow-viewport CSS reflow this editable
+  // table into stacked cards (see .asset-table reflow in styles.css), so every
+  // holding field is visible without horizontal scrolling on a phone.
   const rows = assets.map((asset, index) => `
     <tr>
-      <td><input data-index="${index}" data-field="name" value="${escapeAttr(asset.name)}"></td>
-      <td>${selectHtml(index, "accountType", accountOptions, asset.accountType)}</td>
-      <td>${selectHtml(index, "assetClass", assetClassOptions, asset.assetClass)}</td>
-      <td><input data-index="${index}" data-field="units" type="number" step="0.0001" value="${asset.units}"></td>
-      <td><input data-index="${index}" data-field="price" type="number" step="0.01" value="${asset.price}"></td>
-      <td><input data-index="${index}" data-field="costBasisPerUnit" type="number" step="0.01" value="${asset.costBasisPerUnit}"></td>
-      <td><input data-index="${index}" data-field="dividendYield" type="number" step="0.001" value="${asset.dividendYield ?? 0}"></td>
-      <td><input data-index="${index}" data-field="qualifiedDividendShare" type="number" step="0.05" min="0" max="1" value="${asset.qualifiedDividendShare ?? 0}"></td>
-      <td>${selectHtml(index, "holdingPeriod", holdingOptions, asset.holdingPeriod ?? "long")}</td>
-      <td><button type="button" data-remove="${index}">Remove</button></td>
+      <td data-label="Name"><input data-index="${index}" data-field="name" value="${escapeAttr(asset.name)}"></td>
+      <td data-label="Account">${selectHtml(index, "accountType", accountOptions, asset.accountType)}</td>
+      <td data-label="Class">${selectHtml(index, "assetClass", assetClassOptions, asset.assetClass)}</td>
+      <td data-label="Units"><input data-index="${index}" data-field="units" type="number" step="0.0001" value="${asset.units}"></td>
+      <td data-label="Price"><input data-index="${index}" data-field="price" type="number" step="0.01" value="${asset.price}"></td>
+      <td data-label="Basis"><input data-index="${index}" data-field="costBasisPerUnit" type="number" step="0.01" value="${asset.costBasisPerUnit}"></td>
+      <td data-label="Yield"><input data-index="${index}" data-field="dividendYield" type="number" step="0.001" value="${asset.dividendYield ?? 0}"></td>
+      <td data-label="Qualified"><input data-index="${index}" data-field="qualifiedDividendShare" type="number" step="0.05" min="0" max="1" value="${asset.qualifiedDividendShare ?? 0}"></td>
+      <td data-label="Term">${selectHtml(index, "holdingPeriod", holdingOptions, asset.holdingPeriod ?? "long")}</td>
+      <td data-label="">${`<button type="button" data-remove="${index}">Remove</button>`}</td>
     </tr>
   `).join("");
 
