@@ -1478,10 +1478,9 @@ body[data-screen="persona"]::before {
   text-align: center;
   text-transform: uppercase;
 }
-/* Out-of-model flags are permanent scope notes ("we don't model heir/estate
-   tax yet"), not actionable findings about this run. Styling them like the
-   situational flags makes them read as scolding. Mute the row and badge so
-   the eye lands on the actionable items first. */
+/* Out-of-model flags are permanent scope notes, not actionable findings about
+   this run. Styling them like situational flags makes them read as scolding.
+   Mute the row and badge so the eye lands on the actionable items first. */
 .confidence-list li[data-level="out-of-model"] {
   color: var(--text-muted);
   opacity: 0.85;

@@ -218,6 +218,7 @@ const CONTROL_IDS = [
   "rothConversionMagiGuardrails",
   "rothAmount",
   "rothTargetRate",
+  "heirOrdinaryTaxRate",
   "rothConversionMaxAcaFplPercent",
   "rothConversionMagiBuffer",
   "rothBasisOptimization",
@@ -386,6 +387,7 @@ const els = {
   rothConversionMagiGuardrails: document.querySelector("#rothConversionMagiGuardrails"),
   rothAmount: document.querySelector("#rothAmount"),
   rothTargetRate: document.querySelector("#rothTargetRate"),
+  heirOrdinaryTaxRate: document.querySelector("#heirOrdinaryTaxRate"),
   rothConversionMaxAcaFplPercent: document.querySelector("#rothConversionMaxAcaFplPercent"),
   rothConversionMagiBuffer: document.querySelector("#rothConversionMagiBuffer"),
   rothBasisOptimization: document.querySelector("#rothBasisOptimization"),
@@ -1455,6 +1457,9 @@ function applyScenarioControls(scenario) {
   if (Number.isFinite(Number(scenario.rothConversion?.targetMarginalRate))) {
     setNumberControl("rothTargetRate", Number(scenario.rothConversion.targetMarginalRate) * 100);
   }
+  if (Number.isFinite(Number(scenario.heirOrdinaryTaxRate))) {
+    setNumberControl("heirOrdinaryTaxRate", Number(scenario.heirOrdinaryTaxRate) * 100);
+  }
   setNumberControl("rothConversionMaxAcaFplPercent", scenario.rothConversion?.maxAcaFplPercent);
   setNumberControl("rothConversionMagiBuffer", scenario.rothConversion?.magiBuffer);
   setCheckedControl("rothBasisOptimization", scenario.rothBasisOptimization?.enabled);
@@ -1993,6 +1998,7 @@ function auditRowsForScenario(scenario) {
     ["Dollar basis", dollarAuditLine()],
     ["Tax assumptions", taxAuditLine(scenario)],
     ["Strategy mode", strategyAuditLine(scenario)],
+    ["Legacy/bequest", legacyAuditLine(scenario)],
     ["ACA locality", acaLocalityAuditLine(scenario)],
     ["ACA plan inputs", acaPlanAuditLine(scenario)],
     ["Simulation inputs", simulationAuditLine()],
@@ -2123,6 +2129,16 @@ function strategyAuditLine(scenario) {
   return `Basic drawdown heuristic is active: it follows the selected account order with tax-aware lot sorting and simple guardrails, without full cross-year source scoring.${spending}`;
 }
 
+function legacyAuditLine(scenario) {
+  const breakdown = latest?.plan?.heirValueBreakdown;
+  const rate = Number.isFinite(Number(scenario.heirOrdinaryTaxRate))
+    ? percentFormatter.format(Number(scenario.heirOrdinaryTaxRate))
+    : "the default heir ordinary tax rate";
+  const base = `After-tax bequest estimate taxes inherited traditional and HSA balances at ${rate}; Roth and taxable balances are treated as tax-free to heirs, with taxable unrealized gains assumed stepped up at death.`;
+  if (!breakdown) return `${base} Inherited IRA payout timing, beneficiary brackets beyond this rate, and estate/inheritance tax are not modeled.`;
+  return `${base} Current modeled ending gross value ${moneyFormatter.format(breakdown.grossValue ?? 0)}, estimated income tax ${moneyFormatter.format(breakdown.totalIncomeTaxEstimate ?? 0)}, after-tax bequest ${moneyFormatter.format(breakdown.afterTaxValue ?? 0)}. Inherited IRA payout timing and estate/inheritance tax are not modeled.`;
+}
+
 function acaLocalityAuditLine(scenario) {
   if (scenario.aca?.enabled === false) return "ACA disabled.";
   const zip = String(els.marketplaceZip?.value || "").trim();
@@ -2208,7 +2224,7 @@ function renderKpis() {
     ["Success rate", percentFormatter.format(summary.successRate)],
     ["Median ending", moneyFormatter.format(adjustedMedian)],
     ["P10 ending", moneyFormatter.format(adjustedP10)],
-    ["Median heir value", moneyFormatter.format(adjustedHeir)],
+    ["Median after-tax bequest", moneyFormatter.format(adjustedHeir)],
     ["Selected year tax", moneyFormatter.format(adjustAmount(currentYear.taxes.totalTax, currentYear))]
   ];
 
@@ -2471,7 +2487,7 @@ function renderScenarioTable() {
   const progress = latest.monteCarlo.progress;
   const streaming = progress && !progress.complete;
   els.scenarioTable.innerHTML = tableHtml(
-    ["Run", "Success", "Ending", "Heirs", "Failure year"],
+    ["Run", "Success", "Ending", "After-tax heirs", "Failure year"],
     rows,
     (index) => {
       const scenario = latest.monteCarlo.scenarios[index];
@@ -2534,7 +2550,7 @@ function renderBacktests() {
   els.backtestTable.innerHTML = `
     <p class="table-note">${escapeHtml(note)}</p>
     ${tableHtml(
-      ["Path", "Success", "Ending", "Heirs", "Failure year"],
+      ["Path", "Success", "Ending", "After-tax heirs", "Failure year"],
       rows,
       (index) => {
         const backtest = latest.backtests[index];
@@ -3967,6 +3983,7 @@ function readScenario() {
     rothBasis: Number(els.rothBasis.value) || 0,
     earlyWithdrawalPenaltyExceptionAmount: numberOrNull(els.earlyWithdrawalPenaltyExceptionAmount.value) ?? 0,
     rothFiveYearRuleSatisfied: els.rothFiveYearRuleSatisfied.checked,
+    heirOrdinaryTaxRate: percentInputValue("heirOrdinaryTaxRate", DEFAULT_SCENARIO.heirOrdinaryTaxRate),
     medicareWages: Number(els.medicareWages.value) || 0,
     selfEmploymentIncome: Number(els.selfEmploymentIncome.value) || 0,
     rrtaCompensation: Number(els.rrtaCompensation.value) || 0,

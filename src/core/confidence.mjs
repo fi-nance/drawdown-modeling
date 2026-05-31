@@ -406,11 +406,11 @@ function addSocialSecurityFlags(flags, scenario) {
 function addLegacyFlags(flags) {
   flags.push({
     id: "legacy-tax-out-of-model",
-    level: CONFIDENCE_LEVELS.OUT_OF_MODEL,
+    level: CONFIDENCE_LEVELS.CPA_REVIEW,
     lens: "cpa",
-    title: "Legacy strategy is residual-value only today",
-    detail: "Heir after-tax inheritance, inherited IRA 10-year rules, estate/inheritance tax, beneficiary type, and taxable step-up are not modeled yet.",
-    action: "Treat bequest values as pre-estate-planning planning outputs until heir and estate inputs are added."
+    title: "Legacy tax detail needs estate review",
+    detail: "The bequest estimate applies the entered heir ordinary tax rate to inherited traditional/HSA balances and assumes taxable-basis step-up. Inherited IRA payout timing, beneficiary type, estate/inheritance tax, and heir-specific brackets are not modeled yet.",
+    action: "Use the after-tax bequest as a planning estimate, not an estate plan; add CPA/estate review before optimizing for heirs."
   });
 }
 

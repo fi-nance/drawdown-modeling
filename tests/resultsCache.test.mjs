@@ -52,6 +52,7 @@ function makeLatest({ runs = 2, planYears = 3 } = {}) {
     success: true,
     endingValue: 800_000 + i * 1000,
     heirValue: 400_000,
+    heirValueBreakdown: { grossValue: 500_000, afterTaxValue: 400_000, totalIncomeTaxEstimate: 100_000 },
     years
   }));
   return {
@@ -59,7 +60,7 @@ function makeLatest({ runs = 2, planYears = 3 } = {}) {
     taxProfile: { filingStatus: "marriedFilingJointly" },
     historicalRange: { startYear: 1928, endYear: 2024 },
     historicalMode: "all",
-    plan: { years, success: true, endingValue: 800_000, heirValue: 400_000 },
+    plan: { years, success: true, endingValue: 800_000, heirValue: 400_000, heirValueBreakdown: { grossValue: 500_000, afterTaxValue: 400_000, totalIncomeTaxEstimate: 100_000 } },
     monteCarlo: {
       summary: {
         runs,
@@ -76,6 +77,7 @@ function makeLatest({ runs = 2, planYears = 3 } = {}) {
       success: true,
       endingValue: 750_000,
       heirValue: 350_000,
+      heirValueBreakdown: { grossValue: 450_000, afterTaxValue: 350_000, totalIncomeTaxEstimate: 100_000 },
       sourceYears: [1990, 1991],
       sourceStartYear: 1990,
       sourceEndYear: 2025,
@@ -104,6 +106,8 @@ test("restoreCachedLatest round-trips the cached object", () => {
   assert.ok(restored, "expected to restore a non-null value");
   assert.equal(restored.monteCarlo.summary.successRate, 0.9);
   assert.equal(restored.plan.endingValue, 800_000);
+  assert.equal(restored.plan.heirValueBreakdown.afterTaxValue, 400_000);
+  assert.equal(restored.monteCarlo.scenarios[0].heirValueBreakdown.afterTaxValue, 400_000);
   assert.equal(restored.monteCarlo.scenarios.length, 2);
 });
 

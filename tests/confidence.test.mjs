@@ -30,7 +30,7 @@ test("confidence report flags input-limited ACA estimates and legacy gaps", () =
   assert.equal(report.headline, "CPA review recommended");
   assert.ok(report.flags.some((flag) => flag.id === "aca-plan-inputs" && flag.level === CONFIDENCE_LEVELS.INPUT_LIMITED));
   assert.ok(report.flags.some((flag) => flag.id === "state-retirement-tax-review" && flag.level === CONFIDENCE_LEVELS.CPA_REVIEW));
-  assert.ok(report.flags.some((flag) => flag.id === "legacy-tax-out-of-model" && flag.level === CONFIDENCE_LEVELS.OUT_OF_MODEL));
+  assert.ok(report.flags.some((flag) => flag.id === "legacy-tax-out-of-model" && flag.level === CONFIDENCE_LEVELS.CPA_REVIEW));
 });
 
 test("confidence report names rating-area SLCSP when ZIP lookup succeeds", () => {

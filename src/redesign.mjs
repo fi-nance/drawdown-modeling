@@ -836,6 +836,7 @@ function snapshotSummary(latest) {
     fifth: pickEndingValue(latest, 0.05),
     lifetimeTax: sumLifetimeTax(latest),
     healthcare: sumLifetimeHealthcare(latest),
+    medianHeirValue: pickHeirValue(latest, 0.5),
     allInSpendRate: allInSpendRate(latest),
     years: planYears(latest).length
   };
@@ -868,7 +869,7 @@ function renderKpiStrip() {
         <div class="dh-kpi"><span class="kpi-label">Lifetime tax</span><span class="kpi-big mono">—</span></div>
         <div class="dh-kpi"><span class="kpi-label">Healthcare</span><span class="kpi-big mono">—</span></div>
         <div class="dh-kpi"><span class="kpi-label">All-in spend rate</span><span class="kpi-big mono">—</span></div>
-        <div class="dh-kpi"><span class="kpi-label">Years modeled</span><span class="kpi-big mono">—</span></div>
+        <div class="dh-kpi"><span class="kpi-label">After-tax bequest</span><span class="kpi-big mono">—</span></div>
       </div>`;
     return;
   }
@@ -904,7 +905,7 @@ function renderKpiStrip() {
         <div class="dh-kpi"><span class="kpi-label">Lifetime tax</span><span class="kpi-big mono">—</span></div>
         <div class="dh-kpi"><span class="kpi-label">Healthcare</span><span class="kpi-big mono">—</span></div>
         <div class="dh-kpi"><span class="kpi-label">All-in spend rate</span><span class="kpi-big mono">—</span></div>
-        <div class="dh-kpi"><span class="kpi-label">Years modeled</span><span class="kpi-big mono">—</span></div>
+        <div class="dh-kpi"><span class="kpi-label">After-tax bequest</span><span class="kpi-big mono">—</span></div>
       </div>`;
     return;
   }
@@ -944,7 +945,7 @@ function renderKpiStrip() {
       <div class="dh-kpi"><span class="kpi-label">Lifetime tax</span><span class="kpi-big mono">${formatCurrencyShort(summary.lifetimeTax)}</span></div>
       <div class="dh-kpi"><span class="kpi-label">Healthcare</span><span class="kpi-big mono">${formatCurrencyShort(summary.healthcare)}</span></div>
       <div class="dh-kpi"><span class="kpi-label">All-in spend rate</span><span class="kpi-big mono">${(summary.allInSpendRate*100).toFixed(1)}%</span></div>
-      <div class="dh-kpi"><span class="kpi-label">Years modeled</span><span class="kpi-big mono">${summary.years}</span></div>
+      <div class="dh-kpi"><span class="kpi-label">After-tax bequest</span><span class="kpi-big mono">${formatCurrencyShort(summary.medianHeirValue)}</span></div>
     </div>`;
 }
 
@@ -1186,8 +1187,7 @@ function healthcareText(healthcare = {}) {
 }
 
 function confidenceCardHtml(confidence = {}) {
-  // Permanent scope notes (out-of-model, e.g. the always-on
-  // legacy-tax-out-of-model flag) sink below situational findings so the
+  // Permanent out-of-model scope notes sink below situational findings so the
   // card leads with what's actually actionable for this run, then names the
   // exclusions. data-level lets the CSS mute the scope-note styling so it
   // reads as a boundary statement, not a fresh red flag.
@@ -2076,10 +2076,28 @@ function pickEndingValue(latest, percentile) {
   }
   return NaN;
 }
+function pickHeirValue(latest, percentile) {
+  const values = monteCarloScenarios(latest)
+    .map((scenario) => resultHeirValue(scenario))
+    .filter(Number.isFinite)
+    .sort((a, b) => a - b);
+  if (values.length) return percentileValue(values, percentile);
+
+  const summary = latest?.monteCarlo?.summary;
+  const finalYear = planYears(latest).at(-1);
+  if (summary && Math.abs(percentile - 0.5) < 0.001 && Number.isFinite(summary.medianHeirValue)) {
+    return displayAmount(summary.medianHeirValue, finalYear);
+  }
+  return NaN;
+}
 function resultEndingValue(result) {
   const year = resultFinalYear(result);
   const value = result?.endingValue ?? year?.endingPortfolioValue ?? NaN;
   return displayAmount(value, year);
+}
+function resultHeirValue(result) {
+  const year = resultFinalYear(result);
+  return displayAmount(result?.heirValue ?? NaN, year);
 }
 function resultFinalYear(result) {
   return result?.years?.at?.(-1) ?? result?.lastYear ?? null;

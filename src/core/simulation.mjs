@@ -309,12 +309,14 @@ export function simulatePlan({
 
   const endingAccounts = accountBreakdown(portfolio);
   const endingValue = portfolioValue(portfolio);
+  const heirValueBreakdown = estimateHeirValueBreakdown(portfolio, mergedScenario.heirOrdinaryTaxRate);
   return {
     success,
     years,
     endingValue,
     endingAccounts,
-    heirValue: estimateHeirValue(portfolio, mergedScenario.heirOrdinaryTaxRate),
+    heirValue: heirValueBreakdown.afterTaxValue,
+    heirValueBreakdown,
     rothBasisRemaining,
     hsaQualifiedExpenseBalance,
     finalPortfolio: clonePortfolio(portfolio)
@@ -556,6 +558,7 @@ function monteCarloScenarioResult({ id, plan, depletion, includeTimeline }) {
     success: plan.success,
     endingValue: plan.endingValue,
     heirValue: plan.heirValue,
+    heirValueBreakdown: plan.heirValueBreakdown,
     ...depletion,
     diagnostics: plan.success ? null : analyzeFailedScenario(plan.years)
   };
@@ -2069,7 +2072,7 @@ function uniqueWithdrawalOrders(orders) {
 
 function lifetimeWithdrawalScore(plan, config, scenario) {
   const heirTaxRate = scenario?.heirOrdinaryTaxRate ?? 0.24;
-  const heirValue = plan.portfolio ? estimateHeirValue(plan.portfolio, heirTaxRate) : 0;
+  const heirValue = plan.portfolio ? estimateHeirValueBreakdown(plan.portfolio, heirTaxRate).afterTaxValue : 0;
   return round(
     plan.modeledCost
       + Math.max(0, plan.withdrawal?.saleOpportunityCost ?? 0) * config.expectedReturnPenaltyYears
@@ -4857,14 +4860,66 @@ function embeddedTaxableGains(portfolio) {
   }, 0), 6);
 }
 
-function estimateHeirValue(portfolio, ordinaryTaxRate = 0.24) {
-  return round(portfolio.reduce((total, asset) => {
+function estimateHeirValueBreakdown(portfolio, ordinaryTaxRate = 0.24) {
+  const assumedOrdinaryTaxRate = Math.max(0, Math.min(1, Number(ordinaryTaxRate) || 0));
+  const breakdown = {
+    grossValue: 0,
+    afterTaxValue: 0,
+    assumedOrdinaryTaxRate,
+    taxableValue: 0,
+    taxableUnrealizedGain: 0,
+    taxableStepUpGainAssumed: 0,
+    traditionalValue: 0,
+    traditionalIncomeTaxEstimate: 0,
+    rothValue: 0,
+    hsaValue: 0,
+    hsaIncomeTaxEstimate: 0,
+    otherValue: 0,
+    totalIncomeTaxEstimate: 0
+  };
+
+  for (const asset of portfolio) {
     const value = marketValue(asset);
-    if (asset.accountType === "traditional" || asset.accountType === "hsa") {
-      return total + value * (1 - ordinaryTaxRate);
+    breakdown.grossValue += value;
+
+    if (asset.accountType === "taxable") {
+      const basis = (asset.costBasisPerUnit ?? asset.price) * (asset.units ?? 0);
+      const unrealizedGain = Math.max(0, value - basis);
+      breakdown.taxableValue += value;
+      breakdown.taxableUnrealizedGain += unrealizedGain;
+      breakdown.taxableStepUpGainAssumed += unrealizedGain;
+      breakdown.afterTaxValue += value;
+      continue;
     }
-    return total + value;
-  }, 0), 6);
+
+    if (asset.accountType === "traditional" || asset.accountType === "hsa") {
+      const tax = value * assumedOrdinaryTaxRate;
+      if (asset.accountType === "traditional") {
+        breakdown.traditionalValue += value;
+        breakdown.traditionalIncomeTaxEstimate += tax;
+      } else {
+        breakdown.hsaValue += value;
+        breakdown.hsaIncomeTaxEstimate += tax;
+      }
+      breakdown.totalIncomeTaxEstimate += tax;
+      breakdown.afterTaxValue += value - tax;
+      continue;
+    }
+
+    if (asset.accountType === "roth") {
+      breakdown.rothValue += value;
+    } else {
+      breakdown.otherValue += value;
+    }
+    breakdown.afterTaxValue += value;
+  }
+
+  return Object.fromEntries(
+    Object.entries(breakdown).map(([key, value]) => [
+      key,
+      key === "assumedOrdinaryTaxRate" ? round(value, 6) : round(value, 2)
+    ])
+  );
 }
 
 function assetSnapshot(portfolio) {

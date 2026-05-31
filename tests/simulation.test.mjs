@@ -37,6 +37,74 @@ function assertNear(actual, expected, tolerance = 0.01) {
   );
 }
 
+test("after-tax bequest estimate taxes inherited traditional and HSA balances and surfaces taxable step-up", () => {
+  const plan = simulatePlan({
+    assets: [
+      {
+        id: "taxable-stock",
+        accountType: "taxable",
+        assetClass: "stock",
+        units: 10,
+        price: 100,
+        costBasisPerUnit: 10
+      },
+      {
+        id: "traditional-cash",
+        accountType: "traditional",
+        assetClass: "cash",
+        units: 1000,
+        price: 1,
+        costBasisPerUnit: 1
+      },
+      {
+        id: "roth-cash",
+        accountType: "roth",
+        assetClass: "cash",
+        units: 1000,
+        price: 1,
+        costBasisPerUnit: 1
+      },
+      {
+        id: "hsa-cash",
+        accountType: "hsa",
+        assetClass: "cash",
+        units: 1000,
+        price: 1,
+        costBasisPerUnit: 1
+      }
+    ],
+    scenario: {
+      planYears: 1,
+      targetSpend: 0,
+      currentAge: 60,
+      heirOrdinaryTaxRate: 0.3,
+      rmd: { enabled: false },
+      rothConversion: { enabled: false },
+      taxGainHarvesting: { enabled: false },
+      taxLossHarvesting: { enabled: false },
+      aca: { enabled: false },
+      returnAssumptions: {
+        stock: { mean: 0, stdev: 0 },
+        cash: { mean: 0, stdev: 0 }
+      }
+    },
+    taxProfile: noTaxProfile,
+    returnSequence: [{ stock: 0, cash: 0 }],
+    inflationSequence: [0]
+  });
+
+  assert.equal(plan.endingValue, 4000);
+  assert.equal(plan.heirValue, 3400);
+  assert.equal(plan.heirValueBreakdown.grossValue, 4000);
+  assert.equal(plan.heirValueBreakdown.afterTaxValue, 3400);
+  assert.equal(plan.heirValueBreakdown.assumedOrdinaryTaxRate, 0.3);
+  assert.equal(plan.heirValueBreakdown.taxableUnrealizedGain, 900);
+  assert.equal(plan.heirValueBreakdown.taxableStepUpGainAssumed, 900);
+  assert.equal(plan.heirValueBreakdown.traditionalIncomeTaxEstimate, 300);
+  assert.equal(plan.heirValueBreakdown.hsaIncomeTaxEstimate, 300);
+  assert.equal(plan.heirValueBreakdown.totalIncomeTaxEstimate, 600);
+});
+
 test("withdrawal engine grosses up spending when taxes are excluded from target spend", () => {
   const plan = simulatePlan({
     assets: [{

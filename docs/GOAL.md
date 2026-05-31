@@ -251,8 +251,13 @@ Goal-level gaps:
 
 ### 3. Heir maximization
 
-Shipped today: bequest is the residual portfolio at end of horizon. No
-inherited-account modeling.
+Shipped today: bequest is modeled as an after-tax planning estimate. Ending
+traditional and HSA balances are reduced by the entered heir ordinary tax rate,
+Roth balances are treated as tax-free to heirs, and taxable unrealized gains are
+assumed stepped up at death. The result includes an auditable breakdown of gross
+ending value, estimated heir income tax, taxable gains assumed stepped up, and
+after-tax bequest. No inherited-account payout schedule or estate-tax modeling
+is shipped yet.
 
 Goal-level gaps (the largest single area):
 - **Inherited IRA 10-year rule (SECURE Act 2.0)** for non-eligible designated
@@ -261,9 +266,10 @@ Goal-level gaps (the largest single area):
 - **Eligible designated beneficiary** rules (surviving spouse, minor child,
   disabled/chronically ill, < 10 years younger) with spousal rollover and
   stretch options.
-- **Step-up basis on taxable accounts**, modeled at death year so the
-  "Roth vs taxable" bequest tradeoff is honest. Today the optimizer cannot
-  reason about this.
+- **Step-up basis sensitivity and exceptions** so the taxable-account assumption
+  can handle alternate valuation, gift-within-one-year exceptions, no-step-up
+  regimes if law changes, and estate-plan-specific cases instead of one broad
+  default.
 - **Bequest-aware lifetime optimizer mode** that weights heir's after-tax
   inheritance into the objective function, not just owner-lifetime after-tax
   spending. The Roth-favorability for heirs (no RMDs, tax-free 10-year window)

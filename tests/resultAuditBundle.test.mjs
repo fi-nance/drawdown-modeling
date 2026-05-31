@@ -31,7 +31,7 @@ const latest = {
   },
   confidence: {
     headline: "Known exclusions",
-    flags: [{ id: "legacy-tax-out-of-model", title: "Legacy strategy is residual-value only today" }]
+    flags: [{ id: "legacy-tax-out-of-model", title: "Legacy tax detail needs estate review" }]
   },
   decision: {
     sensitivity: {

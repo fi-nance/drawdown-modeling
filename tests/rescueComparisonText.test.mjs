@@ -155,3 +155,22 @@ test("decision failure anatomy surfaces top stressors in the results UI", async 
   assert.match(source, /Top stressors:/);
   assert.match(source, /topStressors/);
 });
+
+test("after-tax bequest control is visible, persisted, and audited", async () => {
+  const [html, appSource, redesignSource] = await Promise.all([
+    readFile(new URL("../index.html", import.meta.url), "utf8"),
+    readFile(new URL("../src/app.mjs", import.meta.url), "utf8"),
+    readFile(new URL("../src/redesign.mjs", import.meta.url), "utf8")
+  ]);
+
+  assert.match(html, /id="heirOrdinaryTaxRate"/);
+  assert.match(html, /Heir ordinary tax rate %/);
+  assert.match(appSource, /"heirOrdinaryTaxRate"/);
+  assert.match(appSource, /heirOrdinaryTaxRate: document\.querySelector\("#heirOrdinaryTaxRate"\)/);
+  assert.match(appSource, /heirOrdinaryTaxRate: percentInputValue\("heirOrdinaryTaxRate", DEFAULT_SCENARIO\.heirOrdinaryTaxRate\)/);
+  assert.match(appSource, /legacyAuditLine/);
+  assert.match(appSource, /Median after-tax bequest/);
+  assert.match(appSource, /After-tax heirs/);
+  assert.match(redesignSource, /After-tax bequest/);
+  assert.match(redesignSource, /pickHeirValue/);
+});
