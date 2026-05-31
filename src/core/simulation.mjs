@@ -18,7 +18,7 @@ import {
   inflateTaxProfile,
   netCapitalGainsAndLosses
 } from "./tax.mjs";
-import { getMedicareIrmaaConfig } from "../data/taxData.mjs";
+import { getMedicareIrmaaConfig, buildTaxProfile } from "../data/taxData.mjs";
 import { createRng, normalRandom, percentile, round } from "./utils.mjs";
 
 const CASH_GAP_TOLERANCE = 0.01;
@@ -186,8 +186,53 @@ export const DEFAULT_SCENARIO = {
     applyMagiGuardrails: false
   },
   aca: DEFAULT_ACA_CONFIG,
-  heirOrdinaryTaxRate: 0.24
+  heirOrdinaryTaxRate: 0.24,
+  primaryMortalityAge: 95,
+  spouseMortalityAge: 95,
+  spouseSocialSecurityAnnualBenefit: 0,
+  spouseSocialSecurityStartAge: 67,
+  spouseSocialSecurityInflationAdjusted: true,
+  heirType: "spouse",
+  // User-set planning assumptions for inherited-IRA bracket effects. The
+  // model has no primary source for either: leave 0 unless the household
+  // wants to stress-test a specific heir scenario. See KNOWN_LIMITATIONS.
+  nonSpouse10YrTaxDrag: 0,
+  eligibleDesignatedTaxDiscount: 0
 };
+
+// Mortality semantics: `mortalityAge` is the calendar age at which the person
+// dies. Per tax law, the year of death is filed jointly (MFJ → MFJ) and the
+// surviving spouse files single starting the following year. So `age > mortalityAge`
+// (strictly greater) is the "post-death" predicate, not `age >=`.
+function mortalityStatus(scenario, yearIndex) {
+  const primaryAge = (scenario.currentAge ?? 55) + yearIndex;
+  const spouseAge = Number.isFinite(Number(scenario.spouseAge))
+    ? Number(scenario.spouseAge) + yearIndex
+    : null;
+  const primaryDeceased = primaryAge > (scenario.primaryMortalityAge ?? 95);
+  const spouseDeceased = spouseAge !== null && spouseAge > (scenario.spouseMortalityAge ?? 95);
+  return { primaryAge, spouseAge, primaryDeceased, spouseDeceased };
+}
+
+function isMarriedFiling(filingStatus) {
+  return filingStatus === "marriedFilingJointly" || filingStatus === "marriedFilingSeparately";
+}
+
+// Build a single-filer tax profile from a married baseline, preserving every
+// user override (overrideRate, dependentCount, stateRetirementExclusion, etc.)
+// by re-running buildTaxProfile against the original build inputs. Falls back
+// to a best-effort rebuild when the profile was constructed by hand (test
+// fixtures without `buildOptions`).
+function buildSurvivorTaxProfile(taxProfile) {
+  if (taxProfile?.buildOptions) {
+    return buildTaxProfile({ ...taxProfile.buildOptions, filingStatus: "single" });
+  }
+  // Hand-rolled fixture path: no overrides to preserve.
+  return buildTaxProfile({
+    filingStatus: "single",
+    state: taxProfile?.state?.state ?? "Florida"
+  });
+}
 
 const ROTH_BASIS_ASSET_CLASS_PRIORITY = Object.freeze({
   cash: 0,
@@ -268,9 +313,37 @@ export function simulatePlan({
   const irmaaMagiHistory = [];
   let spendingGuardrailMarketState = initialSpendingGuardrailMarketState();
 
+  const wasMarried = isMarriedFiling(taxProfile?.filingStatus);
+  // Hoist: rebuilding the survivor profile is independent of yearIndex and
+  // doesn't need to run inside simulateYear every survivor year.
+  const survivorTaxProfile = wasMarried ? buildSurvivorTaxProfile(taxProfile) : null;
+
   for (let yearIndex = 0; yearIndex < mergedScenario.planYears; yearIndex += 1) {
+    const { primaryDeceased, spouseDeceased, spouseAge } = mortalityStatus(mergedScenario, yearIndex);
+    // bothDeceased gates the post-mortality stub. For an unmarried filer or
+    // an MFJ filer with no spouse data, "both deceased" reduces to "primary
+    // is deceased" — there's no second life to wait on.
+    const bothDeceased = wasMarried && spouseAge !== null
+      ? (primaryDeceased && spouseDeceased)
+      : primaryDeceased;
+
     if (yearIndex > 0) {
       inflationIndex *= 1 + annualInflation(mergedScenario, inflationSequence, yearIndex - 1);
+    }
+
+    if (bothDeceased) {
+      // Post-mortality stub: keep plan.years.length === planYears so charts,
+      // year sliders, and audit bundles don't drop years off the end. The
+      // portfolio is frozen at the death-year balance; income, spending, and
+      // taxes are all zero. Flagged with postMortality:true so UI can mask
+      // or annotate these rows.
+      years.push(buildPostMortalityYearResult({
+        scenario: mergedScenario,
+        yearIndex,
+        portfolio,
+        inflationIndex
+      }));
+      continue;
     }
 
     const returnByAssetClass = annualReturns(mergedScenario, returnSequence, yearIndex);
@@ -283,6 +356,7 @@ export function simulatePlan({
       portfolio,
       scenario: mergedScenario,
       taxProfile,
+      survivorTaxProfile,
       yearIndex,
       inflationIndex,
       returnByAssetClass,
@@ -309,7 +383,11 @@ export function simulatePlan({
 
   const endingAccounts = accountBreakdown(portfolio);
   const endingValue = portfolioValue(portfolio);
-  const heirValueBreakdown = estimateHeirValueBreakdown(portfolio, mergedScenario.heirOrdinaryTaxRate);
+  const heirValueBreakdown = estimateHeirValueBreakdown(portfolio, mergedScenario.heirOrdinaryTaxRate, {
+    heirType: mergedScenario.heirType,
+    nonSpouse10YrTaxDrag: mergedScenario.nonSpouse10YrTaxDrag,
+    eligibleDesignatedTaxDiscount: mergedScenario.eligibleDesignatedTaxDiscount
+  });
   return {
     success,
     years,
@@ -673,6 +751,7 @@ function simulateYear({
   portfolio,
   scenario,
   taxProfile,
+  survivorTaxProfile = null,
   yearIndex,
   inflationIndex,
   returnByAssetClass,
@@ -687,13 +766,46 @@ function simulateYear({
   // { shortTerm, longTerm } object so callers can preserve §1212(b) character.
   lossCarryforward = normalizeLossCarryforward(lossCarryforward);
   const calendarYear = scenario.startYear + yearIndex;
-  const age = (scenario.currentAge ?? 55) + yearIndex;
-  const spouseAge = Number.isFinite(Number(scenario.spouseAge))
-    ? Number(scenario.spouseAge) + yearIndex
-    : null;
+
+  const { primaryAge: rawPrimaryAge, spouseAge: rawSpouseAge, primaryDeceased, spouseDeceased }
+    = mortalityStatus(scenario, yearIndex);
+  let age = rawPrimaryAge;
+  let spouseAge = rawSpouseAge;
+
+  const wasMarried = isMarriedFiling(taxProfile?.filingStatus);
+  // Only enter the survivor branch when there's a real second life — an MFJ
+  // profile with no spouseAge can't have a survivor; treating it as one would
+  // null-propagate `age` through every downstream age-gated rule.
+  const hasSpouseLife = spouseAge !== null;
+
+  let baseProfileToUse = taxProfile;
+  let customSocialSecurityBenefits = null;
+
+  if (wasMarried && hasSpouseLife) {
+    if (primaryDeceased && !spouseDeceased) {
+      const originalAge = age;
+      age = spouseAge;
+      spouseAge = null;
+      baseProfileToUse = survivorTaxProfile ?? buildSurvivorTaxProfile(taxProfile);
+      const primarySS = socialSecurityBenefitsForYear(scenario, originalAge, inflationIndex);
+      const spouseSS = spouseSocialSecurityBenefitsForYear(scenario, age, inflationIndex);
+      // SSA survivor rule: surviving spouse keeps the higher of their own
+      // benefit or the deceased's PIA. Reductions for survivors claiming
+      // between age 60 and FRA (~71.5–99%) are NOT modeled.
+      customSocialSecurityBenefits = Math.max(primarySS, spouseSS);
+    } else if (!primaryDeceased && spouseDeceased) {
+      const originalSpouseAge = spouseAge;
+      spouseAge = null;
+      baseProfileToUse = survivorTaxProfile ?? buildSurvivorTaxProfile(taxProfile);
+      const primarySS = socialSecurityBenefitsForYear(scenario, age, inflationIndex);
+      const spouseSS = spouseSocialSecurityBenefitsForYear(scenario, originalSpouseAge, inflationIndex);
+      customSocialSecurityBenefits = Math.max(primarySS, spouseSS);
+    }
+  }
+
   const taxProfileContext = taxProfileForSimulationYear({
-    inflatedProfile: inflateTaxProfile(taxProfile, inflationIndex),
-    baseProfile: taxProfile,
+    inflatedProfile: inflateTaxProfile(baseProfileToUse, inflationIndex),
+    baseProfile: baseProfileToUse,
     scenario,
     yearIndex,
     primaryAge: age,
@@ -791,7 +903,14 @@ function simulateYear({
     : emptyWithdrawal(rothBasisRemaining, annualPenaltyExceptionAmount);
   rothBasisRemaining = rmdWithdrawal.rothBasisRemaining;
 
-  const socialSecurityBenefits = socialSecurityBenefitsForYear(scenario, age, inflationIndex);
+  let socialSecurityBenefits = 0;
+  if (customSocialSecurityBenefits !== null) {
+    socialSecurityBenefits = customSocialSecurityBenefits;
+  } else {
+    const primarySS = socialSecurityBenefitsForYear(scenario, age, inflationIndex);
+    const spouseSS = spouseSocialSecurityBenefitsForYear(scenario, spouseAge, inflationIndex);
+    socialSecurityBenefits = primarySS + spouseSS;
+  }
 
   const rothConversionAmount = scenario.rothConversion?.enabled
     ? convertTraditionalToRoth(portfolio, rothConversionAmountForYear({
@@ -1366,7 +1485,16 @@ function simulateYear({
     flows: flows.filter((flow) => flow.amount > 0),
     sales: finalWithdrawal.sales,
     accounts: accountBreakdown(portfolio),
-    assets: endingAssets
+    assets: endingAssets,
+    // Slim summary instead of the full inflated profile: a Monte Carlo
+    // 5k runs × 35 years was serializing the full brackets+state object
+    // 175k times across the Web Worker boundary.
+    taxProfileSummary: {
+      filingStatus: yearTaxProfile.filingStatus,
+      standardDeduction: yearTaxProfile.standardDeduction,
+      qualifyingChildren: yearTaxProfile.qualifyingChildren
+    },
+    filingStatus: yearTaxProfile.filingStatus
   };
 }
 
@@ -2072,7 +2200,11 @@ function uniqueWithdrawalOrders(orders) {
 
 function lifetimeWithdrawalScore(plan, config, scenario) {
   const heirTaxRate = scenario?.heirOrdinaryTaxRate ?? 0.24;
-  const heirValue = plan.portfolio ? estimateHeirValueBreakdown(plan.portfolio, heirTaxRate).afterTaxValue : 0;
+  const heirValue = plan.portfolio ? estimateHeirValueBreakdown(plan.portfolio, heirTaxRate, {
+    heirType: scenario?.heirType,
+    nonSpouse10YrTaxDrag: scenario?.nonSpouse10YrTaxDrag,
+    eligibleDesignatedTaxDiscount: scenario?.eligibleDesignatedTaxDiscount
+  }).afterTaxValue : 0;
   return round(
     plan.modeledCost
       + Math.max(0, plan.withdrawal?.saleOpportunityCost ?? 0) * config.expectedReturnPenaltyYears
@@ -3396,6 +3528,13 @@ function socialSecurityBenefitsForYear(scenario, age, inflationIndex) {
   const annualBenefit = Math.max(0, Number(scenario.socialSecurityAnnualBenefit) || 0);
   if (annualBenefit <= 0 || age < (scenario.socialSecurityStartAge ?? 67)) return 0;
   return round(annualBenefit * (scenario.socialSecurityInflationAdjusted === false ? 1 : inflationIndex), 6);
+}
+
+function spouseSocialSecurityBenefitsForYear(scenario, spouseAge, inflationIndex) {
+  if (spouseAge === null) return 0;
+  const annualBenefit = Math.max(0, Number(scenario.spouseSocialSecurityAnnualBenefit) || 0);
+  if (annualBenefit <= 0 || spouseAge < (scenario.spouseSocialSecurityStartAge ?? 67)) return 0;
+  return round(annualBenefit * (scenario.spouseSocialSecurityInflationAdjusted === false ? 1 : inflationIndex), 6);
 }
 
 function earnedIncomeForYear(scenario, inflationIndex) {
@@ -4860,12 +4999,35 @@ function embeddedTaxableGains(portfolio) {
   }, 0), 6);
 }
 
-function estimateHeirValueBreakdown(portfolio, ordinaryTaxRate = 0.24) {
+function estimateHeirValueBreakdown(portfolio, ordinaryTaxRate = 0.24, options = {}) {
+  const {
+    heirType = DEFAULT_SCENARIO.heirType,
+    nonSpouse10YrTaxDrag = 0,
+    eligibleDesignatedTaxDiscount = 0
+  } = (typeof options === "string" ? { heirType: options } : options);
+
   const assumedOrdinaryTaxRate = Math.max(0, Math.min(1, Number(ordinaryTaxRate) || 0));
+
+  // Bracket-compression adjustments are user-set planning assumptions, not
+  // tax law: the IRS does not specify a flat drag for the 10-year rule (its
+  // size depends on the heir's own income and the inherited balance). Default
+  // is 0; households can stress-test specific values via the Heir scenario
+  // controls. See KNOWN_LIMITATIONS.md "Inherited IRA" entry.
+  const drag = Math.max(-1, Math.min(1, Number(nonSpouse10YrTaxDrag) || 0));
+  const discount = Math.max(-1, Math.min(1, Number(eligibleDesignatedTaxDiscount) || 0));
+  let effectiveTraditionalTaxRate = assumedOrdinaryTaxRate;
+  if (heirType === "nonSpouse10Yr") {
+    effectiveTraditionalTaxRate = Math.max(0, Math.min(1, assumedOrdinaryTaxRate + drag));
+  } else if (heirType === "eligibleDesignated") {
+    effectiveTraditionalTaxRate = Math.max(0, Math.min(1, assumedOrdinaryTaxRate - discount));
+  }
+  // heirType === "spouse" → effective stays at the base rate.
+
   const breakdown = {
     grossValue: 0,
     afterTaxValue: 0,
     assumedOrdinaryTaxRate,
+    effectiveTraditionalTaxRate,
     taxableValue: 0,
     taxableUnrealizedGain: 0,
     taxableStepUpGainAssumed: 0,
@@ -4893,7 +5055,7 @@ function estimateHeirValueBreakdown(portfolio, ordinaryTaxRate = 0.24) {
     }
 
     if (asset.accountType === "traditional" || asset.accountType === "hsa") {
-      const tax = value * assumedOrdinaryTaxRate;
+      const tax = value * effectiveTraditionalTaxRate;
       if (asset.accountType === "traditional") {
         breakdown.traditionalValue += value;
         breakdown.traditionalIncomeTaxEstimate += tax;
@@ -4950,7 +5112,116 @@ function firstDepletionDetails(years) {
 }
 
 function isPortfolioDepleted(year) {
+  // Post-mortality stubs have a zero ending value by construction but are
+  // not failures — the simulation is just past the modeled life span.
+  if (year?.postMortality) return false;
   return (year?.endingPortfolioValue ?? 0) <= 0;
+}
+
+// Zero-filled year shape emitted after both lives have ended. Keeps
+// plan.years.length === planYears so downstream UI (sliders, charts, audit
+// bundles) doesn't have to special-case truncated plans. The portfolio is
+// frozen — no returns, no spending, no taxes, no income. Flagged so charts
+// can mask or annotate these rows.
+function buildPostMortalityYearResult({ scenario, yearIndex, portfolio, inflationIndex }) {
+  const calendarYear = (scenario.startYear ?? 0) + yearIndex;
+  const frozenValue = portfolioValue(portfolio);
+  return {
+    year: calendarYear,
+    yearIndex: yearIndex + 1,
+    age: null,
+    inflationIndex: round(inflationIndex, 6),
+    beginningPortfolioValue: frozenValue,
+    beginningAssets: [],
+    assetClassReturns: [],
+    afterReturnPortfolioValue: frozenValue,
+    endingPortfolioValue: frozenValue,
+    plannedSpending: 0,
+    spendingStrategy: "postMortality",
+    essentialSpending: 0,
+    discretionarySpending: 0,
+    discretionarySpendingBudget: 0,
+    spendingGuardrail: null,
+    medicalCost: 0,
+    medicare: null,
+    age65AdditionalDeduction: 0,
+    qualifyingChildren: 0,
+    earnedIncome: 0,
+    oneOffIncome: 0,
+    oneOffExpenses: 0,
+    oneOffIncomeDetails: [],
+    oneOffExpenseDetails: [],
+    medicareWages: 0,
+    selfEmploymentIncome: 0,
+    rrtaCompensation: 0,
+    socialSecurityBenefits: 0,
+    taxableSocialSecurity: 0,
+    rmdAmount: 0,
+    rmdRequired: 0,
+    rmdStartAge: null,
+    rmdFactor: null,
+    rmdBase: 0,
+    cashRaised: 0,
+    taxableDividendsCash: 0,
+    taxableDividendDetails: [],
+    cashAvailable: 0,
+    unspentCash: 0,
+    totalCashRequired: 0,
+    taxes: {
+      federal: 0,
+      state: 0,
+      fica: 0,
+      niit: 0,
+      additionalMedicare: 0,
+      penaltyTax: 0,
+      total: 0,
+      lossCarryforward: 0,
+      lossCarryforwardShort: 0,
+      lossCarryforwardLong: 0
+    },
+    taxAttribution: null,
+    aca: null,
+    acaMagiCeiling: null,
+    acaMagiCeilingFplPercent: null,
+    federalAgi: 0,
+    acaMagi: 0,
+    irmaaMagi: 0,
+    magi: 0,
+    realizedLongTermGains: 0,
+    taxGainHarvested: 0,
+    realizedShortTermGains: 0,
+    realizedCapitalLosses: 0,
+    lossCarryforward: 0,
+    lossCarryforwardDetail: { shortTerm: 0, longTerm: 0 },
+    rothConversionAmount: 0,
+    penaltyTax: 0,
+    penaltyBase: 0,
+    penaltyExceptionUsed: 0,
+    penaltyExceptionRemaining: 0,
+    rothWithdrawals: 0,
+    rothBasisUsed: 0,
+    rothBasisRemaining: 0,
+    rothContributionBasisRemaining: 0,
+    rothConversionPrincipalRemaining: 0,
+    rothPenaltyFreeConversionPrincipal: 0,
+    rothBasisAvailable: 0,
+    rothFiveYearRuleSatisfied: scenario.rothFiveYearRuleSatisfied !== false,
+    rothBasisOptimization: null,
+    hsaContribution: 0,
+    hsaWithdrawals: 0,
+    hsaQualifiedExpenseBalance: 0,
+    sequenceRiskReserve: null,
+    allocationStrategy: null,
+    assetLocation: null,
+    unfunded: 0,
+    flows: [],
+    sales: [],
+    accounts: accountBreakdown(portfolio),
+    assets: [],
+    taxProfileSummary: { filingStatus: null, standardDeduction: 0, qualifyingChildren: 0 },
+    filingStatus: null,
+    postMortality: true
+  };
 }
 
 function annualReturns(scenario, returnSequence, yearIndex) {

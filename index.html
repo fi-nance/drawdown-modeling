@@ -209,6 +209,8 @@
                 <div class="control-grid">
                   <label><span>Current age</span><input id="currentAge" type="number" min="0" max="120" step="0.5" value="55"></label>
                   <label><span>Spouse age</span><input id="spouseAge" type="number" min="0" max="120" step="0.5" value="55"></label>
+                  <label><span>Primary mortality age</span><input id="primaryMortalityAge" type="number" min="40" max="120" step="1" value="95"></label>
+                  <label><span>Spouse mortality age</span><input id="spouseMortalityAge" type="number" min="40" max="120" step="1" value="95"></label>
                   <label><span>Plan years</span><input id="planYears" type="number" min="1" max="80" value="35"></label>
                   <label><span>Target spend</span><input id="targetSpend" type="number" min="0" step="1000" value="90000"></label>
                   <label><span>Required spend</span><input id="decisionRequiredSpend" type="number" min="0" step="1000" placeholder="Auto from strategy"></label>
@@ -446,11 +448,14 @@
                 <div class="control-grid">
                   <label><span>SS annual benefit</span>    <input id="socialSecurityAnnualBenefit" type="number" min="0" step="1000" value="0"></label>
                   <label><span>SS start age</span>         <input id="socialSecurityStartAge" type="number" min="0" max="120" step="0.5" value="67"></label>
+                  <label><span>Spouse SS annual benefit</span><input id="spouseSocialSecurityAnnualBenefit" type="number" min="0" step="1000" value="0"></label>
+                  <label><span>Spouse SS start age</span>     <input id="spouseSocialSecurityStartAge" type="number" min="0" max="120" step="0.5" value="67"></label>
                   <label><span>Medicare wages</span>       <input id="medicareWages" type="number" min="0" step="1000" value="0"></label>
                   <label><span>Self-employment income</span><input id="selfEmploymentIncome" type="number" min="0" step="1000" value="0"></label>
                   <label><span>RRTA compensation</span>    <input id="rrtaCompensation" type="number" min="0" step="1000" value="0"></label>
                 </div>
                 <label class="check-row"><input id="socialSecurityInflationAdjusted" type="checkbox" checked><span>Inflation-adjust Social Security</span></label>
+                <label class="check-row"><input id="spouseSocialSecurityInflationAdjusted" type="checkbox" checked><span>Inflation-adjust spouse Social Security</span></label>
                 <label class="check-row"><input id="earnedIncomeInflationAdjusted"  type="checkbox" checked><span>Inflation-adjust earned income</span></label>
               </div>
             </section>
@@ -514,6 +519,24 @@
                 <div class="control-grid">
                   <label><span>Conversion target rate %</span><input id="rothTargetRate" type="number" min="0" max="37" step="1" value="12"></label>
                   <label><span>Heir ordinary tax rate %</span><input id="heirOrdinaryTaxRate" type="number" min="0" max="100" step="1" value="24"><small>Applied to inherited traditional/HSA balances in the after-tax bequest estimate.</small></label>
+                  <label>
+                    <span>Heir beneficiary type</span>
+                    <select id="heirType">
+                      <option value="spouse" selected>Spouse Rollover</option>
+                      <option value="nonSpouse10Yr">Non-Spouse (10-Year Rule)</option>
+                      <option value="eligibleDesignated">Eligible Stretch</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>Non-spouse 10-yr tax drag %</span>
+                    <input id="nonSpouse10YrTaxDrag" type="number" min="0" max="40" step="1" value="0">
+                    <small>Planning assumption (no primary source); added to heir ordinary rate when beneficiary type is Non-Spouse.</small>
+                  </label>
+                  <label>
+                    <span>Eligible stretch discount %</span>
+                    <input id="eligibleDesignatedTaxDiscount" type="number" min="0" max="20" step="1" value="0">
+                    <small>Planning assumption (no primary source); subtracted from heir ordinary rate when beneficiary type is Eligible Stretch.</small>
+                  </label>
                   <label><span>Annual conversion override</span><input id="rothAmount" type="number" min="0" step="1000" placeholder="Auto"></label>
                   <label><span>Conversion max ACA FPL %</span><input id="rothConversionMaxAcaFplPercent" type="number" min="100" max="600" step="1" value="400"></label>
                   <label><span>Conversion MAGI buffer</span><input id="rothConversionMagiBuffer" type="number" min="0" step="100" value="0"></label>

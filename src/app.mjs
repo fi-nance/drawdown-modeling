@@ -143,6 +143,8 @@ const CONTROL_IDS = [
   "marketplaceMembers",
   "currentAge",
   "spouseAge",
+  "primaryMortalityAge",
+  "spouseMortalityAge",
   "acaMemberAges",
   "retirementPenaltyAge",
   "rothBasis",
@@ -155,6 +157,12 @@ const CONTROL_IDS = [
   "socialSecurityAnnualBenefit",
   "socialSecurityStartAge",
   "socialSecurityInflationAdjusted",
+  "spouseSocialSecurityAnnualBenefit",
+  "spouseSocialSecurityStartAge",
+  "spouseSocialSecurityInflationAdjusted",
+  "heirType",
+  "nonSpouse10YrTaxDrag",
+  "eligibleDesignatedTaxDiscount",
   "rmdEnabled",
   "rmdStartAge",
   "irmaaEnabled",
@@ -307,6 +315,8 @@ const els = {
   marketplaceMembers: document.querySelector("#marketplaceMembers"),
   currentAge: document.querySelector("#currentAge"),
   spouseAge: document.querySelector("#spouseAge"),
+  primaryMortalityAge: document.querySelector("#primaryMortalityAge"),
+  spouseMortalityAge: document.querySelector("#spouseMortalityAge"),
   acaMemberAges: document.querySelector("#acaMemberAges"),
   retirementPenaltyAge: document.querySelector("#retirementPenaltyAge"),
   rothBasis: document.querySelector("#rothBasis"),
@@ -319,6 +329,12 @@ const els = {
   socialSecurityAnnualBenefit: document.querySelector("#socialSecurityAnnualBenefit"),
   socialSecurityStartAge: document.querySelector("#socialSecurityStartAge"),
   socialSecurityInflationAdjusted: document.querySelector("#socialSecurityInflationAdjusted"),
+  spouseSocialSecurityAnnualBenefit: document.querySelector("#spouseSocialSecurityAnnualBenefit"),
+  spouseSocialSecurityStartAge: document.querySelector("#spouseSocialSecurityStartAge"),
+  spouseSocialSecurityInflationAdjusted: document.querySelector("#spouseSocialSecurityInflationAdjusted"),
+  heirType: document.querySelector("#heirType"),
+  nonSpouse10YrTaxDrag: document.querySelector("#nonSpouse10YrTaxDrag"),
+  eligibleDesignatedTaxDiscount: document.querySelector("#eligibleDesignatedTaxDiscount"),
   rmdEnabled: document.querySelector("#rmdEnabled"),
   rmdStartAge: document.querySelector("#rmdStartAge"),
   irmaaEnabled: document.querySelector("#irmaaEnabled"),
@@ -1416,6 +1432,8 @@ function applyScenarioControls(scenario) {
   setCheckedControl("includeTaxes", scenario.targetSpendIncludesTaxes);
   setCheckedControl("includeMedical", scenario.targetSpendIncludesMedical);
   setNumberControl("medicalBase", scenario.medicalExpensesBase);
+  setNumberControl("primaryMortalityAge", scenario.primaryMortalityAge);
+  setNumberControl("spouseMortalityAge", scenario.spouseMortalityAge);
 
   const spending = scenario.spendingStrategy ?? {};
   setValueControl("spendingStrategyMode", spending.mode);
@@ -1469,6 +1487,16 @@ function applyScenarioControls(scenario) {
   setNumberControl("socialSecurityAnnualBenefit", scenario.socialSecurityAnnualBenefit);
   setNumberControl("socialSecurityStartAge", scenario.socialSecurityStartAge);
   setCheckedControl("socialSecurityInflationAdjusted", scenario.socialSecurityInflationAdjusted);
+  setNumberControl("spouseSocialSecurityAnnualBenefit", scenario.spouseSocialSecurityAnnualBenefit);
+  setNumberControl("spouseSocialSecurityStartAge", scenario.spouseSocialSecurityStartAge);
+  setCheckedControl("spouseSocialSecurityInflationAdjusted", scenario.spouseSocialSecurityInflationAdjusted);
+  setValueControl("heirType", scenario.heirType);
+  if (Number.isFinite(scenario.nonSpouse10YrTaxDrag)) {
+    setNumberControl("nonSpouse10YrTaxDrag", scenario.nonSpouse10YrTaxDrag * 100);
+  }
+  if (Number.isFinite(scenario.eligibleDesignatedTaxDiscount)) {
+    setNumberControl("eligibleDesignatedTaxDiscount", scenario.eligibleDesignatedTaxDiscount * 100);
+  }
   setCheckedControl("irmaaEnabled", scenario.medicare?.irmaaEnabled);
   setOptionalNumberControl("maxIrmaaTier", scenario.medicare?.maxIrmaaTier);
 }
@@ -1487,7 +1515,14 @@ function extractRescueScenarioOverride(scenario = {}) {
     "rothBasisOptimization",
     "medicare",
     "socialSecurityStartAge",
-    "socialSecurityAnnualBenefit"
+    "socialSecurityAnnualBenefit",
+    "spouseSocialSecurityStartAge",
+    "spouseSocialSecurityAnnualBenefit",
+    "primaryMortalityAge",
+    "spouseMortalityAge",
+    "heirType",
+    "nonSpouse10YrTaxDrag",
+    "eligibleDesignatedTaxDiscount"
   ];
   const override = {};
   for (const key of keys) {
@@ -2134,9 +2169,28 @@ function legacyAuditLine(scenario) {
   const rate = Number.isFinite(Number(scenario.heirOrdinaryTaxRate))
     ? percentFormatter.format(Number(scenario.heirOrdinaryTaxRate))
     : "the default heir ordinary tax rate";
-  const base = `After-tax bequest estimate taxes inherited traditional and HSA balances at ${rate}; Roth and taxable balances are treated as tax-free to heirs, with taxable unrealized gains assumed stepped up at death.`;
-  if (!breakdown) return `${base} Inherited IRA payout timing, beneficiary brackets beyond this rate, and estate/inheritance tax are not modeled.`;
-  return `${base} Current modeled ending gross value ${moneyFormatter.format(breakdown.grossValue ?? 0)}, estimated income tax ${moneyFormatter.format(breakdown.totalIncomeTaxEstimate ?? 0)}, after-tax bequest ${moneyFormatter.format(breakdown.afterTaxValue ?? 0)}. Inherited IRA payout timing and estate/inheritance tax are not modeled.`;
+  const heirTypeLabel = {
+    spouse: "spousal rollover",
+    nonSpouse10Yr: "non-spouse 10-year rule",
+    eligibleDesignated: "eligible designated beneficiary (stretch)"
+  }[scenario.heirType] ?? scenario.heirType;
+
+  const drag = Number.isFinite(Number(scenario.nonSpouse10YrTaxDrag)) ? Number(scenario.nonSpouse10YrTaxDrag) : 0;
+  const discount = Number.isFinite(Number(scenario.eligibleDesignatedTaxDiscount)) ? Number(scenario.eligibleDesignatedTaxDiscount) : 0;
+  const dragNote = scenario.heirType === "nonSpouse10Yr" && drag > 0
+    ? ` Heir bracket-compression drag set to ${percentFormatter.format(drag)} (user-set planning assumption, not tax law).`
+    : scenario.heirType === "eligibleDesignated" && discount > 0
+      ? ` Heir stretch discount set to ${percentFormatter.format(discount)} (user-set planning assumption, not tax law).`
+      : "";
+
+  const base = `After-tax bequest estimate assumes a ${heirTypeLabel} with heir ordinary tax rate ${rate}; Roth and taxable balances are treated as tax-free to heirs, with taxable unrealized gains assumed stepped up at death.${dragNote}`;
+  if (!breakdown) return `${base} Inherited IRA payout timing and estate/inheritance tax are not modeled.`;
+
+  const effectiveRateLabel = breakdown.effectiveTraditionalTaxRate != null
+    && breakdown.effectiveTraditionalTaxRate !== breakdown.assumedOrdinaryTaxRate
+    ? ` (effective traditional tax rate after bracket adjustment: ${percentFormatter.format(breakdown.effectiveTraditionalTaxRate)})`
+    : "";
+  return `${base}${effectiveRateLabel} Current modeled ending gross value ${moneyFormatter.format(breakdown.grossValue ?? 0)}, estimated income tax ${moneyFormatter.format(breakdown.totalIncomeTaxEstimate ?? 0)}, after-tax bequest ${moneyFormatter.format(breakdown.afterTaxValue ?? 0)}. Inherited IRA payout timing details and estate/inheritance tax are not modeled.`;
 }
 
 function acaLocalityAuditLine(scenario) {
@@ -3979,6 +4033,11 @@ function readScenario() {
     marketplaceMembers,
     currentAge,
     spouseAge,
+    primaryMortalityAge: numberOrNull(els.primaryMortalityAge.value) ?? DEFAULT_SCENARIO.primaryMortalityAge,
+    spouseMortalityAge: numberOrNull(els.spouseMortalityAge.value) ?? DEFAULT_SCENARIO.spouseMortalityAge,
+    heirType: els.heirType.value || DEFAULT_SCENARIO.heirType,
+    nonSpouse10YrTaxDrag: percentInputValue("nonSpouse10YrTaxDrag", DEFAULT_SCENARIO.nonSpouse10YrTaxDrag),
+    eligibleDesignatedTaxDiscount: percentInputValue("eligibleDesignatedTaxDiscount", DEFAULT_SCENARIO.eligibleDesignatedTaxDiscount),
     retirementPenaltyAge: Number(els.retirementPenaltyAge.value) || DEFAULT_SCENARIO.retirementPenaltyAge,
     rothBasis: Number(els.rothBasis.value) || 0,
     earlyWithdrawalPenaltyExceptionAmount: numberOrNull(els.earlyWithdrawalPenaltyExceptionAmount.value) ?? 0,
@@ -3991,6 +4050,9 @@ function readScenario() {
     socialSecurityAnnualBenefit: Number(els.socialSecurityAnnualBenefit.value) || 0,
     socialSecurityStartAge: Number(els.socialSecurityStartAge.value) || DEFAULT_SCENARIO.socialSecurityStartAge,
     socialSecurityInflationAdjusted: els.socialSecurityInflationAdjusted.checked,
+    spouseSocialSecurityAnnualBenefit: Number(els.spouseSocialSecurityAnnualBenefit.value) || 0,
+    spouseSocialSecurityStartAge: Number(els.spouseSocialSecurityStartAge.value) || DEFAULT_SCENARIO.spouseSocialSecurityStartAge,
+    spouseSocialSecurityInflationAdjusted: els.spouseSocialSecurityInflationAdjusted.checked,
     rmd: {
       enabled: els.rmdEnabled.checked,
       startAge: numberOrNull(els.rmdStartAge.value)

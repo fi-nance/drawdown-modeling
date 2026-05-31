@@ -333,7 +333,12 @@ export function buildStateTaxProfile({
 export function buildTaxProfile(options = {}) {
   return {
     ...buildFederalTaxProfile(options),
-    state: buildStateTaxProfile(options)
+    state: buildStateTaxProfile(options),
+    // Preserve the inputs so callers (e.g. survivor-year rebuild in
+    // simulation.mjs) can produce a derived profile with only filingStatus
+    // changed without losing user overrides like overrideRate or
+    // stateRetirementExclusion that don't appear on the returned shape.
+    buildOptions: { ...options }
   };
 }
 
