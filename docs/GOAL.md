@@ -127,8 +127,13 @@ These are not one-time reviews. They are continuous bars every PR is held to.
 - Golden worked examples derived from IRS publications (Pub 590-B RMDs, Pub 915
   Social Security worksheet, Form 8962 ACA reconciliation, Schedule D capital
   gains stacking) live in `tests/` and never break silently.
-- 2026 TCJA sunset and the post-2025 ACA enhanced-subsidy expiration are
-  modeled with year-by-year rule selection, not a single "current law" snapshot.
+- Law-regime correctness is explicit and verified, not assumed. The 2026
+  federal structure reflects the OBBBA (2025) permanence of the TCJA individual
+  provisions (no end-2025 sunset), and the 2026 ACA schedule reflects the
+  post-2025 expiration of the ARPA/IRA enhanced subsidies (400% cliff returns).
+  Both carry a `lawBasis` field, golden-test regime guards, and a documented
+  assumption in KNOWN_LIMITATIONS. Genuinely future legislated changes get an
+  explicit per-year regime rather than silently inheriting the base-year snapshot.
 
 ### Engineering Lens
 - Pure-function core in `src/core/`; UI in `src/redesign.mjs` and `src/app.mjs`.
@@ -185,9 +190,17 @@ Shipped today (see README and `src/data/taxData.mjs`):
 
 Goal-level gaps (today flagged in KNOWN_LIMITATIONS as "not planning to address"
 but in scope for the north-star if we want CPA-grade coverage):
-- **2026 TCJA sunset path** modeled as a selectable law-year regime so plans
-  spanning the sunset use the correct brackets and standard deductions year by
-  year.
+- ~~2026 TCJA sunset path~~ **Resolved by law.** OBBBA (2025) made the TCJA
+  individual structure permanent, so there is no sunset boundary to switch at;
+  the base-year-forward projection is correct and now carries a `lawBasis` field
+  and golden-test regime guard. The residual is a **selectable regime only for
+  genuinely time-boxed future changes** (e.g. the 2025–2028 OBBBA senior bonus
+  deduction), not a sunset reversal.
+- **OBBBA senior bonus deduction** (extra deduction for filers 65+, 2025–2028,
+  income-phased) — **decided: handled via the manual additional-deduction input,
+  not a dedicated engine rule** (see KNOWN_LIMITATIONS). Time-boxed and
+  income-phased, so it stays a hand-entered planning adjustment. Distinct from
+  the age-65 standard-deduction bump the engine already models.
 - **Itemized deductions** (SALT cap, mortgage interest, charitable, medical
   threshold) as opt-in inputs rather than override-only.
 - **QBI deduction** for households with pass-through income (relevant to
@@ -239,9 +252,11 @@ Goal-level gaps:
   member categories, CHIP children, immigration exceptions, state-specific
   waiver behavior, and actual Medicaid/transition cost assumptions before
   recommending MAGI-reduction moves as final.
-- **Post-2025 ACA enhanced subsidy expiration** (ARPA/IRA) explicitly modeled
-  as a year-by-year regime, with a clear "what changes in 2026+ if subsidies
-  expire vs are extended" comparison.
+- **Post-2025 ACA enhanced subsidy expiration** — **done, and scoped to current
+  law by decision.** 2026 is modeled as expired (400% cliff, reverted schedule,
+  `enhancedSubsidiesActive: false`), documented and golden-tested. An optional
+  "extended" comparison regime was considered and **declined** — the model tracks
+  enacted law only; revisit only if Congress actually re-extends.
 - **CSR (cost-sharing reduction) variants** at 100–250% FPL households —
   modeled OOP maximum and effective AV change.
 - **Employer-affordability** check for households where one spouse has an
@@ -378,7 +393,9 @@ risk first, then breadth.
 - Upgrade the shipped modeled-year coverage-gap/Medicaid flags into an
   eligibility engine that uses household composition and state-specific
   Medicaid/CHIP rules.
-- Post-2025 enhanced-subsidy expiration regime, switchable by law-year.
+- ✅ Post-2025 enhanced-subsidy expiration: 2026 modeled as expired (400% cliff,
+  reverted schedule), documented with `lawBasis` and golden-test guards. Optional
+  "extended" comparison regime considered and declined — enacted law only.
 - Golden tests built from CMS worked examples.
 
 ### Phase 2 — Heir maximization
@@ -396,8 +413,10 @@ risk first, then breadth.
   medical).
 - QBI deduction for SE bridge income.
 - AMT tripwire.
-- 2026 TCJA sunset regime modeling.
-- Self-employment tax for bridge-income scenarios.
+- ~~2026 TCJA sunset regime modeling~~ — moot: OBBBA (2025) made the TCJA
+  individual structure permanent, so there is no sunset to model. Replaced by:
+  OBBBA senior bonus deduction (2025–2028) as a time-boxed regime.
+- ✅ Self-employment tax for bridge-income scenarios.
 
 ### Phase 4 — State-based exchange coverage
 

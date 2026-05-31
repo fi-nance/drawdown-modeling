@@ -27,9 +27,33 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { computeAca, contributionRateForFplPercent } from "../src/core/aca.mjs";
-import { ACA_2026, buildAcaConfig, getFplGuideline } from "../src/data/taxData.mjs";
+import { ACA_2026, FEDERAL_TAX_2026, buildAcaConfig, getFplGuideline } from "../src/data/taxData.mjs";
 
 const APPLICABLE = ACA_2026.applicablePercentageTable;
+
+// Regime guard: 2026 reflects the POST-2025 expiration of the ARPA/IRA enhanced
+// premium tax credits — the 400% FPL cliff returns and the applicable-percentage
+// schedule tops out at 9.96% (not the enhanced 8.5% cap with no cliff). This
+// test fails if anyone "restores" the enhanced schedule without modeling it as a
+// separate selectable regime. See ACA_2026.lawBasis.
+test("2026 ACA regime is post-expiration: 400% cliff present, enhanced subsidies off", () => {
+  assert.equal(ACA_2026.enhancedSubsidiesActive, false);
+  assert.equal(ACA_2026.maxEligibleFplPercent, 400);
+  // Enhanced schedule would floor at 0% below 150% FPL; reverted schedule does not.
+  assert.ok(contributionRateForFplPercent(140, APPLICABLE) > 0, "reverted schedule has no 0% floor band");
+  // Reverted schedule tops at 9.96%, not the enhanced 8.5% cap.
+  assert.equal(ACA_2026.requiredContributionPercentage, 0.0996);
+});
+
+// Regime guard: OBBBA (2025) made the TCJA individual structure permanent, so the
+// 2026 standard deduction is the post-OBBBA Rev. Proc. 2025-32 value, not a
+// reverted pre-TCJA amount. Fails if someone reverts these expecting a sunset.
+test("2026 federal standard deduction reflects permanent post-OBBBA TCJA structure", () => {
+  assert.equal(FEDERAL_TAX_2026.standardDeduction.marriedFilingJointly, 32200);
+  assert.equal(FEDERAL_TAX_2026.standardDeduction.single, 16100);
+  assert.equal(FEDERAL_TAX_2026.standardDeduction.headOfHousehold, 24150);
+  assert.match(FEDERAL_TAX_2026.lawBasis, /OBBBA/);
+});
 
 test("Rev. Proc. 2025-25: 2026 applicable percentages at FPL anchors", () => {
   // Anchor values verified against Rev. Proc. 2025-25 Table 2.

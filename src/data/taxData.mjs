@@ -16,9 +16,20 @@ export const FILING_STATUSES = {
 
 const FEDERAL_BRACKET_RATES = [0.1, 0.12, 0.22, 0.24, 0.32, 0.35, 0.37];
 
+// Law basis: the One Big Beautiful Bill Act (OBBBA, July 2025) made the TCJA
+// individual rate structure and standard deduction PERMANENT — the scheduled
+// end-2025 TCJA sunset did NOT occur. These 2026 brackets/deductions are the
+// post-OBBBA inflation-adjusted values from IRS Rev. Proc. 2025-32. Because the
+// individual provisions are now permanent, the simulator's "project the base
+// law year forward, inflation-indexed" approach (see inflateTaxProfile) is the
+// correct treatment for the bracket/deduction structure — there is no future
+// law-change boundary to switch at. Do NOT "fix" these to pre-OBBBA / reverted
+// values; they are current law. (Genuinely time-boxed OBBBA add-ons such as the
+// 2025–2028 senior bonus deduction are tracked separately in KNOWN_LIMITATIONS.)
 export const FEDERAL_TAX_2026 = {
   year: 2026,
   source: "IRS Rev. Proc. 2025-32",
+  lawBasis: "Post-OBBBA (2025) permanent TCJA individual structure; IRS Rev. Proc. 2025-32 inflation adjustments.",
   capitalLossOrdinaryIncomeOffset: 3000,
   niit: {
     rate: 0.038,
@@ -130,9 +141,20 @@ export const FEDERAL_POVERTY_GUIDELINES_BY_YEAR = {
   2026: FPL_2026
 };
 
+// Law basis: the ARPA/IRA "enhanced" premium tax credits EXPIRED at the end of
+// 2025 and were not extended for 2026. So this 2026 schedule is the REVERTED
+// (pre-enhancement) regime: the 400% FPL subsidy cliff returns
+// (maxEligibleFplPercent: 400) and the applicable-percentage table runs from
+// 2.1% up to 9.96% (IRS Rev. Proc. 2025-25), instead of the enhanced 0%-floor /
+// 8.5%-cap / no-cliff schedule. This is deliberate and current law — do NOT
+// "restore" the enhanced 8.5% cap unless Congress re-extends it. If an
+// extension passes, model it as a separate selectable regime rather than
+// editing these values in place.
 export const ACA_2026 = {
   year: 2026,
   source: "IRS Rev. Proc. 2025-25",
+  lawBasis: "Post-2025 expiration of ARPA/IRA enhanced PTC; reverted schedule with 400% FPL cliff per IRS Rev. Proc. 2025-25.",
+  enhancedSubsidiesActive: false,
   maxEligibleFplPercent: 400,
   requiredContributionPercentage: 0.0996,
   costSharingLimit: {
