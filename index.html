@@ -484,6 +484,7 @@
                     <option value="heuristic">Basic drawdown heuristic</option>
                   </select>
                 </label>
+                <div id="withdrawalStrategyDesc" class="assumption-note" style="margin-top: 0.15rem; margin-bottom: 0.5rem;"></div>
                 <label>
                   <span>Withdrawal order</span>
                   <select id="withdrawalOrder">
@@ -493,7 +494,6 @@
                     <option value="roth,taxable,traditional,hsa">Roth → Taxable → Traditional → HSA</option>
                   </select>
                 </label>
-                <p class="assumption-note">Assumption: Lifetime optimizer compares withdrawal sources, MAGI thresholds, ACA and IRMAA cliffs, Roth basis, expected-return sale costs, and future tax-rate pressure. Basic drawdown heuristic follows the selected account order with tax-aware lot sorting and simple guardrails.</p>
                 <label>
                   <span>Spending strategy</span>
                   <select id="spendingStrategyMode">
@@ -504,6 +504,7 @@
                     <option value="vpw">Variable Percentage Withdrawal (VPW)</option>
                   </select>
                 </label>
+                <div id="spendingStrategyDesc" class="assumption-note" style="margin-top: 0.15rem; margin-bottom: 0.5rem;"></div>
                 <div class="control-grid" data-guardrail-spend-controls hidden>
                   <label><span>Essential spend</span><input id="essentialSpend" type="number" min="0" step="1000" value="60000"></label>
                   <label><span>Discretionary spend</span><input id="discretionarySpend" type="number" min="0" step="1000" value="30000"></label>

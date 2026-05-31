@@ -722,6 +722,10 @@ function bindEvents() {
     syncSpendingStrategyControls();
     saveStoredState();
   });
+  els.withdrawalStrategyMode?.addEventListener("change", () => {
+    updateStrategyDescriptions();
+    saveStoredState();
+  });
   els.essentialSpend?.addEventListener("input", () => {
     syncSpendingStrategyControls();
     saveStoredState();
@@ -891,6 +895,37 @@ function syncSpendingStrategyControls() {
     if (guardrailEnabled) {
       const total = (Number(els.essentialSpend?.value) || 0) + (Number(els.discretionarySpend?.value) || 0);
       els.targetSpend.value = String(Math.max(0, total));
+    }
+  }
+  updateStrategyDescriptions();
+}
+
+function updateStrategyDescriptions() {
+  const withdrawalMode = els.withdrawalStrategyMode?.value;
+  const spendingMode = els.spendingStrategyMode?.value;
+
+  const withdrawalDescEl = document.querySelector("#withdrawalStrategyDesc");
+  const spendingDescEl = document.querySelector("#spendingStrategyDesc");
+
+  if (withdrawalDescEl) {
+    if (withdrawalMode === "lifetime") {
+      withdrawalDescEl.innerHTML = `<strong>Selected: Lifetime Optimizer (Recommended)</strong> — Solves for optimal annual Roth conversions, ACA subsidies, and progressive tax-bracket matching over your entire plan horizon. Mathematically maximizes tax-efficiency and legacy bequest.<br><span style="display: block; margin-top: 0.25rem; opacity: 0.85;"><em>Alternative:</em> <strong>Basic Drawdown Heuristic</strong> uses a fixed sequence (e.g., Taxable → Traditional → Roth) without multi-year dynamic tax planning.</span>`;
+    } else {
+      withdrawalDescEl.innerHTML = `<strong>Selected: Basic Drawdown Heuristic</strong> — Withdraws sequentially using a predefined asset order (e.g., Taxable → Traditional → Roth) to cover spending needs as they arise, with no multi-year forward planning.<br><span style="display: block; margin-top: 0.25rem; opacity: 0.85;"><em>Alternative:</em> <strong>Lifetime Optimizer</strong> (Recommended) dynamically sweeps and matches tax brackets to minimize lifetime taxes and maximize the legacy bequest.</span>`;
+    }
+  }
+
+  if (spendingDescEl) {
+    if (spendingMode === "fixed") {
+      spendingDescEl.innerHTML = `<strong>Selected: Fixed Target Spend</strong> — Adjusts your initial target spend annually strictly by CPI inflation. It provides consistent purchasing power but ignores portfolio performance, introducing sequence-of-returns risk during severe bear markets.<br><span style="display: block; margin-top: 0.25rem; opacity: 0.85;"><em>Alternatives:</em> Dynamic rules (Guardrails, Guyton-Klinger, Kitces, VPW) dynamically adjust spending based on market conditions to defend your portfolio.</span>`;
+    } else if (spendingMode === "discretionaryGuardrails") {
+      spendingDescEl.innerHTML = `<strong>Selected: Essential + Discretionary Guardrails</strong> — Splits spending into essential (inflation-adjusted) and discretionary (variable). Discretionary spending dynamically scales down (50% or 0%) when stock markets drop below prior highs, defending the portfolio during market corrections.<br><span style="display: block; margin-top: 0.25rem; opacity: 0.85;"><em>Alternatives:</em> Alternatives include Guyton-Klinger (rules-based adjustments), Kitces (ratchets spending up on bull runs), VPW (percentage-based), and Fixed Spend.</span>`;
+    } else if (spendingMode === "guytonKlinger") {
+      spendingDescEl.innerHTML = `<strong>Selected: Guyton-Klinger Rules</strong> — Applies rules-based guardrails: increases spending by inflation unless the withdrawal rate rises by &gt;20% (frozen rule), and reduces spending by 10% if the current withdrawal rate exceeds the initial rate by &gt;20% (capital preservation rule).<br><span style="display: block; margin-top: 0.25rem; opacity: 0.85;"><em>Alternatives:</em> Alternatives include Fixed Spend (static inflation-adjusted), Guardrails (market drop-based adjustments), Kitces (upside-focused), and VPW (dynamic percentage).</span>`;
+    } else if (spendingMode === "kitces") {
+      spendingDescEl.innerHTML = `<strong>Selected: Kitces Ratcheting</strong> — Designed to prevent "under-spending". Starts with a conservative initial spending rate. If portfolio growth rises such that the current withdrawal rate drops below 10% of its initial level, spending ratchets up by 10%.<br><span style="display: block; margin-top: 0.25rem; opacity: 0.85;"><em>Alternatives:</em> Alternatives include Guardrails/Guyton-Klinger (defensive downside and dynamic corrections), VPW (fully variable percentage), and Fixed Spend.</span>`;
+    } else if (spendingMode === "vpw") {
+      spendingDescEl.innerHTML = `<strong>Selected: Variable Percentage Withdrawal (VPW)</strong> — Calculates your annual spending as a variable percentage of your current portfolio value, based on your current age and asset allocation life expectancy. Spending automatically shrinks in bear markets and expands in bull markets, ensuring zero chance of premature depletion.<br><span style="display: block; margin-top: 0.25rem; opacity: 0.85;"><em>Alternatives:</em> Alternatives include Guardrails, Guyton-Klinger, and Kitces (which seek to smooth out spending fluctuations), and Fixed Spend.</span>`;
     }
   }
 }
