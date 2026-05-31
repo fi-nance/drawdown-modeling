@@ -392,6 +392,7 @@ export function buildAcaConfig({
   marketplaceMembers = householdSize,
   currentAge = null,
   memberAges = null,
+  zip = null,
   planCostMode = "stateBenchmark",
   premiumInputMode = "gross",
   ageRateManualPremiums = true,
@@ -487,6 +488,7 @@ export function buildAcaConfig({
     premiumInputMode: normalizedPremiumInputMode,
     ageRateManualPremiums: shouldAgeRateManualPremiums,
     state,
+    zip: normalizeZipInput(zip),
     householdSize: Math.max(1, Math.trunc(Number(householdSize) || 1)),
     marketplaceMembers: members,
     fpl: Number.isFinite(fplOverride)
@@ -509,6 +511,15 @@ export function buildAcaConfig({
     maxEligibleFplPercent: aca.maxEligibleFplPercent,
     requiredContributionPercentage: aca.requiredContributionPercentage
   };
+}
+
+function normalizeZipInput(zip) {
+  if (zip == null) return null;
+  const text = String(zip).trim();
+  if (/^\d{5}$/.test(text)) return text;
+  const plus4 = text.match(/^(\d{5})-\d{4}$/);
+  if (plus4) return plus4[1];
+  return text || null;
 }
 
 function brackets(upperBounds) {

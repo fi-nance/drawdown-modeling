@@ -14,12 +14,10 @@
 //
 // What this module does NOT do
 // ────────────────────────────
-// - It does not resolve county FIPS or CMS rating area from a ZIP. ZIPs can
-//   span multiple counties, and county-to-rating-area mapping varies by
-//   state. The full offline path requires bundling the HUD USPS ZIP-County
-//   crosswalk plus CMS rating-area tables, which is its own slice. The CMS
-//   Marketplace API helper already provides this online for HealthCare.gov
-//   states.
+// - It does not by itself resolve county FIPS or CMS rating area from a ZIP.
+//   That layer now lives in `acaRatingArea.mjs`, which bundles Census ZIP→county
+//   and CMS rating-area/SLCSP data for the federal-platform states. This module
+//   stays smaller: ZIP→state, exchange type, and Medicaid expansion status.
 // - It does not handle U.S. territories (PR, USVI, GU, MP, AS). The federal
 //   ACA marketplace does not cover territories the same way; territory plans
 //   are out of model. ZIPs that resolve to territories return `state: null`

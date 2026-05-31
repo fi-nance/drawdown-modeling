@@ -205,29 +205,37 @@ but in scope for the north-star if we want CPA-grade coverage):
 Shipped today:
 - 2026 applicable percentages, FPL, required contribution percentage from
   `taxData.mjs`.
-- State-level SLCSP fallback, age-rated with the federal default age curve.
+- Offline ZIP → rating-area SLCSP for the 30 bundled federal-platform states,
+  using CMS 2026 Rate/Plan Attribute PUFs and geographic rating areas; the app
+  feeds the workspace ZIP into this path and still age-rates/inflates future
+  years.
+- State-level SLCSP fallback, age-rated with the federal default age curve,
+  when ZIP is absent, state-based exchange data is not bundled, or the ZIP is
+  out of the ingested rating-area set.
 - Exact selected-plan mode (user enters or API-fills SLCSP, plan premium, OOP).
 - CMS Marketplace API helper for HealthCare.gov states.
 - MA ConnectorCare estimator with public plan-type tables.
 - Backup plan triggered above a configurable FPL threshold (default 400%).
 - MAGI computation feeds ACA subsidy sizing inside the lifetime optimizer.
-- Coverage gap detection (low-income years that lose PTC in non-expansion
-  states) is **not** yet modeled.
+- Confidence flags identify non-expansion/partial-expansion coverage-gap risk
+  and distinguish bundled rating-area SLCSP from state fallback/out-of-model ZIP
+  results.
 
 Goal-level gaps:
-- **Rating-area-level SLCSP from ZIP code alone**, not state-level fallback.
-  This is the highest-leverage gap for "simple input, highly accurate." It
-  requires loading CMS Plan Attributes + Rate + Service Area PUFs (already
-  documented in DATA_SOURCES.md), aggregating to a ZIP × age × household-size
-  SLCSP lookup, and falling back gracefully when PUF coverage is partial.
+- **County/service-area-level SLCSP**, not only rating-area-level. The current
+  bundled path computes the second-lowest silver plan filed in a CMS rating
+  area; exact HealthCare.gov SLCSP can differ where plan service areas cover
+  only part of a rating area. Closing this requires incorporating Service Area
+  PUFs or state/API county-level plan availability.
 - **State-based exchange (SBE) coverage**, including CA, NY, WA, CO, CT, DC, ID,
   KY, ME, MD, MA, MN, NV, NJ, NM, PA, RI, VT. Each SBE publishes its own data;
   the goal is a per-state ingestion plan documented in DATA_SOURCES.md, with a
   ZIP → state-exchange routing layer in the UI.
-- **Medicaid expansion + coverage gap** modeling: when a planned low-income
-  year (often a Roth-conversion-light year) drops MAGI below 138% FPL in
-  expansion states or below 100% FPL in non-expansion states, the model should
-  flag the gap and warn before recommending it.
+- **Year-specific Medicaid/CHIP eligibility modeling** beyond today's
+  non-expansion confidence flag: when a planned low-income year drops MAGI into
+  Medicaid/CHIP territory, the model should distinguish Medicaid eligibility,
+  coverage-gap risk, CHIP children, immigration exceptions, and state-specific
+  waiver behavior before recommending MAGI-reduction moves.
 - **Post-2025 ACA enhanced subsidy expiration** (ARPA/IRA) explicitly modeled
   as a year-by-year regime, with a clear "what changes in 2026+ if subsidies
   expire vs are extended" comparison.
@@ -290,12 +298,17 @@ Goal-level gaps:
 
 ### 5. Nationwide, ZIP-only input
 
-Shipped today: state tax table for all 50 states + DC; manual state overrides.
+Shipped today: state tax table for all 50 states + DC; manual state overrides;
+offline ZIP → state/exchange/Medicaid resolver; offline ZIP → county/rating-area
+SLCSP for the bundled federal-platform states.
 
 Goal-level gaps:
-- **ZIP → state, county, rating area, Medicaid expansion status, exchange
-  type** resolver built into the app. Today the user picks a state; the goal
-  is the user types a ZIP and everything geographic is derived.
+- **Make ZIP primary across the whole workspace.** ACA now consumes the ZIP for
+  bundled rating-area SLCSP, but state tax residency, UI defaults, and all
+  confidence copy should eventually derive from ZIP first and ask for state only
+  when residency or move-year facts differ from mailing ZIP.
+- **ZIP/rating-area coverage completion** for SBE states and precise county /
+  service-area SLCSP.
 - **State estate/inheritance tax** modeling (12+ states levy one).
 - **State-specific retirement-income exclusions** at form-level detail (NY's
   $20K exclusion + 100% public-pension exclusion, IL's full retirement-income
@@ -345,10 +358,15 @@ risk first, then breadth.
 
 ### Phase 1 — ACA "simple input" payoff
 
-- ZIP → state / county / rating area / exchange / Medicaid-expansion resolver.
-- Rating-area-level SLCSP from CMS PUFs (federal-platform states), with the
-  state-level fallback retained for SBE states until Phase 2.
-- Coverage-gap warning when modeled MAGI drops below the relevant FPL floor.
+- Finish ZIP-first UI behavior: derive state/exchange/Medicaid/rating-area facts
+  from ZIP in the workspace, surface mismatches, and keep manual overrides for
+  residency or state-based exchange edge cases.
+- Extend the shipped rating-area-level SLCSP path from federal-platform states
+  to SBE states where public PUFs or exchange APIs support it.
+- Move from rating-area-level to county/service-area-level SLCSP where data
+  allows.
+- Coverage-gap warning should use modeled year-by-year MAGI and household
+  composition, not only state-level risk.
 - Post-2025 enhanced-subsidy expiration regime, switchable by law-year.
 - Golden tests built from CMS worked examples.
 

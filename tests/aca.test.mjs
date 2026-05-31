@@ -8,6 +8,7 @@ import {
   inflateAcaConfig
 } from "../src/core/aca.mjs";
 import { buildAcaConfig, getFplGuideline } from "../src/data/taxData.mjs";
+import { slcspMonthlyFor } from "../src/data/acaRatingArea.mjs";
 
 const acaConfig = {
   enabled: true,
@@ -63,6 +64,44 @@ test("buildAcaConfig uses prior-year FPL for PTC", () => {
     marketplaceMembers: 2
   });
   assert.equal(config.fpl, 21150);
+});
+
+test("buildAcaConfig carries ZIP into the ACA benchmark lookup", () => {
+  const config = buildAcaConfig({
+    taxYear: 2026,
+    state: "Florida",
+    householdSize: 1,
+    marketplaceMembers: 1,
+    currentAge: 40,
+    memberAges: [40],
+    zip: "33101"
+  });
+  const result = computeAca({ magi: 40000, config });
+
+  assert.equal(config.zip, "33101");
+  assert.equal(result.benchmarkPremium, 684.37 * 12);
+  assert.equal(result.ratingArea.areaCode, 43);
+  assert.equal(result.benchmarkFallback, null);
+});
+
+test("ZIP benchmark path age-rates and inflates future-year premiums", () => {
+  const config = buildAcaConfig({
+    taxYear: 2026,
+    state: "Texas",
+    householdSize: 1,
+    marketplaceMembers: 1,
+    currentAge: 40,
+    memberAges: [40],
+    zip: "77002"
+  });
+  const nextYear = inflateAcaConfig(config, 1.1, { age: 41, yearIndex: 1 });
+  const expected = slcspMonthlyFor({ zip: "77002", householdAges: [41] }).monthlyPremium * 12 * 1.1;
+  const result = computeAca({ magi: 40000, config: nextYear });
+
+  assert.deepEqual(nextYear.currentMemberAges, [41]);
+  assert.equal(result.benchmarkPremium, round6(expected));
+  assert.equal(result.grossPremium, round6(expected));
+  assert.equal(result.benchmarkFallback, null);
 });
 
 test("ACA is ineligible below 100% FPL by default (IRC §36B)", () => {

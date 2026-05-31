@@ -3877,6 +3877,7 @@ function readScenario() {
   const backupPlanPremiumInputMode = els.acaBackupPremiumInputMode.value === "net" ? "net" : "gross";
   const backupTriggerFplPercent = numberOrNull(els.acaBackupTriggerFplPercent.value);
   const backupPlanName = String(els.acaBackupPlanName.value || "").trim();
+  const marketplaceZip = String(els.marketplaceZip?.value || "").trim();
   const hasBackupPlanInputs = backupPlanPremiumOverride != null
     || backupPlanBenchmarkPremiumOverride != null
     || backupPlanOopMaximumOverride != null
@@ -3913,6 +3914,7 @@ function readScenario() {
     marketplaceMembers,
     currentAge,
     memberAges,
+    zip: marketplaceZip || null,
     planCostMode,
     premiumInputMode,
     ageRateManualPremiums: els.acaAgeRateManualPremiums.checked,

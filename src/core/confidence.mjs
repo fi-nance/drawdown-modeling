@@ -1,4 +1,5 @@
 import { STATE_MEDICAID_EXPANSION_2026 } from "../data/geo.mjs";
+import { benchmarkPremiumForZip } from "./aca.mjs";
 
 export const CONFIDENCE_LEVELS = Object.freeze({
   HIGH: "high-confidence",
@@ -32,7 +33,7 @@ export function actionConfidenceFor(actionKind, confidenceReport = {}) {
   const find = (ids) => flags.find((flag) => ids.includes(flag.id));
 
   if (["aca", "medicalReserve"].includes(actionKind)) {
-    const flag = find(["aca-plan-inputs", "aca-net-premium-quote", "aca-magi-threshold"]);
+    const flag = find(["aca-plan-inputs", "aca-benchmark-state-fallback", "aca-benchmark-out-of-model", "aca-oop-inputs", "aca-net-premium-quote", "aca-magi-threshold"]);
     if (flag) return actionConfidenceFromFlag(flag);
   }
 
@@ -155,14 +156,17 @@ function addHealthcareFlags(flags, scenario, decision) {
   const aca = scenario?.aca ?? {};
   if (aca.enabled === false) return;
 
-  if (aca.planCostMode !== "selectedPlan" || aca.manualOopMaximum !== true) {
+  const benchmarkFlag = acaBenchmarkGeographyFlag(aca);
+  if (benchmarkFlag) flags.push(benchmarkFlag);
+
+  if (aca.manualOopMaximum !== true) {
     flags.push({
-      id: "aca-plan-inputs",
+      id: "aca-oop-inputs",
       level: CONFIDENCE_LEVELS.INPUT_LIMITED,
       lens: "cpa",
-      title: "ACA plan costs use a benchmark estimate",
-      detail: "The healthcare bridge is using a state/default benchmark or missing exact OOP inputs, so local rating-area SLCSP and selected-plan costs can move the result.",
-      action: "Enter the household SLCSP, selected plan premium, OOP max, covered ages, and ZIP/county plan lookup when available."
+      title: "ACA out-of-pocket cost uses a default cap",
+      detail: "The healthcare bridge does not yet have the household's selected-plan OOP maximum, so medical spending uses the federal self-only/family cap instead of plan-specific exposure.",
+      action: "Enter the selected plan OOP maximum or fill an exact Marketplace plan before treating healthcare cash-flow risk as household-specific."
     });
   }
 
@@ -188,6 +192,77 @@ function addHealthcareFlags(flags, scenario, decision) {
       action: "Use gross SLCSP and selected-plan premiums when you want an auditable Form 8962-style trace."
     });
   }
+}
+
+function acaBenchmarkGeographyFlag(aca) {
+  if (aca.planCostMode === "selectedPlan") return null;
+
+  const zip = normalizedZip(aca.zip);
+  if (!zip) {
+    return {
+      id: "aca-plan-inputs",
+      level: CONFIDENCE_LEVELS.INPUT_LIMITED,
+      lens: "cpa",
+      title: "ACA benchmark needs ZIP or exact plan data",
+      detail: "The healthcare bridge is using the state-level benchmark because no ZIP is available to resolve a local rating-area SLCSP.",
+      action: "Enter a ZIP for the offline rating-area SLCSP lookup, or use exact selected-plan premiums from the marketplace."
+    };
+  }
+
+  let benchmark;
+  try {
+    benchmark = benchmarkPremiumForZip({
+      zip,
+      planYear: aca.year ?? 2026,
+      age: aca.currentAge ?? null,
+      householdAges: aca.currentMemberAges ?? aca.memberAges ?? null
+    });
+  } catch {
+    return {
+      id: "aca-plan-inputs",
+      level: CONFIDENCE_LEVELS.INPUT_LIMITED,
+      lens: "cpa",
+      title: "ACA benchmark ZIP lookup needs covered ages",
+      detail: `ZIP ${zip} is present, but the model needs marketplace member ages to age-rate the local SLCSP benchmark.`,
+      action: "Enter covered member ages for ACA modeling or use exact selected-plan premiums from the marketplace."
+    };
+  }
+
+  if (benchmark.fallback === null) {
+    const area = benchmark.ratingArea;
+    const areaText = area?.areaCode != null ? `${area.state} rating area ${area.areaCode}` : "a bundled rating area";
+    return {
+      id: "aca-rating-area-slcsp",
+      level: CONFIDENCE_LEVELS.HIGH,
+      lens: "cpa",
+      title: "ACA benchmark uses bundled rating-area SLCSP",
+      detail: `ZIP ${zip} resolves offline to ${areaText}; the benchmark uses the CMS 2026 rating-area second-lowest-cost silver premium age-rated to the covered household.`,
+      action: "Use exact Marketplace selected-plan inputs when county service area, tobacco rating, CSR variant, or the chosen plan's OOP exposure matters."
+    };
+  }
+
+  if (benchmark.fallback === "state") {
+    const reason = benchmark.ratingArea?.state
+      ? `${benchmark.ratingArea.state} is not covered by the bundled rating-area table or the ZIP could not resolve to an ingested rating area`
+      : "the ZIP could not resolve to an ingested rating area";
+    return {
+      id: "aca-benchmark-state-fallback",
+      level: CONFIDENCE_LEVELS.INPUT_LIMITED,
+      lens: "cpa",
+      title: "ACA benchmark fell back to state average",
+      detail: `ZIP ${zip} was checked, but ${reason}. The model is still using an age-rated state-level SLCSP fallback instead of a local rating-area benchmark.`,
+      action: "Use exact selected-plan inputs from the state exchange or Marketplace API when local healthcare costs could move the decision."
+    };
+  }
+
+  return {
+    id: "aca-benchmark-out-of-model",
+    level: CONFIDENCE_LEVELS.OUT_OF_MODEL,
+    lens: "cpa",
+    title: "ACA benchmark ZIP is out of model",
+    detail: `ZIP ${zip} does not resolve to an ACA marketplace geography covered by the offline tables, so the local SLCSP benchmark cannot be verified from ZIP alone.`,
+    action: "Enter exact plan premiums manually if the household has marketplace coverage, or disable ACA when marketplace coverage does not apply."
+  };
 }
 
 function addCoverageGapFlags(flags, scenario) {
@@ -299,11 +374,11 @@ function actionConfidenceFromFlag(flag = {}) {
 function rescueFlagIds(kind) {
   switch (kind) {
     case "healthcareRescue":
-      return ["aca-plan-inputs", "aca-net-premium-quote", "aca-magi-threshold"];
+      return ["aca-plan-inputs", "aca-benchmark-state-fallback", "aca-benchmark-out-of-model", "aca-oop-inputs", "aca-net-premium-quote", "aca-magi-threshold"];
     case "rothBasisCliffRescue":
     case "conversionGuardrail":
     case "magiSpendTrim":
-      return ["aca-magi-threshold", "aca-plan-inputs", "aca-net-premium-quote"];
+      return ["aca-magi-threshold", "aca-plan-inputs", "aca-benchmark-state-fallback", "aca-benchmark-out-of-model", "aca-oop-inputs", "aca-net-premium-quote"];
     case "taxableLotRescue":
       return ["aca-magi-threshold"];
     case "withdrawalShift":
@@ -314,6 +389,13 @@ function rescueFlagIds(kind) {
     default:
       return [];
   }
+}
+
+function normalizedZip(zip) {
+  if (zip == null) return "";
+  const text = String(zip).trim();
+  const plus4 = text.match(/^(\d{5})-\d{4}$/);
+  return plus4 ? plus4[1] : text;
 }
 
 function shortConfidenceLabel(level) {

@@ -90,10 +90,13 @@ export function computeAca({
       zip: zipValue,
       planYear: planYear ?? config.year ?? 2026,
       age: age ?? config.currentAge ?? null,
-      householdAges: householdAges ?? config.memberAges ?? null
+      householdAges: householdAges ?? config.currentMemberAges ?? config.memberAges ?? null
     });
     if (Number.isFinite(zipBenchmark.annualBenchmarkPremium)) {
-      const annual = zipBenchmark.annualBenchmarkPremium;
+      const premiumIndex = Number.isFinite(config.premiumInflationIndex)
+        ? Math.max(0, Number(config.premiumInflationIndex))
+        : 1;
+      const annual = round(zipBenchmark.annualBenchmarkPremium * premiumIndex, 6);
       const inStateBenchmarkMode = config.planCostMode !== "selectedPlan";
       config = {
         ...config,
@@ -292,8 +295,12 @@ function ageAdjustedHouseholdPremium(options = {}, ageContext = {}) {
 
 export function inflateAcaConfig(config = DEFAULT_ACA_CONFIG, inflationIndex = 1, ageContext = {}) {
   const index = Math.max(0, inflationIndex);
+  const currentAge = finiteAge(ageContext?.age) ?? finiteAge(config.currentAge);
   return {
     ...config,
+    currentAge,
+    currentMemberAges: projectedMemberAges(config.memberAges, ageContext),
+    premiumInflationIndex: index,
     fpl: round((config.fpl ?? 0) * index, 6),
     benchmarkPremium: round(ageAdjustedBenchmarkPremium(config, ageContext) * index, 6),
     selectedPlanPremium: round(ageAdjustedSelectedPlanPremium(config, ageContext) * index, 6),
@@ -301,6 +308,16 @@ export function inflateAcaConfig(config = DEFAULT_ACA_CONFIG, inflationIndex = 1
     backupPlan: inflateBackupPlan(config, index, ageContext),
     oopMaximumInflated: true
   };
+}
+
+function projectedMemberAges(memberAges, ageContext = {}) {
+  if (!Array.isArray(memberAges)) return null;
+  const offset = Math.max(0, Math.trunc(Number(ageContext?.yearIndex) || 0));
+  const projected = memberAges
+    .map((age) => finiteAge(age))
+    .filter((age) => age != null)
+    .map((age) => age + offset);
+  return projected.length ? projected : null;
 }
 
 function inflateBackupPlan(config, inflationIndex, ageContext) {

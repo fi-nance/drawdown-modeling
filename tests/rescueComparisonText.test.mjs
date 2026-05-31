@@ -132,3 +132,10 @@ test("decision panel includes ranked sensitivity output", async () => {
   assert.match(source, /sensitivityCardHtml/, "decision panel should render sensitivity results");
   assert.match(source, /What moves this/, "sensitivity card should use plain-language heading");
 });
+
+test("workspace ZIP feeds the offline ACA benchmark path", async () => {
+  const appSource = await readFile(new URL("../src/app.mjs", import.meta.url), "utf8");
+
+  assert.match(appSource, /const marketplaceZip = String\(els\.marketplaceZip\?\.value \|\| ""\)\.trim\(\)/);
+  assert.match(appSource, /zip: marketplaceZip \|\| null/);
+});

@@ -33,6 +33,75 @@ test("confidence report flags input-limited ACA estimates and legacy gaps", () =
   assert.ok(report.flags.some((flag) => flag.id === "legacy-tax-out-of-model" && flag.level === CONFIDENCE_LEVELS.OUT_OF_MODEL));
 });
 
+test("confidence report names rating-area SLCSP when ZIP lookup succeeds", () => {
+  const report = buildConfidenceReport({
+    scenario: {
+      aca: {
+        enabled: true,
+        planCostMode: "stateBenchmark",
+        premiumInputMode: "gross",
+        manualOopMaximum: true,
+        year: 2026,
+        zip: "33101",
+        currentAge: 40,
+        memberAges: [40]
+      }
+    }
+  });
+
+  const flag = report.flags.find((item) => item.id === "aca-rating-area-slcsp");
+  assert.ok(flag);
+  assert.equal(flag.level, CONFIDENCE_LEVELS.HIGH);
+  assert.match(flag.detail, /ZIP 33101/);
+  assert.match(flag.detail, /rating area 43/);
+  assert.match(flag.detail, /second-lowest-cost silver/i);
+});
+
+test("confidence report explains state fallback when ZIP is not bundled", () => {
+  const report = buildConfidenceReport({
+    scenario: {
+      aca: {
+        enabled: true,
+        planCostMode: "stateBenchmark",
+        premiumInputMode: "gross",
+        manualOopMaximum: true,
+        year: 2026,
+        zip: "02139",
+        currentAge: 40,
+        memberAges: [40]
+      }
+    }
+  });
+
+  const flag = report.flags.find((item) => item.id === "aca-benchmark-state-fallback");
+  assert.ok(flag);
+  assert.equal(flag.level, CONFIDENCE_LEVELS.INPUT_LIMITED);
+  assert.match(flag.detail, /state-level SLCSP fallback/);
+  assert.match(flag.action, /state exchange|Marketplace API/);
+});
+
+test("confidence report flags out-of-model ACA ZIPs", () => {
+  const report = buildConfidenceReport({
+    scenario: {
+      aca: {
+        enabled: true,
+        planCostMode: "stateBenchmark",
+        premiumInputMode: "gross",
+        manualOopMaximum: true,
+        year: 2026,
+        zip: "00901",
+        currentAge: 40,
+        memberAges: [40]
+      }
+    }
+  });
+
+  const flag = report.flags.find((item) => item.id === "aca-benchmark-out-of-model");
+  assert.ok(flag);
+  assert.equal(flag.level, CONFIDENCE_LEVELS.OUT_OF_MODEL);
+  assert.match(flag.detail, /out of model|does not resolve/i);
+});
+
 test("confidence report flags evidence disagreement and narrow ACA MAGI buffers", () => {
   const report = buildConfidenceReport({
     scenario: {
