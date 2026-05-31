@@ -340,9 +340,10 @@ Goal-level gaps:
 
 Shipped today: browser-based app, local setup backup/restore with sensitive-data
 confirmation, result audit bundle export with setup + compact results +
-confidence/sensitivity/audit metadata and sensitive-data confirmation, local
-storage for remembered setup, optional explicit imports from CSV/JSON/Google
-Sheets, and live CMS Marketplace lookup only when the user invokes it.
+confidence/sensitivity/audit metadata + a compact CPA/engineering review
+summary and sensitive-data confirmation, local storage for remembered setup,
+optional explicit imports from CSV/JSON/Google Sheets, and live CMS Marketplace
+lookup only when the user invokes it.
 
 Goal-level gaps:
 - **Local-first guarantee** stated in the UI and docs: what stays in the browser,
@@ -352,9 +353,10 @@ Goal-level gaps:
   assumptions manually entered.
 - **Data minimization by confidence tier** so the app asks for exact details only
   when they change a decision or materially improve confidence.
-- **Reproducibility bundle depth** beyond today's JSON bundle: add a smaller
-  CPA-review summary that can prove rule/source/version choices without exposing
-  every Monte Carlo result.
+- **Reproducibility bundle depth** beyond today's JSON bundle: the audit bundle
+  now includes a compact CPA/engineering review summary that proves
+  rule/source/version choices without exposing every Monte Carlo path; next step
+  is a separate shareable summary export with even tighter data minimization.
 
 ## Roadmap (Phased)
 

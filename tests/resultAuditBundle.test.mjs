@@ -6,7 +6,8 @@ import {
   RESULT_AUDIT_BUNDLE_PRIVACY_NOTICE,
   RESULT_AUDIT_BUNDLE_SCHEMA_VERSION,
   RESULT_AUDIT_BUNDLE_TYPE,
-  createResultAuditBundle
+  createResultAuditBundle,
+  createResultAuditSummary
 } from "../src/core/resultAuditBundle.mjs";
 
 const setupState = {
@@ -24,8 +25,33 @@ const setupState = {
 };
 
 const latest = {
-  scenario: { taxYear: 2026, state: "Florida" },
+  scenario: {
+    taxYear: 2026,
+    startYear: 2026,
+    planYears: 35,
+    state: "Florida",
+    filingStatus: "marriedFilingJointly",
+    currentAge: 55,
+    spouseAge: 54,
+    targetSpend: 90000,
+    targetSpendIncludesTaxes: true,
+    targetSpendIncludesMedical: false,
+    withdrawalStrategy: { mode: "lifetime" },
+    spendingStrategy: { mode: "fixed" },
+    aca: {
+      enabled: true,
+      planCostMode: "stateBenchmark",
+      premiumInputMode: "gross",
+      zip: "33101",
+      householdSize: 2,
+      marketplaceMembers: 2
+    },
+    heirType: "nonSpouse10Yr",
+    heirBaseIncome: 120000,
+    heirAge: 45
+  },
   plan: {
+    success: true,
     endingValue: 1000,
     years: [{ year: 2026, yearIndex: 0, endingPortfolioValue: 1000 }]
   },
@@ -34,8 +60,10 @@ const latest = {
     flags: [{ id: "legacy-tax-out-of-model", title: "Legacy tax detail needs estate review" }]
   },
   decision: {
+    status: "complete",
+    profile: { targetSuccessRate: 0.9 },
     sensitivity: {
-      top: [{ id: "spending-5pct-higher", label: "Spending 5% higher" }]
+      top: [{ id: "spending-5pct-higher", label: "Spending 5% higher", impact: 0.08 }]
     }
   },
   monteCarlo: {
@@ -85,10 +113,43 @@ test("result audit bundle wraps setup, compact result, audit rows, and source ve
     { label: "Simulation inputs", value: "1000 Monte Carlo runs" }
   ]);
   assert.equal(bundle.sourceVersions.taxDataVersion, "2026.1");
+  assert.equal(bundle.reviewSummary.scenario.targetSpend, 90000);
+  assert.equal(bundle.reviewSummary.scenario.healthcare.zip, "33101");
+  assert.equal(bundle.reviewSummary.verdict.planSuccess, true);
+  assert.equal(bundle.reviewSummary.verdict.monteCarloSuccessRate, 0.92);
+  assert.equal(bundle.reviewSummary.verdict.decisionTargetSuccessRate, 0.9);
+  assert.equal(bundle.reviewSummary.reproducibility.seed, 42);
+  assert.equal(bundle.reviewSummary.sourceVersions.taxDataVersion, "2026.1");
+  assert.equal(bundle.reviewSummary.confidence.flags[0].id, "legacy-tax-out-of-model");
+  assert.equal(bundle.reviewSummary.sensitivity[0].impact, 0.08);
+  assert.deepEqual(bundle.reviewSummary.audit[0], { label: "Tax assumptions", value: "2026 federal and Florida state" });
+  assert.equal(bundle.reviewSummary.result, undefined);
+  assert.equal(bundle.reviewSummary.setup, undefined);
+  assert.equal(bundle.reviewSummary.monteCarlo, undefined);
   assert.equal(bundle.result._compact, true);
   assert.equal(bundle.result.monteCarlo.scenarios[0].years, undefined);
   assert.deepEqual(bundle.result.monteCarlo.scenarios[0].lastYear, { year: 2026, yearIndex: 0, inflationIndex: 1 });
   assert.equal(bundle.result.confidence.headline, "Known exclusions");
+});
+
+test("result audit summary is a compact CPA and engineering review surface", () => {
+  const summary = createResultAuditSummary({
+    latest,
+    auditRows: [["Tax assumptions", "2026 federal and Florida state"]],
+    sourceVersions: { taxDataVersion: "2026.1", seed: 42 },
+    exportedAt: "2026-05-30T00:00:00.000Z"
+  });
+
+  assert.equal(summary.schemaVersion, 1);
+  assert.equal(summary.exportedAt, "2026-05-30T00:00:00.000Z");
+  assert.equal(summary.scenario.state, "Florida");
+  assert.equal(summary.scenario.healthcare.householdSize, 2);
+  assert.equal(summary.verdict.historicalBacktestCount, 1);
+  assert.equal(summary.reproducibility.seed, 42);
+  assert.equal(summary.sourceVersions.taxDataVersion, "2026.1");
+  assert.deepEqual(summary.audit, [{ label: "Tax assumptions", value: "2026 federal and Florida state" }]);
+  assert.equal(summary.setup, undefined);
+  assert.equal(summary.result, undefined);
 });
 
 test("result audit bundle rejects incomplete results", () => {
