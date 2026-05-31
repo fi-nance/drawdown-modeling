@@ -11,6 +11,7 @@ This file documents where the app's versioned tax, ACA, and historical return da
 | Historical return backtesting | `src/data/historicalReturns.mjs` | `HISTORICAL_RETURN_DATA_VERSION = "2026.1"` | modern baseline core asset classes 1928-2025; opt-in reconstructed U.S. source extends stock/bond/cash to 1872 and real estate to 1891 |
 | Market-neutral Monte Carlo preset | `MONTE_CARLO_ASSUMPTION_PRESETS.marketNeutral` in `src/core/simulation.mjs` | 2026 market-neutral CMA blend | 10-year nominal capital-market-assumption baseline |
 | Offline ZIP → state, exchange type, Medicaid expansion | `src/data/geo.mjs` | `GEO_DATA_VERSION = "2026.1"` | 50 states + DC; U.S. territories and APO/FPO ZIPs return out-of-model fallbacks |
+| Offline ZIP → rating-area SLCSP (second-lowest-cost silver plan) | `src/data/acaRatingArea.mjs` + `acaRatingArea2026.generated.mjs`, `countyToRatingArea.generated.mjs`, `zipToCounty.generated.mjs` | `ACA_RATING_AREA_DATA_VERSION = "2026.1"` | 30 federal-platform states (every state that files into the CMS PUFs), 349 rating areas; state-based-exchange states fall back to the state-level benchmark |
 
 ## Source Inventory
 
@@ -32,6 +33,9 @@ This file documents where the app's versioned tax, ACA, and historical return da
 | State retirement-income and Social Security tax treatment | Kiplinger 2026 all-state retiree tax guide: https://www.kiplinger.com/retirement/602202/taxes-in-retirement-how-all-50-states-tax-retirees; state revenue instructions should be used to audit edge cases | `STATE_RETIREMENT_TAX_RULES_2026` | Review at least annually and when a state enacts retirement-income changes |
 | Federal Marketplace plan lookup | CMS Marketplace API docs/spec: https://developer.cms.gov/marketplace-api/ and https://developer.cms.gov/marketplace-api/api-spec | `src/data/marketplaceApi.mjs`, UI plan picker | Live API values depend on CMS API availability, API key, plan year, ZIP/county, household ages, tobacco flag, utilization level, and quote income |
 | Exchange plan premiums and plan attributes | CMS Exchange PUFs: https://www.cms.gov/marketplace/resources/data/public-use-files; state-based exchange PUFs: https://www.cms.gov/marketplace/resources/data/state-based-public-use-files; QHP Landscape metadata: https://catalog.data.gov/dataset/qhp-landscape-py2026-individual-medical | `ACA_BENCHMARK_PREMIUMS_2026_MONTHLY`, future plan/rating-area tables | Updated during the plan year; CMS notes that PUF data can differ from Healthcare.gov display timing |
+| Rating-area SLCSP per-age premiums | CMS Marketplace Rate PUF and Plan Attributes PUF, plan year 2026: https://www.cms.gov/marketplace/resources/data/public-use-files (Rate PUF for per-age silver premiums by rating area; Plan Attributes PUF to filter to individual on-exchange silver plans) | `ACA_SLCSP_BY_RATING_AREA_2026` in `src/data/acaRatingArea2026.generated.mjs`; `slcspMonthlyFor()` | Re-derive each plan year when CMS publishes the new Rate/Plan Attributes PUFs |
+| County / 3-digit-ZIP → rating area | CMS state geographic rating areas (2026): https://www.cms.gov/cciio/programs-and-initiatives/health-insurance-market-reforms/state-gra | `COUNTY_TO_RATING_AREA`, `ZIP3_TO_RATING_AREA`, `RATING_AREA_METHODOLOGY` in `src/data/countyToRatingArea.generated.mjs` | Re-derive each plan year; rating-area boundaries change rarely |
+| ZIP5 → primary county FIPS | Census 2020 ZCTA-to-county relationship file and national county FIPS list: https://www2.census.gov/geo/docs/maps-data/data/rel2020/zcta520/tab20_zcta520_county20_natl.txt (with https://www2.census.gov/geo/docs/reference/codes2020/national_county2020.txt for county-name→FIPS) | `ZIP5_TO_COUNTY_FIPS` in `src/data/zipToCounty.generated.mjs` | Substitutes for the HUD USPS ZIP-County crosswalk, which now requires a HUD API token; refresh when adopting a new Census ZCTA vintage |
 | Stocks, T-bills, 10-year Treasuries, real estate | NYU Stern Damodaran annual returns: https://pages.stern.nyu.edu/~adamodar/New_Home_Page/datafile/histretSP.html | `HISTORICAL_RETURNS[].stock`, `.cash`, `.bond`, `.realEstate` | Final calendar-year row is usually available in early January |
 | Inflation through 2023 | NYU Stern Damodaran historical inflation table: https://pages.stern.nyu.edu/~adamodar/New_Home_Page/datafile/histret.html | `HISTORICAL_RETURNS[].inflation` for source years available there | Updated periodically |
 | Inflation extension for 2024 and 2025 | FRED CPIAUCSL: https://fred.stlouisfed.org/series/CPIAUCSL and CSV endpoint `https://fred.stlouisfed.org/graph/fredgraph.csv?id=CPIAUCSL` | `HISTORICAL_RETURNS[].inflation` for years not yet in Damodaran's inflation table | Use December-over-December CPI when the final December value is available |
@@ -55,7 +59,8 @@ This file documents where the app's versioned tax, ACA, and historical return da
 - In the extended reconstructed source before 1928, `stock`, `bond`, `cash`, and `realEstate` are mapped to JST U.S. equity total return, government bond total return, bill/deposit-rate return, and housing total return.
 - `tips` is derived from iShares TIP NAV total return history when available.
 - `crypto` is derived from BTC year-end daily USD price changes. It is a BTC proxy, not a diversified crypto index.
-- ACA benchmark premiums are currently state-level defaults age-rated with the federal default age curve unless the user fills exact plan data. Exact selected-plan mode can bypass the selected-plan assumption by using the household SLCSP monthly premium, selected plan monthly premium, selected plan OOP max, and covered member ages from Healthcare.gov or a state exchange. Manual ACA premiums can be projected with inflation alone or with the federal ACA age curve on top of inflation; selected-plan OOP maximums are projected as dollar limits without age-rating.
+- Rating-area-level SLCSP: `slcspMonthlyFor({ zip, age, householdAges })` in `src/data/acaRatingArea.mjs` resolves a ZIP to its CMS rating area offline and returns the real second-lowest-cost silver plan premium, age-rated to the household, for the 30 federal-platform states. The chain is ZIP5 → primary county FIPS (Census ZCTA↔county) → rating area (CMS geographic rating areas) → SLCSP per-age premium (CMS Rate PUF, filtered to individual on-exchange silver plans via the Plan Attributes PUF); a few states (e.g. Alaska) define rating areas by 3-digit ZIP and are resolved directly. SLCSP is computed per the documented methodology as the second-lowest IndividualRate among silver plans filed in the rating area; because the ACA age curve is uniform across issuers in a state, the ranking is age-invariant, and the bundled per-age schedule is the SLCSP plan's own filed rates. This is a **rating-area-level** benchmark, not HealthCare.gov's county-level SLCSP: where a plan's service area covers only part of a rating area, the two can differ. State-based-exchange states (CA, NY, MA, …), U.S. territories, and military ZIPs are not bundled; the function returns `fallback: "state"` (still age-rated) or `fallback: "out-of-model"` so the caller knows. `computeAca({ magi, config, zip, householdAges })` uses this benchmark when a ZIP is supplied and otherwise falls through to the state-level path unchanged.
+- ACA benchmark premiums are currently state-level defaults age-rated with the federal default age curve unless the user fills exact plan data or supplies a ZIP that resolves to bundled rating-area data. Exact selected-plan mode can bypass the selected-plan assumption by using the household SLCSP monthly premium, selected plan monthly premium, selected plan OOP max, and covered member ages from Healthcare.gov or a state exchange. Manual ACA premiums can be projected with inflation alone or with the federal ACA age curve on top of inflation; selected-plan OOP maximums are projected as dollar limits without age-rating.
 - The CMS Marketplace API helper is intended for HealthCare.gov states. It uses CMS `counties/by/zip` and `plans/search` endpoints to populate exact gross selected-plan inputs and an estimated SLCSP from returned silver plans. The app still models future-year premiums by inflation and optional age rating after the selected plan is copied into the scenario.
 - The backup ACA plan is a planning fallback for future years where modeled MAGI exceeds a configured FPL trigger, defaulting to 400%. When active, the backup selected premium and OOP maximum replace the primary plan values for that year.
 - Massachusetts ConnectorCare helper values come from the public Massachusetts Health Connector 2026 ConnectorCare guide tables: 2025 FPL thresholds used for 2026 ConnectorCare eligibility, lowest monthly premium per person by Plan Type, and separate medical and prescription OOP maximums. The app combines medical and prescription OOP maximums into one conservative planning OOP value and treats the premium as a quoted net premium. The helper uses the ACA quote income/MAGI field, not target spend, because MAGI can be managed below spending via withdrawal-source choices. The UI can choose the public plan type automatically from MAGI or let the user select a specific public plan type; this is still a plan-type estimate, not a carrier-specific quote.
@@ -89,9 +94,9 @@ This file documents where the app's versioned tax, ACA, and historical return da
 
 4. Update ACA plan-cost defaults.
    - Download CMS Exchange PUFs for the plan year.
-   - For federal-platform states, use Rate PUF, Plan Attributes PUF, Service Area PUF, and QHP Landscape files.
-   - For state-based exchanges, use CMS SBE QHP PUFs or the state exchange's own public files.
-   - Prefer deriving a second-lowest-cost silver plan benchmark by rating area and household composition. If keeping a state-level fallback, document the aggregation method.
+   - For federal-platform states, regenerate the rating-area SLCSP tables with `scripts/generateAcaRatingArea.mjs` (see "Regenerating the rating-area SLCSP tables" above), then bump `ACA_RATING_AREA_DATA_VERSION` and refresh the worked-example expectations in `tests/golden_slcsp_rating_area.test.mjs`.
+   - For state-based exchanges, use CMS SBE QHP PUFs or the state exchange's own public files (still the state-level fallback today).
+   - Also refresh the state-level `ACA_BENCHMARK_PREMIUMS_YYYY_MONTHLY` fallback used by the SBM states and out-of-coverage cases.
 
 5. Append the final historical return year.
    - Download NYU Stern `histretSP.html` and verify the new final year exists.
@@ -127,9 +132,40 @@ curl -L -o /tmp/irs-federal-tax.pdf "https://www.irs.gov/pub/irs-drop/rp-25-32.p
 curl -L -o /tmp/irs-aca-ptc.pdf "https://www.irs.gov/pub/irs-drop/rp-25-25.pdf"
 ```
 
+## Regenerating the rating-area SLCSP tables
+
+The three generated files behind `slcspMonthlyFor` (`acaRatingArea2026.generated.mjs`, `countyToRatingArea.generated.mjs`, `zipToCounty.generated.mjs`) are produced deterministically by `scripts/generateAcaRatingArea.mjs` from primary-source downloads. The script has no runtime dependencies (Node built-ins only) and the raw downloads are not committed. To regenerate (e.g. for plan year 2027):
+
+```bash
+RAW=/tmp/puf2027; mkdir -p "$RAW" && cd "$RAW"
+# 1. CMS Marketplace PUFs (Rate, Plan Attributes, Service Area) for the plan year.
+for f in rate-puf plan-attributes-puf service-area-puf; do
+  curl -L -o "$f.zip" "https://download.cms.gov/marketplace-puf/2027/$f.zip" && unzip -o "$f.zip" -d "$f"
+done
+# 2. Census county FIPS list and ZCTA↔county relationship file (ZIP → county).
+curl -L -o /tmp/census_county.txt "https://www2.census.gov/geo/docs/reference/codes2020/national_county2020.txt"
+curl -L -o /tmp/zcta_county.txt    "https://www2.census.gov/geo/docs/maps-data/data/rel2020/zcta520/tab20_zcta520_county20_natl.txt"
+# 3. CMS state geographic-rating-area pages (county/3-digit-ZIP → rating area), one per federal-platform state.
+mkdir -p /tmp/gra
+for s in ak al ar az de fl hi ia in ks la mi mo ms mt nc nd ne nh oh ok or sc sd tn tx ut wi wv wy; do
+  curl -L -o "/tmp/gra/$s.html" "https://www.cms.gov/cciio/programs-and-initiatives/health-insurance-market-reforms/$s-gra"
+done
+# 4. Generate.
+RAW_DIR="$RAW" node scripts/generateAcaRatingArea.mjs
+npm test
+```
+
+Notes for the next refresh:
+- **Coverage** is driven by which states appear in the CMS Rate PUF (federal-platform states). If a state moves onto or off the federal platform, the `GRA_STATES` list in the script and the covered-state assertions in `tests/acaRatingArea.test.mjs` may need updating.
+- **SLCSP methodology**: individual on-exchange silver plans only (Plan Attributes PUF: `MarketCoverage = Individual`, `DentalOnlyPlan = No`, `MetalLevel = Silver`, `QHPNonQHPTypeId ∈ {On the Exchange, Both}`), ranked by the `IndividualRate` at age 21 within each `(StateCode, RatingAreaId)`; the second-lowest plan is the SLCSP and its full filed per-age schedule is stored.
+- **County-name typos**: CMS's own GRA pages contain a handful of county misspellings (e.g. "Kosclusko", "Vermillion", "Galia"). The generator carries a documented `GRA_COUNTY_FIXES` correction map so the FIPS join stays complete; extend it if a new typo appears (the script warns on any unmatched county).
+- **HUD substitution**: the task's nominal ZIP→county source is the HUD USPS crosswalk, which now requires a (free) HUD API token. The Census ZCTA↔county relationship file is used instead — authoritative and freely downloadable — with the primary county chosen by largest land-area overlap rather than HUD's residential-address ratio. Differences are confined to ZIPs that straddle a county line near a rating-area boundary.
+- Bundle size for the three files is ~550 KB raw JS (gzip ≈ well under the 500 KB target), comfortably inside the 2 MB budget.
+
 ## Known Gaps To Close
 
-- Replace state-level ACA benchmark defaults with rating-area and household-specific CMS/state PUF calculations.
+- Replace remaining state-level ACA benchmark defaults with rating-area calculations for state-based-exchange states (CA, NY, MA, CO, …) using each exchange's own PUFs. Federal-platform states are now rating-area-accurate via `slcspMonthlyFor`; SBM states still fall back to the state-level default.
+- Move from rating-area-level to county-level SLCSP (incorporating the Service Area PUF) so partial-rating-area service areas match HealthCare.gov's county-level benchmark exactly.
 - Add an explicit data-generation script so `src/data/historicalReturns.mjs` can be regenerated from raw downloaded source files instead of manually rebuilding the generated module.
 - Add direct source URLs inside every tax-year object, not just source names.
 - Track source retrieval dates and checksums for downloaded raw data files.

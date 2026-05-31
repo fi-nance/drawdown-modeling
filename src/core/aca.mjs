@@ -1,5 +1,6 @@
 import { clamp, round } from "./utils.mjs";
 import { buildAcaConfig } from "../data/taxData.mjs";
+import { slcspMonthlyFor } from "../data/acaRatingArea.mjs";
 
 export const DEFAULT_ACA_CONFIG = buildAcaConfig();
 
@@ -57,7 +58,14 @@ export const FEDERAL_DEFAULT_ACA_AGE_RATING_CURVE = Object.freeze([
   { minAge: 64, maxAge: Infinity, factor: 3.000 }
 ]);
 
-export function computeAca({ magi = 0, config = DEFAULT_ACA_CONFIG } = {}) {
+export function computeAca({
+  magi = 0,
+  config = DEFAULT_ACA_CONFIG,
+  zip = null,
+  age = null,
+  householdAges = null,
+  planYear = null
+} = {}) {
   if (!config?.enabled) {
     return {
       fplPercent: 0,
@@ -68,6 +76,38 @@ export function computeAca({ magi = 0, config = DEFAULT_ACA_CONFIG } = {}) {
       netPremium: 0,
       eligible: false
     };
+  }
+
+  // Thin shim: when a ZIP is supplied, replace the state-level benchmark with
+  // the offline rating-area-level SLCSP. When the ZIP cannot be resolved to a
+  // rating area (territory/military, a not-yet-ingested state-based exchange, or
+  // an underivable county), `slcspMonthlyFor` returns a state-level fallback (or
+  // null), so this falls through to the existing state-level path.
+  let zipBenchmark = null;
+  const zipValue = zip ?? config.zip ?? null;
+  if (zipValue != null) {
+    zipBenchmark = benchmarkPremiumForZip({
+      zip: zipValue,
+      planYear: planYear ?? config.year ?? 2026,
+      age: age ?? config.currentAge ?? null,
+      householdAges: householdAges ?? config.memberAges ?? null
+    });
+    if (Number.isFinite(zipBenchmark.annualBenchmarkPremium)) {
+      const annual = zipBenchmark.annualBenchmarkPremium;
+      const inStateBenchmarkMode = config.planCostMode !== "selectedPlan";
+      config = {
+        ...config,
+        benchmarkPremium: annual,
+        ageRatedBenchmarkPremium: false,
+        // In state-benchmark plan-cost mode the modeled plan tracks the
+        // benchmark, so move the gross with it. In selected-plan mode the user
+        // has an explicit gross premium; only the benchmark (subsidy sizing)
+        // changes.
+        ...(inStateBenchmarkMode
+          ? { selectedPlanPremium: annual, planPremium: annual, ageRatedSelectedPlanPremium: false }
+          : {})
+      };
+    }
   }
 
   const fpl = config.fpl ?? DEFAULT_ACA_CONFIG.fpl;
@@ -108,7 +148,31 @@ export function computeAca({ magi = 0, config = DEFAULT_ACA_CONFIG } = {}) {
     oopMaximum: round(Math.max(0, activePlan.oopMaximum ?? 0), 6),
     activePlanRole: activePlan.role,
     planName: activePlan.planName ?? "",
-    eligible
+    eligible,
+    // Present only when a ZIP was supplied. `ratingArea` is null and
+    // `benchmarkFallback` describes why when no rating-area data applied.
+    ratingArea: zipBenchmark?.ratingArea ?? null,
+    benchmarkFallback: zipBenchmark?.fallback ?? null
+  };
+}
+
+/**
+ * Thin shim over the offline rating-area SLCSP table. Resolves a ZIP to the
+ * annual household benchmark premium (second-lowest-cost silver plan), age-rated
+ * across the household, with graceful state-level / out-of-model fallbacks.
+ * Used by `computeAca` and available to callers that want the benchmark and the
+ * confidence/fallback metadata without running the full PTC computation.
+ */
+export function benchmarkPremiumForZip({ zip, planYear = 2026, age = null, householdAges = null, householdComposition = null } = {}) {
+  const slcsp = slcspMonthlyFor({ zip, planYear, age, householdAges, householdComposition });
+  const monthly = slcsp.monthlyPremium;
+  return {
+    annualBenchmarkPremium: Number.isFinite(monthly) ? round(monthly * 12, 6) : null,
+    monthlyBenchmarkPremium: Number.isFinite(monthly) ? round(monthly, 6) : null,
+    ratingArea: slcsp.ratingArea,
+    ageRatingFactorTotal: slcsp.ageRatingFactorTotal,
+    fallback: slcsp.fallback,
+    sources: slcsp.sources
   };
 }
 

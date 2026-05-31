@@ -15,6 +15,10 @@ import {
   HISTORICAL_RETURN_SOURCES
 } from "../src/data/historicalReturns.mjs";
 import { GEO_DATA_SOURCES, GEO_DATA_VERSION } from "../src/data/geo.mjs";
+import {
+  ACA_RATING_AREA_DATA_SOURCES,
+  ACA_RATING_AREA_DATA_VERSION
+} from "../src/data/acaRatingArea.mjs";
 
 const dataSourcesText = await readFile(new URL("../docs/DATA_SOURCES.md", import.meta.url), "utf8");
 
@@ -56,6 +60,13 @@ test("historical return source URLs are documented", () => {
 test("geographic resolver sources are documented", () => {
   assertDocumented("geo data version", GEO_DATA_VERSION);
   for (const source of GEO_DATA_SOURCES) {
+    assertDocumented(source.name, source.url);
+  }
+});
+
+test("rating-area SLCSP sources are documented", () => {
+  assertDocumented("rating-area data version", ACA_RATING_AREA_DATA_VERSION);
+  for (const source of ACA_RATING_AREA_DATA_SOURCES) {
     assertDocumented(source.name, source.url);
   }
 });
