@@ -41,7 +41,8 @@ export const MONTE_CARLO_ASSUMPTION_PRESETS = Object.freeze({
     realEstate: Object.freeze({ mean: 0.081, stdev: 0.179 }),
     tips: Object.freeze({ mean: 0.042, stdev: 0.05 }),
     crypto: Object.freeze({ mean: 0.12, stdev: 0.65 }),
-    inflation: Object.freeze({ mean: 0.024, stdev: 0.017 })
+    inflation: Object.freeze({ mean: 0.024, stdev: 0.017 }),
+    medicalInflation: Object.freeze({ mean: 0.042, stdev: 0.020 })
   }),
   planning: Object.freeze({
     stock: Object.freeze({ mean: 0.065, stdev: 0.18 }),
@@ -50,7 +51,8 @@ export const MONTE_CARLO_ASSUMPTION_PRESETS = Object.freeze({
     realEstate: Object.freeze({ mean: 0.05, stdev: 0.14 }),
     tips: Object.freeze({ mean: 0.025, stdev: 0.07 }),
     crypto: Object.freeze({ mean: 0.12, stdev: 0.65 }),
-    inflation: Object.freeze({ mean: 0.025, stdev: 0.012 })
+    inflation: Object.freeze({ mean: 0.025, stdev: 0.012 }),
+    medicalInflation: Object.freeze({ mean: 0.043, stdev: 0.015 })
   }),
   historical: Object.freeze({
     stock: Object.freeze({ mean: 0.1186, stdev: 0.193 }),
@@ -61,11 +63,19 @@ export const MONTE_CARLO_ASSUMPTION_PRESETS = Object.freeze({
     // Crypto's short, regime-heavy series is too unstable to use raw as a
     // planning preset, so keep the tempered forward-looking assumption here.
     crypto: Object.freeze({ mean: 0.12, stdev: 0.65 }),
-    inflation: Object.freeze({ mean: 0.0308, stdev: 0.0387 })
+    inflation: Object.freeze({ mean: 0.0308, stdev: 0.0387 }),
+    medicalInflation: Object.freeze({ mean: 0.0488, stdev: 0.045 })
   })
 });
 
 export const DEFAULT_MONTE_CARLO_RUNS = 1000;
+
+// Default amount by which healthcare inflation is assumed to exceed general CPI
+// when a scenario does not supply an explicit medical-inflation stream. ~1.8pp
+// reflects the long-run gap between BLS medical-care CPI / CMS National Health
+// Expenditure growth and headline CPI. Single source of truth so the MC,
+// historical-backtest, and fallback paths stay consistent.
+export const MEDICAL_INFLATION_PREMIUM = 0.018;
 
 const MONTE_CARLO_FACTOR_LOADINGS = Object.freeze({
   stock: Object.freeze({ market: 0.65, rates: 0.05 }),
@@ -302,7 +312,8 @@ export function simulatePlan({
   scenario = {},
   taxProfile = DEFAULT_TAX_PROFILE,
   returnSequence,
-  inflationSequence
+  inflationSequence,
+  medicalInflationSequence
 }) {
   const mergedScenario = ensureReturnAssumptionsForAssets(mergeScenario(scenario), assets);
   const portfolio = clonePortfolio(assets);
@@ -312,6 +323,23 @@ export function simulatePlan({
   let hsaQualifiedExpenseBalance = hsaStrategyConfig(mergedScenario).startingQualifiedExpenseBalance;
   let success = true;
   let inflationIndex = 1;
+  let medicalInflationIndex = 1;
+
+  // Whether the caller explicitly modeled a separate medical-inflation stream
+  // is detected from the RAW scenario (mergeScenario fills a default from the
+  // preset, so the merged value can't distinguish "explicit" from "inherited").
+  // - explicit sequence supplied      → use it (Monte Carlo / historical).
+  // - explicit medical, no sequence   → null → general + configured premium.
+  // - no explicit medical             → track the general inflation sequence
+  //                                      exactly (backward-compatible).
+  const explicitMedicalInflation = scenario.returnAssumptions?.medicalInflation !== undefined;
+  const medInflationSeq = medicalInflationSequence
+    ?? (explicitMedicalInflation ? null : inflationSequence);
+
+  let guytonKlingerBaseSpend = null;
+  let guytonKlingerInitialWr = null;
+  let kitcesBaseSpend = null;
+  let kitcesHighWaterMark = null;
   const irmaaMagiHistory = [];
   let spendingGuardrailMarketState = initialSpendingGuardrailMarketState();
 
@@ -331,6 +359,7 @@ export function simulatePlan({
 
     if (yearIndex > 0) {
       inflationIndex *= 1 + annualInflation(mergedScenario, inflationSequence, yearIndex - 1);
+      medicalInflationIndex *= 1 + annualMedicalInflation(mergedScenario, medInflationSeq, yearIndex - 1, inflationSequence);
     }
 
     if (bothDeceased) {
@@ -343,9 +372,87 @@ export function simulatePlan({
         scenario: mergedScenario,
         yearIndex,
         portfolio,
-        inflationIndex
+        inflationIndex,
+        medicalInflationIndex
       }));
       continue;
+    }
+
+    const beginningPortfolioVal = portfolioValue(portfolio);
+    const strategy = spendingStrategyConfig(mergedScenario);
+    let passedBaseSpend = null;
+
+    // Guyton-Klinger is modeled with documented simplifications vs the full
+    // published ruleset: the inflation-skip (modified withdrawal) rule keys off
+    // the prior year's STOCK return as a proxy for total portfolio return and
+    // does not also require current WR > initial WR; and the prosperity /
+    // capital-preservation guardrails are NOT suspended in the final ~15 years
+    // of the plan as G-K prescribe. These approximations make the strategy
+    // slightly more reactive than canonical G-K.
+    if (strategy.mode === "guytonKlinger") {
+      if (yearIndex === 0) {
+        guytonKlingerBaseSpend = mergedScenario.targetSpend ?? 0;
+        guytonKlingerInitialWr = beginningPortfolioVal > 0 ? guytonKlingerBaseSpend / beginningPortfolioVal : 0;
+      } else {
+        const priorYearReturnSequence = returnSequence?.[yearIndex - 1] ?? {};
+        const priorStockReturn = priorYearReturnSequence.stock ?? 0;
+        const priorYearInflation = annualInflation(mergedScenario, inflationSequence, yearIndex - 1);
+        
+        let inflatedSpend = guytonKlingerBaseSpend;
+        if (priorStockReturn >= 0) {
+          inflatedSpend = guytonKlingerBaseSpend * (1 + priorYearInflation);
+        }
+        
+        const currentWr = beginningPortfolioVal > 0 ? inflatedSpend / beginningPortfolioVal : 0;
+        if (guytonKlingerInitialWr > 0) {
+          if (currentWr > 1.2 * guytonKlingerInitialWr) {
+            inflatedSpend *= 0.9;
+          } else if (currentWr < 0.8 * guytonKlingerInitialWr) {
+            inflatedSpend *= 1.1;
+          }
+        }
+        guytonKlingerBaseSpend = inflatedSpend;
+      }
+      passedBaseSpend = guytonKlingerBaseSpend;
+
+    } else if (strategy.mode === "kitces") {
+      if (yearIndex === 0) {
+        kitcesBaseSpend = mergedScenario.targetSpend ?? 0;
+        kitcesHighWaterMark = beginningPortfolioVal;
+      } else {
+        const priorYearInflation = annualInflation(mergedScenario, inflationSequence, yearIndex - 1);
+        let inflatedSpend = kitcesBaseSpend * (1 + priorYearInflation);
+        
+        if (beginningPortfolioVal > 1.5 * kitcesHighWaterMark) {
+          inflatedSpend *= 1.1;
+          kitcesHighWaterMark = beginningPortfolioVal;
+        }
+        kitcesBaseSpend = inflatedSpend;
+      }
+      passedBaseSpend = kitcesBaseSpend;
+
+    } else if (strategy.mode === "vpw") {
+      const remainingYears = mergedScenario.planYears - yearIndex;
+      let weightedExpectedReturn = 0;
+      let totalVal = 0;
+      for (const asset of portfolio) {
+        const val = Math.max(0, asset.units ?? 0) * Math.max(0, asset.price ?? 0);
+        const cls = asset.assetClass;
+        const expectedReturn = mergedScenario.returnAssumptions[cls]?.mean ?? 0.05;
+        weightedExpectedReturn += val * expectedReturn;
+        totalVal += val;
+      }
+      const avgExpectedReturn = totalVal > 0 ? weightedExpectedReturn / totalVal : 0.05;
+      const inflationMean = mergedScenario.returnAssumptions.inflation?.mean ?? 0.024;
+      const realExpectedReturn = Math.max(0.01, avgExpectedReturn - inflationMean);
+      
+      let p = 1.0;
+      if (remainingYears > 1) {
+        p = realExpectedReturn / (1 - Math.pow(1 + realExpectedReturn, -remainingYears));
+      } else {
+        p = 1.0;
+      }
+      passedBaseSpend = beginningPortfolioVal * p;
     }
 
     const returnByAssetClass = annualReturns(mergedScenario, returnSequence, yearIndex);
@@ -361,13 +468,15 @@ export function simulatePlan({
       survivorTaxProfile,
       yearIndex,
       inflationIndex,
+      medicalInflationIndex,
       returnByAssetClass,
       annualInflationRate: currentInflationRate,
       spendingGuardrail,
       lossCarryforward,
       rothBasisRemaining,
       hsaQualifiedExpenseBalance,
-      magiHistory: irmaaMagiHistory
+      magiHistory: irmaaMagiHistory,
+      passedBaseSpend
     });
     spendingGuardrailMarketState = advanceSpendingGuardrailMarketState({
       scenario: mergedScenario,
@@ -416,6 +525,13 @@ export function runMonteCarlo({
 }) {
   const mergedScenario = ensureReturnAssumptionsForAssets(mergeScenario(scenario), assets);
   const rng = createRng(seed);
+  // Note: medical inflation is sampled from the same seeded `rng` below.
+  // Reproducibility is version-scoped — same seed + same code version always
+  // reproduces the same paths — but adding this stochastic dimension shifted
+  // seeded results relative to versions before two-stream inflation existed.
+  // That is an inherent, one-time consequence of a new random input (data/model
+  // changes already break cross-version determinism); the audit bundle records
+  // the seed and data versions so any run remains reproducible against its own version.
   const scenarios = [];
   const reportEvery = Math.max(1, Math.trunc(progressInterval) || 25);
   const timelineLimit = normalizeScenarioTimelineLimit(scenarioTimelineLimit);
@@ -424,12 +540,18 @@ export function runMonteCarlo({
   for (let run = 0; run < runs; run += 1) {
     const returnSequence = [];
     const inflationSequence = [];
+    const medicalInflationSequence = [];
     for (let year = 0; year < mergedScenario.planYears; year += 1) {
       returnSequence.push(sampleReturnsForYear(mergedScenario, rng));
       inflationSequence.push(Math.max(-0.08, normalRandom(
         rng,
         mergedScenario.returnAssumptions.inflation?.mean ?? MONTE_CARLO_ASSUMPTION_PRESETS.marketNeutral.inflation.mean,
         mergedScenario.returnAssumptions.inflation?.stdev ?? MONTE_CARLO_ASSUMPTION_PRESETS.marketNeutral.inflation.stdev
+      )));
+      medicalInflationSequence.push(Math.max(-0.08, normalRandom(
+        rng,
+        mergedScenario.returnAssumptions.medicalInflation?.mean ?? MONTE_CARLO_ASSUMPTION_PRESETS.marketNeutral.medicalInflation.mean,
+        mergedScenario.returnAssumptions.medicalInflation?.stdev ?? MONTE_CARLO_ASSUMPTION_PRESETS.marketNeutral.medicalInflation.stdev
       )));
     }
 
@@ -438,7 +560,8 @@ export function runMonteCarlo({
       scenario: mergedScenario,
       taxProfile,
       returnSequence,
-      inflationSequence
+      inflationSequence,
+      medicalInflationSequence
     });
 
     const depletion = firstDepletionDetails(plan.years);
@@ -579,6 +702,32 @@ function analyzeFailedScenario(years = []) {
     avgStockReturnFirstDecade
   });
 
+  // Outflow composition: each category's share of total lifetime cash need on
+  // failed paths. This is NOT a causal attribution of depletion (it does not
+  // isolate the marginal driver or break down by year) — it answers "where did
+  // the money go," and the per-category `actions` are the levers that address
+  // that category. `basis` names the semantics so the UI/labels stay honest.
+  const cumulativeNeed = taxTotal + medicalTotal + spendingTotal;
+  const outflowComposition = {
+    basis: "lifetime-outflow-share",
+    tax: {
+      total: round(taxTotal, 6),
+      percent: cumulativeNeed > 0 ? round(taxTotal / cumulativeNeed, 4) : 0,
+      actions: ["traditionalWithdrawal", "rothConversion"]
+    },
+    healthcare: {
+      total: round(medicalTotal, 6),
+      percent: cumulativeNeed > 0 ? round(medicalTotal / cumulativeNeed, 4) : 0,
+      actions: ["magiManagement", "hsaContribution"]
+    },
+    spending: {
+      total: round(spendingTotal, 6),
+      percent: cumulativeNeed > 0 ? round(spendingTotal / cumulativeNeed, 4) : 0,
+      actions: ["safeSpending", "discretionaryCut"]
+    },
+    cumulativeNeed: round(cumulativeNeed, 6)
+  };
+
   return {
     maxConsecutiveDownYears,
     earlyDownYearsCount,
@@ -591,7 +740,8 @@ function analyzeFailedScenario(years = []) {
     spendingRate: round(spendingRate, 6),
     avgRiskShare: round(avgRiskShare, 6),
     defensiveShortfallRate: negativeStockYears > 0 ? round(defensiveShortfallYears / negativeStockYears, 6) : 0,
-    stressors
+    stressors,
+    outflowComposition
   };
 }
 
@@ -669,13 +819,19 @@ export function runHistoricalBacktests({
   taxProfile = DEFAULT_TAX_PROFILE,
   sequences = []
 }) {
+  const medicalPremium = medicalInflationPremium(scenario);
   return sequences.map((sequence, index) => {
+    // Project a medical-inflation series onto each historical general-inflation
+    // path by adding the scenario's configured medical premium, so the
+    // historical and Monte Carlo paths use a consistent medical-vs-general gap.
+    const medicalInflationSequence = sequence.inflation.map(inf => inf + medicalPremium);
     const plan = simulatePlan({
       assets,
       scenario,
       taxProfile,
       returnSequence: sequence.returns,
-      inflationSequence: sequence.inflation
+      inflationSequence: sequence.inflation,
+      medicalInflationSequence
     });
     const annotatedPlan = withHistoricalSourceYears(plan, sequence.sourceYears ?? [], sequence.paddedYears ?? 0);
     const depletion = firstDepletionDetails(annotatedPlan.years);
@@ -756,13 +912,15 @@ function simulateYear({
   survivorTaxProfile = null,
   yearIndex,
   inflationIndex,
+  medicalInflationIndex = null,
   returnByAssetClass,
   annualInflationRate,
   spendingGuardrail = null,
   lossCarryforward,
   rothBasisRemaining,
   hsaQualifiedExpenseBalance = 0,
-  magiHistory = []
+  magiHistory = [],
+  passedBaseSpend = null
 }) {
   // Accept either a number (legacy: treated as long-term) or
   // { shortTerm, longTerm } object so callers can preserve §1212(b) character.
@@ -814,7 +972,7 @@ function simulateYear({
     spouseAge
   });
   const yearTaxProfile = taxProfileContext.profile;
-  const yearAcaConfig = inflateAcaConfig(scenario.aca, inflationIndex, { age, yearIndex });
+  const yearAcaConfig = inflateAcaConfig(scenario.aca, inflationIndex, { age, yearIndex }, medicalInflationIndex);
   // Promote any prior-year-harvested "short" lots back to "long" once a
   // full simulation year has elapsed since the reset, before we compute
   // beginning-of-year snapshots and run any sales/harvests.
@@ -929,6 +1087,7 @@ function simulateYear({
       age,
       spouseAge,
       inflationIndex,
+      medicalInflationIndex: medicalInflationIndex ?? inflationIndex,
       yearIndex,
       magiHistory,
       lossCarryforward
@@ -955,7 +1114,8 @@ function simulateYear({
     yearIndex + 1,
     inflationIndex,
     oneOffCashFlows,
-    spendingGuardrail
+    spendingGuardrail,
+    passedBaseSpend
   );
   const plannedSpending = plannedSpendingDetail.total;
   const sequenceRiskReserve = sequenceRiskReserveStateForYear({
@@ -1026,6 +1186,7 @@ function simulateYear({
         yearTaxProfile,
         yearAcaConfig,
         inflationIndex,
+        medicalInflationIndex: medicalInflationIndex ?? inflationIndex,
         ordinaryIncome,
         earnedIncome,
         retirementOrdinaryIncome: rothConversionAmount,
@@ -1118,6 +1279,7 @@ function simulateYear({
       portfolio: finalPortfolio,
       scenario,
       inflationIndex,
+      medicalInflationIndex: medicalInflationIndex ?? inflationIndex,
       ordinaryIncome,
       earnedIncome,
       retirementOrdinaryIncome: rothConversionAmount,
@@ -1175,6 +1337,7 @@ function simulateYear({
           aca: finalAca,
           yearAcaConfig,
           inflationIndex,
+          medicalInflationIndex: medicalInflationIndex ?? inflationIndex,
           age,
           spouseAge,
           yearIndex,
@@ -1201,6 +1364,7 @@ function simulateYear({
     yearTaxProfile,
     yearAcaConfig,
     inflationIndex,
+    medicalInflationIndex,
     plannedSpending,
     hsaContributionAmount: hsaContribution.amount,
     dividends,
@@ -1513,6 +1677,7 @@ function reconcileCashRequirement({
   yearTaxProfile,
   yearAcaConfig,
   inflationIndex,
+  medicalInflationIndex = null,
   plannedSpending,
   hsaContributionAmount = 0,
   dividends,
@@ -1590,6 +1755,7 @@ function reconcileCashRequirement({
         yearTaxProfile,
         yearAcaConfig,
         inflationIndex,
+        medicalInflationIndex: medicalInflationIndex ?? inflationIndex,
         ordinaryIncome,
         earnedIncome,
         retirementOrdinaryIncome,
@@ -1657,6 +1823,7 @@ function reconcileCashRequirement({
         yearTaxProfile,
         yearAcaConfig,
         inflationIndex,
+        medicalInflationIndex: medicalInflationIndex ?? inflationIndex,
         ordinaryIncome,
         earnedIncome,
         retirementOrdinaryIncome,
@@ -2248,6 +2415,7 @@ function evaluateWithdrawalState({
   yearTaxProfile,
   yearAcaConfig,
   inflationIndex,
+  medicalInflationIndex = null,
   ordinaryIncome,
   earnedIncome = emptyEarnedIncome(),
   retirementOrdinaryIncome = 0,
@@ -2300,6 +2468,7 @@ function evaluateWithdrawalState({
     aca,
     yearAcaConfig,
     inflationIndex,
+    medicalInflationIndex: medicalInflationIndex ?? inflationIndex,
     age,
     spouseAge,
     yearIndex,
@@ -3658,6 +3827,7 @@ function medicalCostForYear({
   aca,
   yearAcaConfig,
   inflationIndex,
+  medicalInflationIndex = null,
   age,
   spouseAge,
   yearIndex,
@@ -3665,7 +3835,8 @@ function medicalCostForYear({
   irmaaMagi,
   magiHistory
 }) {
-  const baseMedical = medicalCostForScenario(scenario, yearAcaConfig, inflationIndex, aca);
+  const medIndex = medicalInflationIndex !== null && medicalInflationIndex !== undefined ? medicalInflationIndex : inflationIndex;
+  const baseMedical = medicalCostForScenario(scenario, yearAcaConfig, medIndex, aca);
   const medicare = computeMedicareCostForYear({
     scenario,
     age,
@@ -3674,7 +3845,8 @@ function medicalCostForYear({
     filingStatus,
     irmaaMagi,
     magiHistory,
-    inflationIndex
+    inflationIndex,
+    medicalInflationIndex: medIndex
   });
   return {
     total: round(baseMedical + (aca?.netPremium ?? 0) + medicare.totalAnnualPremium, 6),
@@ -3690,7 +3862,8 @@ function computeMedicareCostForYear({
   filingStatus,
   irmaaMagi,
   magiHistory,
-  inflationIndex
+  inflationIndex,
+  medicalInflationIndex = null
 }) {
   const medicare = scenario.medicare ?? {};
   const autoEnrollees = filingStatus === "marriedFilingJointly"
@@ -3699,7 +3872,8 @@ function computeMedicareCostForYear({
 
   if (medicare.irmaaEnabled === false || autoEnrollees === 0) return emptyMedicareCost();
 
-  const config = getMedicareIrmaaConfig({ taxYear: scenario.taxYear, inflationIndex });
+  const medIndex = medicalInflationIndex !== null && medicalInflationIndex !== undefined ? medicalInflationIndex : inflationIndex;
+  const config = getMedicareIrmaaConfig({ taxYear: scenario.taxYear, inflationIndex, medicalInflationIndex: medIndex });
   const lookbackMagi = medicareLookbackMagi({
     scenario,
     yearIndex,
@@ -3714,7 +3888,7 @@ function computeMedicareCostForYear({
   });
   const partBEnrollees = clampIntegerLike(medicare.partBEnrollees, 0, 2, autoEnrollees);
   const partDEnrollees = clampIntegerLike(medicare.partDEnrollees, 0, 2, partBEnrollees);
-  const partDBaseMonthlyPremium = Math.max(0, Number(medicare.partDMonthlyPremium) || 0) * Math.max(0, inflationIndex);
+  const partDBaseMonthlyPremium = Math.max(0, Number(medicare.partDMonthlyPremium) || 0) * Math.max(0, medIndex);
   const partBMonthlyPremium = (config.partBStandardMonthlyPremium ?? 0) + (bracket.partBMonthlyAdjustment ?? 0);
   const partDMonthlyPremium = partDBaseMonthlyPremium + (bracket.partDMonthlyAdjustment ?? 0);
   const partBAnnualPremium = round(partBMonthlyPremium * 12 * partBEnrollees, 6);
@@ -3799,7 +3973,7 @@ function clampIntegerLike(value, min, max, fallback) {
 
 function spendingStrategyConfig(scenario = {}) {
   const raw = scenario.spendingStrategy ?? {};
-  const mode = raw.mode === "discretionaryGuardrails" ? "discretionaryGuardrails" : "fixed";
+  const mode = ["discretionaryGuardrails", "guytonKlinger", "kitces", "vpw"].includes(raw.mode) ? raw.mode : "fixed";
   const targetSpend = Math.max(0, Number(scenario.targetSpend) || 0);
   const essentialFallback = mode === "discretionaryGuardrails" ? targetSpend : DEFAULT_SCENARIO.spendingStrategy.essentialSpend;
   const discretionaryFallback = mode === "discretionaryGuardrails" ? 0 : DEFAULT_SCENARIO.spendingStrategy.discretionarySpend;
@@ -3907,10 +4081,27 @@ function plannedSpendingForYear(scenario, planYear, inflationIndex, oneOffCashFl
   return plannedSpendingDetailForYear(scenario, planYear, inflationIndex, oneOffCashFlows, spendingGuardrail).total;
 }
 
-function plannedSpendingDetailForYear(scenario, planYear, inflationIndex, oneOffCashFlows = null, spendingGuardrail = null) {
+function plannedSpendingDetailForYear(scenario, planYear, inflationIndex, oneOffCashFlows = null, spendingGuardrail = null, passedBaseSpend = null) {
   const scheduled = oneOffCashFlows ?? oneOffCashFlowsForYear(scenario, planYear, inflationIndex);
   const strategy = spendingStrategyConfig(scenario);
   const oneOffExpenses = round(scheduled.expenses, 6);
+
+  if (passedBaseSpend !== null) {
+    const total = round(passedBaseSpend + oneOffExpenses, 6);
+    return {
+      total,
+      baseSpend: round(passedBaseSpend, 6),
+      essentialSpend: round(passedBaseSpend, 6),
+      discretionaryBudget: 0,
+      discretionarySpend: 0,
+      oneOffExpenses,
+      guardrail: spendingGuardrail,
+      strategy: {
+        mode: strategy.mode,
+        discretionaryPercent: 1
+      }
+    };
+  }
 
   if (strategy.mode === "discretionaryGuardrails") {
     const essentialSpend = round(strategy.essentialSpend * (strategy.essentialInflationAdjusted ? inflationIndex : 1), 6);
@@ -4234,6 +4425,7 @@ function gainHarvestingRoom({
   scenario = {},
   age = null,
   inflationIndex = 1,
+  medicalInflationIndex = null,
   ordinaryIncome = 0,
   earnedIncome = emptyEarnedIncome(),
   retirementOrdinaryIncome = 0,
@@ -4311,6 +4503,7 @@ function gainHarvestingRoom({
       taxProfile,
       acaConfig,
       inflationIndex,
+      medicalInflationIndex: medicalInflationIndex ?? inflationIndex,
       targetRate: futureRate,
       maxAmount: Math.min(
         configuredMaxGain ?? Infinity,
@@ -4386,6 +4579,7 @@ function marginalIncomeRoom({
   taxProfile,
   acaConfig,
   inflationIndex = 1,
+  medicalInflationIndex = null,
   targetRate = 0,
   maxAmount = 0,
   ordinaryIncome = 0,
@@ -4443,6 +4637,7 @@ function marginalIncomeRoom({
       aca,
       yearAcaConfig: acaConfig,
       inflationIndex,
+      medicalInflationIndex: medicalInflationIndex ?? inflationIndex,
       age: age ?? 99,
       spouseAge,
       yearIndex,
@@ -4602,6 +4797,7 @@ function rothConversionAmountForYear({
   age = null,
   spouseAge = null,
   inflationIndex = 1,
+  medicalInflationIndex = null,
   yearIndex = 0,
   magiHistory = [],
   lossCarryforward = { shortTerm: 0, longTerm: 0 }
@@ -4693,6 +4889,7 @@ function rothConversionAmountForYear({
         ? { ...acaConfig, enabled: false }
         : acaConfig,
       inflationIndex,
+      medicalInflationIndex: medicalInflationIndex ?? inflationIndex,
       targetRate: estimatedFutureOrdinaryIncomeRate({
         portfolio,
         scenario,
@@ -5297,6 +5494,31 @@ function annualInflation(scenario, inflationSequence, yearIndex) {
   return scenario.returnAssumptions.inflation?.mean ?? 0;
 }
 
+function annualMedicalInflation(scenario, medicalInflationSequence, yearIndex, inflationSequence) {
+  // A finite medical sequence value covers both an explicit sampled/historical
+  // medical sequence AND the backward-compatible "track general" case (where the
+  // caller passes the general inflationSequence as the medical sequence).
+  if (Number.isFinite(medicalInflationSequence?.[yearIndex])) {
+    return medicalInflationSequence[yearIndex];
+  }
+  // Reached only for an explicit medical assumption with no per-year sequence:
+  // apply the configured medical-over-general premium on top of this year's
+  // general inflation.
+  const genInflation = annualInflation(scenario, inflationSequence, yearIndex);
+  return genInflation + medicalInflationPremium(scenario);
+}
+
+// The fixed premium by which the bundled medical-inflation stream exceeds
+// general inflation for a scenario, derived from its assumptions (medical mean
+// minus general mean), defaulting to MEDICAL_INFLATION_PREMIUM. Used to project
+// a medical-inflation series onto historical general-inflation sequences.
+function medicalInflationPremium(scenario = {}) {
+  const ra = scenario.returnAssumptions ?? {};
+  const genMean = ra.inflation?.mean ?? DEFAULT_SCENARIO.returnAssumptions.inflation.mean;
+  const medMean = ra.medicalInflation?.mean ?? (genMean + MEDICAL_INFLATION_PREMIUM);
+  return Math.max(0, round(medMean - genMean, 6));
+}
+
 function sampleReturnsForYear(scenario, rng) {
   const result = {};
   const correlated = scenario.monteCarlo?.samplingMode === "correlated";
@@ -5362,6 +5584,13 @@ function mergeScenario(scenario) {
       ...DEFAULT_SCENARIO.monteCarlo,
       ...(scenario.monteCarlo ?? {})
     },
+    // Plain spread: an explicitly-supplied medicalInflation always wins and is
+    // never overwritten based on the general value. (The previous heuristic
+    // inferred "left at default" via exact float equality and silently
+    // collapsed medical→general whenever general was customized, defeating the
+    // two-stream feature.) Whether a medical stream was explicitly provided is
+    // detected from the raw scenario in simulatePlan, so an absent medical
+    // assumption stays backward-compatibly tied to general inflation.
     returnAssumptions: {
       ...DEFAULT_SCENARIO.returnAssumptions,
       ...(scenario.returnAssumptions ?? {})

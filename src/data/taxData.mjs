@@ -409,19 +409,21 @@ export function getMonthlyBenchmarkPremium({
 
 export function getMedicareIrmaaConfig({
   taxYear = DEFAULT_TAX_YEAR,
-  inflationIndex = 1
+  inflationIndex = 1,
+  medicalInflationIndex = null
 } = {}) {
   const config = MEDICARE_IRMAA_BY_YEAR[taxYear] ?? MEDICARE_IRMAA_2026;
   const index = Math.max(0, Number(inflationIndex) || 0);
+  const medIndex = medicalInflationIndex !== null && medicalInflationIndex !== undefined ? Math.max(0, Number(medicalInflationIndex) || 0) : index;
   return {
     ...config,
-    partBStandardMonthlyPremium: roundMoney((config.partBStandardMonthlyPremium ?? 0) * index),
+    partBStandardMonthlyPremium: roundMoney((config.partBStandardMonthlyPremium ?? 0) * medIndex),
     brackets: Object.fromEntries(Object.entries(config.brackets ?? {}).map(([key, rows]) => [
       key,
       rows.map((row) => ({
         upTo: Number.isFinite(row.upTo) ? roundMoney(row.upTo * index) : Infinity,
-        partBMonthlyAdjustment: roundMoney((row.partBMonthlyAdjustment ?? 0) * index),
-        partDMonthlyAdjustment: roundMoney((row.partDMonthlyAdjustment ?? 0) * index)
+        partBMonthlyAdjustment: roundMoney((row.partBMonthlyAdjustment ?? 0) * medIndex),
+        partDMonthlyAdjustment: roundMoney((row.partDMonthlyAdjustment ?? 0) * medIndex)
       }))
     ]))
   };

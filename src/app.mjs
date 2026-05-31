@@ -62,7 +62,8 @@ const MONTE_CARLO_ASSUMPTION_FIELD_IDS = Object.freeze({
   realEstate: Object.freeze({ mean: "mcRealEstateMean", stdev: "mcRealEstateStdev" }),
   tips: Object.freeze({ mean: "mcTipsMean", stdev: "mcTipsStdev" }),
   crypto: Object.freeze({ mean: "mcCryptoMean", stdev: "mcCryptoStdev" }),
-  inflation: Object.freeze({ mean: "mcInflationMean", stdev: "mcInflationStdev" })
+  inflation: Object.freeze({ mean: "mcInflationMean", stdev: "mcInflationStdev" }),
+  medicalInflation: Object.freeze({ mean: "mcMedicalInflationMean", stdev: "mcMedicalInflationStdev" })
 });
 const MONTE_CARLO_PRESET_LABELS = Object.freeze({
   marketNeutral: "market-neutral 2026",
@@ -103,6 +104,8 @@ const CONTROL_IDS = [
   "mcCryptoStdev",
   "mcInflationMean",
   "mcInflationStdev",
+  "mcMedicalInflationMean",
+  "mcMedicalInflationStdev",
   "targetSpend",
   "decisionRequiredSpend",
   "decisionFlexibleSpend",

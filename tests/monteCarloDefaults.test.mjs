@@ -16,7 +16,8 @@ const EXPECTED_MARKET_NEUTRAL = Object.freeze({
   realEstate: Object.freeze({ mean: 0.081, stdev: 0.179 }),
   tips: Object.freeze({ mean: 0.042, stdev: 0.05 }),
   crypto: Object.freeze({ mean: 0.12, stdev: 0.65 }),
-  inflation: Object.freeze({ mean: 0.024, stdev: 0.017 })
+  inflation: Object.freeze({ mean: 0.024, stdev: 0.017 }),
+  medicalInflation: Object.freeze({ mean: 0.042, stdev: 0.020 })
 });
 
 const FIELD_IDS = Object.freeze({
@@ -26,7 +27,8 @@ const FIELD_IDS = Object.freeze({
   realEstate: Object.freeze({ mean: "mcRealEstateMean", stdev: "mcRealEstateStdev" }),
   tips: Object.freeze({ mean: "mcTipsMean", stdev: "mcTipsStdev" }),
   crypto: Object.freeze({ mean: "mcCryptoMean", stdev: "mcCryptoStdev" }),
-  inflation: Object.freeze({ mean: "mcInflationMean", stdev: "mcInflationStdev" })
+  inflation: Object.freeze({ mean: "mcInflationMean", stdev: "mcInflationStdev" }),
+  medicalInflation: Object.freeze({ mean: "mcMedicalInflationMean", stdev: "mcMedicalInflationStdev" })
 });
 
 test("market-neutral Monte Carlo preset is the default scenario", () => {

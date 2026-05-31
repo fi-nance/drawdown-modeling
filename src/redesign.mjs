@@ -1064,6 +1064,10 @@ function decisionHeadline(decision) {
 function rescueTitle(option) {
   const meta = option?.metadata ?? {};
   switch (option?.kind) {
+    case "guytonKlingerRescue":
+      return "switch to Guyton-Klinger spending guardrails";
+    case "vpwRescue":
+      return "switch to Variable Percentage Withdrawal (VPW)";
     case "discretionaryCut":
       return `cut up to ${formatCurrencyShort(meta.cutAmount ?? 0)} of flexible spending`;
     case "incomeBridge":
@@ -1097,7 +1101,7 @@ function rescueTitle(option) {
 
 function rescueTierLabel(kind) {
   if (kind === "incomeBridge" || kind === "combined") return "Income change";
-  if (kind === "discretionaryCut" || kind === "magiSpendTrim") return "Spending change";
+  if (kind === "discretionaryCut" || kind === "magiSpendTrim" || kind === "guytonKlingerRescue" || kind === "vpwRescue") return "Spending change";
   return "No lifestyle change";
 }
 

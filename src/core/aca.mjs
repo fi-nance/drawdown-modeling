@@ -293,19 +293,20 @@ function ageAdjustedHouseholdPremium(options = {}, ageContext = {}) {
   return round(premium * (currentRatingTotal / referenceRatingTotal), 6);
 }
 
-export function inflateAcaConfig(config = DEFAULT_ACA_CONFIG, inflationIndex = 1, ageContext = {}) {
+export function inflateAcaConfig(config = DEFAULT_ACA_CONFIG, inflationIndex = 1, ageContext = {}, medicalInflationIndex = null) {
   const index = Math.max(0, inflationIndex);
+  const medIndex = medicalInflationIndex !== null && medicalInflationIndex !== undefined ? Math.max(0, medicalInflationIndex) : index;
   const currentAge = finiteAge(ageContext?.age) ?? finiteAge(config.currentAge);
   return {
     ...config,
     currentAge,
     currentMemberAges: projectedMemberAges(config.memberAges, ageContext),
-    premiumInflationIndex: index,
+    premiumInflationIndex: medIndex,
     fpl: round((config.fpl ?? 0) * index, 6),
-    benchmarkPremium: round(ageAdjustedBenchmarkPremium(config, ageContext) * index, 6),
-    selectedPlanPremium: round(ageAdjustedSelectedPlanPremium(config, ageContext) * index, 6),
-    oopMaximum: round(Math.max(0, config.oopMaximum ?? 0) * index, 6),
-    backupPlan: inflateBackupPlan(config, index, ageContext),
+    benchmarkPremium: round(ageAdjustedBenchmarkPremium(config, ageContext) * medIndex, 6),
+    selectedPlanPremium: round(ageAdjustedSelectedPlanPremium(config, ageContext) * medIndex, 6),
+    oopMaximum: round(Math.max(0, config.oopMaximum ?? 0) * medIndex, 6),
+    backupPlan: inflateBackupPlan(config, medIndex, ageContext),
     oopMaximumInflated: true
   };
 }

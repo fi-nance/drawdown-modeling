@@ -128,8 +128,10 @@ export function runDecisionBatch({
 
   // The discretionary cut is the same lever a guardrails plan already owns,
   // so skip it as a distinct rescue when the base plan already guards spending.
-  const baseUsesGuardrails = scenario?.spendingStrategy?.mode === "discretionaryGuardrails";
+  const baseUsesGuardrails = ["discretionaryGuardrails", "guytonKlinger", "kitces", "vpw"].includes(scenario?.spendingStrategy?.mode);
   const discretionaryCut = baseUsesGuardrails ? null : findDiscretionaryCut(solverContext);
+  const guytonKlingerRescue = baseUsesGuardrails ? null : findGuytonKlingerRescue(solverContext);
+  const vpwRescue = baseUsesGuardrails ? null : findVpwRescue(solverContext);
   const incomeBridge = findIncomeBridge(solverContext);
   const sequenceReserve = findSequenceReserve(solverContext);
   const allocationShift = findAllocationShift(solverContext);
@@ -163,6 +165,8 @@ export function runDecisionBatch({
 
   const rescueOptions = [
     discretionaryCut,
+    guytonKlingerRescue,
+    vpwRescue,
     incomeBridge,
     sequenceReserve,
     allocationShift,
@@ -369,6 +373,62 @@ function findDiscretionaryCut({ assets, scenario, taxProfile, runs, seed, sequen
   if (!meetsTarget(finalized, profile) && best.metadata.cutAmount + EPSILON < maxCut) {
     finalized = finalizeCandidate({ candidate: fullCut, assets, taxProfile, runs, seed, sequences, profile });
   }
+  return optionWithDelta(finalized, base, { status: meetsTarget(finalized, profile) ? "target-met" : "best-tested" });
+}
+
+function findGuytonKlingerRescue({ assets, scenario, taxProfile, runs, seed, sequences, profile, base, tracker }) {
+  const searchRuns = solverSearchRuns(runs);
+  const cand = runCandidate({
+    id: "guyton-klinger-rescue",
+    kind: "guytonKlingerRescue",
+    label: "Switch to Guyton-Klinger spending rules",
+    scenario: {
+      ...scenario,
+      spendingStrategy: {
+        ...scenario.spendingStrategy,
+        mode: "guytonKlinger",
+        essentialSpend: profile.requiredSpend,
+        discretionarySpend: profile.flexibleSpend
+      }
+    },
+    assets,
+    taxProfile,
+    runs: searchRuns,
+    seed,
+    sequences,
+    profile,
+    metadata: { strategyMode: "guytonKlinger" },
+    includeHistorical: true,
+    tracker
+  });
+  const finalized = finalizeCandidate({ candidate: cand, assets, taxProfile, runs, seed, sequences, profile });
+  return optionWithDelta(finalized, base, { status: meetsTarget(finalized, profile) ? "target-met" : "best-tested" });
+}
+
+function findVpwRescue({ assets, scenario, taxProfile, runs, seed, sequences, profile, base, tracker }) {
+  const searchRuns = solverSearchRuns(runs);
+  const cand = runCandidate({
+    id: "vpw-rescue",
+    kind: "vpwRescue",
+    label: "Switch to VPW (Variable Percentage Withdrawal)",
+    scenario: {
+      ...scenario,
+      spendingStrategy: {
+        ...scenario.spendingStrategy,
+        mode: "vpw"
+      }
+    },
+    assets,
+    taxProfile,
+    runs: searchRuns,
+    seed,
+    sequences,
+    profile,
+    metadata: { strategyMode: "vpw" },
+    includeHistorical: true,
+    tracker
+  });
+  const finalized = finalizeCandidate({ candidate: cand, assets, taxProfile, runs, seed, sequences, profile });
   return optionWithDelta(finalized, base, { status: meetsTarget(finalized, profile) ? "target-met" : "best-tested" });
 }
 
@@ -1202,17 +1262,17 @@ function diagnoseFailure({ base, safeSpending, profile }) {
     primary = "healthcareCliff";
     label = "Healthcare subsidy cliff";
     reason = "Modeled MAGI is above the subsidy ceiling, so losing the healthcare subsidy is the likely failure driver.";
-    recommendedKinds = ["rothBasisCliffRescue", "conversionGuardrail", "healthcareRescue", "magiSpendTrim", "taxableLotRescue", "withdrawalShift", "discretionaryCut"];
+    recommendedKinds = ["rothBasisCliffRescue", "conversionGuardrail", "healthcareRescue", "magiSpendTrim", "taxableLotRescue", "withdrawalShift", "guytonKlingerRescue", "vpwRescue", "discretionaryCut"];
   } else if (failedCount > 0 && anatomy.commonTrigger === "Early sequence risk") {
     primary = "earlySequenceRisk";
     label = "Early sequence risk";
     reason = "Failures cluster in the first ten years, so an early bad-market sequence is the likely failure driver.";
-    recommendedKinds = ["sequenceReserve", "allocationShift", "discretionaryCut", "socialSecurityBridge"];
+    recommendedKinds = ["sequenceReserve", "allocationShift", "guytonKlingerRescue", "vpwRescue", "discretionaryCut", "socialSecurityBridge"];
   } else if (failedCount > 0) {
     primary = "longHorizonDepletion";
     label = "Long-horizon depletion";
     reason = "Failures cluster later in the plan, so structural overspend or portfolio drag is the likely failure driver.";
-    recommendedKinds = ["discretionaryCut", "allocationShift", "withdrawalShift", "socialSecurityBridge", "irmaaLookbackRescue"];
+    recommendedKinds = ["guytonKlingerRescue", "vpwRescue", "discretionaryCut", "allocationShift", "withdrawalShift", "socialSecurityBridge", "irmaaLookbackRescue"];
   }
 
   if (requiredUnsustainable) {
@@ -1616,12 +1676,12 @@ const FAILURE_STRESSOR_MAP = Object.freeze({
   spendingPressure: {
     label: "Spending pressure",
     description: "Required cash flow is high relative to the portfolio during failed paths.",
-    recommendedKinds: ["discretionaryCut", "incomeBridge", "socialSecurityBridge"]
+    recommendedKinds: ["guytonKlingerRescue", "vpwRescue", "discretionaryCut", "incomeBridge", "socialSecurityBridge"]
   },
   reserveShortfall: {
     label: "Reserve shortfall",
     description: "Down-market years lack enough defensive assets to avoid selling volatile assets under stress.",
-    recommendedKinds: ["sequenceReserve", "allocationShift", "discretionaryCut"]
+    recommendedKinds: ["sequenceReserve", "allocationShift", "guytonKlingerRescue", "vpwRescue", "discretionaryCut"]
   },
   allocationMismatch: {
     label: "Allocation mismatch",
@@ -1716,10 +1776,148 @@ function buildSensitivityAnalysis({
     };
   }).sort((a, b) => b.impactScore - a.impactScore || Math.abs(b.delta.combinedSuccessRate) - Math.abs(a.delta.combinedSuccessRate));
 
+  const breakpoints = findHouseholdBreakpoints({
+    assets,
+    scenario,
+    taxProfile,
+    runs,
+    seed,
+    sequences,
+    profile,
+    base
+  });
+
   return {
     runs: sensitivityRuns,
     top: all.slice(0, SENSITIVITY_TOP_COUNT).map((item, index) => ({ ...item, rank: index + 1 })),
-    all
+    all,
+    breakpoints
+  };
+}
+
+export function findHouseholdBreakpoints({
+  assets,
+  scenario,
+  taxProfile,
+  runs,
+  seed,
+  sequences,
+  profile,
+  base
+}) {
+  if (!base) return null;
+  const sensitivityRuns = Math.min(250, solverSearchRuns(runs));
+  const targetSuccessRate = profile.targetSuccessRate ?? 0.90;
+  const growthClasses = sensitivityReturnClasses(assets, scenario);
+
+  // Breakpoints are Monte-Carlo-based for speed (no historical backtest per
+  // probe) and compared against the base plan's MC success rate, so the
+  // comparison is like-for-like. If the base plan is already below target there
+  // is no "breakpoint" to find — report that explicitly rather than returning a
+  // degenerate 0pp / +0% threshold.
+  const baseMcRate = Number.isFinite(base?.monteCarlo?.successRate) ? base.monteCarlo.successRate : 0;
+  if (baseMcRate < targetSuccessRate) {
+    return {
+      alreadyBelowTarget: true,
+      returnBreakpoint: null,
+      spendingBreakpoint: null,
+      spendingBreakpointApplicable: scenario?.spendingStrategy?.mode !== "vpw",
+      inflationBreakpoint: null,
+      targetSuccessRate
+    };
+  }
+
+  // Probe whether a stressed scenario drops MC success below target.
+  const probeFails = (label, builder, t) => {
+    const cand = runCandidate({
+      id: `breakpoint-${label}-${t}`,
+      kind: "sensitivity",
+      scenario: builder(t),
+      assets,
+      taxProfile,
+      runs: sensitivityRuns,
+      seed,
+      sequences,
+      profile,
+      includeHistorical: false
+    });
+    const mc = Number.isFinite(cand?.monteCarlo?.successRate) ? cand.monteCarlo.successRate : 0;
+    return mc < targetSuccessRate;
+  };
+
+  // Smallest stress magnitude t in [0, hi] at which the plan fails, via
+  // bisection over a monotonic predicate (more stress → lower success). Returns
+  // null if the plan still passes at the maximum stress. ~log2(hi/tol) probes
+  // instead of a full linear scan, and no floating-point step accumulation.
+  const smallestFailing = (label, builder, hi, tol) => {
+    if (!probeFails(label, builder, hi)) return null; // survives max stress
+    if (probeFails(label, builder, 0)) return 0;      // fails with no stress (noise vs base)
+    let lo = 0;
+    let high = hi;
+    while (high - lo > tol) {
+      const mid = (lo + high) / 2;
+      if (probeFails(label, builder, mid)) high = mid; else lo = mid;
+    }
+    return high;
+  };
+
+  // 1. Expected-return drop (report as a negative shift).
+  const returnDrop = smallestFailing(
+    "return",
+    (drop) => scenarioWithReturnMeanShift(scenario, growthClasses, -drop),
+    0.03,
+    0.0025
+  );
+
+  // 2. Spending increase. VPW sizes spending from the portfolio, so scaling
+  //    target/essential/discretionary spend is inert — the breakpoint is not
+  //    applicable for a VPW base plan.
+  const spendingApplicable = scenario?.spendingStrategy?.mode !== "vpw";
+  const spendingExtra = spendingApplicable
+    ? smallestFailing(
+      "spend",
+      (extra) => ({
+        ...scenario,
+        targetSpend: (scenario.targetSpend ?? 0) * (1 + extra),
+        spendingStrategy: scenario.spendingStrategy ? {
+          ...scenario.spendingStrategy,
+          essentialSpend: (scenario.spendingStrategy.essentialSpend ?? 0) * (1 + extra),
+          discretionarySpend: (scenario.spendingStrategy.discretionarySpend ?? 0) * (1 + extra)
+        } : undefined
+      }),
+      0.30,
+      0.025
+    )
+    : null;
+
+  // 3. Inflation increase (shifts both general and medical streams together).
+  const inflationShift = smallestFailing(
+    "inflation",
+    (shift) => ({
+      ...scenario,
+      returnAssumptions: {
+        ...scenario.returnAssumptions,
+        inflation: scenario.returnAssumptions?.inflation ? {
+          ...scenario.returnAssumptions.inflation,
+          mean: (scenario.returnAssumptions.inflation.mean ?? 0) + shift
+        } : undefined,
+        medicalInflation: scenario.returnAssumptions?.medicalInflation ? {
+          ...scenario.returnAssumptions.medicalInflation,
+          mean: (scenario.returnAssumptions.medicalInflation.mean ?? 0) + shift
+        } : undefined
+      }
+    }),
+    0.03,
+    0.0025
+  );
+
+  return {
+    alreadyBelowTarget: false,
+    returnBreakpoint: returnDrop !== null ? round(-returnDrop, 4) : null,
+    spendingBreakpoint: spendingExtra !== null ? round(1 + spendingExtra, 4) : null,
+    spendingBreakpointApplicable: spendingApplicable,
+    inflationBreakpoint: inflationShift !== null ? round(inflationShift, 4) : null,
+    targetSuccessRate
   };
 }
 

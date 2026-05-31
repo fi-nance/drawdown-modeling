@@ -475,7 +475,11 @@ test("discretionary rescue falls back to the full cut when the searched cut miss
     returnAssumptions: {
       ...DEFAULT_SCENARIO.returnAssumptions,
       stock: { mean: 0.04, stdev: 0.08 },
-      inflation: { mean: 0, stdev: 0 }
+      inflation: { mean: 0, stdev: 0 },
+      // Pin medical inflation too so this deterministic no-inflation scenario is
+      // fully specified (previously it relied on medical silently collapsing to
+      // general; medical is now honored independently).
+      medicalInflation: { mean: 0, stdev: 0 }
     },
     spendingStrategy: {
       ...DEFAULT_SCENARIO.spendingStrategy,
@@ -540,7 +544,11 @@ test("discretionary rescue can be target-met when finalized run clears target af
     returnAssumptions: {
       ...DEFAULT_SCENARIO.returnAssumptions,
       stock: { mean: 0.04, stdev: 0.08 },
-      inflation: { mean: 0, stdev: 0 }
+      inflation: { mean: 0, stdev: 0 },
+      // Pin medical inflation too so this deterministic no-inflation scenario is
+      // fully specified (previously it relied on medical silently collapsing to
+      // general; medical is now honored independently).
+      medicalInflation: { mean: 0, stdev: 0 }
     },
     spendingStrategy: {
       ...DEFAULT_SCENARIO.spendingStrategy,
@@ -931,6 +939,8 @@ test("decision batch runs every rescue solver and only returns known rescue kind
   assert.ok(decision.diagnosis);
   const validKinds = new Set([
     "discretionaryCut",
+    "guytonKlingerRescue",
+    "vpwRescue",
     "incomeBridge",
     "combined",
     "sequenceReserve",
