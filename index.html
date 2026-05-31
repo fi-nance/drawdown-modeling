@@ -251,7 +251,7 @@
                     <span class="module-sub">Your accounts and holdings</span>
                   </div>
                 </div>
-                <div class="module-actions"><span class="controls-pill">6+ controls</span></div>
+                <div class="module-actions"><span class="controls-pill">7+ controls</span></div>
               </div>
               <div class="module-body">
                 <div id="assetTable" class="asset-table"></div>
@@ -266,6 +266,7 @@
                 <div class="control-grid" style="border-top: 1px solid var(--border); padding-top: 1rem; margin-bottom: 1rem;">
                   <label><span>Roth contribution basis</span><input id="rothBasis" type="number" min="0" step="1000" value="60000"></label>
                 </div>
+                <label class="check-row" style="margin-bottom: 1rem;"><input id="rothFiveYearRuleSatisfied" type="checkbox" checked><span>Roth five-year rule satisfied</span></label>
                 <details class="advanced">
                   <summary>Google Sheets</summary>
                   <div class="control-grid">
@@ -311,7 +312,7 @@
                     <span class="module-sub">Insurance until Medicare</span>
                   </div>
                 </div>
-                <div class="module-actions"><span class="controls-pill">21 controls</span></div>
+                <div class="module-actions"><span class="controls-pill">20 controls</span></div>
               </div>
               <div class="module-body">
                 <label class="check-row"><input id="acaEnabled" type="checkbox" checked><span>ACA marketplace coverage</span></label>
@@ -322,7 +323,7 @@
                   <label><span>Expected OOP %</span><input id="expectedOopPercent" type="number" min="0" max="100" step="5" value="25"></label>
                   <label><span>Annual penalty exception</span><input id="earlyWithdrawalPenaltyExceptionAmount" type="number" min="0" step="500" value="0"></label>
                 </div>
-                <label class="check-row"><input id="rothFiveYearRuleSatisfied" type="checkbox" checked><span>Roth five-year rule satisfied</span></label>
+
                 <details class="advanced">
                   <summary>Plan & premium overrides</summary>
                   <p class="assumption-note">Assumption: exact plan mode calculates PTC from the household SLCSP and applies the selected plan gross premium and OOP max. Quoted net premium mode trusts the quote and bypasses PTC recalculation.</p>
