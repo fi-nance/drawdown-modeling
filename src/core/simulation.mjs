@@ -1,4 +1,4 @@
-import { computeAca, DEFAULT_ACA_CONFIG, inflateAcaConfig } from "./aca.mjs";
+import { computeAca, DEFAULT_ACA_CONFIG, acaAgeRatingFactor, inflateAcaConfig } from "./aca.mjs";
 import {
   accountBreakdown,
   ageHoldingPeriods,
@@ -20,7 +20,7 @@ import {
   netCapitalGainsAndLosses,
   taxFromBrackets
 } from "./tax.mjs?v=20260531-ssa-pia";
-import { getMedicareIrmaaConfig, buildTaxProfile } from "../data/taxData.mjs";
+import { getAcaFplGuideline, getMedicareIrmaaConfig, buildTaxProfile } from "../data/taxData.mjs";
 import { createRng, normalRandom, percentile, round } from "./utils.mjs";
 
 const CASH_GAP_TOLERANCE = 0.01;
@@ -265,6 +265,165 @@ function buildSurvivorTaxProfile(taxProfile) {
     filingStatus: "single",
     state: taxProfile?.state?.state ?? "Florida"
   });
+}
+
+function acaConfigForSimulationYear({
+  config,
+  scenario,
+  hasSpouseLife,
+  primaryDeceased,
+  spouseDeceased
+}) {
+  if (!config?.enabled || !hasSpouseLife) return config;
+  if (primaryDeceased === spouseDeceased) return config;
+  return shrinkAcaConfigForSurvivor({
+    config,
+    scenario,
+    deceasedIndex: primaryDeceased ? 0 : 1
+  });
+}
+
+function shrinkAcaConfigForSurvivor({ config, scenario, deceasedIndex }) {
+  const originalHouseholdSize = householdSizeFromAca(config);
+  const survivorHouseholdSize = Math.max(1, originalHouseholdSize - 1);
+  const coverage = shrinkAcaCoverageForSurvivor({
+    config,
+    deceasedIndex,
+    originalHouseholdSize,
+    survivorHouseholdSize
+  });
+  const planYear = Math.trunc(Number(config.year ?? scenario?.taxYear ?? DEFAULT_SCENARIO.aca?.year ?? 2026) || 2026);
+  const state = config.state ?? scenario?.state ?? "Florida";
+
+  return {
+    ...coverage,
+    fpl: config.manualFpl === true
+      ? config.fpl
+      : getAcaFplGuideline({ taxYear: planYear, state, householdSize: survivorHouseholdSize }),
+    backupPlan: config.backupPlan?.enabled
+      ? shrinkAcaCoverageForSurvivor({
+        config: config.backupPlan,
+        parentConfig: config,
+        deceasedIndex,
+        originalHouseholdSize,
+        survivorHouseholdSize
+      })
+      : config.backupPlan ?? null
+  };
+}
+
+function shrinkAcaCoverageForSurvivor({
+  config,
+  parentConfig = null,
+  deceasedIndex,
+  originalHouseholdSize,
+  survivorHouseholdSize
+}) {
+  const originalMarketplaceMembers = marketplaceMembersFromAca(config, parentConfig);
+  const survivorMarketplaceMembers = originalMarketplaceMembers > 1
+    ? originalMarketplaceMembers - 1
+    : originalMarketplaceMembers;
+  const benchmarkScale = acaSurvivorPremiumScale({
+    config,
+    originalMarketplaceMembers,
+    survivorMarketplaceMembers,
+    deceasedIndex,
+    referenceAgesKey: "benchmarkPremiumReferenceAges",
+    referenceAgeKey: "benchmarkPremiumReferenceAge",
+    ageRatedKey: "ageRatedBenchmarkPremium"
+  });
+  const selectedPlanScale = acaSurvivorPremiumScale({
+    config,
+    originalMarketplaceMembers,
+    survivorMarketplaceMembers,
+    deceasedIndex,
+    referenceAgesKey: "selectedPlanPremiumReferenceAges",
+    referenceAgeKey: "selectedPlanPremiumReferenceAge",
+    ageRatedKey: "ageRatedSelectedPlanPremium"
+  });
+  const costSharingLimit = config.costSharingLimit ?? parentConfig?.costSharingLimit;
+  const oopMaximum = config.manualOopMaximum === true || !costSharingLimit
+    ? config.oopMaximum
+    : survivorMarketplaceMembers > 1
+      ? costSharingLimit.family
+      : costSharingLimit.selfOnly;
+
+  return {
+    ...config,
+    householdSize: survivorHouseholdSize,
+    marketplaceMembers: survivorMarketplaceMembers,
+    memberAges: dropAcaCoveredMember(config.memberAges, deceasedIndex, originalMarketplaceMembers, survivorMarketplaceMembers),
+    benchmarkPremium: scaleFiniteMoney(config.benchmarkPremium, benchmarkScale),
+    planPremium: scaleFiniteMoney(config.planPremium, selectedPlanScale),
+    selectedPlanPremium: scaleFiniteMoney(config.selectedPlanPremium, selectedPlanScale),
+    benchmarkPremiumReferenceAges: dropAcaCoveredMember(config.benchmarkPremiumReferenceAges, deceasedIndex, originalMarketplaceMembers, survivorMarketplaceMembers),
+    selectedPlanPremiumReferenceAges: dropAcaCoveredMember(config.selectedPlanPremiumReferenceAges, deceasedIndex, originalMarketplaceMembers, survivorMarketplaceMembers),
+    oopMaximum
+  };
+}
+
+function acaSurvivorPremiumScale({
+  config,
+  originalMarketplaceMembers,
+  survivorMarketplaceMembers,
+  deceasedIndex,
+  referenceAgesKey,
+  referenceAgeKey,
+  ageRatedKey
+}) {
+  if (!(originalMarketplaceMembers > survivorMarketplaceMembers)) return 1;
+  if (config?.[ageRatedKey] === true) {
+    const fallbackAge = finiteNonNegativeAge(config?.[referenceAgeKey]) ?? finiteNonNegativeAge(config?.currentAge);
+    const originalReference = acaReferenceRatingTotal({
+      ages: config?.[referenceAgesKey],
+      fallbackAge,
+      members: originalMarketplaceMembers
+    });
+    const survivorReference = acaReferenceRatingTotal({
+      ages: dropAcaCoveredMember(config?.[referenceAgesKey], deceasedIndex, originalMarketplaceMembers, survivorMarketplaceMembers),
+      fallbackAge,
+      members: survivorMarketplaceMembers
+    });
+    if (originalReference > 0 && survivorReference > 0) {
+      return survivorReference / originalReference;
+    }
+  }
+  return survivorMarketplaceMembers / originalMarketplaceMembers;
+}
+
+function acaReferenceRatingTotal({ ages, fallbackAge, members }) {
+  const fallback = finiteNonNegativeAge(fallbackAge) ?? 21;
+  return Array.from({ length: Math.max(1, members) }, (_, index) => {
+    const age = finiteNonNegativeAge(ages?.[index]) ?? fallback;
+    return acaAgeRatingFactor(age);
+  }).reduce((total, factor) => total + factor, 0);
+}
+
+function dropAcaCoveredMember(values, deceasedIndex, originalMembers, survivorMembers) {
+  if (!Array.isArray(values)) return values ?? null;
+  if (!(originalMembers > survivorMembers)) return values.slice(0, survivorMembers);
+  return values
+    .filter((_, index) => index !== deceasedIndex)
+    .slice(0, survivorMembers);
+}
+
+function householdSizeFromAca(config = {}) {
+  return Math.max(1, Math.trunc(Number(config.householdSize) || 1));
+}
+
+function marketplaceMembersFromAca(config = {}, parentConfig = null) {
+  return Math.max(1, Math.trunc(Number(config.marketplaceMembers) || Number(parentConfig?.marketplaceMembers) || Number(config.householdSize) || 1));
+}
+
+function finiteNonNegativeAge(value) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? Math.max(0, numeric) : null;
+}
+
+function scaleFiniteMoney(value, scale) {
+  if (!Number.isFinite(Number(value))) return value;
+  const numericScale = Number.isFinite(Number(scale)) ? Math.max(0, Number(scale)) : 1;
+  return round(Math.max(0, Number(value)) * numericScale, 6);
 }
 
 const ROTH_BASIS_ASSET_CLASS_PRIORITY = Object.freeze({
@@ -997,7 +1156,14 @@ function simulateYear({
     spouseAge
   });
   const yearTaxProfile = taxProfileContext.profile;
-  const yearAcaConfig = inflateAcaConfig(scenario.aca, inflationIndex, { age, yearIndex }, medicalInflationIndex);
+  const yearAcaBaseConfig = acaConfigForSimulationYear({
+    config: scenario.aca,
+    scenario,
+    hasSpouseLife,
+    primaryDeceased,
+    spouseDeceased
+  });
+  const yearAcaConfig = inflateAcaConfig(yearAcaBaseConfig, inflationIndex, { age, yearIndex }, medicalInflationIndex);
   // Promote any prior-year-harvested "short" lots back to "long" once a
   // full simulation year has elapsed since the reset, before we compute
   // beginning-of-year snapshots and run any sales/harvests.
@@ -5945,6 +6111,9 @@ function mergeAcaScenario(aca) {
 
   const hasBenchmark = hasOwn(aca, "benchmarkPremium");
   const hasSelectedPlanPremium = hasOwn(aca, "selectedPlanPremium") || hasOwn(aca, "planPremium");
+  if (hasOwn(aca, "fpl") && !hasOwn(aca, "manualFpl")) {
+    merged.manualFpl = true;
+  }
   const hasAgeRatingConfig = hasOwn(aca, "ageRatedBenchmarkPremium")
     || hasOwn(aca, "benchmarkPremiumReferenceAge")
     || hasOwn(aca, "benchmarkPremiumReferenceAges")

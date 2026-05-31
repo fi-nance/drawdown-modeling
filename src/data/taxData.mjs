@@ -408,6 +408,14 @@ function ptcFplYear(taxYear) {
   return FEDERAL_POVERTY_GUIDELINES_BY_YEAR[priorYear] ? priorYear : taxYear;
 }
 
+export function getAcaFplGuideline({
+  taxYear = DEFAULT_TAX_YEAR,
+  state = "Florida",
+  householdSize = 2
+} = {}) {
+  return getFplGuideline({ taxYear: ptcFplYear(taxYear), state, householdSize });
+}
+
 export function getMonthlyBenchmarkPremium({
   taxYear = DEFAULT_TAX_YEAR,
   state = "Florida"
@@ -547,7 +555,8 @@ export function buildAcaConfig({
     marketplaceMembers: members,
     fpl: Number.isFinite(fplOverride)
       ? Math.max(1, fplOverride)
-      : getFplGuideline({ taxYear: ptcFplYear(taxYear), state, householdSize }),
+      : getAcaFplGuideline({ taxYear, state, householdSize }),
+    manualFpl: Number.isFinite(fplOverride),
     benchmarkPremium: annualBenchmark,
     ageRatedBenchmarkPremium: !hasBenchmarkOverride || shouldAgeRateManualPremiums,
     benchmarkPremiumReferenceAge: referenceAge,

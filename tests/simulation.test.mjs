@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { runMonteCarlo, simulatePlan, runHistoricalBacktests } from "../src/core/simulation.mjs";
+import { buildAcaConfig } from "../src/data/taxData.mjs";
 
 const noTaxProfile = {
   filingStatus: "marriedFilingJointly",
@@ -3769,6 +3770,64 @@ test("ACA split-eligibility household transition (younger spouse rating factor p
   // Ratio is 3.0 / 2.0 = 1.5.
   // Adjusted premium = 10000 * 1.5 = 15000.
   assert.equal(plan.years[0].aca.benchmarkPremium, 15000);
+});
+
+test("ACA survivor years shrink tax-family size and marketplace-covered members after spouse death", () => {
+  const aca = buildAcaConfig({
+    taxYear: 2026,
+    state: "Florida",
+    householdSize: 2,
+    marketplaceMembers: 2,
+    currentAge: 62,
+    memberAges: [62, 62]
+  });
+  const plan = simulatePlan({
+    assets: [{
+      id: "cash",
+      accountType: "taxable",
+      assetClass: "cash",
+      holdingPeriod: "long",
+      units: 500000,
+      price: 1,
+      costBasisPerUnit: 1
+    }],
+    scenario: {
+      planYears: 2,
+      targetSpend: 90000,
+      targetSpendIncludesTaxes: true,
+      targetSpendIncludesMedical: true,
+      withdrawalOrder: ["taxable"],
+      currentAge: 62,
+      spouseAge: 62,
+      primaryMortalityAge: 95,
+      spouseMortalityAge: 62,
+      medicareWages: 30000,
+      earnedIncomeInflationAdjusted: false,
+      returnAssumptions: { cash: { mean: 0, stdev: 0 } },
+      rmd: { enabled: false },
+      rothConversion: { enabled: false },
+      taxGainHarvesting: { enabled: false },
+      taxLossHarvesting: { enabled: false },
+      aca
+    },
+    taxProfile: {
+      ...noTaxProfile,
+      filingStatus: "marriedFilingJointly"
+    },
+    returnSequence: [{ cash: 0 }, { cash: 0 }],
+    inflationSequence: [0, 0]
+  });
+
+  assert.equal(plan.years[0].filingStatus, "marriedFilingJointly");
+  assert.equal(plan.years[1].filingStatus, "single");
+  assert.equal(plan.years[0].aca.householdSize, 2);
+  assert.equal(plan.years[1].aca.householdSize, 1);
+  assert.equal(plan.years[0].aca.marketplaceMembers, 2);
+  assert.equal(plan.years[1].aca.marketplaceMembers, 1);
+  assertNear(plan.years[0].aca.fplPercent, 30000 / 21150 * 100, 0.001);
+  assertNear(plan.years[1].aca.fplPercent, 30000 / 15650 * 100, 0.001);
+  assert.ok(plan.years[1].aca.benchmarkPremium < plan.years[0].aca.benchmarkPremium);
+  assert.equal(plan.years[1].aca.oopMaximum, aca.costSharingLimit.selfOnly);
 });
 
 function round6(value) {

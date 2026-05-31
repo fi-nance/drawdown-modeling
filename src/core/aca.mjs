@@ -74,6 +74,8 @@ export function computeAca({
       grossPremium: 0,
       subsidy: 0,
       netPremium: 0,
+      householdSize: config?.householdSize ?? 0,
+      marketplaceMembers: config?.marketplaceMembers ?? 0,
       eligible: false
     };
   }
@@ -149,6 +151,8 @@ export function computeAca({
     subsidy: round(subsidy, 6),
     netPremium: round(Math.max(0, grossPremium - subsidy), 6),
     oopMaximum: round(Math.max(0, activePlan.oopMaximum ?? 0), 6),
+    householdSize: Math.max(1, Math.trunc(Number(config.householdSize) || 1)),
+    marketplaceMembers: Math.max(1, Math.trunc(Number(config.marketplaceMembers) || Number(config.householdSize) || 1)),
     activePlanRole: activePlan.role,
     planName: activePlan.planName ?? "",
     eligible,
