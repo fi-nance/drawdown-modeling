@@ -13,11 +13,12 @@ import {
 } from "./portfolio.mjs";
 import {
   computeIncomeTax,
+  computeSelfEmploymentTax,
   computeTaxableSocialSecurityBenefits,
   DEFAULT_TAX_PROFILE,
   inflateTaxProfile,
   netCapitalGainsAndLosses
-} from "./tax.mjs";
+} from "./tax.mjs?v=20260531-se-tax2";
 import { getMedicareIrmaaConfig, buildTaxProfile } from "../data/taxData.mjs";
 import { createRng, normalRandom, percentile, round } from "./utils.mjs";
 
@@ -148,6 +149,7 @@ export const DEFAULT_SCENARIO = {
     magiBuffer: 1000
   },
   medicareWages: 0,
+  socialSecurityWages: null,
   selfEmploymentIncome: 0,
   rrtaCompensation: 0,
   earnedIncomeInflationAdjusted: true,
@@ -1106,7 +1108,7 @@ function simulateYear({
         scenario,
         adjustmentsToIncome,
         lossCarryforward
-      }).income, lossCarryforward, yearTaxProfile?.capitalLossOrdinaryIncomeOffset ?? 3000),
+      }).income, lossCarryforward, yearTaxProfile?.capitalLossOrdinaryIncomeOffset ?? 3000, yearTaxProfile),
       configuredMaxGain: strategyLimit({
         strategy: scenario.taxGainHarvesting,
         autoValue: Infinity,
@@ -1164,8 +1166,8 @@ function simulateYear({
         profile: yearTaxProfile
       });
       finalTaxes = addPenaltyTax(finalTaxes, finalWithdrawal.penaltyTax);
-      const acaMagi = acaMagiForIncome(income, lossCarryforward, yearTaxProfile?.capitalLossOrdinaryIncomeOffset ?? 3000);
-      const irmaaMagi = irmaaMagiForIncome(income, lossCarryforward, yearTaxProfile?.capitalLossOrdinaryIncomeOffset ?? 3000);
+      const acaMagi = acaMagiForIncome(income, lossCarryforward, yearTaxProfile?.capitalLossOrdinaryIncomeOffset ?? 3000, yearTaxProfile);
+      const irmaaMagi = irmaaMagiForIncome(income, lossCarryforward, yearTaxProfile?.capitalLossOrdinaryIncomeOffset ?? 3000, yearTaxProfile);
       finalAca = computeAcaForYear({ age, spouseAge, magi: acaMagi, config: yearAcaConfig, filingStatus: yearTaxProfile.filingStatus });
       if (!scenario.targetSpendIncludesMedical) {
         const medical = medicalCostForYear({
@@ -1256,9 +1258,9 @@ function simulateYear({
     lossCarryforward
   });
   finalTaxableSocialSecurity = reconciledTaxableSocialSecurity;
-  const finalFederalAgi = round(federalAgiForIncome(finalIncome, lossCarryforward, yearTaxProfile?.capitalLossOrdinaryIncomeOffset ?? 3000), 6);
-  const finalAcaMagi = round(acaMagiForIncome(finalIncome, lossCarryforward, yearTaxProfile?.capitalLossOrdinaryIncomeOffset ?? 3000), 6);
-  const finalIrmaaMagi = round(irmaaMagiForIncome(finalIncome, lossCarryforward, yearTaxProfile?.capitalLossOrdinaryIncomeOffset ?? 3000), 6);
+  const finalFederalAgi = round(federalAgiForIncome(finalIncome, lossCarryforward, yearTaxProfile?.capitalLossOrdinaryIncomeOffset ?? 3000, yearTaxProfile), 6);
+  const finalAcaMagi = round(acaMagiForIncome(finalIncome, lossCarryforward, yearTaxProfile?.capitalLossOrdinaryIncomeOffset ?? 3000, yearTaxProfile), 6);
+  const finalIrmaaMagi = round(irmaaMagiForIncome(finalIncome, lossCarryforward, yearTaxProfile?.capitalLossOrdinaryIncomeOffset ?? 3000, yearTaxProfile), 6);
   const finalMagi = finalAcaMagi;
   // Use the same net-benefit gate as the conversion sizing so the displayed
   // ceiling reflects the actual cap the optimizer applied.
@@ -1423,6 +1425,7 @@ function simulateYear({
     oneOffIncomeDetails: oneOffCashFlows.incomeDetails,
     oneOffExpenseDetails: oneOffCashFlows.expenseDetails,
     medicareWages: round(earnedIncome.medicareWages, 6),
+    socialSecurityWages: earnedIncome.socialSecurityWages == null ? null : round(earnedIncome.socialSecurityWages, 6),
     selfEmploymentIncome: round(earnedIncome.selfEmploymentIncome, 6),
     rrtaCompensation: round(earnedIncome.rrtaCompensation, 6),
     socialSecurityBenefits: round(socialSecurityBenefits, 6),
@@ -2288,9 +2291,9 @@ function evaluateWithdrawalState({
     profile: yearTaxProfile
   });
   const taxesWithPenalties = addPenaltyTax(taxes, withdrawal.penaltyTax);
-  const federalAgi = round(federalAgiForIncome(income, lossCarryforward, yearTaxProfile?.capitalLossOrdinaryIncomeOffset ?? 3000), 6);
-  const acaMagi = round(acaMagiForIncome(income, lossCarryforward, yearTaxProfile?.capitalLossOrdinaryIncomeOffset ?? 3000), 6);
-  const irmaaMagi = round(irmaaMagiForIncome(income, lossCarryforward, yearTaxProfile?.capitalLossOrdinaryIncomeOffset ?? 3000), 6);
+  const federalAgi = round(federalAgiForIncome(income, lossCarryforward, yearTaxProfile?.capitalLossOrdinaryIncomeOffset ?? 3000, yearTaxProfile), 6);
+  const acaMagi = round(acaMagiForIncome(income, lossCarryforward, yearTaxProfile?.capitalLossOrdinaryIncomeOffset ?? 3000, yearTaxProfile), 6);
+  const irmaaMagi = round(irmaaMagiForIncome(income, lossCarryforward, yearTaxProfile?.capitalLossOrdinaryIncomeOffset ?? 3000, yearTaxProfile), 6);
   const aca = computeAcaForYear({ age, spouseAge, magi: acaMagi, config: yearAcaConfig, filingStatus: yearTaxProfile.filingStatus });
   const medical = medicalCostForYear({
     scenario,
@@ -3365,6 +3368,7 @@ function combineIncome({
     ordinaryInvestmentIncome,
     adjustmentsToIncome: Math.max(0, adjustmentsToIncome),
     medicareWages: earnedIncome.medicareWages,
+    socialSecurityWages: earnedIncome.socialSecurityWages,
     selfEmploymentIncome: earnedIncome.selfEmploymentIncome,
     rrtaCompensation: earnedIncome.rrtaCompensation,
     taxableSocialSecurity: taxableSocialSecurityAmount,
@@ -3414,7 +3418,7 @@ function incomeForYear({
   });
   const taxableSocialSecurity = computeTaxableSocialSecurityBenefits({
     benefits: socialSecurityBenefits,
-    otherIncome: federalAgiForIncome(incomeBeforeSocialSecurity, lossCarryforward, taxProfile?.capitalLossOrdinaryIncomeOffset ?? 3000),
+    otherIncome: federalAgiForIncome(incomeBeforeSocialSecurity, lossCarryforward, taxProfile?.capitalLossOrdinaryIncomeOffset ?? 3000, taxProfile),
     filingStatus: taxProfile.filingStatus,
     marriedFilingSeparatelyLivedTogether: scenario.medicare?.marriedFilingSeparatelyLivedTogether,
     profile: taxProfile
@@ -3440,8 +3444,19 @@ function incomeForYear({
   };
 }
 
-function federalAgiForIncome(income, lossCarryforward = { shortTerm: 0, longTerm: 0 }, ordinaryOffsetCap = 3000) {
-  const adjustments = Math.max(0, income.adjustmentsToIncome ?? 0);
+function federalAgiForIncome(
+  income,
+  lossCarryforward = { shortTerm: 0, longTerm: 0 },
+  ordinaryOffsetCap = 3000,
+  taxProfile = DEFAULT_TAX_PROFILE
+) {
+  const selfEmployment = computeSelfEmploymentTax({
+    selfEmploymentIncome: income.selfEmploymentIncome,
+    medicareWages: income.medicareWages,
+    socialSecurityWages: income.socialSecurityWages,
+    profile: taxProfile
+  });
+  const adjustments = Math.max(0, income.adjustmentsToIncome ?? 0) + selfEmployment.deduction;
   const carryforward = normalizeLossCarryforward(lossCarryforward);
   const netResult = netCapitalGainsAndLosses({
     shortTermCapitalGains: income.shortTermCapitalGains,
@@ -3466,12 +3481,25 @@ function federalAgiForIncome(income, lossCarryforward = { shortTerm: 0, longTerm
   );
 }
 
-function acaMagiForIncome(income, lossCarryforward = { shortTerm: 0, longTerm: 0 }, ordinaryOffsetCap = 3000) {
-  return Math.max(0, federalAgiForIncome(income, lossCarryforward, ordinaryOffsetCap) + Math.max(0, income.nonTaxableSocialSecurity ?? 0));
+function acaMagiForIncome(
+  income,
+  lossCarryforward = { shortTerm: 0, longTerm: 0 },
+  ordinaryOffsetCap = 3000,
+  taxProfile = DEFAULT_TAX_PROFILE
+) {
+  return Math.max(0,
+    federalAgiForIncome(income, lossCarryforward, ordinaryOffsetCap, taxProfile)
+      + Math.max(0, income.nonTaxableSocialSecurity ?? 0)
+  );
 }
 
-function irmaaMagiForIncome(income, lossCarryforward = { shortTerm: 0, longTerm: 0 }, ordinaryOffsetCap = 3000) {
-  return federalAgiForIncome(income, lossCarryforward, ordinaryOffsetCap);
+function irmaaMagiForIncome(
+  income,
+  lossCarryforward = { shortTerm: 0, longTerm: 0 },
+  ordinaryOffsetCap = 3000,
+  taxProfile = DEFAULT_TAX_PROFILE
+) {
+  return federalAgiForIncome(income, lossCarryforward, ordinaryOffsetCap, taxProfile);
 }
 
 function taxProfileForSimulationYear({
@@ -3540,6 +3568,9 @@ function spouseSocialSecurityBenefitsForYear(scenario, spouseAge, inflationIndex
 function earnedIncomeForYear(scenario, inflationIndex) {
   const index = scenario.earnedIncomeInflationAdjusted === false ? 1 : inflationIndex;
   const medicareWages = round(Math.max(0, Number(scenario.medicareWages) || 0) * index, 6);
+  const socialSecurityWages = Number.isFinite(Number(scenario.socialSecurityWages))
+    ? round(Math.max(0, Number(scenario.socialSecurityWages) || 0) * index, 6)
+    : null;
   const selfEmploymentIncome = round(Math.max(0, Number(scenario.selfEmploymentIncome) || 0) * index, 6);
   const rrtaCompensation = round(Math.max(0, Number(scenario.rrtaCompensation) || 0) * index, 6);
   const cash = round(medicareWages + selfEmploymentIncome + rrtaCompensation, 6);
@@ -3547,6 +3578,7 @@ function earnedIncomeForYear(scenario, inflationIndex) {
     cash,
     ordinaryIncome: cash,
     medicareWages,
+    socialSecurityWages,
     selfEmploymentIncome,
     rrtaCompensation
   };
@@ -3557,16 +3589,30 @@ function emptyEarnedIncome() {
     cash: 0,
     ordinaryIncome: 0,
     medicareWages: 0,
+    socialSecurityWages: null,
     selfEmploymentIncome: 0,
     rrtaCompensation: 0
   };
 }
 
 function mergeEarnedIncome(left = emptyEarnedIncome(), right = emptyEarnedIncome()) {
+  const leftSocialSecurityWages = left.socialSecurityWages;
+  const rightSocialSecurityWages = right.socialSecurityWages;
+  const leftHasEarnedIncome = (left.cash ?? 0) > CASH_RAISED_EPSILON;
+  const rightHasEarnedIncome = (right.cash ?? 0) > CASH_RAISED_EPSILON;
+  let socialSecurityWages = null;
+  if (leftSocialSecurityWages != null && rightSocialSecurityWages != null) {
+    socialSecurityWages = round((leftSocialSecurityWages ?? 0) + (rightSocialSecurityWages ?? 0), 6);
+  } else if (leftSocialSecurityWages != null && !rightHasEarnedIncome) {
+    socialSecurityWages = round(leftSocialSecurityWages, 6);
+  } else if (rightSocialSecurityWages != null && !leftHasEarnedIncome) {
+    socialSecurityWages = round(rightSocialSecurityWages, 6);
+  }
   return {
     cash: round((left.cash ?? 0) + (right.cash ?? 0), 6),
     ordinaryIncome: round((left.ordinaryIncome ?? 0) + (right.ordinaryIncome ?? 0), 6),
     medicareWages: round((left.medicareWages ?? 0) + (right.medicareWages ?? 0), 6),
+    socialSecurityWages,
     selfEmploymentIncome: round((left.selfEmploymentIncome ?? 0) + (right.selfEmploymentIncome ?? 0), 6),
     rrtaCompensation: round((left.rrtaCompensation ?? 0) + (right.rrtaCompensation ?? 0), 6)
   };
@@ -3936,6 +3982,7 @@ function oneOffCashFlowsForYear(scenario, planYear, inflationIndex) {
           cash: amount,
           ordinaryIncome: amount,
           medicareWages: amount,
+          socialSecurityWages: amount,
           selfEmploymentIncome: 0,
           rrtaCompensation: 0
         });
@@ -3947,6 +3994,7 @@ function oneOffCashFlowsForYear(scenario, planYear, inflationIndex) {
           cash: amount,
           ordinaryIncome: amount,
           medicareWages: 0,
+          socialSecurityWages: 0,
           selfEmploymentIncome: amount,
           rrtaCompensation: 0
         });
@@ -3958,6 +4006,7 @@ function oneOffCashFlowsForYear(scenario, planYear, inflationIndex) {
           cash: amount,
           ordinaryIncome: amount,
           medicareWages: 0,
+          socialSecurityWages: 0,
           selfEmploymentIncome: 0,
           rrtaCompensation: amount
         });
@@ -4075,6 +4124,9 @@ function estimateTaxAttribution({
       ordinaryInvestmentIncome: Math.max(0, income.ordinaryInvestmentIncome - (adjustments.ordinaryInvestmentIncome ?? 0)),
       adjustmentsToIncome: Math.max(0, (income.adjustmentsToIncome ?? 0) - (adjustments.adjustmentsToIncome ?? 0)),
       medicareWages: Math.max(0, (income.medicareWages ?? 0) - (adjustments.medicareWages ?? 0)),
+      socialSecurityWages: income.socialSecurityWages == null
+        ? null
+        : Math.max(0, (income.socialSecurityWages ?? 0) - (adjustments.socialSecurityWages ?? 0)),
       selfEmploymentIncome: Math.max(0, (income.selfEmploymentIncome ?? 0) - (adjustments.selfEmploymentIncome ?? 0)),
       rrtaCompensation: Math.max(0, (income.rrtaCompensation ?? 0) - (adjustments.rrtaCompensation ?? 0)),
       taxableSocialSecurity: Math.max(0, (income.taxableSocialSecurity ?? 0) - (adjustments.taxableSocialSecurity ?? 0)),
@@ -4098,12 +4150,14 @@ function estimateTaxAttribution({
   addSource("Earned income", {
     ordinaryIncome: earnedIncome.ordinaryIncome,
     medicareWages: earnedIncome.medicareWages,
+    socialSecurityWages: earnedIncome.socialSecurityWages,
     selfEmploymentIncome: earnedIncome.selfEmploymentIncome,
     rrtaCompensation: earnedIncome.rrtaCompensation
   });
   addSource("One-off income", {
     ordinaryIncome: oneOffCashFlows.taxableOrdinaryIncome + oneOffCashFlows.earnedIncome.ordinaryIncome,
     medicareWages: oneOffCashFlows.earnedIncome.medicareWages,
+    socialSecurityWages: oneOffCashFlows.earnedIncome.socialSecurityWages,
     selfEmploymentIncome: oneOffCashFlows.earnedIncome.selfEmploymentIncome,
     rrtaCompensation: oneOffCashFlows.earnedIncome.rrtaCompensation
   });
@@ -4381,8 +4435,8 @@ function marginalIncomeRoom({
       capitalLossCarryforward: lossCarryforward,
       profile: taxProfile
     });
-    const acaMagi = acaMagiForIncome(income, lossCarryforward, taxProfile?.capitalLossOrdinaryIncomeOffset ?? 3000);
-    const irmaaMagi = irmaaMagiForIncome(income, lossCarryforward, taxProfile?.capitalLossOrdinaryIncomeOffset ?? 3000);
+    const acaMagi = acaMagiForIncome(income, lossCarryforward, taxProfile?.capitalLossOrdinaryIncomeOffset ?? 3000, taxProfile);
+    const irmaaMagi = irmaaMagiForIncome(income, lossCarryforward, taxProfile?.capitalLossOrdinaryIncomeOffset ?? 3000, taxProfile);
     const aca = computeAca({ magi: acaMagi, config: acaConfig });
     const medical = medicalCostForYear({
       scenario,
@@ -4610,7 +4664,7 @@ function rothConversionAmountForYear({
       scenario,
       lossCarryforward
     });
-    const magiBeforeConversion = acaMagiForIncome(income, lossCarryforward, taxProfile?.capitalLossOrdinaryIncomeOffset ?? 3000);
+    const magiBeforeConversion = acaMagiForIncome(income, lossCarryforward, taxProfile?.capitalLossOrdinaryIncomeOffset ?? 3000, taxProfile);
     const acaTarget = scenario.rothConversion?.optimizeForAca === false
       ? { amount: Infinity }
       : acaMagiCeiling({
@@ -4628,7 +4682,7 @@ function rothConversionAmountForYear({
       taxProfile,
       age,
       inflationIndex,
-      magiBeforeConversion: irmaaMagiForIncome(income, lossCarryforward, taxProfile?.capitalLossOrdinaryIncomeOffset ?? 3000),
+      magiBeforeConversion: irmaaMagiForIncome(income, lossCarryforward, taxProfile?.capitalLossOrdinaryIncomeOffset ?? 3000, taxProfile),
       targetRate
     });
     const marginalRoom = marginalIncomeRoom({
@@ -4678,7 +4732,7 @@ function rothConversionAmountForYear({
     scenario,
     lossCarryforward
   });
-  const magiBeforeConversion = acaMagiForIncome(incomeBeforeConversion, lossCarryforward, taxProfile?.capitalLossOrdinaryIncomeOffset ?? 3000);
+  const magiBeforeConversion = acaMagiForIncome(incomeBeforeConversion, lossCarryforward, taxProfile?.capitalLossOrdinaryIncomeOffset ?? 3000, taxProfile);
   const acaTarget = scenario.rothConversion?.optimizeForAca === false
     ? {
         amount: (acaConfig?.fpl ?? 0) * ((scenario.rothConversion?.maxAcaFplPercent ?? 400) / 100)
@@ -4698,7 +4752,7 @@ function rothConversionAmountForYear({
     taxProfile,
     age,
     inflationIndex,
-    magiBeforeConversion: irmaaMagiForIncome(incomeBeforeConversion, lossCarryforward, taxProfile?.capitalLossOrdinaryIncomeOffset ?? 3000),
+    magiBeforeConversion: irmaaMagiForIncome(incomeBeforeConversion, lossCarryforward, taxProfile?.capitalLossOrdinaryIncomeOffset ?? 3000, taxProfile),
     targetRate
   });
 
@@ -4745,7 +4799,7 @@ function rothConversionMagiGuardrailRoom({
     scenario,
     lossCarryforward
   });
-  const magiBeforeConversion = acaMagiForIncome(income, lossCarryforward, taxProfile?.capitalLossOrdinaryIncomeOffset ?? 3000);
+  const magiBeforeConversion = acaMagiForIncome(income, lossCarryforward, taxProfile?.capitalLossOrdinaryIncomeOffset ?? 3000, taxProfile);
   const acaTarget = scenario.rothConversion?.optimizeForAca === false
     ? { amount: Infinity }
     : acaMagiCeiling({
@@ -4763,7 +4817,7 @@ function rothConversionMagiGuardrailRoom({
     taxProfile,
     age,
     inflationIndex,
-    magiBeforeConversion: irmaaMagiForIncome(income, lossCarryforward, taxProfile?.capitalLossOrdinaryIncomeOffset ?? 3000),
+    magiBeforeConversion: irmaaMagiForIncome(income, lossCarryforward, taxProfile?.capitalLossOrdinaryIncomeOffset ?? 3000, taxProfile),
     targetRate
   });
   return Math.min(finiteRoom(acaRoom), finiteRoom(irmaaRoom), traditionalAccountValue(portfolio));
@@ -5152,6 +5206,7 @@ function buildPostMortalityYearResult({ scenario, yearIndex, portfolio, inflatio
     oneOffIncomeDetails: [],
     oneOffExpenseDetails: [],
     medicareWages: 0,
+    socialSecurityWages: null,
     selfEmploymentIncome: 0,
     rrtaCompensation: 0,
     socialSecurityBenefits: 0,

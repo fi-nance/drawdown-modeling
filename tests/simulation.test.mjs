@@ -30,6 +30,17 @@ const flatOrdinaryTaxProfile = {
   ordinaryBrackets: [{ upTo: Infinity, rate: 0.1 }]
 };
 
+const selfEmploymentOnlyTaxProfile = {
+  ...noTaxProfile,
+  selfEmploymentTax: {
+    minimumNetEarnings: 400,
+    netEarningsMultiplier: 0.9235,
+    socialSecurityRate: 0.124,
+    medicareRate: 0.029,
+    socialSecurityWageBase: 184500
+  }
+};
+
 function assertNear(actual, expected, tolerance = 0.01) {
   assert.ok(
     Math.abs(actual - expected) <= tolerance,
@@ -236,6 +247,34 @@ test("earned income creates cash, MAGI, and Additional Medicare Tax", () => {
   assert.equal(plan.years[0].taxes.additionalMedicareTax, 450);
   assert.equal(plan.years[0].taxes.totalTax, 450);
   assert.equal(Math.round(plan.endingValue), 299550);
+  assert.ok(plan.years[0].taxAttribution.some((item) => item.source === "Earned income"));
+});
+
+test("self-employment income applies SECA tax and half-tax AGI deduction", () => {
+  const plan = simulatePlan({
+    assets: [],
+    scenario: {
+      planYears: 1,
+      targetSpend: 0,
+      targetSpendIncludesTaxes: false,
+      targetSpendIncludesMedical: true,
+      selfEmploymentIncome: 100000,
+      earnedIncomeInflationAdjusted: false,
+      rothConversion: { enabled: false },
+      aca: { enabled: false }
+    },
+    taxProfile: selfEmploymentOnlyTaxProfile,
+    returnSequence: [{}],
+    inflationSequence: [0]
+  });
+
+  assert.equal(plan.years[0].earnedIncome, 100000);
+  assert.equal(plan.years[0].cashAvailable, 100000);
+  assertNear(plan.years[0].magi, 92935.225);
+  assert.equal(plan.years[0].taxes.selfEmploymentTax, 14129.55);
+  assert.equal(plan.years[0].taxes.selfEmploymentTaxDeduction, 7064.775);
+  assert.equal(plan.years[0].taxes.totalTax, 14129.55);
+  assertNear(plan.endingValue, 85870.45);
   assert.ok(plan.years[0].taxAttribution.some((item) => item.source === "Earned income"));
 });
 

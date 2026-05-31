@@ -267,10 +267,54 @@ test("2026 Additional Medicare Tax applies to wage and self-employment threshold
   });
 
   assert.equal(tax.additionalMedicareWageBase, 50000);
-  assert.equal(tax.additionalMedicareSelfEmploymentBase, 100000);
+  assert.equal(tax.additionalMedicareSelfEmploymentBase, 92350);
   assert.equal(tax.additionalMedicareRrtaBase, 10000);
-  assert.equal(tax.additionalMedicareTax, 1440);
-  assert.equal(tax.totalTax, 1440);
+  assert.equal(tax.additionalMedicareTax, 1371.15);
+  assert.equal(tax.selfEmploymentTax, 2678.15);
+  assert.equal(tax.selfEmploymentTaxDeduction, 1339.075);
+  assert.equal(tax.socialSecurityWages, 184500);
+  assert.equal(tax.totalTax, 4049.3);
+});
+
+test("2026 self-employment tax uses Schedule SE net earnings, wage base, and half-tax deduction", () => {
+  const taxProfile = buildTaxProfile({
+    taxYear: 2026,
+    filingStatus: "marriedFilingJointly",
+    state: "Florida"
+  });
+  const tax = computeIncomeTax({
+    selfEmploymentIncome: 100000,
+    profile: taxProfile
+  });
+
+  assert.equal(tax.selfEmploymentNetEarnings, 92350);
+  assert.equal(tax.selfEmploymentSocialSecurityTaxableEarnings, 92350);
+  assert.equal(tax.selfEmploymentSocialSecurityTax, 11451.4);
+  assert.equal(tax.selfEmploymentMedicareTax, 2678.15);
+  assert.equal(tax.selfEmploymentTax, 14129.55);
+  assert.equal(tax.selfEmploymentTaxDeduction, 7064.775);
+  assert.equal(tax.adjustmentsToIncome, 7064.775);
+  assert.equal(tax.totalTax, 14129.55);
+});
+
+test("2026 self-employment Social Security tax coordinates with explicit W-2 Social Security wages", () => {
+  const taxProfile = buildTaxProfile({
+    taxYear: 2026,
+    filingStatus: "marriedFilingJointly",
+    state: "Florida"
+  });
+  const tax = computeIncomeTax({
+    selfEmploymentIncome: 100000,
+    socialSecurityWages: 100000,
+    profile: taxProfile
+  });
+
+  assert.equal(tax.selfEmploymentSocialSecurityWageBase, 184500);
+  assert.equal(tax.selfEmploymentRemainingSocialSecurityWageBase, 84500);
+  assert.equal(tax.selfEmploymentSocialSecurityTaxableEarnings, 84500);
+  assert.equal(tax.selfEmploymentSocialSecurityTax, 10478);
+  assert.equal(tax.selfEmploymentMedicareTax, 2678.15);
+  assert.equal(tax.selfEmploymentTax, 13156.15);
 });
 
 test("2026 child tax credit reduces regular federal income tax after brackets", () => {

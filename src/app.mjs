@@ -16,7 +16,7 @@ import {
   runHistoricalBacktests,
   runMonteCarlo,
   simulatePlan
-} from "./core/simulation.mjs?v=20260518-rescue-levers";
+} from "./core/simulation.mjs?v=20260531-se-tax2";
 import { round } from "./core/utils.mjs";
 import { defaultOneOffExpenses, sampleAssets } from "./data/sample.mjs";
 import {
@@ -27,7 +27,7 @@ import {
   HISTORICAL_RETURN_DATA_VERSION,
   makeHistoricalSequences
 } from "./data/historicalReturns.mjs";
-import { buildAcaConfig, buildTaxProfile, STATE_OPTIONS, TAX_DATA_VERSION, getMonthlyBenchmarkPremium } from "./data/taxData.mjs";
+import { buildAcaConfig, buildTaxProfile, STATE_OPTIONS, TAX_DATA_VERSION, getMonthlyBenchmarkPremium } from "./data/taxData.mjs?v=20260531-se-tax2";
 import { massachusettsConnectorCareEstimate, massachusettsConnectorCarePlanOptions } from "./data/acaPlanPresets.mjs";
 import {
   buildMarketplacePlanSearchRequest,
@@ -153,6 +153,7 @@ const CONTROL_IDS = [
   "earlyWithdrawalPenaltyExceptionAmount",
   "rothFiveYearRuleSatisfied",
   "medicareWages",
+  "socialSecurityWages",
   "selfEmploymentIncome",
   "rrtaCompensation",
   "earnedIncomeInflationAdjusted",
@@ -325,6 +326,7 @@ const els = {
   earlyWithdrawalPenaltyExceptionAmount: document.querySelector("#earlyWithdrawalPenaltyExceptionAmount"),
   rothFiveYearRuleSatisfied: document.querySelector("#rothFiveYearRuleSatisfied"),
   medicareWages: document.querySelector("#medicareWages"),
+  socialSecurityWages: document.querySelector("#socialSecurityWages"),
   selfEmploymentIncome: document.querySelector("#selfEmploymentIncome"),
   rrtaCompensation: document.querySelector("#rrtaCompensation"),
   earnedIncomeInflationAdjusted: document.querySelector("#earnedIncomeInflationAdjusted"),
@@ -1538,6 +1540,11 @@ function applyScenarioControls(scenario) {
   setNumberControl("spouseSocialSecurityAnnualBenefit", scenario.spouseSocialSecurityAnnualBenefit);
   setNumberControl("spouseSocialSecurityStartAge", scenario.spouseSocialSecurityStartAge);
   setCheckedControl("spouseSocialSecurityInflationAdjusted", scenario.spouseSocialSecurityInflationAdjusted);
+  setNumberControl("medicareWages", scenario.medicareWages);
+  setOptionalNumberControl("socialSecurityWages", scenario.socialSecurityWages);
+  setNumberControl("selfEmploymentIncome", scenario.selfEmploymentIncome);
+  setNumberControl("rrtaCompensation", scenario.rrtaCompensation);
+  setCheckedControl("earnedIncomeInflationAdjusted", scenario.earnedIncomeInflationAdjusted);
   setValueControl("heirType", scenario.heirType);
   if (Number.isFinite(scenario.nonSpouse10YrTaxDrag)) {
     setNumberControl("nonSpouse10YrTaxDrag", scenario.nonSpouse10YrTaxDrag * 100);
@@ -1645,7 +1652,7 @@ function downloadJsonText(text, filename) {
 function getSimulationWorker() {
   if (!simulationWorker) {
     simulationWorker = new Worker(
-      new URL("./core/simulation.worker.mjs?v=20260518-rescue-levers", import.meta.url),
+      new URL("./core/simulation.worker.mjs?v=20260531-se-tax2", import.meta.url),
       { type: "module" }
     );
     simulationWorker.addEventListener("error", (ev) => {
@@ -2378,7 +2385,7 @@ function acaPlanLabel(year) {
 function renderYearTable() {
   const years = activeVisibleYears();
   const magiColumn = selectedMagiColumn();
-  const headers = ["Year", "Age", "Stock", "Bond", "Real estate", "TIPS", "Crypto", "Inflation", "Start value", "End value", "Sales / withdrawals", "Dividends", "Social Security", "Earned income", "One-off income", "RMD", "Total cash", "Total need", "Tax", "Fed income tax", "CG/QD tax", "NIIT", "Addl Medicare", "Credits", "State tax", magiColumn.header, "Taxable SS", "65+ deduction", "CTC children", "ACA plan", "ACA SLCSP", "ACA gross", "ACA subsidy", "ACA net", "Medicare", "Spend", "Essential", "Discretionary", "Disc. %", "Market DD", "Medical", "Tax gain harvest", "Roth conv.", "Roth basis available", "Penalty", "Loss carry"];
+  const headers = ["Year", "Age", "Stock", "Bond", "Real estate", "TIPS", "Crypto", "Inflation", "Start value", "End value", "Sales / withdrawals", "Dividends", "Social Security", "Earned income", "One-off income", "RMD", "Total cash", "Total need", "Tax", "Fed income tax", "CG/QD tax", "NIIT", "SE tax", "Addl Medicare", "Credits", "State tax", magiColumn.header, "Taxable SS", "65+ deduction", "CTC children", "ACA plan", "ACA SLCSP", "ACA gross", "ACA subsidy", "ACA net", "Medicare", "Spend", "Essential", "Discretionary", "Disc. %", "Market DD", "Medical", "Tax gain harvest", "Roth conv.", "Roth basis available", "Penalty", "Loss carry"];
   const rows = years.map((year) => [
     yearDisplayLabel(year),
     ageLabel(year.age),
@@ -2402,6 +2409,7 @@ function renderYearTable() {
     money(year.taxes.federalIncomeTax ?? year.taxes.incomeTax ?? 0, year),
     money(year.taxes.federalPreferentialTax ?? 0, year),
     money(year.taxes.niitTax ?? 0, year),
+    money(year.taxes.selfEmploymentTax ?? 0, year),
     money(year.taxes.additionalMedicareTax ?? 0, year),
     money(year.taxes.federalCreditsUsed ?? 0, year),
     money(year.taxes.stateTax ?? 0, year),
@@ -2765,8 +2773,8 @@ function renderActionPlan() {
       "Receive earned income",
       money(year.earnedIncome, year),
       "Earned income",
-      `${money(year.taxes?.additionalMedicareTax ?? 0, year)} Additional Medicare Tax; ${money(taxAttributionFor(year, "Earned income"), year)} estimated tax share`,
-      "Counts as ordinary income and cash available for this year."
+      `${money(year.taxes?.selfEmploymentTax ?? 0, year)} self-employment tax; ${money(year.taxes?.additionalMedicareTax ?? 0, year)} Additional Medicare Tax; ${money(taxAttributionFor(year, "Earned income"), year)} estimated tax share`,
+      "Counts as ordinary income and cash available; self-employment income also applies Schedule SE when present."
     ]);
   }
 
@@ -2837,7 +2845,7 @@ function renderActionPlan() {
       "Reserve for taxes",
       money(year.taxes.totalTax, year),
       "Spending reserve",
-      `${money(year.taxes.federalIncomeTax ?? 0, year)} federal; ${money(year.taxes.stateTax ?? 0, year)} state; ${money(year.taxes.niitTax ?? 0, year)} NIIT; ${money(year.taxes.additionalMedicareTax ?? 0, year)} Additional Medicare`,
+      `${money(year.taxes.federalIncomeTax ?? 0, year)} federal; ${money(year.taxes.stateTax ?? 0, year)} state; ${money(year.taxes.niitTax ?? 0, year)} NIIT; ${money(year.taxes.selfEmploymentTax ?? 0, year)} SE tax; ${money(year.taxes.additionalMedicareTax ?? 0, year)} Additional Medicare`,
       "Includes estimated income taxes and any early-withdrawal penalties."
     ]);
   }
@@ -3918,6 +3926,7 @@ function taxPaymentNodeDetails(year) {
     `Capital gains / qualified dividends: ${money(taxes.federalPreferentialTax ?? 0, year)}`,
     ...taxBracketDetailLines(taxes.federalPreferentialBracketDetails, year, "capital gains"),
     `NIIT: ${money(taxes.niitTax ?? 0, year)}`,
+    `Self-employment tax: ${money(taxes.selfEmploymentTax ?? 0, year)}`,
     `Additional Medicare Tax: ${money(taxes.additionalMedicareTax ?? 0, year)}`
   ];
   if ((taxes.federalCreditsUsed ?? 0) > 0) {
@@ -4100,6 +4109,7 @@ function readScenario() {
     rothFiveYearRuleSatisfied: els.rothFiveYearRuleSatisfied.checked,
     heirOrdinaryTaxRate: percentInputValue("heirOrdinaryTaxRate", DEFAULT_SCENARIO.heirOrdinaryTaxRate),
     medicareWages: Number(els.medicareWages.value) || 0,
+    socialSecurityWages: numberOrNull(els.socialSecurityWages.value),
     selfEmploymentIncome: Number(els.selfEmploymentIncome.value) || 0,
     rrtaCompensation: Number(els.rrtaCompensation.value) || 0,
     earnedIncomeInflationAdjusted: els.earnedIncomeInflationAdjusted.checked,

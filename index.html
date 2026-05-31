@@ -442,7 +442,7 @@
                     <span class="module-sub">Social Security, work, SE</span>
                   </div>
                 </div>
-                <div class="module-actions"><span class="controls-pill">7 controls</span></div>
+                <div class="module-actions"><span class="controls-pill">8 controls</span></div>
               </div>
               <div class="module-body">
                 <div class="control-grid">
@@ -451,6 +451,7 @@
                   <label><span>Spouse SS annual benefit</span><input id="spouseSocialSecurityAnnualBenefit" type="number" min="0" step="1000" value="0"></label>
                   <label><span>Spouse SS start age</span>     <input id="spouseSocialSecurityStartAge" type="number" min="0" max="120" step="0.5" value="67"></label>
                   <label><span>Medicare wages</span>       <input id="medicareWages" type="number" min="0" step="1000" value="0"></label>
+                  <label><span>W-2 SS wages</span>         <input id="socialSecurityWages" type="number" min="0" step="1000" placeholder="Auto"></label>
                   <label><span>Self-employment income</span><input id="selfEmploymentIncome" type="number" min="0" step="1000" value="0"></label>
                   <label><span>RRTA compensation</span>    <input id="rrtaCompensation" type="number" min="0" step="1000" value="0"></label>
                 </div>
@@ -1042,7 +1043,7 @@
       <select id="viewMode"><option value="real" selected>Today's $</option><option value="nominal">Future $</option></select>
     </div>
 
-    <script type="module" src="./src/app.mjs?v=20260530-ws-mobile-fit"></script>
-    <script type="module" src="./src/redesign.mjs?v=20260518-rescue-levers"></script>
+    <script type="module" src="./src/app.mjs?v=20260531-se-tax2"></script>
+    <script type="module" src="./src/redesign.mjs?v=20260531-se-tax2"></script>
   </body>
 </html>

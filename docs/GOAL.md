@@ -172,7 +172,8 @@ its status today.
 
 Shipped today (see README and `src/data/taxData.mjs`):
 - Federal 2026 brackets, standard deduction, age-65 bump, LTCG/QDI stacking,
-  NIIT, Additional Medicare Tax, child tax credit (nonrefundable).
+  NIIT, Additional Medicare Tax, self-employment tax, child tax credit
+  (nonrefundable).
 - Capital loss carryforwards, ordinary loss offsets.
 - 50-state ordinary + capital-gains tax tables with retirement-income and
   Social Security rule overlays.
@@ -192,7 +193,6 @@ but in scope for the north-star if we want CPA-grade coverage):
 - **QBI deduction** for households with pass-through income (relevant to
   consulting-bridge users — see decision-engine "earn bridge income").
 - **AMT** check, at minimum as a tripwire that flags affected households.
-- **Self-employment tax** for bridge-income scenarios.
 - **Refundable credits**: ACTC, EITC, education, dependent-care — when household
   composition triggers them.
 - **NUA** (Net Unrealized Appreciation) for employer-stock-heavy households.
