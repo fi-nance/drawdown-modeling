@@ -1,11 +1,13 @@
 <!--
-This template enforces the continuous review bar from `docs/REVIEW_BAR.md`.
-Mark sections N/A if a lens does not apply. Do not silently delete sections.
+This template enforces the continuous review bar from `[docs/REVIEW_BAR.md](docs/REVIEW_BAR.md)`.
+If a lens does not apply, replace its body with `N/A — <one-line reason>` so
+reviewers can see you considered it. Do not silently delete sections.
 -->
 
 ## What this PR changes
 
 <!-- One or two sentences. Link to GOAL.md phase or KNOWN_LIMITATIONS row if relevant. -->
+<!-- If this PR changes state inputs/structure, did you increment `SETUP_BACKUP_SCHEMA_VERSION` in setupBackup.mjs? -->
 
 ## CPA lens
 
@@ -13,25 +15,26 @@ Does this PR change any modeled tax-law fact (federal, state, ACA, Medicare,
 RMD, Roth, withdrawal character, beneficiary, estate)?
 
 - [ ] No — N/A
-- [ ] Yes — I have:
+- [ ] Yes — **all five** sub-items below are checked:
   - [ ] Cited a **primary source** (IRS Pub, Rev. Proc., IRB, CFR, CMS rule,
     HHS Federal Register, or state revenue instructions) in
-    `docs/DATA_SOURCES.md`. Aggregators (Tax Foundation, Kiplinger, news) are
+    `[docs/DATA_SOURCES.md](docs/DATA_SOURCES.md)`. Aggregators (Tax Foundation, Kiplinger, news) are
     cross-checks, not primary.
   - [ ] Added or extended a **golden test** in `tests/golden_*.test.mjs` that
     traces to that primary source.
-  - [ ] Updated `docs/KNOWN_LIMITATIONS.md` if the scope of "what we model"
-    changed.
-  - [ ] Confirmed the change uses **year-by-year rule selection** if the rule
-    differs across law years (TCJA sunset, post-2025 ACA enhanced subsidies,
-    SECURE 2.0 RMD ages, etc.).
+  - [ ] Used **year-by-year rule selection** if the rule differs across law
+    years (TCJA sunset, post-2025 ACA enhanced subsidies, SECURE 2.0 RMD ages,
+    etc.). Golden tests reference the specific year, not "current."
+  - [ ] Updated `[docs/KNOWN_LIMITATIONS.md](docs/KNOWN_LIMITATIONS.md)` — added, narrowed, or removed a
+    row if this PR widened, tightened, or explicitly declined to model a rule.
+  - [ ] If I added a new versioned data table in `src/data/`, it is referenced
+    in `[docs/DATA_SOURCES.md](docs/DATA_SOURCES.md)` (enforced by `tests/dataSourcesCoverage.test.mjs`).
 
 ## Engineering lens
 
 - [ ] `npm test` passes locally.
 - [ ] New behavior has new tests; tax-law changes have golden tests.
-- [ ] Core logic stays in `src/core/`; side effects in `src/app.mjs` or
-  `src/redesign.mjs`.
+- [ ] Core logic stays in `src/core/` and is fully thread-safe (no `window`, `document`, or DOM references, so it runs safely in the Monte Carlo Web Worker); UI side effects stay in `src/app.mjs` or `src/redesign.mjs`.
 - [ ] Monte Carlo / historical paths remain deterministic from a setup file
   and seed (if touched).
 - [ ] No new silent assumption — every modeled rule is either a labeled
@@ -58,6 +61,7 @@ Does this PR change user-facing output?
     viewport: tables reflow or scroll cleanly, charts adapt or expose a
     tabular alternative, touch targets are usable, and numeric inputs
     trigger the appropriate mobile keyboard.
+  - [ ] **Verified light & dark styling compatibility:** any new or changed elements look seamless and highly readable in both theme modes.
 
 ## Confidence labeling (if user-facing)
 
