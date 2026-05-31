@@ -19,7 +19,7 @@ import {
   inflateTaxProfile,
   netCapitalGainsAndLosses,
   taxFromBrackets
-} from "./tax.mjs?v=20260531-fica";
+} from "./tax.mjs?v=20260531-ssa-pia";
 import { getMedicareIrmaaConfig, buildTaxProfile } from "../data/taxData.mjs";
 import { createRng, normalRandom, percentile, round } from "./utils.mjs";
 
@@ -972,8 +972,8 @@ function simulateYear({
       age = spouseAge;
       spouseAge = null;
       baseProfileToUse = survivorTaxProfile ?? buildSurvivorTaxProfile(taxProfile);
-      const primarySS = socialSecurityBenefitsForYear(scenario, originalAge, inflationIndex);
-      const spouseSS = spouseSocialSecurityBenefitsForYear(scenario, age, inflationIndex);
+      const primarySS = socialSecurityBenefitsForYear(scenario, originalAge, inflationIndex, baseProfileToUse);
+      const spouseSS = spouseSocialSecurityBenefitsForYear(scenario, age, inflationIndex, baseProfileToUse);
       // SSA survivor rule: surviving spouse keeps the higher of their own
       // benefit or the deceased's PIA. Reductions for survivors claiming
       // between age 60 and FRA (~71.5–99%) are NOT modeled.
@@ -982,8 +982,8 @@ function simulateYear({
       const originalSpouseAge = spouseAge;
       spouseAge = null;
       baseProfileToUse = survivorTaxProfile ?? buildSurvivorTaxProfile(taxProfile);
-      const primarySS = socialSecurityBenefitsForYear(scenario, age, inflationIndex);
-      const spouseSS = spouseSocialSecurityBenefitsForYear(scenario, originalSpouseAge, inflationIndex);
+      const primarySS = socialSecurityBenefitsForYear(scenario, age, inflationIndex, baseProfileToUse);
+      const spouseSS = spouseSocialSecurityBenefitsForYear(scenario, originalSpouseAge, inflationIndex, baseProfileToUse);
       customSocialSecurityBenefits = Math.max(primarySS, spouseSS);
     }
   }
@@ -1092,8 +1092,8 @@ function simulateYear({
   if (customSocialSecurityBenefits !== null) {
     socialSecurityBenefits = customSocialSecurityBenefits;
   } else {
-    const primarySS = socialSecurityBenefitsForYear(scenario, age, inflationIndex);
-    const spouseSS = spouseSocialSecurityBenefitsForYear(scenario, spouseAge, inflationIndex);
+    const primarySS = socialSecurityBenefitsForYear(scenario, age, inflationIndex, yearTaxProfile);
+    const spouseSS = spouseSocialSecurityBenefitsForYear(scenario, spouseAge, inflationIndex, yearTaxProfile);
     socialSecurityBenefits = primarySS + spouseSS;
   }
 
@@ -3770,22 +3770,33 @@ function socialSecurityScalingFactor(startAge) {
 // indexing/averaging), so it overstates PIA for a single high year. It is only
 // used when the household explicitly opts in (see socialSecurityBenefitsForYear),
 // because the model's wage inputs (medicareWages etc.) are bridge/earned-income
-// figures, not lifetime career earnings. Bend points approximate the SSA 2025
-// values ($1,226 / $7,391); see docs/DATA_SOURCES.md.
-function estimatePiaFromEarnings(medicareWages, socialSecurityWages, selfEmploymentIncome) {
+// figures, not lifetime career earnings. The PIA formula itself is sourced from
+// the active tax profile so the bend points and rounding are versioned.
+function estimatePiaFromEarnings(medicareWages, socialSecurityWages, selfEmploymentIncome, profile = DEFAULT_TAX_PROFILE) {
   const wages = Math.max(0, medicareWages ?? 0, socialSecurityWages ?? 0, selfEmploymentIncome ?? 0);
   if (wages <= 0) return 0;
-  const cappedWages = Math.min(184500, wages); // 2026 Social Security wage base
+  const formula = profile?.socialSecurityPiaFormula ?? DEFAULT_TAX_PROFILE.socialSecurityPiaFormula ?? {};
+  const bendPoints = Array.isArray(formula.bendPoints) && formula.bendPoints.length >= 2
+    ? formula.bendPoints
+    : [1286, 7749];
+  const rates = Array.isArray(formula.rates) && formula.rates.length >= 3
+    ? formula.rates
+    : [0.9, 0.32, 0.15];
+  const wageBase = Math.max(0, Number(formula.socialSecurityWageBase ?? profile?.employeePayrollTax?.socialSecurityWageBase ?? 184500) || 0);
+  const cappedWages = wageBase > 0 ? Math.min(wageBase, wages) : wages;
   const aime = cappedWages / 12;
   let monthlyPia = 0;
-  if (aime <= 1250) {
-    monthlyPia = aime * 0.90;
-  } else if (aime <= 7500) {
-    monthlyPia = 1250 * 0.90 + (aime - 1250) * 0.32;
+  const [firstBend, secondBend] = bendPoints.map((value) => Math.max(0, Number(value) || 0));
+  const [firstRate, secondRate, thirdRate] = rates.map((value) => Math.max(0, Number(value) || 0));
+  if (aime <= firstBend) {
+    monthlyPia = aime * firstRate;
+  } else if (aime <= secondBend) {
+    monthlyPia = firstBend * firstRate + (aime - firstBend) * secondRate;
   } else {
-    monthlyPia = 1250 * 0.90 + (7500 - 1250) * 0.32 + (aime - 7500) * 0.15;
+    monthlyPia = firstBend * firstRate + (secondBend - firstBend) * secondRate + (aime - secondBend) * thirdRate;
   }
-  return monthlyPia * 12;
+  const roundedMonthlyPia = Math.floor((monthlyPia + 1e-9) * 10) / 10;
+  return round(roundedMonthlyPia * 12, 6);
 }
 
 // An entered Social Security benefit is the amount received at the chosen
@@ -3797,7 +3808,7 @@ function estimatePiaFromEarnings(medicareWages, socialSecurityWages, selfEmploym
 // so without an explicit opt-in a household with no entered benefit gets $0
 // (no phantom Social Security). PIA is treated as the FRA benefit and IS scaled
 // by the claiming age here.
-function socialSecurityBenefitsForYear(scenario, age, inflationIndex) {
+function socialSecurityBenefitsForYear(scenario, age, inflationIndex, taxProfile = DEFAULT_TAX_PROFILE) {
   const startAge = scenario.socialSecurityStartAge ?? 67;
   if (age < startAge) return 0;
 
@@ -3810,13 +3821,14 @@ function socialSecurityBenefitsForYear(scenario, age, inflationIndex) {
   const pia = estimatePiaFromEarnings(
     scenario.medicareWages,
     scenario.socialSecurityWages,
-    scenario.selfEmploymentIncome
+    scenario.selfEmploymentIncome,
+    taxProfile
   );
   const benefitAtStart = pia * socialSecurityScalingFactor(startAge);
   return round(benefitAtStart * (scenario.socialSecurityInflationAdjusted === false ? 1 : inflationIndex), 6);
 }
 
-function spouseSocialSecurityBenefitsForYear(scenario, spouseAge, inflationIndex) {
+function spouseSocialSecurityBenefitsForYear(scenario, spouseAge, inflationIndex, taxProfile = DEFAULT_TAX_PROFILE) {
   if (spouseAge === null) return 0;
   const startAge = scenario.spouseSocialSecurityStartAge ?? 67;
   if (spouseAge < startAge) return 0;
@@ -3837,14 +3849,16 @@ function spouseSocialSecurityBenefitsForYear(scenario, spouseAge, inflationIndex
     basePia = estimatePiaFromEarnings(
       scenario.spouseMedicareWages,
       scenario.spouseSocialSecurityWages,
-      scenario.spouseSelfEmploymentIncome
+      scenario.spouseSelfEmploymentIncome,
+      taxProfile
     );
   } else {
     // No spouse earnings → 50% spousal benefit off the primary's PIA (FRA benefit).
     const primaryPia = Math.max(0, Number(scenario.socialSecurityAnnualBenefit) || 0) || estimatePiaFromEarnings(
       scenario.medicareWages,
       scenario.socialSecurityWages,
-      scenario.selfEmploymentIncome
+      scenario.selfEmploymentIncome,
+      taxProfile
     );
     basePia = primaryPia * 0.5;
     isSpousalBenefit = true;

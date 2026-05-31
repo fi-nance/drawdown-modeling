@@ -223,7 +223,7 @@ test("Social Security PIA-from-earnings progressive estimation", () => {
     inflationSequence: [0]
   });
 
-  assert.equal(plan.years[0].socialSecurityBenefits, 42000);
+  assert.equal(plan.years[0].socialSecurityBenefits, 42758.4);
 });
 
 test("Tradeoff frontier compiles alternative plans", () => {

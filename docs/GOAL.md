@@ -404,7 +404,7 @@ risk first, then breadth.
 
 ### Phase 5 — Modeling rigor upgrades
 
-- ✅ Social Security claimant claiming age solver grid (62-70 dimension) and dynamic earnings-to-PIA estimation with progressive bend points.
+- ✅ Social Security claimant claiming age solver grid (62-70 dimension) and dynamic earnings-to-PIA estimation with source-versioned SSA 2026 progressive bend points.
 - ✅ Tradeoff Frontier comparison of 4 ranked plan alternatives (Max Spend, Max Resilience, Max Healthcare, Max Bequest) with live apply triggers.
 - Sensitivity-analysis output (three assumptions ranked by verdict impact).
 - Two-stream inflation (general + healthcare).

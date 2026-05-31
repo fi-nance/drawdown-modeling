@@ -35,6 +35,7 @@ test("versioned tax and ACA source labels are documented", () => {
 
   for (const [year, profile] of Object.entries(FEDERAL_TAX_BY_YEAR)) {
     assertDocumented(`federal tax ${year}`, profile.source);
+    assertDocumented(`Social Security PIA formula ${year}`, profile.socialSecurityPiaFormula?.source);
   }
   for (const [year, fpl] of Object.entries(FEDERAL_POVERTY_GUIDELINES_BY_YEAR)) {
     assertDocumented(`FPL ${year}`, fpl.source);

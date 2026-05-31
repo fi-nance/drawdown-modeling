@@ -33,6 +33,22 @@ test("confidence report flags input-limited ACA estimates and legacy gaps", () =
   assert.ok(report.flags.some((flag) => flag.id === "legacy-tax-out-of-model" && flag.level === CONFIDENCE_LEVELS.CPA_REVIEW));
 });
 
+test("confidence report labels opt-in Social Security PIA estimator as input-limited", () => {
+  const report = buildConfidenceReport({
+    scenario: {
+      estimateSocialSecurityFromEarnings: true,
+      socialSecurityAnnualBenefit: 0,
+      medicareWages: 120000
+    }
+  });
+
+  const flag = report.flags.find((item) => item.id === "social-security-claiming-inputs");
+  assert.ok(flag);
+  assert.equal(flag.level, CONFIDENCE_LEVELS.INPUT_LIMITED);
+  assert.match(flag.detail, /2026 SSA PIA bend points/);
+  assert.match(flag.detail, /career-average AIME/);
+});
+
 test("confidence report names rating-area SLCSP when ZIP lookup succeeds", () => {
   const report = buildConfidenceReport({
     scenario: {

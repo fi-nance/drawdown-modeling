@@ -4,7 +4,7 @@ import {
   stateRetirementRulesFor
 } from "./stateRetirementTax2026.mjs";
 
-export const TAX_DATA_VERSION = "2026.3";
+export const TAX_DATA_VERSION = "2026.4";
 export const DEFAULT_TAX_YEAR = 2026;
 
 export const FILING_STATUSES = {
@@ -95,6 +95,14 @@ export const FEDERAL_TAX_2026 = {
     },
     taxableShareLow: 0.5,
     taxableShareHigh: 0.85
+  },
+  socialSecurityPiaFormula: {
+    eligibilityYear: 2026,
+    bendPoints: [1286, 7749],
+    rates: [0.9, 0.32, 0.15],
+    socialSecurityWageBase: 184500,
+    rounding: "monthly PIA rounded down to the next lower $0.10",
+    source: "SSA 2026 Primary Insurance Amount formula bend points: https://www.ssa.gov/oact/cola/piaformula.html"
   },
   standardDeduction: {
     single: 16100,
@@ -295,6 +303,7 @@ export function buildFederalTaxProfile({
     childTaxCredit: data.childTaxCredit,
     additionalStandardDeduction65: data.additionalStandardDeduction65,
     socialSecurityTaxation: data.socialSecurityTaxation,
+    socialSecurityPiaFormula: data.socialSecurityPiaFormula,
     qualifyingChildren: normalizedChildAges.length
       ? normalizedChildAges.filter((age) => age < 17).length
       : Math.max(0, Math.trunc(Number(qualifyingChildren) || 0)),

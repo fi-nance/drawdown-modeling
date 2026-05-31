@@ -396,14 +396,30 @@ function addEvidenceFlags(flags, decision, historicalCoverage, historicalAssetCl
 }
 
 function addSocialSecurityFlags(flags, scenario) {
-  if (!(Number(scenario?.socialSecurityAnnualBenefit) > 0)) return;
+  const hasEnteredBenefit = Number(scenario?.socialSecurityAnnualBenefit) > 0
+    || Number(scenario?.spouseSocialSecurityAnnualBenefit) > 0;
+  const usesEarningsEstimator = scenario?.estimateSocialSecurityFromEarnings === true;
+  if (!hasEnteredBenefit && !usesEarningsEstimator) return;
+
+  if (usesEarningsEstimator) {
+    flags.push({
+      id: "social-security-claiming-inputs",
+      level: CONFIDENCE_LEVELS.INPUT_LIMITED,
+      lens: "cpa",
+      title: "Social Security PIA estimate uses a coarse earnings proxy",
+      detail: "The opt-in estimator uses source-versioned 2026 SSA PIA bend points, but it treats entered annual wages as career-average AIME rather than a 35-year indexed earnings record.",
+      action: "Enter verified SSA benefit estimates when available; use the estimator only for planning sensitivity around claiming ages."
+    });
+    return;
+  }
+
   flags.push({
     id: "social-security-claiming-inputs",
     level: CONFIDENCE_LEVELS.INPUT_LIMITED,
     lens: "cpa",
     title: "Social Security claiming uses entered benefit timing",
-    detail: "The action plan uses the entered annual benefit and start age. It does not yet derive PIA from earnings history or optimize survivor claiming across both spouses.",
-    action: "Enter verified SSA benefit estimates and treat claiming-date recommendations as planning outputs until earnings-history and survivor optimization are modeled."
+    detail: "The action plan uses the entered annual benefit and start age. The claiming solver can compare coarse claiming ages, but it is still a planning model rather than an SSA filing calculator.",
+    action: "Use verified SSA benefit estimates and review claiming-date recommendations before acting, especially for survivor or spousal benefit cases."
   });
 }
 
