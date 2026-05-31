@@ -1754,6 +1754,19 @@ body[data-screen="persona"]::before {
 .ledger-wrap-dash::-webkit-scrollbar { width: 8px; }
 .ledger-wrap-dash::-webkit-scrollbar-thumb { background: var(--border-light); border-radius: 4px; }
 
+/* When the ledger holds a pinnable table (year-by-year ledger, asset snapshot),
+   that inner `.pinnable-table-wrap` is already the vertical scroller — it has
+   the resize handle, pinned columns, and the sticky `th` header row pins to it.
+   Drop the outer wrap's own max-height/overflow so we don't get TWO nested
+   vertical scrollboxes (and so the sticky header isn't dragged out of view by an
+   outer scroll). Plain `.table-wrap` ledgers keep the outer scroll below. The
+   `:has()` selector outranks the mobile `.ledger-wrap-dash { max-height }` rule
+   on specificity, so this holds at every width. */
+.ledger-wrap-dash:has(> .pinnable-table-wrap) {
+  max-height: none;
+  overflow-y: visible;
+}
+
 /* ─── Healthcare timeline strip ─────────────────────────────────────── */
 
 .health-tl {
