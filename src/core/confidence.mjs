@@ -233,12 +233,16 @@ function acaBenchmarkGeographyFlag(aca) {
   if (benchmark.fallback === null) {
     const area = benchmark.ratingArea;
     const areaText = area?.areaCode != null ? `${area.state} rating area ${area.areaCode}` : "a bundled rating area";
+    // Provenance differs by path: federal-platform states come from the CMS
+    // Rate PUFs; state-based exchanges come from the SBE rate bulletins. Don't
+    // claim CMS-PUF provenance for SBE data.
+    const slcspSource = benchmark.sources?.slcsp || "the bundled rating-area table";
     return {
       id: "aca-rating-area-slcsp",
       level: CONFIDENCE_LEVELS.HIGH,
       lens: "cpa",
       title: "ACA benchmark uses bundled rating-area SLCSP",
-      detail: `ZIP ${zip} resolves offline to ${areaText}; the benchmark uses the CMS 2026 rating-area second-lowest-cost silver premium age-rated to the covered household.`,
+      detail: `ZIP ${zip} resolves offline to ${areaText}; the benchmark uses the second-lowest-cost silver premium from ${slcspSource}, age-rated to the covered household.`,
       action: "Use exact Marketplace selected-plan inputs when county service area, tobacco rating, CSR variant, or the chosen plan's OOP exposure matters."
     };
   }

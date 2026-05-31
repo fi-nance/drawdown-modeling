@@ -38,6 +38,8 @@ import {
   normalizeMarketplacePlans,
   secondLowestSilverPlan
 } from "./data/marketplaceApi.mjs";
+import { resolveZip } from "./data/geo.mjs";
+import { isSbeState } from "./data/sbeRatingArea.mjs";
 
 const moneyFormatter = new Intl.NumberFormat("en-US", {
   style: "currency",
@@ -1279,11 +1281,57 @@ function loadStoredState() {
   }
 }
 
-function handleWorkspaceControlChange() {
+function handleWorkspaceControlChange(event) {
+  if (event?.target?.id === "marketplaceZip") {
+    handleZipCodeChange();
+  }
   if (!applyingRescueScenario) {
     appliedRescueScenarioOverride = null;
   }
   saveStoredState();
+}
+
+function handleZipCodeChange() {
+  const zip = String(els.marketplaceZip?.value || "").trim();
+  if (zip.length < 3) return;
+
+  const geo = resolveZip(zip);
+  if (!geo.state) {
+    if (geo.fallback === "military") {
+      setAcaPlanLookupStatus("APO/FPO military ZIP code is out of model for Marketplace plans.", true);
+    } else if (geo.fallback === "territory") {
+      setAcaPlanLookupStatus("U.S. territories are out of model for Marketplace plans.", true);
+    }
+    return;
+  }
+
+  // Autofill the state select and fire a change so state-derived UI updates
+  // (setting .value alone does not dispatch an event).
+  if (els.stateSelect && els.stateSelect.value !== geo.state) {
+    els.stateSelect.value = geo.state;
+    els.stateSelect.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+
+  // Describe what the offline benchmark will actually do. Only states the SBE
+  // module covers resolve to an offline rating-area benchmark; the rest (incl.
+  // state-based exchanges we have not ingested, like GA/VA, and SBM-FP states
+  // like IL) use the state-level fallback even though they aren't HealthCare.gov.
+  const portal = geo.exchange?.portal;
+  if (geo.exchange?.type === "stateBased" && isSbeState(geo.stateAbbreviation)) {
+    setAcaPlanLookupStatus(
+      `Resolved ZIP ${zip} to ${geo.state}${portal ? ` (${portal})` : ""}. Using the offline state-based-exchange rating-area benchmark.`
+    );
+  } else if (geo.exchange?.type === "stateBased") {
+    setAcaPlanLookupStatus(
+      `Resolved ZIP ${zip} to ${geo.state}${portal ? ` (${portal})` : ""}. Rating-area data isn't bundled for this exchange yet, so the model uses the state-level benchmark.`
+    );
+  } else if (geo.exchange?.type === "stateBasedFederal") {
+    setAcaPlanLookupStatus(
+      `Resolved ZIP ${zip} to ${geo.state}${portal ? ` (${portal} on HealthCare.gov)` : ""}.`
+    );
+  } else {
+    setAcaPlanLookupStatus(`Resolved ZIP ${zip} to ${geo.state} (HealthCare.gov).`);
+  }
 }
 
 function saveStoredState(options = {}) {
@@ -2200,8 +2248,13 @@ function acaLocalityAuditLine(scenario) {
   const countyFips = String(els.marketplaceCountyFips?.value || "").trim();
   const ratingArea = String(els.marketplaceRatingArea?.value || "").trim();
   const year = String(els.marketplacePlanYear?.value || scenario.taxYear || "").trim();
+
+  const geo = zip ? resolveZip(zip) : null;
+  const portalName = geo?.exchange?.portal || "";
+
   const parts = [
     zip ? `ZIP ${zip}` : "",
+    portalName ? `Exchange ${portalName}` : "",
     countyName || countyFips ? `County ${countyName || "unknown"}${countyFips ? ` (${countyFips})` : ""}` : "",
     ratingArea ? `rating area ${ratingArea}` : "",
     year ? `plan year ${year}` : ""

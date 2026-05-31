@@ -66,7 +66,7 @@ test("confidence report explains state fallback when ZIP is not bundled", () => 
         premiumInputMode: "gross",
         manualOopMaximum: true,
         year: 2026,
-        zip: "02139",
+        zip: "60601",
         currentAge: 40,
         memberAges: [40]
       }
@@ -100,6 +100,52 @@ test("confidence report flags out-of-model ACA ZIPs", () => {
   assert.ok(flag);
   assert.equal(flag.level, CONFIDENCE_LEVELS.OUT_OF_MODEL);
   assert.match(flag.detail, /out of model|does not resolve/i);
+});
+
+test("confidence reports HIGH rating-area SLCSP for a ZIP3-resolved SBE state, without claiming CMS-PUF provenance", () => {
+  const report = buildConfidenceReport({
+    scenario: {
+      aca: {
+        enabled: true,
+        planCostMode: "stateBenchmark",
+        premiumInputMode: "gross",
+        manualOopMaximum: true,
+        year: 2026,
+        zip: "90012", // Los Angeles → Covered California rating area 15
+        currentAge: 40,
+        memberAges: [40]
+      }
+    }
+  });
+
+  const flag = report.flags.find((item) => item.id === "aca-rating-area-slcsp");
+  assert.ok(flag);
+  assert.equal(flag.level, CONFIDENCE_LEVELS.HIGH);
+  assert.match(flag.detail, /CA rating area 15/);
+  assert.match(flag.detail, /SBE Public Rate Bulletins/);
+  // SBE data is not from the CMS PUFs; the copy must not claim it is.
+  assert.doesNotMatch(flag.detail, /CMS/);
+});
+
+test("confidence reports a state fallback for default-only SBE states (no phantom rating area)", () => {
+  const report = buildConfidenceReport({
+    scenario: {
+      aca: {
+        enabled: true,
+        planCostMode: "stateBenchmark",
+        premiumInputMode: "gross",
+        manualOopMaximum: true,
+        year: 2026,
+        zip: "02139", // Massachusetts: SBE-covered but default-only (no rating-area map)
+        currentAge: 40,
+        memberAges: [40]
+      }
+    }
+  });
+
+  const flag = report.flags.find((item) => item.id === "aca-benchmark-state-fallback");
+  assert.ok(flag, "default-only SBE state should be an honest state fallback, not HIGH confidence");
+  assert.equal(flag.level, CONFIDENCE_LEVELS.INPUT_LIMITED);
 });
 
 test("confidence report flags evidence disagreement and narrow ACA MAGI buffers", () => {

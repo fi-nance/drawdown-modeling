@@ -12,6 +12,7 @@ This file documents where the app's versioned tax, ACA, and historical return da
 | Market-neutral Monte Carlo preset | `MONTE_CARLO_ASSUMPTION_PRESETS.marketNeutral` in `src/core/simulation.mjs` | 2026 market-neutral CMA blend | 10-year nominal capital-market-assumption baseline |
 | Offline ZIP → state, exchange type, Medicaid expansion | `src/data/geo.mjs` | `GEO_DATA_VERSION = "2026.1"` | 50 states + DC; U.S. territories and APO/FPO ZIPs return out-of-model fallbacks |
 | Offline ZIP → rating-area SLCSP (second-lowest-cost silver plan) | `src/data/acaRatingArea.mjs` + `acaRatingArea2026.generated.mjs`, `countyToRatingArea.generated.mjs`, `zipToCounty.generated.mjs` | `ACA_RATING_AREA_DATA_VERSION = "2026.1"` | 30 federal-platform states (every state that files into the CMS PUFs), 349 rating areas; state-based-exchange states fall back to the state-level benchmark |
+| Offline State-Based Exchange SLCSP (hand-maintained estimates, **not PUF-derived**) | `src/data/sbeRatingArea.mjs` | `SBE_DATA_VERSION = "2026.1"` | 18 SBE states; 6 ZIP3-mapped to rating areas (CA, NY, WA, CO, PA, NJ), 12 state-default with `fallback:"state"`; NY/VT community-rated. Reference estimates pending official rate-sheet ingestion (Phase 4) — see SBE Ingestion Plan below. |
 
 ## Source Inventory
 
@@ -164,11 +165,29 @@ Notes for the next refresh:
 - **HUD substitution**: the task's nominal ZIP→county source is the HUD USPS crosswalk, which now requires a (free) HUD API token. The Census ZCTA↔county relationship file is used instead — authoritative and freely downloadable — with the primary county chosen by largest land-area overlap rather than HUD's residential-address ratio. Differences are confined to ZIPs that straddle a county line near a rating-area boundary.
 - Bundle size for the three files is ~550 KB raw JS (gzip ≈ well under the 500 KB target), comfortably inside the 2 MB budget.
 
+## State-Based Exchange (SBE) Ingestion Plan
+
+Unlike federal-platform states, which are centrally published in CMS Rate Public Use Files (PUFs), the 18 State-Based Exchange (SBE) states compile and publish their health plan rate data independently. Ingesting this data offline requires a structured data collection and normalization workflow:
+
+### Primary SBE Data Portals
+1. **Covered California (CA)**: Published by the Covered California Developer and Data portal. Maps 58 counties and specific LA County ZIP codes to 19 rating areas.
+2. **NY State of Health (NY)**: NY Department of Financial Services (DFS) publishes annual health plan options and premium rates across 8 regional rating areas.
+3. **Washington Healthplanfinder (WA)**: Published by the Washington State Office of the Insurance Commissioner (OIC). Maps WA's 39 counties to 5 rating areas.
+4. **Pennie (PA)**: Published by Pennsylvania Health Insurance Exchange Authority. Maps 67 counties to 9 rating areas.
+5. **Get Covered New Jersey (NJ)**: Published by NJ Department of Banking and Insurance (DOBI). Maps 21 counties to 6 rating areas.
+6. **Other SBEs**: Connecticut (Access Health CT), District of Columbia (DC Health Link), Idaho (Your Health Idaho), Kentucky (kynect), Maine (CoverME.gov), Maryland (Maryland Health Connection), Massachusetts (Health Connector), Minnesota (MNsure), Nevada (Nevada Health Link), New Mexico (beWellnm), Rhode Island (HealthSource RI), and Vermont (Vermont Health Connect).
+
+### Normalization Methodology
+- **Reference Age Benchmark**: SBE rates are gathered at the reference age of 40 (or base age of 21) for the second-lowest silver plan (SLCSP) in each rating area.
+- **Geographic Join**: ZIP3 prefixes or county-level FIPS keys map the household's residential ZIP to the exact SBE rating area.
+- **Community-Rating Override**: NY and VT prohibit age-based rating on individual plans. For these states, the age rating factor is held flat at 1.0, meaning every adult pays the reference rate regardless of age.
+- **Annual Maintenance**: During the Q4 annual refresh cycle, SBE rates must be retrieved from each state's respective rate sheets or regulatory bulletins and updated in the `sbeRatingArea.mjs` database.
+
 ## Known Gaps To Close
 
-- Replace remaining state-level ACA benchmark defaults with rating-area calculations for state-based-exchange states (CA, NY, MA, CO, …) using each exchange's own PUFs. Federal-platform states are now rating-area-accurate via `slcspMonthlyFor`; SBM states still fall back to the state-level default.
 - Move from rating-area-level to county-level SLCSP (incorporating the Service Area PUF) so partial-rating-area service areas match HealthCare.gov's county-level benchmark exactly.
 - Add an explicit data-generation script so `src/data/historicalReturns.mjs` can be regenerated from raw downloaded source files instead of manually rebuilding the generated module.
 - Add direct source URLs inside every tax-year object, not just source names.
 - Track source retrieval dates and checksums for downloaded raw data files.
 - Add full itemized deduction, refundable credit, earned income credit, AMT, QBI, education credit, household-specific ACA benchmark, and rule-specific retirement penalty exception engines.
+

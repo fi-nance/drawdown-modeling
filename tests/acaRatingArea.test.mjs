@@ -62,8 +62,8 @@ test("multi-county ZIP picks the highest-land-area primary county", () => {
 
 // ─── fallbacks ───────────────────────────────────────────────────────────────
 
-test("state-based-exchange states fall back to the state-level benchmark", () => {
-  for (const [zip, state] of [["90012", "CA"], ["10001", "NY"], ["02139", "MA"], ["80012", "CO"]]) {
+test("state-based-exchange states not in SBE database fall back to the state-level benchmark", () => {
+  for (const [zip, state] of [["60601", "IL"], ["30301", "GA"]]) {
     const r = slcspMonthlyFor({ zip, age: 40 });
     assert.equal(r.fallback, "state", `${state} should be a state fallback`);
     assert.equal(r.ratingArea.state, state);
@@ -196,9 +196,9 @@ test("computeAca uses the rating-area SLCSP when given a ZIP", () => {
   assert.notEqual(withoutZip.benchmarkPremium, withZip.benchmarkPremium);
 });
 
-test("computeAca falls through to the state path for state-based-exchange ZIPs", () => {
-  const config = buildAcaConfig({ taxYear: 2026, state: "California", householdSize: 1, marketplaceMembers: 1 });
-  const r = computeAca({ magi: 40000, config, zip: "90012", householdAges: [40] });
+test("computeAca falls through to the state path for state-based-exchange ZIPs not in database", () => {
+  const config = buildAcaConfig({ taxYear: 2026, state: "Illinois", householdSize: 1, marketplaceMembers: 1 });
+  const r = computeAca({ magi: 40000, config, zip: "60601", householdAges: [40] });
   assert.equal(r.benchmarkFallback, "state");
   assert.equal(r.ratingArea.methodology, "state-benchmark");
 });

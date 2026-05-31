@@ -36,6 +36,7 @@
 //                     or an unrecognizable ZIP). `monthlyPremium` is null.
 
 import { resolveZip } from "./geo.mjs";
+import { isSbeState, sbeSlcspMonthlyFor } from "./sbeRatingArea.mjs";
 // `acaAgeRatingFactor` is a hoisted function export; importing it here from the
 // core ACA module is safe under the module cycle (core/aca.mjs imports
 // `slcspMonthlyFor` back) because neither binding is used at module-eval time.
@@ -111,8 +112,12 @@ export function slcspMonthlyFor({ zip, planYear = 2026, age, householdAges, hous
   }
 
   // State not in the bundled federal-platform set (e.g. a state-based exchange):
-  // fall back to the state-level benchmark, still age-rated to the household.
+  // check if it is a covered State-Based Exchange (SBE) and route offline;
+  // otherwise, fall back to the state-level benchmark.
   if (!COVERED_STATE_SET.has(state)) {
+    if (isSbeState(state)) {
+      return sbeSlcspMonthlyFor({ state, zip, planYear, age, householdAges, householdComposition });
+    }
     return stateFallback({ geo, state: geo.state, counted, planYear, reason: "sbm-not-ingested" });
   }
 
