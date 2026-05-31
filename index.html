@@ -251,17 +251,20 @@
                     <span class="module-sub">Your accounts and holdings</span>
                   </div>
                 </div>
-                <div class="module-actions"><span class="controls-pill">5+ controls</span></div>
+                <div class="module-actions"><span class="controls-pill">6+ controls</span></div>
               </div>
               <div class="module-body">
                 <div id="assetTable" class="asset-table"></div>
-                <div class="button-row" style="display:flex;flex-wrap:wrap;gap:.5rem;">
+                <div class="button-row" style="display:flex;flex-wrap:wrap;gap:.5rem;margin-bottom:1rem;">
                   <button id="addAsset" class="ghost-button" type="button">+ Add account</button>
                   <label class="file-control" style="margin:0;">
                     <span>Import CSV</span>
                     <input id="csvFile" type="file" accept="text/csv,.csv">
                   </label>
                   <a class="button-link" href="./sample-portfolio-import.csv" download>Sample CSV</a>
+                </div>
+                <div class="control-grid" style="border-top: 1px solid var(--border); padding-top: 1rem; margin-bottom: 1rem;">
+                  <label><span>Roth contribution basis</span><input id="rothBasis" type="number" min="0" step="1000" value="60000"></label>
                 </div>
                 <details class="advanced">
                   <summary>Google Sheets</summary>
@@ -308,7 +311,7 @@
                     <span class="module-sub">Insurance until Medicare</span>
                   </div>
                 </div>
-                <div class="module-actions"><span class="controls-pill">22 controls</span></div>
+                <div class="module-actions"><span class="controls-pill">21 controls</span></div>
               </div>
               <div class="module-body">
                 <label class="check-row"><input id="acaEnabled" type="checkbox" checked><span>ACA marketplace coverage</span></label>
@@ -317,7 +320,6 @@
                   <label><span>Marketplace members</span><input id="marketplaceMembers" type="number" min="1" max="12" value="2"></label>
                   <label><span>Member ages</span><input id="acaMemberAges" type="text" inputmode="decimal" placeholder="e.g. 55, 54"></label>
                   <label><span>Expected OOP %</span><input id="expectedOopPercent" type="number" min="0" max="100" step="5" value="25"></label>
-                  <label><span>Roth contribution basis</span><input id="rothBasis" type="number" min="0" step="1000" value="60000"></label>
                   <label><span>Annual penalty exception</span><input id="earlyWithdrawalPenaltyExceptionAmount" type="number" min="0" step="500" value="0"></label>
                 </div>
                 <label class="check-row"><input id="rothFiveYearRuleSatisfied" type="checkbox" checked><span>Roth five-year rule satisfied</span></label>
