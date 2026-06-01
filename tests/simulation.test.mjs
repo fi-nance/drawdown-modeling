@@ -246,6 +246,58 @@ test("per-account beneficiary overrides split inherited account taxation and inh
   assert.equal(plan.heirValueBreakdown.hsaIncomeTaxEstimate, 150);
   assert.equal(plan.heirValueBreakdown.stateInheritanceTax, 67.5);
   assert.equal(plan.heirValueBreakdown.afterTaxValue, 2482.5);
+  // Effective traditional rate reflects only the taxed (non-spouse) portion of
+  // the traditional balance; the spouse-rolled-over $1000 is excluded from the
+  // denominator so the reported rate is the 30% actually applied, not a 15%
+  // dilution across the tax-free spouse share.
+  assert.equal(plan.heirValueBreakdown.effectiveTraditionalTaxRate, 0.3);
+});
+
+test("non-canonical household heir type does not inflate per-account override count", () => {
+  const plan = simulatePlan({
+    assets: [
+      {
+        id: "trad-default-a",
+        accountType: "traditional",
+        assetClass: "cash",
+        units: 1000,
+        price: 1,
+        costBasisPerUnit: 1,
+        beneficiaryType: "default"
+      },
+      {
+        id: "trad-default-b",
+        accountType: "traditional",
+        assetClass: "cash",
+        units: 1000,
+        price: 1,
+        costBasisPerUnit: 1
+      }
+    ],
+    scenario: {
+      planYears: 1,
+      targetSpend: 0,
+      currentAge: 60,
+      heirOrdinaryTaxRate: 0.3,
+      // Non-canonical heir type, reachable via an imported/legacy JSON scenario.
+      heirType: "child",
+      rmd: { enabled: false },
+      rothConversion: { enabled: false },
+      taxGainHarvesting: { enabled: false },
+      taxLossHarvesting: { enabled: false },
+      aca: { enabled: false },
+      returnAssumptions: {
+        cash: { mean: 0, stdev: 0 }
+      }
+    },
+    taxProfile: noTaxProfile,
+    returnSequence: [{ cash: 0 }],
+    inflationSequence: [0]
+  });
+
+  // No account names an explicit per-account beneficiary override, so the count
+  // must be 0 even though "child" is not one of the canonical beneficiary types.
+  assert.equal(plan.heirValueBreakdown.perAccountBeneficiaryOverrideCount, 0);
 });
 
 test("withdrawal engine grosses up spending when taxes are excluded from target spend", () => {
