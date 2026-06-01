@@ -2,6 +2,7 @@ import { slugify } from "./utils.mjs";
 
 const VALID_ACCOUNT_TYPES = new Set(["taxable", "traditional", "roth", "hsa"]);
 export const VALID_ASSET_CLASSES = new Set(["stock", "bond", "cash", "realEstate", "tips", "crypto"]);
+const VALID_BENEFICIARY_TYPES = new Set(["default", "spouse", "nonSpouse10Yr", "eligibleDesignated"]);
 const REQUIRED_PORTFOLIO_HEADERS = ["accountType", "units", "price"];
 
 const HEADER_ALIASES = buildAliasMap({
@@ -33,7 +34,8 @@ const HEADER_ALIASES = buildAliasMap({
     "qualified share",
     "qualified"
   ],
-  holdingPeriod: ["holdingPeriod", "holding period", "holding term", "term", "long short", "long/short"]
+  holdingPeriod: ["holdingPeriod", "holding period", "holding term", "term", "long short", "long/short"],
+  beneficiaryType: ["beneficiaryType", "beneficiary type", "beneficiary", "inherited rule", "inheritance rule", "heir type"]
 });
 
 const ACCOUNT_TYPE_ALIASES = buildAliasMap({
@@ -88,6 +90,13 @@ const ASSET_CLASS_ALIASES = buildAliasMap({
 const HOLDING_PERIOD_ALIASES = buildAliasMap({
   long: ["long", "long term", "long-term", "lt"],
   short: ["short", "short term", "short-term", "st"]
+});
+
+const BENEFICIARY_TYPE_ALIASES = buildAliasMap({
+  default: ["", "default", "household default", "use default", "scenario default", "global"],
+  spouse: ["spouse", "surviving spouse", "spousal", "spouse rollover", "spousal rollover"],
+  nonSpouse10Yr: ["non spouse", "non-spouse", "nonspouse", "non spouse 10 year", "non-spouse 10-year", "10 year", "10-year", "child", "lineal"],
+  eligibleDesignated: ["eligible designated", "eligible-designated", "eligible designated beneficiary", "edb", "stretch", "eligible stretch"]
 });
 
 export function parsePortfolioJson(text) {
@@ -215,7 +224,8 @@ export function normalizeImportedAsset(asset, index = 0) {
     costBasisPerUnit: firstFiniteNumber(asset.costBasisPerUnit, asset.costBasis, asset.price),
     dividendYield: firstFiniteNumber(asset.dividendYield, 0),
     qualifiedDividendShare: firstFiniteNumber(asset.qualifiedDividendShare, defaultQualifiedDividendShare(assetClass)),
-    holdingPeriod: canonicalHoldingPeriod(asset.holdingPeriod ?? "long")
+    holdingPeriod: canonicalHoldingPeriod(asset.holdingPeriod ?? "long"),
+    beneficiaryType: canonicalBeneficiaryType(asset.beneficiaryType ?? "default")
   };
 }
 
@@ -323,6 +333,12 @@ function canonicalAssetClass(value) {
 function canonicalHoldingPeriod(value) {
   const trimmed = String(value ?? "").trim();
   return HOLDING_PERIOD_ALIASES.get(normalizedAliasKey(trimmed)) ?? trimmed;
+}
+
+function canonicalBeneficiaryType(value) {
+  const trimmed = String(value ?? "").trim();
+  const canonical = BENEFICIARY_TYPE_ALIASES.get(normalizedAliasKey(trimmed)) ?? trimmed;
+  return VALID_BENEFICIARY_TYPES.has(canonical) ? canonical : "default";
 }
 
 function buildAliasMap(aliasesByCanonical) {

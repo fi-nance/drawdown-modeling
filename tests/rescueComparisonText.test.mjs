@@ -171,6 +171,10 @@ test("after-tax bequest control is visible, persisted, and audited", async () =>
   assert.match(appSource, /legacyAuditLine/);
   assert.match(appSource, /Median after-tax bequest/);
   assert.match(appSource, /After-tax heirs/);
+  assert.match(appSource, /beneficiaryOptions/);
+  assert.match(appSource, /selectHtml\(index, "beneficiaryType", beneficiaryOptions/);
+  assert.match(appSource, /Household default/);
+  assert.match(appSource, /Non-spouse 10-year/);
   assert.match(redesignSource, /After-tax bequest/);
   assert.match(redesignSource, /pickHeirValue/);
 });

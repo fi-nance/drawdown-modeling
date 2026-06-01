@@ -234,7 +234,8 @@ test("heir tax drag is opt-in via user-set rates: defaults to 0 (no bracket-comp
   assert.equal(planStretchWithDiscount.heirValueBreakdown.effectiveTraditionalTaxRate, 0.28);
   assert.equal(planStretchWithDiscount.heirValueBreakdown.totalIncomeTaxEstimate, 280);
 
-  // Spousal rollover: drag/discount inputs are ignored.
+  // Spousal rollover: drag/discount inputs are ignored and inherited-account
+  // income tax is deferred rather than haircut immediately.
   const planSpouseWithIgnoredDrag = simulatePlan({
     assets: assetsSample,
     scenario: {
@@ -252,7 +253,9 @@ test("heir tax drag is opt-in via user-set rates: defaults to 0 (no bracket-comp
     returnSequence: [{ cash: 0 }],
     inflationSequence: [0]
   });
-  assert.equal(planSpouseWithIgnoredDrag.heirValueBreakdown.effectiveTraditionalTaxRate, 0.3);
+  assert.equal(planSpouseWithIgnoredDrag.heirValueBreakdown.effectiveTraditionalTaxRate, 0);
+  assert.equal(planSpouseWithIgnoredDrag.heirValueBreakdown.totalIncomeTaxEstimate, 0);
+  assert.equal(planSpouseWithIgnoredDrag.heirValueBreakdown.spouseRolloverValue, 1000);
 });
 
 test("MFJ filing with no spouseAge does not enter the survivor branch (prevents age=null propagation)", () => {

@@ -79,6 +79,19 @@ test("CSV importer accepts pre-tax and after-tax 401k account labels", () => {
   assert.equal(result[1].accountType, "roth");
 });
 
+test("portfolio import accepts per-account beneficiary rule overrides", () => {
+  const result = parsePortfolioCsv([
+    "Name,Account Type,Asset Class,Shares,Current Price,Beneficiary",
+    "Spouse IRA,Traditional IRA,Bond,100,$50,Spouse rollover",
+    "Child IRA,Traditional IRA,Bond,100,$50,Non-spouse 10-year",
+    "Stretch IRA,Traditional IRA,Bond,100,$50,Eligible stretch"
+  ].join("\n"));
+
+  assert.equal(result[0].beneficiaryType, "spouse");
+  assert.equal(result[1].beneficiaryType, "nonSpouse10Yr");
+  assert.equal(result[2].beneficiaryType, "eligibleDesignated");
+});
+
 test("row importer accepts Sheets API values", () => {
   const result = parsePortfolioRows([
     ["name", "accountType", "assetClass", "units", "price", "costBasisPerUnit", "dividendYield"],

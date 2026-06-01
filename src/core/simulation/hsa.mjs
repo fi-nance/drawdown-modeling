@@ -100,6 +100,7 @@ export function addHsaContributionLot(portfolio, contribution, { calendarYear = 
     name: `${assetClassLabel(assetClass)} HSA contribution`,
     accountType: "hsa",
     assetClass,
+    beneficiaryType: template?.beneficiaryType ?? "default",
     units: round(amount / price, 8),
     price: round(price, 8),
     costBasisPerUnit: round(price, 8),

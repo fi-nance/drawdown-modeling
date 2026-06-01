@@ -58,7 +58,7 @@ function assertNear(actual, expected, tolerance = 0.01) {
   );
 }
 
-test("after-tax bequest estimate taxes inherited traditional and HSA balances and surfaces taxable step-up", () => {
+test("after-tax bequest estimate taxes non-spouse inherited traditional and HSA balances and surfaces taxable step-up", () => {
   const plan = simulatePlan({
     assets: [
       {
@@ -99,6 +99,7 @@ test("after-tax bequest estimate taxes inherited traditional and HSA balances an
       targetSpend: 0,
       currentAge: 60,
       heirOrdinaryTaxRate: 0.3,
+      heirType: "nonSpouse10Yr",
       rmd: { enabled: false },
       rothConversion: { enabled: false },
       taxGainHarvesting: { enabled: false },
@@ -124,6 +125,127 @@ test("after-tax bequest estimate taxes inherited traditional and HSA balances an
   assert.equal(plan.heirValueBreakdown.traditionalIncomeTaxEstimate, 300);
   assert.equal(plan.heirValueBreakdown.hsaIncomeTaxEstimate, 300);
   assert.equal(plan.heirValueBreakdown.totalIncomeTaxEstimate, 600);
+});
+
+test("spouse beneficiary rolls inherited traditional and HSA balances without immediate heir income tax", () => {
+  const plan = simulatePlan({
+    assets: [
+      {
+        id: "traditional-cash",
+        accountType: "traditional",
+        assetClass: "cash",
+        units: 1000,
+        price: 1,
+        costBasisPerUnit: 1
+      },
+      {
+        id: "hsa-cash",
+        accountType: "hsa",
+        assetClass: "cash",
+        units: 500,
+        price: 1,
+        costBasisPerUnit: 1
+      }
+    ],
+    scenario: {
+      planYears: 1,
+      targetSpend: 0,
+      currentAge: 60,
+      heirOrdinaryTaxRate: 0.3,
+      heirType: "spouse",
+      rmd: { enabled: false },
+      rothConversion: { enabled: false },
+      taxGainHarvesting: { enabled: false },
+      taxLossHarvesting: { enabled: false },
+      aca: { enabled: false },
+      returnAssumptions: {
+        cash: { mean: 0, stdev: 0 }
+      }
+    },
+    taxProfile: noTaxProfile,
+    returnSequence: [{ cash: 0 }],
+    inflationSequence: [0]
+  });
+
+  assert.equal(plan.endingValue, 1500);
+  assert.equal(plan.heirValue, 1500);
+  assert.equal(plan.heirValueBreakdown.traditionalIncomeTaxEstimate, 0);
+  assert.equal(plan.heirValueBreakdown.hsaIncomeTaxEstimate, 0);
+  assert.equal(plan.heirValueBreakdown.totalIncomeTaxEstimate, 0);
+  assert.equal(plan.heirValueBreakdown.spouseRolloverValue, 1500);
+  assert.equal(plan.heirValueBreakdown.effectiveTraditionalTaxRate, 0);
+});
+
+test("per-account beneficiary overrides split inherited account taxation and inheritance tax", () => {
+  const plan = simulatePlan({
+    assets: [
+      {
+        id: "spouse-ira",
+        accountType: "traditional",
+        assetClass: "cash",
+        units: 1000,
+        price: 1,
+        costBasisPerUnit: 1,
+        beneficiaryType: "spouse"
+      },
+      {
+        id: "child-ira",
+        accountType: "traditional",
+        assetClass: "cash",
+        units: 1000,
+        price: 1,
+        costBasisPerUnit: 1,
+        beneficiaryType: "nonSpouse10Yr"
+      },
+      {
+        id: "spouse-hsa",
+        accountType: "hsa",
+        assetClass: "cash",
+        units: 500,
+        price: 1,
+        costBasisPerUnit: 1,
+        beneficiaryType: "spouse"
+      },
+      {
+        id: "child-hsa",
+        accountType: "hsa",
+        assetClass: "cash",
+        units: 500,
+        price: 1,
+        costBasisPerUnit: 1,
+        beneficiaryType: "nonSpouse10Yr"
+      }
+    ],
+    scenario: {
+      planYears: 1,
+      targetSpend: 0,
+      currentAge: 60,
+      heirOrdinaryTaxRate: 0.3,
+      heirType: "spouse",
+      state: "PA",
+      rmd: { enabled: false },
+      rothConversion: { enabled: false },
+      taxGainHarvesting: { enabled: false },
+      taxLossHarvesting: { enabled: false },
+      aca: { enabled: false },
+      returnAssumptions: {
+        cash: { mean: 0, stdev: 0 }
+      }
+    },
+    taxProfile: noTaxProfile,
+    returnSequence: [{ cash: 0 }],
+    inflationSequence: [0]
+  });
+
+  assert.equal(plan.endingValue, 3000);
+  assert.equal(plan.heirValueBreakdown.spouseRolloverValue, 1500);
+  assert.equal(plan.heirValueBreakdown.spouseBeneficiaryValue, 1500);
+  assert.equal(plan.heirValueBreakdown.nonSpouse10YrBeneficiaryValue, 1500);
+  assert.equal(plan.heirValueBreakdown.perAccountBeneficiaryOverrideCount, 2);
+  assert.equal(plan.heirValueBreakdown.traditionalIncomeTaxEstimate, 300);
+  assert.equal(plan.heirValueBreakdown.hsaIncomeTaxEstimate, 150);
+  assert.equal(plan.heirValueBreakdown.stateInheritanceTax, 67.5);
+  assert.equal(plan.heirValueBreakdown.afterTaxValue, 2482.5);
 });
 
 test("withdrawal engine grosses up spending when taxes are excluded from target spend", () => {
@@ -2275,6 +2397,8 @@ test("seasoned Roth conversion principal can protect ACA MAGI without contributi
       withdrawalOrder: ["traditional", "roth"],
       withdrawalStrategy: { mode: "lifetime" },
       currentAge: 50,
+      heirType: "nonSpouse10Yr",
+      heirOrdinaryTaxRate: 0.3,
       rothBasis: 0,
       earlyWithdrawalPenaltyRate: 0,
       returnAssumptions: { cash: { mean: 0, stdev: 0 } },
@@ -3379,6 +3503,7 @@ test("tax attribution includes multiple tax sources", () => {
       targetSpendIncludesTaxes: true,
       targetSpendIncludesMedical: true,
       withdrawalOrder: ["traditional", "taxable"],
+      withdrawalStrategy: { mode: "heuristic" },
       currentAge: 65,
       returnAssumptions: { bond: { mean: 0, stdev: 0 }, stock: { mean: 0, stdev: 0 } },
       rothConversion: { enabled: true, annualAmount: 500 },

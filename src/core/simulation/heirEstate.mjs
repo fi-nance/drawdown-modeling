@@ -27,6 +27,8 @@ const STATE_INHERITANCE_TAX_LINEAL = Object.freeze({
   NE: 0.01
 });
 
+const BENEFICIARY_TYPES = Object.freeze(["spouse", "nonSpouse10Yr", "eligibleDesignated"]);
+
 function getSingleLifeExpectancy(age) {
   const table = [
     { age: 0, le: 84.6 },
@@ -111,14 +113,9 @@ export function estimateHeirValueBreakdown(portfolio, ordinaryTaxRate = 0.24, op
     }
   }
 
-  // Apply drag or discount to the bracket rates for the heir
-  const adjustment = heirType === "nonSpouse10Yr" ? drag : (heirType === "eligibleDesignated" ? -discount : 0);
-  const adjustedBrackets = singleBrackets.map(b => ({
-    ...b,
-    rate: Math.max(0, Math.min(1, b.rate + adjustment))
-  }));
-
-  // Group portfolio assets
+  // Group portfolio assets. `asset.beneficiaryType` can override the scenario's
+  // household-level heir type so a spouse can inherit some accounts while a
+  // child or other individual inherits others.
   let grossValue = 0;
   let taxableValue = 0;
   let taxableUnrealizedGain = 0;
@@ -126,10 +123,23 @@ export function estimateHeirValueBreakdown(portfolio, ordinaryTaxRate = 0.24, op
   let rothValue = 0;
   let hsaValue = 0;
   let otherValue = 0;
+  let spouseBeneficiaryValue = 0;
+  let nonSpouse10YrBeneficiaryValue = 0;
+  let eligibleDesignatedBeneficiaryValue = 0;
+  let perAccountBeneficiaryOverrideCount = 0;
+
+  const inheritedAccountsByType = Object.fromEntries(
+    BENEFICIARY_TYPES.map((type) => [type, { traditionalValue: 0, hsaValue: 0 }])
+  );
 
   for (const asset of portfolio) {
     const value = marketValue(asset);
     grossValue += value;
+    const assetBeneficiaryType = beneficiaryTypeForAsset(asset, heirType);
+    if (assetBeneficiaryType !== heirType) perAccountBeneficiaryOverrideCount += 1;
+    if (assetBeneficiaryType === "spouse") spouseBeneficiaryValue += value;
+    else if (assetBeneficiaryType === "eligibleDesignated") eligibleDesignatedBeneficiaryValue += value;
+    else nonSpouse10YrBeneficiaryValue += value;
 
     if (asset.accountType === "taxable") {
       const basis = (asset.costBasisPerUnit ?? asset.price) * (asset.units ?? 0);
@@ -138,8 +148,10 @@ export function estimateHeirValueBreakdown(portfolio, ordinaryTaxRate = 0.24, op
       taxableUnrealizedGain += unrealizedGain;
     } else if (asset.accountType === "traditional") {
       traditionalValue += value;
+      inheritedAccountsByType[assetBeneficiaryType].traditionalValue += value;
     } else if (asset.accountType === "hsa") {
       hsaValue += value;
+      inheritedAccountsByType[assetBeneficiaryType].hsaValue += value;
     } else if (asset.accountType === "roth") {
       rothValue += value;
     } else {
@@ -149,66 +161,34 @@ export function estimateHeirValueBreakdown(portfolio, ordinaryTaxRate = 0.24, op
 
   let traditionalIncomeTaxEstimate = 0;
   let hsaIncomeTaxEstimate = 0;
+  let spouseRolloverValue = 0;
 
-  if (singleBrackets.length === 1) {
-    let effectiveTraditionalTaxRate = assumedOrdinaryTaxRate;
-    if (heirType === "nonSpouse10Yr") {
-      effectiveTraditionalTaxRate = Math.max(0, Math.min(1, assumedOrdinaryTaxRate + drag));
-    } else if (heirType === "eligibleDesignated") {
-      effectiveTraditionalTaxRate = Math.max(0, Math.min(1, assumedOrdinaryTaxRate - discount));
-    }
-    traditionalIncomeTaxEstimate = traditionalValue * effectiveTraditionalTaxRate;
-    hsaIncomeTaxEstimate = hsaValue * effectiveTraditionalTaxRate;
-  } else {
-    if (heirType === "spouse") {
-      traditionalIncomeTaxEstimate = traditionalValue * assumedOrdinaryTaxRate;
-      hsaIncomeTaxEstimate = hsaValue * assumedOrdinaryTaxRate;
-    } else if (heirType === "nonSpouse10Yr") {
-      const traditional10th = traditionalValue / 10;
-      const year1Dist = traditional10th + hsaValue;
-      const year1TaxDrag = calculateHeirOrdinaryTax(year1Dist, heirBaseIncome, singleDeduction, adjustedBrackets);
-      
-      if (year1Dist > 0) {
-        traditionalIncomeTaxEstimate += year1TaxDrag * (traditional10th / year1Dist);
-        hsaIncomeTaxEstimate += year1TaxDrag * (hsaValue / year1Dist);
-      }
-
-      const yearOtherDist = traditional10th;
-      const yearOtherTaxDrag = calculateHeirOrdinaryTax(yearOtherDist, heirBaseIncome, singleDeduction, adjustedBrackets);
-      traditionalIncomeTaxEstimate += 9 * yearOtherTaxDrag;
-    } else if (heirType === "eligibleDesignated") {
-      const expectancy = getSingleLifeExpectancy(heirAge);
-      const N = Math.max(1, Math.min(30, Math.ceil(expectancy)));
-      let remainingTraditional = traditionalValue;
-
-      // Year 1 (includes HSA)
-      const d1 = expectancy > 0 ? remainingTraditional / expectancy : remainingTraditional;
-      const year1Dist = d1 + hsaValue;
-      const year1TaxDrag = calculateHeirOrdinaryTax(year1Dist, heirBaseIncome, singleDeduction, adjustedBrackets);
-      
-      if (year1Dist > 0) {
-        traditionalIncomeTaxEstimate += year1TaxDrag * (d1 / year1Dist);
-        hsaIncomeTaxEstimate += year1TaxDrag * (hsaValue / year1Dist);
-      }
-      remainingTraditional = Math.max(0, remainingTraditional - d1);
-
-      // Years 2 to N
-      for (let t = 2; t <= N; t++) {
-        const ft = getSingleLifeExpectancy(heirAge + t - 1);
-        const dt = t === N ? remainingTraditional : (ft > 0 ? remainingTraditional / ft : remainingTraditional);
-        const taxDrag = calculateHeirOrdinaryTax(dt, heirBaseIncome, singleDeduction, adjustedBrackets);
-        traditionalIncomeTaxEstimate += taxDrag;
-        remainingTraditional = Math.max(0, remainingTraditional - dt);
-      }
-    }
+  for (const beneficiaryType of BENEFICIARY_TYPES) {
+    const bucket = inheritedAccountsByType[beneficiaryType];
+    const taxed = inheritedAccountTaxEstimate({
+      beneficiaryType,
+      traditionalValue: bucket.traditionalValue,
+      hsaValue: bucket.hsaValue,
+      assumedOrdinaryTaxRate,
+      drag,
+      discount,
+      heirBaseIncome,
+      heirAge,
+      singleDeduction,
+      singleBrackets
+    });
+    traditionalIncomeTaxEstimate += taxed.traditionalIncomeTaxEstimate;
+    hsaIncomeTaxEstimate += taxed.hsaIncomeTaxEstimate;
+    spouseRolloverValue += taxed.spouseRolloverValue;
   }
 
   // Federal estate tax: 40% above the 2026 $15M exclusion. Transfers to a
   // surviving spouse are estate-tax-free under the unlimited marital deduction.
-  const federalEstateTax = heirType === "spouse"
+  const nonSpouseBeneficiaryValue = nonSpouse10YrBeneficiaryValue + eligibleDesignatedBeneficiaryValue;
+  const federalEstateTax = nonSpouseBeneficiaryValue <= 0
     ? 0
-    : (grossValue > FEDERAL_ESTATE_EXCLUSION_2026
-        ? (grossValue - FEDERAL_ESTATE_EXCLUSION_2026) * FEDERAL_ESTATE_TAX_RATE
+    : (nonSpouseBeneficiaryValue > FEDERAL_ESTATE_EXCLUSION_2026
+        ? (nonSpouseBeneficiaryValue - FEDERAL_ESTATE_EXCLUSION_2026) * FEDERAL_ESTATE_TAX_RATE
         : 0);
 
   // State inheritance tax assuming a lineal-descendant (child) heir. Spouses
@@ -216,9 +196,9 @@ export function estimateHeirValueBreakdown(portfolio, ordinaryTaxRate = 0.24, op
   // and NE (1%) tax lineal descendants — NJ and MD exempt them. Non-lineal
   // heirs face higher rates not modeled (relationship class isn't captured).
   let stateInheritanceTax = 0;
-  if (heirType !== "spouse" && state) {
+  if (nonSpouseBeneficiaryValue > 0 && state) {
     const rate = STATE_INHERITANCE_TAX_LINEAL[String(state).toUpperCase()] ?? 0;
-    stateInheritanceTax = grossValue * rate;
+    stateInheritanceTax = nonSpouseBeneficiaryValue * rate;
   }
 
   const totalIncomeTaxEstimate = traditionalIncomeTaxEstimate + hsaIncomeTaxEstimate;
@@ -238,6 +218,11 @@ export function estimateHeirValueBreakdown(portfolio, ordinaryTaxRate = 0.24, op
     rothValue,
     hsaValue,
     hsaIncomeTaxEstimate,
+    spouseRolloverValue,
+    spouseBeneficiaryValue,
+    nonSpouse10YrBeneficiaryValue,
+    eligibleDesignatedBeneficiaryValue,
+    perAccountBeneficiaryOverrideCount,
     otherValue,
     totalIncomeTaxEstimate,
     federalEstateTax,
@@ -250,4 +235,127 @@ export function estimateHeirValueBreakdown(portfolio, ordinaryTaxRate = 0.24, op
       key === "assumedOrdinaryTaxRate" || key === "effectiveTraditionalTaxRate" ? round(value, 6) : round(value, 2)
     ])
   );
+}
+
+function beneficiaryTypeForAsset(asset, fallback) {
+  const value = asset?.beneficiaryType;
+  return BENEFICIARY_TYPES.includes(value) ? value : (BENEFICIARY_TYPES.includes(fallback) ? fallback : "spouse");
+}
+
+function inheritedAccountTaxEstimate({
+  beneficiaryType,
+  traditionalValue,
+  hsaValue,
+  assumedOrdinaryTaxRate,
+  drag,
+  discount,
+  heirBaseIncome,
+  heirAge,
+  singleDeduction,
+  singleBrackets
+}) {
+  if (!(traditionalValue > 0) && !(hsaValue > 0)) {
+    return { traditionalIncomeTaxEstimate: 0, hsaIncomeTaxEstimate: 0, spouseRolloverValue: 0 };
+  }
+
+  if (beneficiaryType === "spouse") {
+    return {
+      traditionalIncomeTaxEstimate: 0,
+      hsaIncomeTaxEstimate: 0,
+      spouseRolloverValue: traditionalValue + hsaValue
+    };
+  }
+
+  if (singleBrackets.length === 1) {
+    const effectiveTraditionalTaxRate = beneficiaryType === "nonSpouse10Yr"
+      ? Math.max(0, Math.min(1, assumedOrdinaryTaxRate + drag))
+      : Math.max(0, Math.min(1, assumedOrdinaryTaxRate - discount));
+    return {
+      traditionalIncomeTaxEstimate: traditionalValue * effectiveTraditionalTaxRate,
+      hsaIncomeTaxEstimate: hsaValue * effectiveTraditionalTaxRate,
+      spouseRolloverValue: 0
+    };
+  }
+
+  const adjustment = beneficiaryType === "nonSpouse10Yr" ? drag : -discount;
+  const adjustedBrackets = singleBrackets.map((bracket) => ({
+    ...bracket,
+    rate: Math.max(0, Math.min(1, bracket.rate + adjustment))
+  }));
+
+  if (beneficiaryType === "nonSpouse10Yr") {
+    return nonSpouseTenYearTaxEstimate({
+      traditionalValue,
+      hsaValue,
+      heirBaseIncome,
+      singleDeduction,
+      adjustedBrackets
+    });
+  }
+
+  return eligibleDesignatedTaxEstimate({
+    traditionalValue,
+    hsaValue,
+    heirBaseIncome,
+    heirAge,
+    singleDeduction,
+    adjustedBrackets
+  });
+}
+
+function nonSpouseTenYearTaxEstimate({
+  traditionalValue,
+  hsaValue,
+  heirBaseIncome,
+  singleDeduction,
+  adjustedBrackets
+}) {
+  let traditionalIncomeTaxEstimate = 0;
+  let hsaIncomeTaxEstimate = 0;
+  const traditional10th = traditionalValue / 10;
+  const year1Dist = traditional10th + hsaValue;
+  const year1TaxDrag = calculateHeirOrdinaryTax(year1Dist, heirBaseIncome, singleDeduction, adjustedBrackets);
+
+  if (year1Dist > 0) {
+    traditionalIncomeTaxEstimate += year1TaxDrag * (traditional10th / year1Dist);
+    hsaIncomeTaxEstimate += year1TaxDrag * (hsaValue / year1Dist);
+  }
+
+  const yearOtherTaxDrag = calculateHeirOrdinaryTax(traditional10th, heirBaseIncome, singleDeduction, adjustedBrackets);
+  traditionalIncomeTaxEstimate += 9 * yearOtherTaxDrag;
+  return { traditionalIncomeTaxEstimate, hsaIncomeTaxEstimate, spouseRolloverValue: 0 };
+}
+
+function eligibleDesignatedTaxEstimate({
+  traditionalValue,
+  hsaValue,
+  heirBaseIncome,
+  heirAge,
+  singleDeduction,
+  adjustedBrackets
+}) {
+  const expectancy = getSingleLifeExpectancy(heirAge);
+  const N = Math.max(1, Math.min(30, Math.ceil(expectancy)));
+  let remainingTraditional = traditionalValue;
+  let traditionalIncomeTaxEstimate = 0;
+  let hsaIncomeTaxEstimate = 0;
+
+  const d1 = expectancy > 0 ? remainingTraditional / expectancy : remainingTraditional;
+  const year1Dist = d1 + hsaValue;
+  const year1TaxDrag = calculateHeirOrdinaryTax(year1Dist, heirBaseIncome, singleDeduction, adjustedBrackets);
+
+  if (year1Dist > 0) {
+    traditionalIncomeTaxEstimate += year1TaxDrag * (d1 / year1Dist);
+    hsaIncomeTaxEstimate += year1TaxDrag * (hsaValue / year1Dist);
+  }
+  remainingTraditional = Math.max(0, remainingTraditional - d1);
+
+  for (let t = 2; t <= N; t++) {
+    const ft = getSingleLifeExpectancy(heirAge + t - 1);
+    const dt = t === N ? remainingTraditional : (ft > 0 ? remainingTraditional / ft : remainingTraditional);
+    traditionalIncomeTaxEstimate += calculateHeirOrdinaryTax(dt, heirBaseIncome, singleDeduction, adjustedBrackets);
+    remainingTraditional = Math.max(0, remainingTraditional - dt);
+  }
+
+  return { traditionalIncomeTaxEstimate, hsaIncomeTaxEstimate, spouseRolloverValue: 0 };
 }

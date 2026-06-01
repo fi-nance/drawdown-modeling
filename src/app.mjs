@@ -760,7 +760,8 @@ function bindEvents() {
       price: 100,
       costBasisPerUnit: 100,
       dividendYield: 0,
-      qualifiedDividendShare: 1
+      qualifiedDividendShare: 1,
+      beneficiaryType: "default"
     });
     renderAssetTable();
     syncJsonFromAssets();
@@ -823,7 +824,7 @@ function bindEvents() {
   els.loadPrivateSheet.addEventListener("click", async () => {
     if (privacyModeEnabled()) return reportImportError(externalLookupBlockedMessage("Google Sheets OAuth import"));
     const spreadsheetId = googleSpreadsheetIdFromInput(els.sheetUrl.value);
-    const range = els.sheetRange.value.trim() || "A:I";
+    const range = els.sheetRange.value.trim() || "A:J";
     if (!spreadsheetId) return reportImportError("Enter a Google Sheet URL or spreadsheet ID.");
     if (!els.googleClientId.value.trim()) return reportImportError("Enter a Google OAuth client ID.");
     try {
@@ -2347,7 +2348,14 @@ function legacyAuditLine(scenario) {
       ? ` Heir stretch discount set to ${percentFormatter.format(discount)} (user-set planning assumption, not tax law).`
       : "";
 
-  const base = `After-tax bequest estimate assumes a ${heirTypeLabel} with heir ordinary tax rate ${rate}; Roth and taxable balances are treated as tax-free to heirs, with taxable unrealized gains assumed stepped up at death.${dragNote}`;
+  const accountOverrides = Number(breakdown?.perAccountBeneficiaryOverrideCount) || 0;
+  const beneficiaryNote = accountOverrides > 0
+    ? ` ${accountOverrides} account${accountOverrides === 1 ? "" : "s"} use per-account beneficiary overrides.`
+    : " Account beneficiaries use the household-level heir type unless overridden in the portfolio table.";
+  const rolloverNote = (breakdown?.spouseRolloverValue ?? 0) > 0
+    ? ` Spouse-designated inherited traditional/HSA value ${moneyFormatter.format(breakdown.spouseRolloverValue)} is treated as tax-deferred in the bequest estimate.`
+    : "";
+  const base = `After-tax bequest estimate assumes a ${heirTypeLabel} household default with heir ordinary tax rate ${rate}; Roth and taxable balances are treated as tax-free to heirs, with taxable unrealized gains assumed stepped up at death.${beneficiaryNote}${rolloverNote}${dragNote}`;
   if (!breakdown) return `${base} Inherited IRA payout timing and estate/inheritance tax are not modeled.`;
 
   const effectiveRateLabel = breakdown.effectiveTraditionalTaxRate != null
@@ -3327,6 +3335,12 @@ function renderAssetTable() {
   const accountOptions = ["taxable", "traditional", "roth", "hsa"];
   const assetClassOptions = ["stock", "bond", "cash", "realEstate", "tips", "crypto"];
   const holdingOptions = ["long", "short"];
+  const beneficiaryOptions = [
+    { value: "default", label: "Household default" },
+    { value: "spouse", label: "Spouse rollover" },
+    { value: "nonSpouse10Yr", label: "Non-spouse 10-year" },
+    { value: "eligibleDesignated", label: "Eligible stretch" }
+  ];
   // data-label on each <td> lets the narrow-viewport CSS reflow this editable
   // table into stacked cards (see .asset-table reflow in styles.css), so every
   // holding field is visible without horizontal scrolling on a phone.
@@ -3341,6 +3355,7 @@ function renderAssetTable() {
       <td data-label="Yield"><input data-index="${index}" data-field="dividendYield" type="number" step="0.001" value="${asset.dividendYield ?? 0}"></td>
       <td data-label="Qualified"><input data-index="${index}" data-field="qualifiedDividendShare" type="number" step="0.05" min="0" max="1" value="${asset.qualifiedDividendShare ?? 0}"></td>
       <td data-label="Term">${selectHtml(index, "holdingPeriod", holdingOptions, asset.holdingPeriod ?? "long")}</td>
+      <td data-label="Beneficiary">${selectHtml(index, "beneficiaryType", beneficiaryOptions, asset.beneficiaryType ?? "default")}</td>
       <td data-label="">${`<button type="button" data-remove="${index}">Remove</button>`}</td>
     </tr>
   `).join("");
@@ -3349,7 +3364,7 @@ function renderAssetTable() {
     <table>
       <thead>
         <tr>
-          <th>Name</th><th>Account</th><th>Class</th><th>Units</th><th>Price</th><th>Basis</th><th>Yield</th><th>Qualified</th><th>Term</th><th></th>
+          <th>Name</th><th>Account</th><th>Class</th><th>Units</th><th>Price</th><th>Basis</th><th>Yield</th><th>Qualified</th><th>Term</th><th>Beneficiary</th><th></th>
         </tr>
       </thead>
       <tbody>${rows}</tbody>
@@ -4637,9 +4652,12 @@ function emptyAssetFromKey(key) {
 }
 
 function selectHtml(index, field, options, value) {
+  const normalizedOptions = options.map((option) => (
+    typeof option === "object" ? option : { value: option, label: option }
+  ));
   return `
     <select data-index="${index}" data-field="${field}">
-      ${options.map((option) => `<option value="${option}" ${option === value ? "selected" : ""}>${option}</option>`).join("")}
+      ${normalizedOptions.map((option) => `<option value="${escapeAttr(option.value)}" ${option.value === value ? "selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}
     </select>
   `;
 }

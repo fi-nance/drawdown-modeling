@@ -208,6 +208,7 @@ function addRebalancedLot(portfolio, sale, {
     name: `${assetClassLabel(assetClass)} rebalance`,
     accountType,
     assetClass,
+    beneficiaryType: template?.beneficiaryType ?? sale.beneficiaryType ?? "default",
     units: round(sale.proceeds / price, 8),
     price: round(price, 8),
     costBasisPerUnit: round(price, 8),

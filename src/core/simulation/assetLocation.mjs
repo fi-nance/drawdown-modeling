@@ -124,6 +124,7 @@ function addReplacementLot(portfolio, {
     name: `${assetClassLabel(assetClass)} ${label}`,
     accountType,
     assetClass,
+    beneficiaryType: source.beneficiaryType ?? "default",
     units: round(amount / price, 8),
     price: round(price, 8),
     costBasisPerUnit: round(price, 8),

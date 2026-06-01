@@ -436,8 +436,8 @@ function addLegacyFlags(flags, scenario = {}) {
     level: CONFIDENCE_LEVELS.CPA_REVIEW,
     lens: "cpa",
     title: "Legacy/estate estimate needs professional review",
-    detail: "The bequest estimate now models inherited-IRA payout (10-year rule / eligible-designated stretch) with heir bracket stacking, the federal estate tax (40% above the 2026 $15M exclusion, spouse exempt), and state inheritance tax for a lineal-descendant heir (PA/NE; NJ/MD lineal-exempt). These are planning approximations, not estate-plan-grade: heir relationship class beyond spouse/non-spouse, trust beneficiaries, portability/state estate taxes, and exact IRS Single Life Table divisors are not fully modeled." + assumptionNote,
-    action: "Use the after-tax bequest as a planning estimate; confirm heir inputs and add CPA/estate review before optimizing for heirs."
+    detail: "The bequest estimate now models per-account spouse, non-spouse 10-year, and eligible-designated inherited-account treatment with heir bracket stacking, the federal estate tax (40% above the 2026 $15M exclusion, spouse exempt), and state inheritance tax for a lineal-descendant heir (PA/NE; NJ/MD lineal-exempt). These are planning approximations, not estate-plan-grade: non-lineal relationship classes, trust beneficiaries, portability/state estate taxes, and exact IRS Single Life Table divisors are not fully modeled." + assumptionNote,
+    action: "Use the after-tax bequest as a planning estimate; confirm account beneficiaries and heir inputs, then add CPA/estate review before optimizing for heirs."
   });
 }
 

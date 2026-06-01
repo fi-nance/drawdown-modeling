@@ -325,6 +325,8 @@ test("decision batch surfaces Roth basis cliff rescue when it preserves ACA subs
     startYear: 2026,
     planYears: 1,
     currentAge: 50,
+    heirType: "nonSpouse10Yr",
+    heirOrdinaryTaxRate: 0.3,
     rothBasis: 0,
     targetSpend: 81000,
     targetSpendIncludesTaxes: true,
