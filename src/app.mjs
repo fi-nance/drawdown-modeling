@@ -11,6 +11,10 @@ import { createSetupBackup, parseSetupBackup, SETUP_BACKUP_PRIVACY_NOTICE } from
 import { cacheLatestResults, clearCachedLatest, restoreCachedLatest } from "./core/resultsCache.mjs";
 import { createResultAuditBundle, RESULT_AUDIT_BUNDLE_PRIVACY_NOTICE } from "./core/resultAuditBundle.mjs";
 import {
+  normalizeUserPlanningSpendingMode,
+  validateUserPlanningScenario
+} from "./core/planningInputValidation.mjs";
+import {
   DEFAULT_SCENARIO,
   MONTE_CARLO_ASSUMPTION_PRESETS,
   runHistoricalBacktests,
@@ -1856,8 +1860,16 @@ async function runModels(opts = {}) {
   const stream = opts.stream !== false;
   try {
     const started = performance.now();
-    saveStoredState();
     const scenario = readScenario();
+    const planningValidation = validateUserPlanningScenario(scenario);
+    if (!planningValidation.ok) {
+      const validationError = planningValidation.errors[0];
+      setStatus(validationError.message, true);
+      focusPlanningValidationError(validationError);
+      window.dispatchEvent(new CustomEvent("psl:run-progress", { detail: { error: true, validation: true } }));
+      return;
+    }
+    saveStoredState();
     const taxProfile = readTaxProfile();
     const decisionProfile = readDecisionProfile(scenario);
     const runs = clampInteger(Number(els.runs.value), 10, 5000);
@@ -4230,9 +4242,7 @@ function readScenario() {
     backupTriggerFplPercent,
     fplOverride: numberOrNull(els.acaFpl.value)
   });
-  const spendingStrategyMode = els.spendingStrategyMode?.value === "discretionaryGuardrails"
-    ? "discretionaryGuardrails"
-    : "fixed";
+  const spendingStrategyMode = normalizeUserPlanningSpendingMode(els.spendingStrategyMode?.value);
   const essentialSpend = Math.max(0, Number(els.essentialSpend?.value) || 0);
   const discretionarySpend = Math.max(0, Number(els.discretionarySpend?.value) || 0);
   const correctionDiscretionaryPercent = percentInputValue("guardrailCorrectionDiscretionaryPercent", 0.5);
@@ -4778,6 +4788,16 @@ function paintStatus(element, message, isError = false) {
   element.style.borderColor = isError ? "rgba(240,96,96,0.3)" : "rgba(52,209,182,0.2)";
   element.style.background = isError ? "rgba(240,96,96,0.08)" : "rgba(52,209,182,0.06)";
   element.style.color = isError ? "#f06060" : "#34d1b6";
+}
+
+function focusPlanningValidationError(error) {
+  const controlId = error?.controlId;
+  if (!controlId) return;
+  const element = document.querySelector(`#${controlId}`);
+  if (!element) return;
+  element.focus({ preventScroll: false });
+  element.select?.();
+  element.reportValidity?.();
 }
 
 function reportImportError(error) {

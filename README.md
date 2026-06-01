@@ -21,6 +21,7 @@ A browser-based, tax-aware retirement decumulation planner with Monte Carlo simu
 - Social Security claiming solver (coarse claiming-age 62-70 grid as a solver dimension, rescaling benefits per age), opt-in earnings-to-PIA estimation with source-versioned SSA 2026 bend points (a coarse single-year proxy, off by default), taxable benefit modeling, forced RMDs, age-65 standard-deduction bumps, and Medicare Part B/D IRMAA estimates
 - Detailed legacy planner with heir-specific rules (spouse rollover, non-spouse 10-year distributions stacked progressively to simulate bracket compression, eligible-designated life-expectancy stretch), Federal Estate Tax (40% above the 2026 $15M per-decedent exclusion; spouse exempt), and lineal-heir state inheritance tax (PA 4.5%, NE 1%; NJ/MD exempt lineal heirs)
 - Target spend controls that can include or exclude taxes and medical costs
+- Workspace planning runs require at least $1,000/year of target spending (or combined essential/discretionary spending) so engine edge-test values like $0 do not look like normal household plans
 - One-off cash flows by year or year range, fixed or inflation adjusted, as expenses, taxable ordinary income, tax-free income, Medicare wages, self-employment income, or RRTA compensation
 - CSV and JSON imports, a sample CSV template, public Google Sheets CSV import, private Google Sheets OAuth import, privacy mode for disabling external lookup helpers, and full setup backup/restore, including the decision profile
 - Sankey-style yearly cash-flow and portfolio-flow visualizations

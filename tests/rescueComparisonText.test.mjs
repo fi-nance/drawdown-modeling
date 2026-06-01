@@ -178,3 +178,30 @@ test("after-tax bequest control is visible, persisted, and audited", async () =>
   assert.match(redesignSource, /After-tax bequest/);
   assert.match(redesignSource, /pickHeirValue/);
 });
+
+test("workspace planning runs validate realistic spend before launching workers", async () => {
+  const [html, appSource] = await Promise.all([
+    readFile(new URL("../index.html", import.meta.url), "utf8"),
+    readFile(new URL("../src/app.mjs", import.meta.url), "utf8")
+  ]);
+
+  assert.match(html, /id="targetSpend" type="number" min="1000"/);
+  assert.match(appSource, /validateUserPlanningScenario/);
+  assert.match(appSource, /if \(!planningValidation\.ok\)/);
+  assert.match(appSource, /run-progress", \{ detail: \{ error: true, validation: true \} \}/);
+  assert.match(appSource, /focusPlanningValidationError/);
+  assert.match(appSource, /runSimulationsInWorker/);
+});
+
+test("workspace scenario construction preserves every advertised spending mode", async () => {
+  const [html, appSource] = await Promise.all([
+    readFile(new URL("../index.html", import.meta.url), "utf8"),
+    readFile(new URL("../src/app.mjs", import.meta.url), "utf8")
+  ]);
+
+  for (const mode of ["fixed", "discretionaryGuardrails", "guytonKlinger", "kitces", "vpw"]) {
+    assert.match(html, new RegExp(`<option value="${mode}"`), `${mode} should remain selectable`);
+  }
+  assert.match(appSource, /normalizeUserPlanningSpendingMode\(els\.spendingStrategyMode\?\.value\)/);
+  assert.doesNotMatch(appSource, /els\.spendingStrategyMode\?\.value === "discretionaryGuardrails"[\s\S]{0,120}\? "discretionaryGuardrails"[\s\S]{0,120}: "fixed"/);
+});
