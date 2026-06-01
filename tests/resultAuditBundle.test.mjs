@@ -31,6 +31,7 @@ const latest = {
     planYears: 35,
     state: "Florida",
     filingStatus: "marriedFilingJointly",
+    privacyMode: true,
     currentAge: 55,
     spouseAge: 54,
     targetSpend: 90000,
@@ -114,6 +115,7 @@ test("result audit bundle wraps setup, compact result, audit rows, and source ve
   ]);
   assert.equal(bundle.sourceVersions.taxDataVersion, "2026.1");
   assert.equal(bundle.reviewSummary.scenario.targetSpend, 90000);
+  assert.equal(bundle.reviewSummary.scenario.privacyMode, true);
   assert.equal(bundle.reviewSummary.scenario.healthcare.zip, "33101");
   assert.equal(bundle.reviewSummary.verdict.planSuccess, true);
   assert.equal(bundle.reviewSummary.verdict.monteCarloSuccessRate, 0.92);
@@ -143,6 +145,7 @@ test("result audit summary is a compact CPA and engineering review surface", () 
   assert.equal(summary.schemaVersion, 1);
   assert.equal(summary.exportedAt, "2026-05-30T00:00:00.000Z");
   assert.equal(summary.scenario.state, "Florida");
+  assert.equal(summary.scenario.privacyMode, true);
   assert.equal(summary.scenario.healthcare.householdSize, 2);
   assert.equal(summary.verdict.historicalBacktestCount, 1);
   assert.equal(summary.reproducibility.seed, 42);

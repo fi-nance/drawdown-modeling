@@ -156,6 +156,7 @@ const CONTROL_IDS = [
   "rothBasis",
   "earlyWithdrawalPenaltyExceptionAmount",
   "rothFiveYearRuleSatisfied",
+  "privacyMode",
   "medicareWages",
   "socialSecurityWages",
   "selfEmploymentIncome",
@@ -329,6 +330,7 @@ const els = {
   rothBasis: document.querySelector("#rothBasis"),
   earlyWithdrawalPenaltyExceptionAmount: document.querySelector("#earlyWithdrawalPenaltyExceptionAmount"),
   rothFiveYearRuleSatisfied: document.querySelector("#rothFiveYearRuleSatisfied"),
+  privacyMode: document.querySelector("#privacyMode"),
   medicareWages: document.querySelector("#medicareWages"),
   socialSecurityWages: document.querySelector("#socialSecurityWages"),
   selfEmploymentIncome: document.querySelector("#selfEmploymentIncome"),
@@ -664,6 +666,7 @@ function initialize() {
   renderMassachusettsConnectorCarePlanOptions();
   initializePersistenceControls();
   loadStoredState();
+  updatePrivacyModeControls();
   syncSpendingStrategyControls();
   syncJsonFromAssets();
   renderAssetTable();
@@ -803,6 +806,7 @@ function bindEvents() {
   });
 
   els.loadSheet.addEventListener("click", async () => {
+    if (privacyModeEnabled()) return reportImportError(externalLookupBlockedMessage("Google Sheets import"));
     const url = toGoogleCsvUrl(els.sheetUrl.value.trim());
     if (!url) return reportImportError("Enter a Google Sheets CSV URL.");
     try {
@@ -817,6 +821,7 @@ function bindEvents() {
   });
 
   els.loadPrivateSheet.addEventListener("click", async () => {
+    if (privacyModeEnabled()) return reportImportError(externalLookupBlockedMessage("Google Sheets OAuth import"));
     const spreadsheetId = googleSpreadsheetIdFromInput(els.sheetUrl.value);
     const range = els.sheetRange.value.trim() || "A:I";
     if (!spreadsheetId) return reportImportError("Enter a Google Sheet URL or spreadsheet ID.");
@@ -880,6 +885,49 @@ function bindEvents() {
     renderOneOffs();
     saveStoredState();
   });
+}
+
+function privacyModeEnabled() {
+  return els.privacyMode?.checked === true;
+}
+
+function externalLookupBlockedMessage(kind = "external lookup") {
+  return `Privacy mode is on. Turn it off before using ${kind}.`;
+}
+
+function updatePrivacyModeControls({ announce = false } = {}) {
+  const enabled = privacyModeEnabled();
+  document.querySelectorAll("[data-external-lookup]").forEach((control) => {
+    control.disabled = enabled;
+    control.setAttribute("aria-disabled", String(enabled));
+    if (enabled) {
+      if (!Object.prototype.hasOwnProperty.call(control.dataset, "privacyTitle")) {
+        control.dataset.privacyTitle = control.getAttribute("title") || "";
+      }
+      control.setAttribute("title", "Privacy mode is on; this external lookup helper is disabled.");
+    } else if (Object.prototype.hasOwnProperty.call(control.dataset, "privacyTitle")) {
+      const previousTitle = control.dataset.privacyTitle;
+      if (previousTitle) control.setAttribute("title", previousTitle);
+      else control.removeAttribute("title");
+      delete control.dataset.privacyTitle;
+    }
+  });
+
+  if (enabled) {
+    marketplacePlanChoices = [];
+    marketplaceSlcspMonthly = null;
+    marketplaceSlcspPlan = null;
+    if (els.marketplacePlanResults) els.marketplacePlanResults.innerHTML = "";
+  }
+
+  if (!announce) return;
+  if (enabled) {
+    setImportStatus("Privacy mode is on. Google Sheets import is disabled; CSV, JSON, and setup files remain local.");
+    setAcaPlanLookupStatus("Privacy mode is on. Live CMS Marketplace plan search is disabled; use offline ZIP estimates or manual ACA plan inputs.");
+  } else {
+    setImportStatus("Privacy mode is off. Google Sheets imports are available when explicitly invoked.");
+    setAcaPlanLookupStatus("Privacy mode is off. CMS Marketplace plan search is available when explicitly invoked.");
+  }
 }
 
 function syncSpendingStrategyControls() {
@@ -1016,6 +1064,9 @@ function applyMassachusettsBackupPlanPreset() {
 
 async function findMarketplacePlans() {
   try {
+    if (privacyModeEnabled()) {
+      throw new Error(externalLookupBlockedMessage("CMS Marketplace plan search"));
+    }
     const state = els.stateSelect.value || "";
     if (FEDERAL_MARKETPLACE_UNSUPPORTED_STATES.has(state)) {
       throw new Error("Massachusetts is state-based. Use Fill MA ConnectorCare for subsidized ConnectorCare and the backup-plan fields for a non-ConnectorCare fallback.");
@@ -1329,6 +1380,9 @@ function handleWorkspaceControlChange(event) {
   if (event?.target?.id === "marketplaceZip") {
     handleZipCodeChange();
   }
+  if (event?.target?.id === "privacyMode") {
+    updatePrivacyModeControls({ announce: true });
+  }
   if (!applyingRescueScenario) {
     appliedRescueScenarioOverride = null;
   }
@@ -1490,6 +1544,7 @@ function applySetupState(stored) {
       els.decisionTargetSuccessRate.value = Number.isFinite(rate) ? String(Math.round(rate * 100)) : "90";
     }
   }
+  updatePrivacyModeControls();
 }
 
 function applyRescueScenarioToWorkspace(scenario = {}, { label = "rescue scenario", changes = [] } = {}) {
@@ -2143,6 +2198,7 @@ function auditRowsForScenario(scenario) {
     ["Legacy/bequest", legacyAuditLine(scenario)],
     ["ACA locality", acaLocalityAuditLine(scenario)],
     ["ACA plan inputs", acaPlanAuditLine(scenario)],
+    ["Data custody", dataCustodyAuditLine(scenario)],
     ["Simulation inputs", simulationAuditLine()],
     ["Known limits", knownLimitsAuditLine()]
   ];
@@ -2240,7 +2296,8 @@ function resultAuditSourceVersions() {
     monteCarloRuns: latest?.monteCarlo?.summary?.runs ?? latest?.monteCarlo?.progress?.total ?? null,
     seed: Number(els.seed?.value) || 42,
     taxYear: latest?.scenario?.taxYear ?? null,
-    state: latest?.scenario?.state ?? null
+    state: latest?.scenario?.state ?? null,
+    privacyMode: latest?.scenario?.privacyMode ?? privacyModeEnabled()
   };
 }
 
@@ -2351,6 +2408,13 @@ function backupPlanAuditSummary() {
   if (!Number.isFinite(monthly) && !Number.isFinite(oop) && !id && !name) return "No backup plan.";
   const plan = [name, id ? `ID ${id}` : ""].filter(Boolean).join(", ");
   return `Backup ${Number.isFinite(monthly) ? `${moneyFormatter.format(monthly)}/mo` : "premium not set"}${plan ? ` (${plan})` : ""}; OOP ${Number.isFinite(oop) ? moneyFormatter.format(oop) : "not set"}; trigger ${Number.isFinite(trigger) ? `${numberFormatter.format(trigger)}% FPL` : "not set"}.`;
+}
+
+function dataCustodyAuditLine(scenario) {
+  if (scenario?.privacyMode === true) {
+    return "Privacy mode was enabled. Google Sheets imports and live CMS Marketplace plan search were disabled; CSV, JSON, setup files, offline ZIP lookup, and manual ACA plan inputs stayed available.";
+  }
+  return "Local-first run. Setup/results stayed in this browser unless the user explicitly invoked Google Sheets, CMS Marketplace search, or confirmed an export; Google access tokens are held in memory only.";
 }
 
 function simulationAuditLine() {
@@ -4165,6 +4229,7 @@ function readScenario() {
   const scenario = {
     ...DEFAULT_SCENARIO,
     taxYear,
+    privacyMode: privacyModeEnabled(),
     state,
     filingStatus: els.filingStatus.value,
     householdSize,

@@ -22,7 +22,7 @@ A browser-based, tax-aware retirement decumulation planner with Monte Carlo simu
 - Detailed legacy planner with heir-specific rules (spouse rollover, non-spouse 10-year distributions stacked progressively to simulate bracket compression, eligible-designated life-expectancy stretch), Federal Estate Tax (40% above the 2026 $15M per-decedent exclusion; spouse exempt), and lineal-heir state inheritance tax (PA 4.5%, NE 1%; NJ/MD exempt lineal heirs)
 - Target spend controls that can include or exclude taxes and medical costs
 - One-off cash flows by year or year range, fixed or inflation adjusted, as expenses, taxable ordinary income, tax-free income, Medicare wages, self-employment income, or RRTA compensation
-- CSV and JSON imports, a sample CSV template, public Google Sheets CSV import, private Google Sheets OAuth import, and full setup backup/restore, including the decision profile
+- CSV and JSON imports, a sample CSV template, public Google Sheets CSV import, private Google Sheets OAuth import, privacy mode for disabling external lookup helpers, and full setup backup/restore, including the decision profile
 - Sankey-style yearly cash-flow and portfolio-flow visualizations
 - Year-by-year, scenario-by-scenario, backtest, and current-year sale breakdowns
 
@@ -71,6 +71,8 @@ Supported `assetClass` values are `stock`, `bond`, `cash`, `realEstate`, `tips`,
 Private Google Sheets can be imported with Google OAuth by entering a Google OAuth web client ID, the sheet URL or spreadsheet ID, and an A1 range such as `A:I`. The OAuth client must include the app origin, for example `http://127.0.0.1:4175`, in its authorized JavaScript origins. The app requests only `https://www.googleapis.com/auth/spreadsheets.readonly` and keeps the access token in memory.
 
 Private data can also be imported without OAuth by downloading the sheet as CSV and selecting it with the CSV file input.
+
+Privacy mode disables public Google Sheets import, private Google Sheets OAuth import, and the live CMS Marketplace plan search. It does not disable local CSV, JSON, setup backup/restore, offline ZIP-based ACA estimates, or manual ACA plan fields. The modeled scenario and audit bundle record whether privacy mode was enabled.
 
 Use the Save setup / Load setup controls in the persona, workspace, or results flow to export or restore the full setup, including assets, scenario controls, decision profile, and one-off cash flows. The results screen can also export a result audit bundle: setup, compacted modeled results, confidence flags, sensitivity output, source-version metadata, the plain-language model-audit rows, and a compact CPA/engineering review summary in one JSON file. Setup backups and result audit bundles both include sensitive household data; the app asks for confirmation before exporting either, and they should be shared only intentionally.
 

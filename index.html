@@ -267,19 +267,21 @@
                   <label><span>Roth contribution basis</span><input id="rothBasis" type="number" min="0" step="1000" value="60000"></label>
                 </div>
                 <label class="check-row" style="margin-bottom: 1rem;"><input id="rothFiveYearRuleSatisfied" type="checkbox" checked><span>Roth five-year rule satisfied</span></label>
+                <label class="check-row" style="margin-bottom: 0.35rem;"><input id="privacyMode" type="checkbox"><span>Privacy mode</span></label>
+                <p class="assumption-note">Privacy mode keeps modeling local by disabling Google Sheets imports and live CMS Marketplace plan searches. CSV, JSON, setup backup/restore, offline ZIP lookup, and manual ACA plan inputs remain available.</p>
                 <details class="advanced">
                   <summary>Google Sheets</summary>
                   <div class="control-grid">
-                    <label><span>Public sheet URL</span><input id="sheetUrl" type="url" placeholder="https://docs.google.com/spreadsheets/..."></label>
+                    <label><span>Public sheet URL</span><input id="sheetUrl" type="url" data-external-lookup placeholder="https://docs.google.com/spreadsheets/..."></label>
                   </div>
-                  <div class="button-row"><button id="loadSheet" type="button">Import public sheet</button></div>
+                  <div class="button-row"><button id="loadSheet" type="button" data-external-lookup>Import public sheet</button></div>
                   <details class="advanced">
                     <summary>Private sheet (OAuth)</summary>
                     <div class="control-grid">
-                      <label><span>OAuth client ID</span><input id="googleClientId" type="text" autocomplete="off" placeholder="Google web client ID"></label>
-                      <label><span>Sheet range</span><input id="sheetRange" type="text" value="A:I"></label>
+                      <label><span>OAuth client ID</span><input id="googleClientId" type="text" autocomplete="off" data-external-lookup placeholder="Google web client ID"></label>
+                      <label><span>Sheet range</span><input id="sheetRange" type="text" value="A:I" data-external-lookup></label>
                     </div>
-                    <div class="button-row"><button id="loadPrivateSheet" type="button">Import private sheet</button></div>
+                    <div class="button-row"><button id="loadPrivateSheet" type="button" data-external-lookup>Import private sheet</button></div>
                   </details>
                 </details>
                 <details class="advanced">
@@ -384,7 +386,7 @@
                   <summary>Federal Marketplace plan finder</summary>
                   <p class="assumption-note">Assumption: federal Marketplace lookup uses the HealthCare.gov API for FFM states. State-based exchanges are routed to localized benchmarks offline, or accept manual local plan overrides.</p>
                   <div class="control-grid">
-                    <label><span>CMS Marketplace API key</span><input id="marketplaceApiKey" type="password" autocomplete="off" placeholder="Required for federal states"></label>
+                    <label><span>CMS Marketplace API key</span><input id="marketplaceApiKey" type="password" autocomplete="off" data-external-lookup placeholder="Required for federal states"></label>
                     <label><span>ZIP</span><input id="marketplaceZip" type="text" inputmode="numeric" maxlength="5" placeholder="ZIP"></label>
                     <label><span>County FIPS</span><input id="marketplaceCountyFips" type="text" inputmode="numeric" maxlength="5" placeholder="Auto by ZIP"></label>
                     <label><span>County name</span><input id="marketplaceCountyName" type="text" placeholder="Auto or manual"></label>
@@ -400,7 +402,7 @@
                     </label>
                     <label class="check-row"><input id="marketplaceUsesTobacco" type="checkbox"><span>Tobacco rating</span></label>
                   </div>
-                  <div class="button-row"><button id="findMarketplacePlans" type="button">Find federal Marketplace plans</button></div>
+                  <div class="button-row"><button id="findMarketplacePlans" type="button" data-external-lookup>Find federal Marketplace plans</button></div>
                   <div id="marketplacePlanResults" class="span-full"></div>
                 </details>
                 <div id="acaPlanLookupStatus" class="status" role="status" aria-live="polite">ACA plan helper ready.</div>

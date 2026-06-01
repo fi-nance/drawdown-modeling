@@ -38,12 +38,20 @@ test("market-neutral Monte Carlo preset is the default scenario", () => {
   assert.deepEqual(DEFAULT_SCENARIO.returnAssumptions, EXPECTED_MARKET_NEUTRAL);
 });
 
-test("runMonteCarlo defaults to 1000 runs", () => {
+test("runMonteCarlo defaults to 1000 runs for an ordinary spending scenario", () => {
   const result = runMonteCarlo({
-    assets: [],
+    assets: [{
+      name: "Taxable cash",
+      accountType: "taxable",
+      assetClass: "cash",
+      units: 1,
+      price: 20000,
+      costBasisPerUnit: 20000,
+      holdingPeriod: "long"
+    }],
     scenario: {
       planYears: 1,
-      targetSpend: 0,
+      targetSpend: 12000,
       targetSpendIncludesTaxes: true,
       targetSpendIncludesMedical: true,
       aca: { enabled: false }

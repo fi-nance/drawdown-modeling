@@ -98,6 +98,7 @@ function summarizeScenarioForReview(scenario = {}) {
     planYears: scenario.planYears ?? null,
     state: scenario.state ?? null,
     filingStatus: scenario.filingStatus ?? null,
+    privacyMode: booleanOrNull(scenario.privacyMode),
     currentAge: finiteOrNull(scenario.currentAge),
     spouseAge: finiteOrNull(scenario.spouseAge),
     targetSpend: finiteOrNull(scenario.targetSpend),

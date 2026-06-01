@@ -342,15 +342,15 @@ Shipped today: browser-based app, local setup backup/restore with sensitive-data
 confirmation, result audit bundle export with setup + compact results +
 confidence/sensitivity/audit metadata + a compact CPA/engineering review
 summary and sensitive-data confirmation, local storage for remembered setup,
-optional explicit imports from CSV/JSON/Google Sheets, and live CMS Marketplace
-lookup only when the user invokes it.
+optional explicit imports from CSV/JSON/Google Sheets, live CMS Marketplace
+lookup only when the user invokes it, and a privacy-mode run path that disables
+Google Sheets imports and live CMS Marketplace lookup while preserving local
+imports, offline ZIP lookup, and manual ACA plan inputs.
 
 Goal-level gaps:
 - **Local-first guarantee** stated in the UI and docs: what stays in the browser,
   what is stored locally, and what leaves the machine during Marketplace or
   Google integrations.
-- **Privacy-mode run path** that disables all external lookup helpers and keeps
-  assumptions manually entered.
 - **Data minimization by confidence tier** so the app asks for exact details only
   when they change a decision or materially improve confidence.
 - **Reproducibility bundle depth** beyond today's JSON bundle: the audit bundle
