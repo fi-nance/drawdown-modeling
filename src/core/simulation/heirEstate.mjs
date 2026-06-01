@@ -132,11 +132,21 @@ export function estimateHeirValueBreakdown(portfolio, ordinaryTaxRate = 0.24, op
     BENEFICIARY_TYPES.map((type) => [type, { traditionalValue: 0, hsaValue: 0 }])
   );
 
+  // The household-level default an account inherits when it does not set its
+  // own beneficiaryType. Resolve it to a canonical type so a non-canonical
+  // scenario heirType (e.g. an imported "child") does not make every
+  // default-beneficiary account look like a per-account override.
+  const householdDefaultBeneficiaryType = BENEFICIARY_TYPES.includes(heirType) ? heirType : "spouse";
+
   for (const asset of portfolio) {
     const value = marketValue(asset);
     grossValue += value;
     const assetBeneficiaryType = beneficiaryTypeForAsset(asset, heirType);
-    if (assetBeneficiaryType !== heirType) perAccountBeneficiaryOverrideCount += 1;
+    // Only count an override when the account explicitly names a canonical
+    // beneficiary type that differs from the resolved household default.
+    const assetSpecifiesOverride = BENEFICIARY_TYPES.includes(asset?.beneficiaryType)
+      && asset.beneficiaryType !== householdDefaultBeneficiaryType;
+    if (assetSpecifiesOverride) perAccountBeneficiaryOverrideCount += 1;
     if (assetBeneficiaryType === "spouse") spouseBeneficiaryValue += value;
     else if (assetBeneficiaryType === "eligibleDesignated") eligibleDesignatedBeneficiaryValue += value;
     else nonSpouse10YrBeneficiaryValue += value;
@@ -203,7 +213,13 @@ export function estimateHeirValueBreakdown(portfolio, ordinaryTaxRate = 0.24, op
 
   const totalIncomeTaxEstimate = traditionalIncomeTaxEstimate + hsaIncomeTaxEstimate;
   const afterTaxValue = grossValue - (totalIncomeTaxEstimate + federalEstateTax + stateInheritanceTax);
-  const effectiveTraditionalTaxRate = traditionalValue > 0 ? traditionalIncomeTaxEstimate / traditionalValue : assumedOrdinaryTaxRate;
+  // Report the rate against the traditional balance that is actually taxed —
+  // spouse-rolled-over traditional value is tax-deferred, so including it in
+  // the denominator would understate the rate applied to the taxed portion.
+  const taxedTraditionalValue = Math.max(0, traditionalValue - inheritedAccountsByType.spouse.traditionalValue);
+  const effectiveTraditionalTaxRate = traditionalValue > 0
+    ? traditionalIncomeTaxEstimate / (taxedTraditionalValue > 0 ? taxedTraditionalValue : traditionalValue)
+    : assumedOrdinaryTaxRate;
 
   const breakdown = {
     grossValue,
