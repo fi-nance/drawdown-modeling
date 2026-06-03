@@ -21,9 +21,18 @@ export function validateUserPlanningScenario(scenario = {}, options = {}) {
     const essentialSpend = finiteNumber(scenario.spendingStrategy?.essentialSpend);
     const discretionarySpend = finiteNumber(scenario.spendingStrategy?.discretionarySpend);
     const targetSpend = finiteNumber(scenario.targetSpend);
-    const combinedSpend = Number.isFinite(targetSpend)
-      ? targetSpend
-      : (Math.max(0, essentialSpend || 0) + Math.max(0, discretionarySpend || 0));
+    // In guardrails mode the engine spends essential + discretionary, so the
+    // floor check must be derived from those components — never from a
+    // separately-stored `targetSpend`. An import (or hand-built scenario) can
+    // carry a `targetSpend` that disagrees with the components; trusting it
+    // would both falsely block a funded plan (stale targetSpend = 0) and
+    // falsely pass an unfunded one (stale targetSpend = 90000). Fall back to
+    // `targetSpend` only when neither component is present, i.e. a legacy
+    // scenario that stored just the combined figure.
+    const hasComponentSpend = Number.isFinite(essentialSpend) || Number.isFinite(discretionarySpend);
+    const combinedSpend = hasComponentSpend
+      ? Math.max(0, essentialSpend || 0) + Math.max(0, discretionarySpend || 0)
+      : (Number.isFinite(targetSpend) ? targetSpend : 0);
 
     if (essentialSpend < 0 || discretionarySpend < 0) {
       errors.push({

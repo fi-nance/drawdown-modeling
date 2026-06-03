@@ -56,6 +56,43 @@ test("workspace planning validation checks combined guardrail spending", () => {
   assert.equal(validSpend.ok, true);
 });
 
+test("guardrail validation trusts the spend components, not a divergent targetSpend", () => {
+  // An imported (or hand-built) scenario can carry a targetSpend that disagrees
+  // with the essential/discretionary components the engine actually spends. The
+  // floor check must follow the components in both directions.
+
+  // Stale/zero targetSpend must NOT block a funded guardrail plan.
+  const fundedDespiteZeroTarget = validateUserPlanningScenario({
+    targetSpend: 0,
+    spendingStrategy: {
+      mode: "discretionaryGuardrails",
+      essentialSpend: 60000,
+      discretionarySpend: 30000
+    }
+  });
+  assert.equal(fundedDespiteZeroTarget.ok, true);
+
+  // A healthy-looking targetSpend must NOT paper over unfunded components.
+  const unfundedDespiteTarget = validateUserPlanningScenario({
+    targetSpend: 90000,
+    spendingStrategy: {
+      mode: "discretionaryGuardrails",
+      essentialSpend: 0,
+      discretionarySpend: 0
+    }
+  });
+  assert.equal(unfundedDespiteTarget.ok, false);
+  assert.equal(unfundedDespiteTarget.errors[0].controlId, "essentialSpend");
+
+  // A legacy scenario that stored only the combined figure still validates
+  // against targetSpend.
+  const legacyCombinedOnly = validateUserPlanningScenario({
+    targetSpend: 50000,
+    spendingStrategy: { mode: "discretionaryGuardrails" }
+  });
+  assert.equal(legacyCombinedOnly.ok, true);
+});
+
 test("workspace planning validation preserves advanced spending strategy modes", () => {
   assert.equal(normalizeUserPlanningSpendingMode("guytonKlinger"), "guytonKlinger");
   assert.equal(normalizeUserPlanningSpendingMode("kitces"), "kitces");
