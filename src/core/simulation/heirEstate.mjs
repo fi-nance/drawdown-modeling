@@ -136,7 +136,7 @@ export function estimateHeirValueBreakdown(portfolio, ordinaryTaxRate = 0.24, op
   // own beneficiaryType. Resolve it to a canonical type so a non-canonical
   // scenario heirType (e.g. an imported "child") does not make every
   // default-beneficiary account look like a per-account override.
-  const householdDefaultBeneficiaryType = BENEFICIARY_TYPES.includes(heirType) ? heirType : "spouse";
+  const householdDefaultBeneficiaryType = resolveHouseholdDefaultBeneficiaryType(heirType);
 
   for (const asset of portfolio) {
     const value = marketValue(asset);
@@ -255,7 +255,19 @@ export function estimateHeirValueBreakdown(portfolio, ordinaryTaxRate = 0.24, op
 
 function beneficiaryTypeForAsset(asset, fallback) {
   const value = asset?.beneficiaryType;
-  return BENEFICIARY_TYPES.includes(value) ? value : (BENEFICIARY_TYPES.includes(fallback) ? fallback : "spouse");
+  return BENEFICIARY_TYPES.includes(value) ? value : resolveHouseholdDefaultBeneficiaryType(fallback);
+}
+
+// Resolve a household-level heir type to a canonical beneficiary type. A
+// non-canonical value (e.g. an imported/legacy "child", "lineal", or "trust")
+// is by definition NOT a surviving spouse, so it must not silently inherit the
+// tax-free spousal rollover and unlimited marital deduction — that would zero
+// out federal estate, state inheritance, and inherited-account income tax for
+// the bequest. Resolve it to the non-spouse 10-year rule, matching the
+// importer's canonicalization of "child"/"lineal" to nonSpouse10Yr and the
+// documented lineal-descendant heir default.
+function resolveHouseholdDefaultBeneficiaryType(heirType) {
+  return BENEFICIARY_TYPES.includes(heirType) ? heirType : "nonSpouse10Yr";
 }
 
 function inheritedAccountTaxEstimate({

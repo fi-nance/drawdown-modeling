@@ -300,6 +300,57 @@ test("non-canonical household heir type does not inflate per-account override co
   assert.equal(plan.heirValueBreakdown.perAccountBeneficiaryOverrideCount, 0);
 });
 
+test("non-canonical household heir type is taxed as a non-spouse heir, not rolled over tax-free", () => {
+  const plan = simulatePlan({
+    assets: [
+      {
+        id: "trad-default-a",
+        accountType: "traditional",
+        assetClass: "cash",
+        units: 1000,
+        price: 1,
+        costBasisPerUnit: 1
+      },
+      {
+        id: "trad-default-b",
+        accountType: "traditional",
+        assetClass: "cash",
+        units: 1000,
+        price: 1,
+        costBasisPerUnit: 1
+      }
+    ],
+    scenario: {
+      planYears: 1,
+      targetSpend: 0,
+      currentAge: 60,
+      heirOrdinaryTaxRate: 0.3,
+      // A "child"/lineal heir is NOT a surviving spouse. The importer
+      // canonicalizes the same string to nonSpouse10Yr; the bequest engine must
+      // agree and not grant a tax-free spousal rollover that zeroes heir tax.
+      heirType: "child",
+      rmd: { enabled: false },
+      rothConversion: { enabled: false },
+      taxGainHarvesting: { enabled: false },
+      taxLossHarvesting: { enabled: false },
+      aca: { enabled: false },
+      returnAssumptions: {
+        cash: { mean: 0, stdev: 0 }
+      }
+    },
+    taxProfile: noTaxProfile,
+    returnSequence: [{ cash: 0 }],
+    inflationSequence: [0]
+  });
+
+  const breakdown = plan.heirValueBreakdown;
+  // $2,000 traditional, taxed at the 30% heir ordinary rate as a non-spouse
+  // inheritance — none of it rolls over tax-free.
+  assert.equal(breakdown.spouseRolloverValue, 0);
+  assert.equal(breakdown.traditionalIncomeTaxEstimate, 600);
+  assert.equal(breakdown.afterTaxValue, 1400);
+});
+
 test("withdrawal engine grosses up spending when taxes are excluded from target spend", () => {
   const plan = simulatePlan({
     assets: [{
