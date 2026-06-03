@@ -46,6 +46,10 @@ export function actionConfidenceFor(actionKind, confidenceReport = {}) {
     return actionConfidenceFromFlag(flags.find((flag) => flag.id === "state-retirement-tax-review"));
   }
 
+  if (actionKind === "earnedIncome" && has("business-income-tax-review")) {
+    return actionConfidenceFromFlag(flags.find((flag) => flag.id === "business-income-tax-review"));
+  }
+
   if (actionKind === "socialSecurity" && has("social-security-claiming-inputs")) {
     return actionConfidenceFromFlag(flags.find((flag) => flag.id === "social-security-claiming-inputs"));
   }
@@ -97,6 +101,13 @@ export function rescueConfidenceFor(option = {}, confidenceReport = {}) {
   const specific = find(rescueFlagIds(kind));
   if (specific) return actionConfidenceFromFlag(specific);
 
+  if (["incomeBridge", "combined"].includes(kind)) {
+    const businessIncome = selfEmploymentIncomeSummary(option?.scenario);
+    if (businessIncome.hasSelfEmploymentIncome) {
+      return actionConfidenceFromFlag(businessIncomeReviewFlag(businessIncome));
+    }
+  }
+
   const evidence = find(["evidence-disagreement", "historical-evidence-missing"]);
   if (evidence) return actionConfidenceFromFlag(evidence);
 
@@ -129,6 +140,7 @@ export function buildConfidenceReport({
   addHealthcareFlags(flags, scenario, decision);
   addCoverageGapFlags(flags, scenario, plan);
   addStateTaxFlags(flags, taxProfile);
+  addFederalTaxScopeFlags(flags, scenario);
   addEvidenceFlags(flags, decision, historicalCoverage, historicalAssetClasses);
   addSocialSecurityFlags(flags, scenario);
   addLegacyFlags(flags, scenario);
@@ -366,6 +378,48 @@ function addStateTaxFlags(flags, taxProfile) {
   }
 }
 
+function addFederalTaxScopeFlags(flags, scenario = {}) {
+  const businessIncome = selfEmploymentIncomeSummary(scenario);
+  if (businessIncome.hasSelfEmploymentIncome) {
+    flags.push(businessIncomeReviewFlag(businessIncome));
+  }
+}
+
+function businessIncomeReviewFlag(summary = {}) {
+  return {
+    id: "business-income-tax-review",
+    level: CONFIDENCE_LEVELS.CPA_REVIEW,
+    lens: "cpa",
+    title: "Business income needs CPA review",
+    detail: `Self-employment income is present${businessIncomeSummaryText(summary)}. The model applies Schedule SE self-employment tax and the one-half SE tax deduction, but it does not model business-expense substantiation, self-employed health insurance, solo retirement-plan deductions, pass-through K-1 detail, QBI/Form 8995 where applicable, AMT interactions, or estimated-tax/withholding timing.`,
+    action: "Use manual deduction/credit overrides for known business-tax adjustments, and review business-income years with a CPA before acting on income-bridge, Roth-conversion, or tax-payment recommendations."
+  };
+}
+
+function selfEmploymentIncomeSummary(scenario = {}) {
+  const annualAmount = Math.max(0, Number(scenario?.selfEmploymentIncome) || 0);
+  const oneOffs = Array.isArray(scenario?.oneOffExpenses) ? scenario.oneOffExpenses : [];
+  const selfEmploymentOneOffs = oneOffs.filter((item) => (
+    item?.cashFlowType === "selfEmploymentIncome" && Number(item?.amount) > 0
+  ));
+  const oneOffTotal = selfEmploymentOneOffs.reduce((total, item) => total + Math.max(0, Number(item.amount) || 0), 0);
+  return {
+    hasSelfEmploymentIncome: annualAmount > 0 || oneOffTotal > 0,
+    annualAmount,
+    oneOffCount: selfEmploymentOneOffs.length,
+    oneOffTotal
+  };
+}
+
+function businessIncomeSummaryText(summary = {}) {
+  const parts = [];
+  if (summary.annualAmount > 0) parts.push(`${formatCurrency(summary.annualAmount)} annual self-employment income`);
+  if (summary.oneOffTotal > 0) {
+    parts.push(`${formatCurrency(summary.oneOffTotal)} scheduled self-employment bridge income across ${summary.oneOffCount} one-off cash flow${summary.oneOffCount === 1 ? "" : "s"}`);
+  }
+  return parts.length ? ` (${parts.join("; ")})` : "";
+}
+
 function addEvidenceFlags(flags, decision, historicalCoverage, historicalAssetClasses) {
   if (!decision || decision.status === "running") return;
   const base = decision.base ?? {};
@@ -471,6 +525,9 @@ function rescueFlagIds(kind) {
     case "withdrawalShift":
     case "safeSpending":
       return ["state-retirement-tax-review"];
+    case "incomeBridge":
+    case "combined":
+      return ["business-income-tax-review"];
     case "socialSecurityBridge":
       return ["social-security-claiming-inputs"];
     default:

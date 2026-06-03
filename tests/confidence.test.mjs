@@ -49,6 +49,44 @@ test("confidence report labels opt-in Social Security PIA estimator as input-lim
   assert.match(flag.detail, /career-average AIME/);
 });
 
+test("confidence report flags self-employment income as business-income CPA review", () => {
+  const report = buildConfidenceReport({
+    scenario: {
+      aca: { enabled: false },
+      selfEmploymentIncome: 50_000
+    }
+  });
+
+  const flag = report.flags.find((item) => item.id === "business-income-tax-review");
+  assert.ok(flag);
+  assert.equal(flag.level, CONFIDENCE_LEVELS.CPA_REVIEW);
+  assert.match(flag.detail, /Schedule SE/);
+  assert.match(flag.detail, /QBI\/Form 8995/);
+  assert.match(flag.detail, /AMT/);
+  assert.match(flag.detail, /\$50,000 annual self-employment income/);
+  assert.equal(actionConfidenceFor("earnedIncome", report).level, CONFIDENCE_LEVELS.CPA_REVIEW);
+});
+
+test("confidence report flags scheduled self-employment bridge income", () => {
+  const report = buildConfidenceReport({
+    scenario: {
+      aca: { enabled: false },
+      oneOffExpenses: [{
+        name: "Decision engine income bridge",
+        cashFlowType: "selfEmploymentIncome",
+        startYear: 1,
+        endYear: 2,
+        amount: 40_000,
+        inflationAdjusted: false
+      }]
+    }
+  });
+
+  const flag = report.flags.find((item) => item.id === "business-income-tax-review");
+  assert.ok(flag);
+  assert.match(flag.detail, /\$40,000 scheduled self-employment bridge income/);
+});
+
 test("confidence report names rating-area SLCSP when ZIP lookup succeeds", () => {
   const report = buildConfidenceReport({
     scenario: {
@@ -266,6 +304,22 @@ test("rescue confidence maps rescue options to relevant review flags", () => {
   assert.equal(
     rescueConfidenceFor({ kind: "incomeBridge", historical: { count: 10 } }, acaReport).level,
     CONFIDENCE_LEVELS.HIGH
+  );
+  assert.equal(
+    rescueConfidenceFor({
+      kind: "incomeBridge",
+      historical: { count: 10 },
+      scenario: {
+        oneOffExpenses: [{
+          name: "Decision engine income bridge",
+          cashFlowType: "selfEmploymentIncome",
+          amount: 50_000,
+          startYear: 1,
+          endYear: 2
+        }]
+      }
+    }, acaReport).level,
+    CONFIDENCE_LEVELS.CPA_REVIEW
   );
 });
 
