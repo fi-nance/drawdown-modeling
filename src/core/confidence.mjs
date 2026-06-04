@@ -33,7 +33,7 @@ export function actionConfidenceFor(actionKind, confidenceReport = {}) {
   const find = (ids) => findFlagByPriority(flags, ids);
 
   if (["taxReserve", "traditionalWithdrawal", "rothConversion", "taxGainHarvesting", "taxLossHarvesting"].includes(actionKind)) {
-    const flag = find(["manual-federal-tax-overrides-review"]);
+    const flag = find(["manual-federal-tax-overrides-review", "enhanced-senior-deduction-eligibility"]);
     if (flag) return actionConfidenceFromFlag(flag);
   }
 
@@ -384,6 +384,11 @@ function addStateTaxFlags(flags, taxProfile) {
 }
 
 function addFederalTaxScopeFlags(flags, scenario = {}, taxProfile = {}) {
+  const enhancedSeniorDeduction = enhancedSeniorDeductionAssumptionSummary(scenario, taxProfile);
+  if (enhancedSeniorDeduction.hasPotentialDeduction) {
+    flags.push(enhancedSeniorDeductionEligibilityFlag(enhancedSeniorDeduction));
+  }
+
   const manualFederalOverrides = manualFederalTaxOverrideSummary(taxProfile);
   if (manualFederalOverrides.hasManualFederalTaxOverride) {
     flags.push(manualFederalTaxOverrideReviewFlag(manualFederalOverrides));
@@ -393,6 +398,50 @@ function addFederalTaxScopeFlags(flags, scenario = {}, taxProfile = {}) {
   if (businessIncome.hasSelfEmploymentIncome) {
     flags.push(businessIncomeReviewFlag(businessIncome));
   }
+}
+
+function enhancedSeniorDeductionEligibilityFlag(summary = {}) {
+  return {
+    id: "enhanced-senior-deduction-eligibility",
+    level: CONFIDENCE_LEVELS.INPUT_LIMITED,
+    lens: "cpa",
+    title: "Enhanced senior deduction assumes SSN eligibility",
+    detail: `The model can apply the 2025-2028 enhanced senior deduction in ${summary.firstEligibleYear}-${summary.lastEligibleYear} based on age and filing status. It assumes each qualifying taxpayer has a valid SSN and, when married, files jointly; those Schedule 1-A eligibility facts are not separately collected.`,
+    action: "Confirm SSN and filing-status eligibility before relying on Roth-conversion room, tax-payment estimates, or spending headroom created by the enhanced senior deduction."
+  };
+}
+
+function enhancedSeniorDeductionAssumptionSummary(scenario = {}, taxProfile = {}) {
+  const config = taxProfile?.enhancedSeniorDeduction;
+  if (!config || taxProfile?.filingStatus === "marriedFilingSeparately") {
+    return { hasPotentialDeduction: false };
+  }
+
+  const startYear = Number(scenario?.startYear ?? taxProfile?.year);
+  const planYears = Math.max(1, Math.trunc(Number(scenario?.planYears) || 1));
+  const currentAge = Number(scenario?.currentAge);
+  const spouseAge = Number(scenario?.spouseAge);
+  const effectiveStart = Number(config.effectiveStartYear);
+  const effectiveEnd = Number(config.effectiveEndYear);
+  const eligibleYears = [];
+
+  for (let index = 0; index < planYears; index += 1) {
+    const year = Number.isFinite(startYear) ? startYear + index : Number(taxProfile?.year) + index;
+    if (!Number.isFinite(year)) continue;
+    if (Number.isFinite(effectiveStart) && year < effectiveStart) continue;
+    if (Number.isFinite(effectiveEnd) && year > effectiveEnd) continue;
+    const primaryEligible = Number.isFinite(currentAge) && currentAge + index >= 65;
+    const spouseEligible = taxProfile?.filingStatus === "marriedFilingJointly"
+      && Number.isFinite(spouseAge)
+      && spouseAge + index >= 65;
+    if (primaryEligible || spouseEligible) eligibleYears.push(year);
+  }
+
+  return {
+    hasPotentialDeduction: eligibleYears.length > 0,
+    firstEligibleYear: eligibleYears[0],
+    lastEligibleYear: eligibleYears.at(-1)
+  };
 }
 
 function manualFederalTaxOverrideReviewFlag(summary = {}) {
@@ -557,12 +606,12 @@ function rescueFlagIds(kind) {
     case "rothBasisCliffRescue":
     case "conversionGuardrail":
     case "magiSpendTrim":
-      return ["aca-coverage-gap-modeled", "aca-medicaid-handoff-modeled", "aca-coverage-gap-risk", "manual-federal-tax-overrides-review", "aca-magi-threshold", "aca-plan-inputs", "aca-benchmark-state-fallback", "aca-benchmark-out-of-model", "aca-oop-inputs", "aca-net-premium-quote"];
+      return ["aca-coverage-gap-modeled", "aca-medicaid-handoff-modeled", "aca-coverage-gap-risk", "manual-federal-tax-overrides-review", "enhanced-senior-deduction-eligibility", "aca-magi-threshold", "aca-plan-inputs", "aca-benchmark-state-fallback", "aca-benchmark-out-of-model", "aca-oop-inputs", "aca-net-premium-quote"];
     case "taxableLotRescue":
-      return ["manual-federal-tax-overrides-review", "aca-magi-threshold"];
+      return ["manual-federal-tax-overrides-review", "enhanced-senior-deduction-eligibility", "aca-magi-threshold"];
     case "withdrawalShift":
     case "safeSpending":
-      return ["manual-federal-tax-overrides-review", "state-retirement-tax-review"];
+      return ["manual-federal-tax-overrides-review", "enhanced-senior-deduction-eligibility", "state-retirement-tax-review"];
     case "incomeBridge":
     case "combined":
       return ["business-income-tax-review"];

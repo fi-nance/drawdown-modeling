@@ -2327,7 +2327,7 @@ function taxAuditLine(scenario) {
     ? `standard deduction ${moneyFormatter.format(profile.standardDeduction)}`
     : "standard deduction from the selected tax table";
   const stateSource = profile.state?.source ? `; state source ${profile.state.source}` : "";
-  return `${federalYear} federal ${readableFilingStatus(profile.filingStatus ?? scenario.filingStatus)}, ${federalDeduction}; future standard deductions and bracket thresholds inflate with the modeled CPI path. State: ${state || "None"}${stateSource}.`;
+  return `${federalYear} federal ${readableFilingStatus(profile.filingStatus ?? scenario.filingStatus)}, ${federalDeduction}; future standard deductions and bracket thresholds inflate with the modeled CPI path, while the enhanced senior deduction is applied only in its 2025-2028 window. State: ${state || "None"}${stateSource}.`;
 }
 
 function strategyAuditLine(scenario) {
@@ -2521,7 +2521,7 @@ function acaPlanLabel(year) {
 function renderYearTable() {
   const years = activeVisibleYears();
   const magiColumn = selectedMagiColumn();
-  const headers = ["Year", "Age", "Stock", "Bond", "Real estate", "TIPS", "Crypto", "Inflation", "Start value", "End value", "Sales / withdrawals", "Dividends", "Social Security", "Earned income", "One-off income", "RMD", "Total cash", "Total need", "Tax", "Fed income tax", "CG/QD tax", "NIIT", "W-2 FICA", "SE tax", "Addl Medicare", "Credits", "State tax", magiColumn.header, "Taxable SS", "65+ deduction", "CTC children", "ACA plan", "ACA SLCSP", "ACA gross", "ACA subsidy", "ACA net", "Medicare", "Spend", "Essential", "Discretionary", "Disc. %", "Market DD", "Medical", "Tax gain harvest", "Roth conv.", "Roth basis available", "Penalty", "Loss carry"];
+  const headers = ["Year", "Age", "Stock", "Bond", "Real estate", "TIPS", "Crypto", "Inflation", "Start value", "End value", "Sales / withdrawals", "Dividends", "Social Security", "Earned income", "One-off income", "RMD", "Total cash", "Total need", "Tax", "Fed income tax", "CG/QD tax", "NIIT", "W-2 FICA", "SE tax", "Addl Medicare", "Credits", "State tax", magiColumn.header, "Taxable SS", "65+ deduction", "Senior bonus", "CTC children", "ACA plan", "ACA SLCSP", "ACA gross", "ACA subsidy", "ACA net", "Medicare", "Spend", "Essential", "Discretionary", "Disc. %", "Market DD", "Medical", "Tax gain harvest", "Roth conv.", "Roth basis available", "Penalty", "Loss carry"];
   const rows = years.map((year) => [
     yearDisplayLabel(year),
     ageLabel(year.age),
@@ -2553,6 +2553,7 @@ function renderYearTable() {
     money(magiColumn.value(year), year),
     money(year.taxableSocialSecurity ?? 0, year),
     money(year.age65AdditionalDeduction ?? 0, year),
+    money(year.enhancedSeniorDeduction ?? 0, year),
     year.qualifyingChildren ?? 0,
     acaPlanLabel(year),
     money(year.aca.benchmarkPremium ?? 0, year),

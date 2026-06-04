@@ -132,8 +132,10 @@ These are not one-time reviews. They are continuous bars every PR is held to.
   provisions (no end-2025 sunset), and the 2026 ACA schedule reflects the
   post-2025 expiration of the ARPA/IRA enhanced subsidies (400% cliff returns).
   Both carry a `lawBasis` field, golden-test regime guards, and a documented
-  assumption in KNOWN_LIMITATIONS. Genuinely future legislated changes get an
-  explicit per-year regime rather than silently inheriting the base-year snapshot.
+  assumption in KNOWN_LIMITATIONS. The 2025-2028 enhanced senior deduction is
+  modeled as an explicit time-boxed rule rather than silently inheriting the
+  base-year snapshot forever. Genuinely future legislated changes get the same
+  per-year treatment.
 
 ### Engineering Lens
 - Pure-function core in `src/core/`; UI in `src/redesign.mjs` and `src/app.mjs`.
@@ -177,8 +179,9 @@ its status today.
 
 Shipped today (see README and `src/data/taxData.mjs`):
 - Federal 2026 brackets, standard deduction, age-65 bump, LTCG/QDI stacking,
-  NIIT, W-2 employee FICA, Additional Medicare Tax, self-employment tax, child
-  tax credit (nonrefundable).
+  2025-2028 enhanced senior deduction with MAGI phaseout, NIIT, W-2 employee
+  FICA, Additional Medicare Tax, self-employment tax, child tax credit
+  (nonrefundable).
 - Capital loss carryforwards, ordinary loss offsets.
 - 50-state ordinary + capital-gains tax tables with retirement-income and
   Social Security rule overlays.
@@ -193,14 +196,12 @@ but in scope for the north-star if we want CPA-grade coverage):
 - ~~2026 TCJA sunset path~~ **Resolved by law.** OBBBA (2025) made the TCJA
   individual structure permanent, so there is no sunset boundary to switch at;
   the base-year-forward projection is correct and now carries a `lawBasis` field
-  and golden-test regime guard. The residual is a **selectable regime only for
-  genuinely time-boxed future changes** (e.g. the 2025–2028 OBBBA senior bonus
-  deduction), not a sunset reversal.
-- **OBBBA senior bonus deduction** (extra deduction for filers 65+, 2025–2028,
-  income-phased) — **decided: handled via the manual additional-deduction input,
-  not a dedicated engine rule** (see KNOWN_LIMITATIONS). Time-boxed and
-  income-phased, so it stays a hand-entered planning adjustment. Distinct from
-  the age-65 standard-deduction bump the engine already models.
+  and golden-test regime guard. The remaining need is a **selectable regime only
+  for genuinely future temporary law changes**, not a sunset reversal.
+- ✅ **[Shipped] OBBBA enhanced senior deduction** (extra deduction for filers
+  65+, 2025-2028, MAGI-phased) is modeled as a time-boxed federal rule with
+  input-limited confidence flags for SSN/file-jointly eligibility facts the app
+  does not separately collect.
 - **Itemized deductions** (SALT cap, mortgage interest, charitable, medical
   threshold) as opt-in inputs rather than override-only.
 - **QBI deduction** for households with pass-through income (relevant to
@@ -395,7 +396,7 @@ risk first, then breadth.
 - AMT tripwire.
 - ~~2026 TCJA sunset regime modeling~~ — moot: OBBBA (2025) made the TCJA
   individual structure permanent, so there is no sunset to model. Replaced by:
-  OBBBA senior bonus deduction (2025–2028) as a time-boxed regime.
+  ✅ OBBBA enhanced senior deduction (2025-2028) as a time-boxed regime.
 - ✅ Self-employment tax for bridge-income scenarios.
 
 ### Phase 4 — State-based exchange coverage

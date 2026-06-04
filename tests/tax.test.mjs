@@ -375,6 +375,69 @@ test("additional federal deductions and credits are explicit tax-profile overrid
   assert.equal(tax.totalTax, 0);
 });
 
+test("enhanced senior deduction applies per eligible person and phases out from MAGI", () => {
+  const singleProfile = {
+    ...buildTaxProfile({
+      taxYear: 2026,
+      filingStatus: "single",
+      state: "Florida"
+    }),
+    enhancedSeniorDeductionEligibleCount: 1,
+    enhancedSeniorDeductionTaxYear: 2026
+  };
+
+  const full = computeIncomeTax({
+    ordinaryIncome: 75_000,
+    profile: singleProfile
+  });
+  assert.equal(full.enhancedSeniorDeduction, 6_000);
+  assert.equal(full.federalDeduction, singleProfile.standardDeduction + 6_000);
+
+  const partial = computeIncomeTax({
+    ordinaryIncome: 100_000,
+    profile: singleProfile
+  });
+  assert.equal(partial.enhancedSeniorDeduction, 4_500);
+
+  const phasedOut = computeIncomeTax({
+    ordinaryIncome: 175_000,
+    profile: singleProfile
+  });
+  assert.equal(phasedOut.enhancedSeniorDeduction, 0);
+
+  const marriedProfile = {
+    ...buildTaxProfile({
+      taxYear: 2026,
+      filingStatus: "marriedFilingJointly",
+      state: "Florida"
+    }),
+    enhancedSeniorDeductionEligibleCount: 2,
+    enhancedSeniorDeductionTaxYear: 2026
+  };
+  const married = computeIncomeTax({
+    ordinaryIncome: 200_000,
+    profile: marriedProfile
+  });
+  assert.equal(married.enhancedSeniorDeduction, 6_000);
+
+  const separateProfile = {
+    ...buildTaxProfile({
+      taxYear: 2026,
+      filingStatus: "marriedFilingSeparately",
+      state: "Florida"
+    }),
+    enhancedSeniorDeductionEligibleCount: 1,
+    enhancedSeniorDeductionTaxYear: 2026
+  };
+  assert.equal(computeIncomeTax({ ordinaryIncome: 50_000, profile: separateProfile }).enhancedSeniorDeduction, 0);
+
+  const expiredProfile = {
+    ...singleProfile,
+    enhancedSeniorDeductionTaxYear: 2029
+  };
+  assert.equal(computeIncomeTax({ ordinaryIncome: 50_000, profile: expiredProfile }).enhancedSeniorDeduction, 0);
+});
+
 test("Social Security taxable benefits follow provisional-income tiers", () => {
   const taxable = computeTaxableSocialSecurityBenefits({
     benefits: 20000,

@@ -121,6 +121,49 @@ test("confidence report flags manual federal tax overrides for CPA review", () =
   );
 });
 
+test("confidence report flags enhanced senior deduction eligibility inputs", () => {
+  const report = buildConfidenceReport({
+    scenario: {
+      aca: { enabled: false },
+      startYear: 2026,
+      planYears: 3,
+      currentAge: 64,
+      spouseAge: 66
+    },
+    taxProfile: {
+      year: 2026,
+      filingStatus: "marriedFilingJointly",
+      enhancedSeniorDeduction: {
+        effectiveStartYear: 2025,
+        effectiveEndYear: 2028,
+        amountPerEligiblePerson: 6_000,
+        phaseoutRate: 0.06,
+        phaseoutThresholds: {
+          single: 75_000,
+          marriedFilingJointly: 150_000,
+          marriedFilingSeparately: null,
+          headOfHousehold: 75_000
+        }
+      }
+    },
+    decision: {
+      status: "ready",
+      base: { historical: { count: 10 }, verdict: { historicalKnown: true, monteCarloPasses: true, historicalPasses: true } }
+    }
+  });
+
+  const flag = report.flags.find((item) => item.id === "enhanced-senior-deduction-eligibility");
+  assert.ok(flag);
+  assert.equal(flag.level, CONFIDENCE_LEVELS.INPUT_LIMITED);
+  assert.match(flag.detail, /2026-2028/);
+  assert.match(flag.detail, /valid SSN/);
+  assert.equal(actionConfidenceFor("rothConversion", report).level, CONFIDENCE_LEVELS.INPUT_LIMITED);
+  assert.equal(
+    rescueConfidenceFor({ kind: "safeSpending", historical: { count: 10 } }, report).level,
+    CONFIDENCE_LEVELS.INPUT_LIMITED
+  );
+});
+
 test("confidence report names rating-area SLCSP when ZIP lookup succeeds", () => {
   const report = buildConfidenceReport({
     scenario: {

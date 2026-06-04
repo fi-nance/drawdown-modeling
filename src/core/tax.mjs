@@ -174,10 +174,12 @@ export function computeIncomeTax({
   const lossPool = shortLossPool + longLossPool;
 
   const ordinaryAfterLossOffset = Math.max(0, ordinaryBeforeLossOffset - ordinaryLossOffset);
-  const federalDeduction = (profile.standardDeduction ?? 0) + (profile.additionalDeduction ?? 0);
+  const preferentialIncome = longGains + dividendPreferentialIncome;
+  const magi = round(ordinaryAfterLossOffset + preferentialIncome, 6);
+  const enhancedSeniorDeduction = computeEnhancedSeniorDeduction({ magi, profile });
+  const federalDeduction = (profile.standardDeduction ?? 0) + (profile.additionalDeduction ?? 0) + enhancedSeniorDeduction;
   const taxableOrdinaryIncome = Math.max(0, ordinaryAfterLossOffset - federalDeduction);
   const remainingDeduction = Math.max(0, federalDeduction - ordinaryAfterLossOffset);
-  const preferentialIncome = longGains + dividendPreferentialIncome;
   const taxablePreferentialIncome = Math.max(0, preferentialIncome - remainingDeduction);
   const taxableLongTermCapitalGains = Math.max(0, longGains - remainingDeduction);
   const taxableQualifiedDividends = Math.max(0, taxablePreferentialIncome - taxableLongTermCapitalGains);
@@ -191,7 +193,6 @@ export function computeIncomeTax({
   });
   const federalPreferentialTax = round(federalPreferentialBracketDetails.reduce((total, bracket) => total + bracket.tax, 0), 6);
   const federalIncomeTaxBeforeCredits = round(federalOrdinaryTax + federalPreferentialTax, 6);
-  const magi = round(ordinaryAfterLossOffset + preferentialIncome, 6);
   const niitTax = computeNiit({
     magi,
     ordinaryInvestmentIncome,
@@ -245,6 +246,8 @@ export function computeIncomeTax({
     taxablePreferentialIncome: round(taxablePreferentialIncome, 6),
     taxableLongTermCapitalGains: round(taxableLongTermCapitalGains, 6),
     taxableQualifiedDividends: round(taxableQualifiedDividends, 6),
+    federalDeduction: round(federalDeduction, 6),
+    enhancedSeniorDeduction: round(enhancedSeniorDeduction, 6),
     federalOrdinaryTax,
     federalOrdinaryBracketDetails,
     federalPreferentialTax,
@@ -281,6 +284,35 @@ export function computeIncomeTax({
     lossCarryforwardShort: round(shortLossPool, 6),
     lossCarryforwardLong: round(longLossPool, 6)
   };
+}
+
+export function computeEnhancedSeniorDeduction({ magi = 0, profile = DEFAULT_TAX_PROFILE } = {}) {
+  const config = profile.enhancedSeniorDeduction;
+  if (!config) return 0;
+
+  const filingStatus = profile.filingStatus;
+  if (filingStatus === "marriedFilingSeparately") return 0;
+
+  const eligibleCount = Math.max(0, Math.trunc(Number(profile.enhancedSeniorDeductionEligibleCount) || 0));
+  if (!eligibleCount) return 0;
+
+  const taxYear = Number(profile.enhancedSeniorDeductionTaxYear ?? profile.year);
+  if (Number.isFinite(taxYear)) {
+    const start = Number(config.effectiveStartYear);
+    const end = Number(config.effectiveEndYear);
+    if (Number.isFinite(start) && taxYear < start) return 0;
+    if (Number.isFinite(end) && taxYear > end) return 0;
+  }
+
+  const amountPerPerson = Math.max(0, Number(config.amountPerEligiblePerson) || 0);
+  if (amountPerPerson <= 0) return 0;
+
+  const threshold = Number(config.phaseoutThresholds?.[filingStatus]);
+  if (!Number.isFinite(threshold)) return 0;
+
+  const phaseout = Math.max(0, Number(magi) - threshold) * Math.max(0, Number(config.phaseoutRate) || 0);
+  const deductionPerPerson = Math.max(0, amountPerPerson - phaseout);
+  return round(deductionPerPerson * eligibleCount, 6);
 }
 
 function taxBracketDetails(amount, brackets = []) {

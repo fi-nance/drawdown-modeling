@@ -4,7 +4,7 @@ import {
   stateRetirementRulesFor
 } from "./stateRetirementTax2026.mjs";
 
-export const TAX_DATA_VERSION = "2026.4";
+export const TAX_DATA_VERSION = "2026.5";
 export const DEFAULT_TAX_YEAR = 2026;
 
 export const FILING_STATUSES = {
@@ -24,8 +24,8 @@ const FEDERAL_BRACKET_RATES = [0.1, 0.12, 0.22, 0.24, 0.32, 0.35, 0.37];
 // law year forward, inflation-indexed" approach (see inflateTaxProfile) is the
 // correct treatment for the bracket/deduction structure — there is no future
 // law-change boundary to switch at. Do NOT "fix" these to pre-OBBBA / reverted
-// values; they are current law. (Genuinely time-boxed OBBBA add-ons such as the
-// 2025–2028 senior bonus deduction are tracked separately in KNOWN_LIMITATIONS.)
+// values; they are current law. Time-boxed OBBBA add-ons are modeled with their
+// own effective-year windows instead of being inflation-projected permanently.
 export const FEDERAL_TAX_2026 = {
   year: 2026,
   source: "IRS Rev. Proc. 2025-32",
@@ -79,6 +79,19 @@ export const FEDERAL_TAX_2026 = {
   additionalStandardDeduction65: {
     married: 1650,
     unmarried: 2050
+  },
+  enhancedSeniorDeduction: {
+    effectiveStartYear: 2025,
+    effectiveEndYear: 2028,
+    amountPerEligiblePerson: 6000,
+    phaseoutRate: 0.06,
+    phaseoutThresholds: {
+      single: 75000,
+      marriedFilingJointly: 150000,
+      marriedFilingSeparately: null,
+      headOfHousehold: 75000
+    },
+    source: "IRS Schedule 1-A (Form 1040) 2025 Part V; IRS OBBBA deduction for seniors guidance."
   },
   socialSecurityTaxation: {
     baseAmounts: {
@@ -302,6 +315,7 @@ export function buildFederalTaxProfile({
     employeePayrollTax: data.employeePayrollTax,
     childTaxCredit: data.childTaxCredit,
     additionalStandardDeduction65: data.additionalStandardDeduction65,
+    enhancedSeniorDeduction: data.enhancedSeniorDeduction,
     socialSecurityTaxation: data.socialSecurityTaxation,
     socialSecurityPiaFormula: data.socialSecurityPiaFormula,
     qualifyingChildren: normalizedChildAges.length

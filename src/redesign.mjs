@@ -1536,6 +1536,7 @@ function renderDeductionsSection(year, profile, bracketScale, incomeScale) {
   // Available deductions for this year.
   const stdDed = (profile?.standardDeduction ?? 0) * bracketScale;
   const age65 = (year?.age65AdditionalDeduction ?? 0) * incomeScale;
+  const seniorBonus = (year?.enhancedSeniorDeduction ?? year?.taxes?.enhancedSeniorDeduction ?? 0) * incomeScale;
   const additional = (profile?.additionalDeduction ?? 0) * bracketScale;
   // Capital-loss offset is an above-the-line ordinary-only deduction;
   // treat it as ordinary-absorbing capacity if it actually fired this year.
@@ -1569,6 +1570,9 @@ function renderDeductionsSection(year, profile, bracketScale, incomeScale) {
   }
   if (age65 > 0) {
     rows.push({ label: "Age 65+", fullLabel: "Age 65 additional standard deduction", ...allocate(age65) });
+  }
+  if (seniorBonus > 0) {
+    rows.push({ label: "Sr bonus", fullLabel: "Enhanced senior deduction", ...allocate(seniorBonus) });
   }
   if (additional > 0) {
     rows.push({ label: "Other", fullLabel: "Other deductions", ...allocate(additional) });

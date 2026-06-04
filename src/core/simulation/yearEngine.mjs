@@ -709,6 +709,9 @@ export function simulateYear({
     medicalCost: round(medicalEstimate, 6),
     medicare: finalMedicare,
     age65AdditionalDeduction: round(taxProfileContext.age65AdditionalDeduction, 6),
+    enhancedSeniorDeduction: round(finalTaxes.enhancedSeniorDeduction ?? 0, 6),
+    enhancedSeniorDeductionEligibleCount: taxProfileContext.enhancedSeniorDeductionEligibleCount ?? 0,
+    enhancedSeniorDeductionTaxYear: taxProfileContext.enhancedSeniorDeductionTaxYear ?? calendarYear,
     qualifyingChildren: yearTaxProfile.qualifyingChildren,
     earnedIncome: round(recurringEarnedIncome.cash, 6),
     oneOffIncome: round(oneOffCashFlows.income, 6),
@@ -786,6 +789,7 @@ export function simulateYear({
     taxProfileSummary: {
       filingStatus: yearTaxProfile.filingStatus,
       standardDeduction: yearTaxProfile.standardDeduction,
+      enhancedSeniorDeduction: round(finalTaxes.enhancedSeniorDeduction ?? 0, 6),
       qualifyingChildren: yearTaxProfile.qualifyingChildren
     },
     filingStatus: yearTaxProfile.filingStatus
@@ -1019,6 +1023,9 @@ export function buildPostMortalityYearResult({ scenario, yearIndex, portfolio, i
     medicalCost: 0,
     medicare: null,
     age65AdditionalDeduction: 0,
+    enhancedSeniorDeduction: 0,
+    enhancedSeniorDeductionEligibleCount: 0,
+    enhancedSeniorDeductionTaxYear: calendarYear,
     qualifyingChildren: 0,
     earnedIncome: 0,
     oneOffIncome: 0,
@@ -1096,7 +1103,7 @@ export function buildPostMortalityYearResult({ scenario, yearIndex, portfolio, i
     sales: [],
     accounts: accountBreakdown(portfolio),
     assets: [],
-    taxProfileSummary: { filingStatus: null, standardDeduction: 0, qualifyingChildren: 0 },
+    taxProfileSummary: { filingStatus: null, standardDeduction: 0, enhancedSeniorDeduction: 0, qualifyingChildren: 0 },
     filingStatus: null,
     postMortality: true
   };

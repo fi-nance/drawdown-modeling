@@ -197,13 +197,26 @@ export function taxProfileForSimulationYear({
     primaryAge,
     spouseAge
   });
+  const enhancedSeniorDeductionEligibility = enhancedSeniorDeductionEligibilityForYear({
+    profile: inflatedProfile,
+    scenario,
+    yearIndex,
+    filingStatus: inflatedProfile.filingStatus,
+    primaryAge,
+    spouseAge
+  });
 
   return {
     age65AdditionalDeduction,
+    enhancedSeniorDeductionEligibleCount: enhancedSeniorDeductionEligibility.eligibleCount,
+    enhancedSeniorDeductionTaxYear: enhancedSeniorDeductionEligibility.taxYear,
     profile: {
       ...inflatedProfile,
       qualifyingChildren,
       additionalDeduction: round((inflatedProfile.additionalDeduction ?? 0) + age65AdditionalDeduction, 6),
+      enhancedSeniorDeductionEligibleCount: enhancedSeniorDeductionEligibility.eligibleCount,
+      enhancedSeniorDeductionTaxYear: enhancedSeniorDeductionEligibility.taxYear,
+      enhancedSeniorDeductionMax: round(enhancedSeniorDeductionEligibility.eligibleCount * enhancedSeniorDeductionEligibility.amountPerPerson, 6),
       state: inflatedProfile.state ? {
         ...inflatedProfile.state,
         primaryAge,
@@ -230,4 +243,39 @@ function additionalStandardDeduction65ForYear({ profile, filingStatus, primaryAg
     count += 1;
   }
   return round(count * (amountPerPerson ?? 0), 6);
+}
+
+function enhancedSeniorDeductionEligibilityForYear({
+  profile,
+  scenario,
+  yearIndex,
+  filingStatus,
+  primaryAge,
+  spouseAge
+}) {
+  const config = profile.enhancedSeniorDeduction;
+  const taxYear = simulationTaxYear(scenario, profile, yearIndex);
+  const amountPerPerson = Math.max(0, Number(config?.amountPerEligiblePerson) || 0);
+  if (!config || filingStatus === "marriedFilingSeparately") {
+    return { eligibleCount: 0, taxYear, amountPerPerson };
+  }
+
+  const start = Number(config.effectiveStartYear);
+  const end = Number(config.effectiveEndYear);
+  if (Number.isFinite(start) && taxYear < start) return { eligibleCount: 0, taxYear, amountPerPerson };
+  if (Number.isFinite(end) && taxYear > end) return { eligibleCount: 0, taxYear, amountPerPerson };
+
+  let eligibleCount = primaryAge >= 65 ? 1 : 0;
+  if (filingStatus === "marriedFilingJointly" && Number.isFinite(spouseAge) && spouseAge >= 65) {
+    eligibleCount += 1;
+  }
+
+  return { eligibleCount, taxYear, amountPerPerson };
+}
+
+function simulationTaxYear(scenario = {}, profile = {}, yearIndex = 0) {
+  const startYear = Number(scenario?.startYear);
+  if (Number.isFinite(startYear)) return startYear + yearIndex;
+  const profileYear = Number(profile?.year);
+  return Number.isFinite(profileYear) ? profileYear + yearIndex : yearIndex + 1;
 }

@@ -864,6 +864,58 @@ test("automatic Roth conversions skip when even the cheapest band is too expensi
   assert.equal(plan.years[0].rothConversionAmount, 0);
 });
 
+test("automatic Roth conversions can use enhanced senior deduction room", () => {
+  const plan = simulatePlan({
+    assets: [{
+      id: "ira-bond",
+      accountType: "traditional",
+      assetClass: "bond",
+      units: 100_000,
+      price: 1,
+      costBasisPerUnit: 1
+    }],
+    scenario: {
+      planYears: 1,
+      startYear: 2026,
+      targetSpend: 0,
+      targetSpendIncludesTaxes: true,
+      targetSpendIncludesMedical: true,
+      withdrawalOrder: ["traditional"],
+      withdrawalStrategy: { mode: "heuristic" },
+      currentAge: 65,
+      returnAssumptions: { bond: { mean: 0, stdev: 0 } },
+      rothConversion: { enabled: true, mode: "auto", targetMarginalRate: 0.12, optimizeForAca: false },
+      aca: { enabled: false }
+    },
+    taxProfile: {
+      ...noTaxProfile,
+      filingStatus: "single",
+      ordinaryBrackets: [
+        { upTo: 10_000, rate: 0.1 },
+        { upTo: Infinity, rate: 0.22 }
+      ],
+      enhancedSeniorDeduction: {
+        effectiveStartYear: 2025,
+        effectiveEndYear: 2028,
+        amountPerEligiblePerson: 6_000,
+        phaseoutRate: 0.06,
+        phaseoutThresholds: {
+          single: 75_000,
+          marriedFilingJointly: 150_000,
+          marriedFilingSeparately: null,
+          headOfHousehold: 75_000
+        }
+      }
+    },
+    returnSequence: [{ bond: 0 }],
+    inflationSequence: [0]
+  });
+
+  assert.equal(plan.years[0].enhancedSeniorDeduction, 6000);
+  assert.equal(plan.years[0].rothConversionAmount, 16000);
+  assert.equal(plan.years[0].taxes.taxableOrdinaryIncome, 10000);
+});
+
 test("tax attribution identifies tax created by Roth conversions", () => {
   const plan = simulatePlan({
     assets: [{
@@ -2961,6 +3013,69 @@ test("age 65 additional standard deduction applies by simulated age", () => {
   assert.equal(plan.years[0].taxes.totalTax, 200);
   assert.equal(plan.years[1].age65AdditionalDeduction, 1000);
   assert.equal(plan.years[1].taxes.totalTax, 100);
+});
+
+test("enhanced senior deduction is MAGI-based and expires after 2028", () => {
+  const plan = simulatePlan({
+    assets: [{
+      id: "ira",
+      accountType: "traditional",
+      assetClass: "bond",
+      units: 60_000,
+      price: 1,
+      costBasisPerUnit: 1
+    }],
+    scenario: {
+      planYears: 4,
+      startYear: 2026,
+      targetSpend: 0,
+      targetSpendIncludesTaxes: true,
+      targetSpendIncludesMedical: true,
+      withdrawalOrder: ["traditional"],
+      currentAge: 64,
+      returnAssumptions: { bond: { mean: 0, stdev: 0 } },
+      rothConversion: { enabled: true, annualAmount: 10_000 },
+      aca: { enabled: false }
+    },
+    taxProfile: {
+      ...flatOrdinaryTaxProfile,
+      filingStatus: "single",
+      additionalStandardDeduction65: { unmarried: 1_000, married: 800 },
+      enhancedSeniorDeduction: {
+        effectiveStartYear: 2025,
+        effectiveEndYear: 2028,
+        amountPerEligiblePerson: 6_000,
+        phaseoutRate: 0.06,
+        phaseoutThresholds: {
+          single: 75_000,
+          marriedFilingJointly: 150_000,
+          marriedFilingSeparately: null,
+          headOfHousehold: 75_000
+        }
+      }
+    },
+    returnSequence: [{ bond: 0 }, { bond: 0 }, { bond: 0 }, { bond: 0 }],
+    inflationSequence: [0, 0, 0, 0]
+  });
+
+  assert.equal(plan.years[0].year, 2026);
+  assert.equal(plan.years[0].age65AdditionalDeduction, 0);
+  assert.equal(plan.years[0].enhancedSeniorDeduction, 0);
+  assert.equal(plan.years[0].taxes.totalTax, 1000);
+
+  assert.equal(plan.years[1].year, 2027);
+  assert.equal(plan.years[1].age65AdditionalDeduction, 1000);
+  assert.equal(plan.years[1].enhancedSeniorDeduction, 6000);
+  assert.equal(plan.years[1].taxes.totalTax, 300);
+
+  assert.equal(plan.years[2].year, 2028);
+  assert.equal(plan.years[2].enhancedSeniorDeduction, 6000);
+  assert.equal(plan.years[2].taxes.totalTax, 300);
+
+  assert.equal(plan.years[3].year, 2029);
+  assert.equal(plan.years[3].age65AdditionalDeduction, 1000);
+  assert.equal(plan.years[3].enhancedSeniorDeduction, 0);
+  assert.equal(plan.years[3].taxes.totalTax, 900);
 });
 
 test("RMDs force traditional-account distributions and retain unspent cash", () => {

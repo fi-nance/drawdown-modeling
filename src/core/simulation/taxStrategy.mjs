@@ -455,7 +455,7 @@ function marginalIncomeCandidateAmounts({
   if (kind === "ordinary") {
     for (const bracket of taxProfile.ordinaryBrackets ?? []) {
       if (Number.isFinite(bracket.upTo)) {
-        addPoint(bracket.upTo + (taxProfile.standardDeduction ?? 0) + (taxProfile.additionalDeduction ?? 0) - base.taxes.taxableOrdinaryIncome);
+        addPoint(bracket.upTo + federalDeductionCandidateRoom(taxProfile) - base.taxes.taxableOrdinaryIncome);
       }
     }
   } else {
@@ -657,7 +657,7 @@ export function rothConversionAmountForYear({
     return round(Math.min(marginalRoom, irmaaRoom, maxTraditional), 6);
   }
   const targetCeiling = bracketCeilingForRate(taxProfile.ordinaryBrackets, targetRate);
-  const federalRoom = Math.max(0, targetCeiling + (taxProfile.standardDeduction ?? 0) - ordinaryIncome);
+  const federalRoom = Math.max(0, targetCeiling + federalDeductionCandidateRoom(taxProfile) - ordinaryIncome);
   const { income: incomeBeforeConversion } = incomeForYear({
     ordinaryIncome,
     earnedIncome,
@@ -949,4 +949,10 @@ function bracketCeilingForRate(brackets = [], targetRate = 0.12) {
   const eligible = brackets.filter((bracket) => bracket.rate <= targetRate);
   const last = eligible.at(-1);
   return last ? last.upTo : 0;
+}
+
+function federalDeductionCandidateRoom(taxProfile = {}) {
+  return Math.max(0, Number(taxProfile.standardDeduction) || 0)
+    + Math.max(0, Number(taxProfile.additionalDeduction) || 0)
+    + Math.max(0, Number(taxProfile.enhancedSeniorDeductionMax) || 0);
 }
