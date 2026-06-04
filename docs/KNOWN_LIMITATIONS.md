@@ -9,7 +9,7 @@ This app is a planning model, not tax advice. It should make assumptions explici
 - Roth qualified-distribution status is controlled by `rothFiveYearRuleSatisfied`. When disabled, Roth earnings are taxable even after the penalty-free age; when enabled, post-penalty-age Roth withdrawals are treated as qualified.
 - Early retirement-distribution penalty exceptions are controlled by `earlyWithdrawalPenaltyExceptionAmount`. The model consumes that annual exception before applying the configured early-withdrawal penalty rate.
 - The penalty-free retirement-distribution age is controlled by `retirementPenaltyAge`; it defaults to 59.5.
-- Additional federal deductions and credits can be entered manually for household-specific rules not otherwise modeled.
+- Additional federal deductions and credits can be entered manually for household-specific rules not otherwise modeled. Nonzero entries trigger CPA-review confidence flags because the engine applies the amounts mechanically, inflates them forward, and does not validate eligibility, phaseouts, refundability, itemized-deduction character, or AMT/QBI interactions.
 - Child Tax Credit eligibility can be driven by child ages so children age out year by year.
 - ACA premiums can use exact selected-plan inputs, quoted net premiums, manual FPL values, manual member ages, and optional age-rating projection.
 - RMD start age, Medicare IRMAA enrollment counts, Medicare Part D premium, and IRMAA lookback MAGI can be overridden.

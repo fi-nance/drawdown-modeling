@@ -32,6 +32,11 @@ export function actionConfidenceFor(actionKind, confidenceReport = {}) {
   const has = (id) => flags.some((flag) => flag.id === id);
   const find = (ids) => findFlagByPriority(flags, ids);
 
+  if (["taxReserve", "traditionalWithdrawal", "rothConversion", "taxGainHarvesting", "taxLossHarvesting"].includes(actionKind)) {
+    const flag = find(["manual-federal-tax-overrides-review"]);
+    if (flag) return actionConfidenceFromFlag(flag);
+  }
+
   if (["aca", "medicalReserve"].includes(actionKind)) {
     const flag = find(["aca-coverage-gap-modeled", "aca-medicaid-handoff-modeled", "aca-coverage-gap-risk", "aca-plan-inputs", "aca-benchmark-state-fallback", "aca-benchmark-out-of-model", "aca-oop-inputs", "aca-net-premium-quote", "aca-magi-threshold"]);
     if (flag) return actionConfidenceFromFlag(flag);
@@ -140,7 +145,7 @@ export function buildConfidenceReport({
   addHealthcareFlags(flags, scenario, decision);
   addCoverageGapFlags(flags, scenario, plan);
   addStateTaxFlags(flags, taxProfile);
-  addFederalTaxScopeFlags(flags, scenario);
+  addFederalTaxScopeFlags(flags, scenario, taxProfile);
   addEvidenceFlags(flags, decision, historicalCoverage, historicalAssetClasses);
   addSocialSecurityFlags(flags, scenario);
   addLegacyFlags(flags, scenario);
@@ -378,11 +383,44 @@ function addStateTaxFlags(flags, taxProfile) {
   }
 }
 
-function addFederalTaxScopeFlags(flags, scenario = {}) {
+function addFederalTaxScopeFlags(flags, scenario = {}, taxProfile = {}) {
+  const manualFederalOverrides = manualFederalTaxOverrideSummary(taxProfile);
+  if (manualFederalOverrides.hasManualFederalTaxOverride) {
+    flags.push(manualFederalTaxOverrideReviewFlag(manualFederalOverrides));
+  }
+
   const businessIncome = selfEmploymentIncomeSummary(scenario);
   if (businessIncome.hasSelfEmploymentIncome) {
     flags.push(businessIncomeReviewFlag(businessIncome));
   }
+}
+
+function manualFederalTaxOverrideReviewFlag(summary = {}) {
+  return {
+    id: "manual-federal-tax-overrides-review",
+    level: CONFIDENCE_LEVELS.CPA_REVIEW,
+    lens: "cpa",
+    title: "Manual federal tax overrides need CPA review",
+    detail: `Manual federal tax overrides are present${manualFederalTaxOverrideText(summary)}. The model applies these amounts mechanically, inflates them forward with the tax profile, and uses them in tax estimates, Roth-conversion bracket room, harvesting, and safe-spending results. It does not validate eligibility, phaseouts, itemized-deduction character, refundable versus nonrefundable credit treatment, or AMT/QBI interactions.`,
+    action: "Keep a worksheet/source for each override and review it before treating tax-payment, Roth-conversion, harvesting, or safe-spending recommendations as filing-grade."
+  };
+}
+
+function manualFederalTaxOverrideSummary(taxProfile = {}) {
+  const additionalDeduction = Math.max(0, Number(taxProfile?.additionalDeduction) || 0);
+  const additionalCredits = Math.max(0, Number(taxProfile?.additionalCredits) || 0);
+  return {
+    hasManualFederalTaxOverride: additionalDeduction > 0 || additionalCredits > 0,
+    additionalDeduction,
+    additionalCredits
+  };
+}
+
+function manualFederalTaxOverrideText(summary = {}) {
+  const parts = [];
+  if (summary.additionalDeduction > 0) parts.push(`${formatCurrency(summary.additionalDeduction)} additional deduction`);
+  if (summary.additionalCredits > 0) parts.push(`${formatCurrency(summary.additionalCredits)} additional credit`);
+  return parts.length ? ` (${parts.join("; ")})` : "";
 }
 
 function businessIncomeReviewFlag(summary = {}) {
@@ -519,12 +557,12 @@ function rescueFlagIds(kind) {
     case "rothBasisCliffRescue":
     case "conversionGuardrail":
     case "magiSpendTrim":
-      return ["aca-coverage-gap-modeled", "aca-medicaid-handoff-modeled", "aca-coverage-gap-risk", "aca-magi-threshold", "aca-plan-inputs", "aca-benchmark-state-fallback", "aca-benchmark-out-of-model", "aca-oop-inputs", "aca-net-premium-quote"];
+      return ["aca-coverage-gap-modeled", "aca-medicaid-handoff-modeled", "aca-coverage-gap-risk", "manual-federal-tax-overrides-review", "aca-magi-threshold", "aca-plan-inputs", "aca-benchmark-state-fallback", "aca-benchmark-out-of-model", "aca-oop-inputs", "aca-net-premium-quote"];
     case "taxableLotRescue":
-      return ["aca-magi-threshold"];
+      return ["manual-federal-tax-overrides-review", "aca-magi-threshold"];
     case "withdrawalShift":
     case "safeSpending":
-      return ["state-retirement-tax-review"];
+      return ["manual-federal-tax-overrides-review", "state-retirement-tax-review"];
     case "incomeBridge":
     case "combined":
       return ["business-income-tax-review"];

@@ -87,6 +87,40 @@ test("confidence report flags scheduled self-employment bridge income", () => {
   assert.match(flag.detail, /\$40,000 scheduled self-employment bridge income/);
 });
 
+test("confidence report flags manual federal tax overrides for CPA review", () => {
+  const report = buildConfidenceReport({
+    scenario: { aca: { enabled: false } },
+    taxProfile: {
+      additionalDeduction: 6_000,
+      additionalCredits: 1_200
+    },
+    decision: {
+      status: "ready",
+      base: { historical: { count: 10 }, verdict: { historicalKnown: true, monteCarloPasses: true, historicalPasses: true } }
+    }
+  });
+
+  const flag = report.flags.find((item) => item.id === "manual-federal-tax-overrides-review");
+  assert.ok(flag);
+  assert.equal(flag.level, CONFIDENCE_LEVELS.CPA_REVIEW);
+  assert.match(flag.detail, /\$6,000 additional deduction/);
+  assert.match(flag.detail, /\$1,200 additional credit/);
+  assert.match(flag.detail, /Roth-conversion bracket room/);
+  assert.match(flag.detail, /refundable versus nonrefundable/);
+
+  assert.equal(actionConfidenceFor("rothConversion", report).level, CONFIDENCE_LEVELS.CPA_REVIEW);
+  assert.equal(actionConfidenceFor("taxReserve", report).level, CONFIDENCE_LEVELS.CPA_REVIEW);
+  assert.equal(actionConfidenceFor("taxLossHarvesting", report).level, CONFIDENCE_LEVELS.CPA_REVIEW);
+  assert.equal(
+    rescueConfidenceFor({ kind: "safeSpending", historical: { count: 10 } }, report).level,
+    CONFIDENCE_LEVELS.CPA_REVIEW
+  );
+  assert.equal(
+    rescueConfidenceFor({ kind: "conversionGuardrail", historical: { count: 10 } }, report).level,
+    CONFIDENCE_LEVELS.CPA_REVIEW
+  );
+});
+
 test("confidence report names rating-area SLCSP when ZIP lookup succeeds", () => {
   const report = buildConfidenceReport({
     scenario: {
