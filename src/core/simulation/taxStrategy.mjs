@@ -2,7 +2,7 @@
 // Single responsibility: taxStrategy. No behavior changes — pure code movement.
 
 import { computeAca } from "../aca.mjs";
-import { computeIncomeTax } from "../tax.mjs?v=20260531-ssa-pia";
+import { computeFederalDeductionChoice, computeIncomeTax } from "../tax.mjs?v=20260604-itemized";
 import { getMedicareIrmaaConfig } from "../../data/taxData.mjs";
 import { round } from "../utils.mjs";
 import { emptyRebalanceResult } from "./allocation.mjs";
@@ -11,7 +11,7 @@ import { emptyEarnedIncome, emptyOneOffCashFlows } from "./cashFlows.mjs";
 import { CASH_RAISED_EPSILON } from "./constants.mjs";
 import { finiteRoom } from "./guards.mjs";
 import { emptyHsaContribution, hsaStrategyConfig } from "./hsa.mjs";
-import { acaMagiForIncome, incomeForYear, irmaaMagiForIncome } from "./income.mjs";
+import { acaMagiForIncome, incomeForYear, irmaaMagiForIncome } from "./income.mjs?v=20260604-itemized";
 import { medicalCostForYear, medicareIrmaaBracketKey } from "./medical.mjs";
 import { embeddedTaxableGains, traditionalAccountValue } from "./portfolioQueries.mjs";
 import { defaultRmdStartAge } from "./rmd.mjs";
@@ -455,7 +455,7 @@ function marginalIncomeCandidateAmounts({
   if (kind === "ordinary") {
     for (const bracket of taxProfile.ordinaryBrackets ?? []) {
       if (Number.isFinite(bracket.upTo)) {
-        addPoint(bracket.upTo + federalDeductionCandidateRoom(taxProfile) - base.taxes.taxableOrdinaryIncome);
+        addPoint(bracket.upTo + federalDeductionCandidateRoom(taxProfile, 0, base.taxes) - base.taxes.taxableOrdinaryIncome);
       }
     }
   } else {
@@ -657,7 +657,7 @@ export function rothConversionAmountForYear({
     return round(Math.min(marginalRoom, irmaaRoom, maxTraditional), 6);
   }
   const targetCeiling = bracketCeilingForRate(taxProfile.ordinaryBrackets, targetRate);
-  const federalRoom = Math.max(0, targetCeiling + federalDeductionCandidateRoom(taxProfile) - ordinaryIncome);
+  const federalRoom = Math.max(0, targetCeiling + federalDeductionCandidateRoom(taxProfile, ordinaryIncome) - ordinaryIncome);
   const { income: incomeBeforeConversion } = incomeForYear({
     ordinaryIncome,
     earnedIncome,
@@ -951,8 +951,10 @@ function bracketCeilingForRate(brackets = [], targetRate = 0.12) {
   return last ? last.upTo : 0;
 }
 
-function federalDeductionCandidateRoom(taxProfile = {}) {
-  return Math.max(0, Number(taxProfile.standardDeduction) || 0)
-    + Math.max(0, Number(taxProfile.additionalDeduction) || 0)
+function federalDeductionCandidateRoom(taxProfile = {}, agi = 0, taxes = null) {
+  if (Number.isFinite(Number(taxes?.federalDeduction))) {
+    return Math.max(0, Number(taxes.federalDeduction));
+  }
+  return computeFederalDeductionChoice({ agi, profile: taxProfile }).federalDeduction
     + Math.max(0, Number(taxProfile.enhancedSeniorDeductionMax) || 0);
 }

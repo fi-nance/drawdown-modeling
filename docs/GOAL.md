@@ -202,8 +202,12 @@ but in scope for the north-star if we want CPA-grade coverage):
   65+, 2025-2028, MAGI-phased) is modeled as a time-boxed federal rule with
   input-limited confidence flags for SSN/file-jointly eligibility facts the app
   does not separately collect.
-- **Itemized deductions** (SALT cap, mortgage interest, charitable, medical
-  threshold) as opt-in inputs rather than override-only.
+- ✅ **[Shipped] Itemized deduction planning inputs** compare standard versus
+  itemized deductions, model the 2026 SALT cap/phaseout and medical-expense
+  AGI floor, and expose Schedule A inputs for SALT paid, mortgage interest,
+  charitable gifts, and medical expenses. Confidence flags still require CPA
+  review for filing-grade substantiation, mortgage-debt limits, charity caps,
+  casualty losses, and other Schedule A edge cases.
 - **QBI deduction** for households with pass-through income (relevant to
   consulting-bridge users — see decision-engine "earn bridge income").
 - **AMT** check, at minimum as a tripwire that flags affected households.
@@ -390,8 +394,8 @@ risk first, then breadth.
 
 ### Phase 3 — Tax-engine breadth
 
-- Itemized deductions as first-class inputs (SALT cap, mortgage, charitable,
-  medical).
+- ✅ Itemized deductions as first-class planning inputs (SALT cap/phaseout,
+  mortgage, charitable, medical AGI floor) with Schedule A CPA-review flags.
 - QBI deduction for SE bridge income.
 - AMT tripwire.
 - ~~2026 TCJA sunset regime modeling~~ — moot: OBBBA (2025) made the TCJA

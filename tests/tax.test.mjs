@@ -375,6 +375,110 @@ test("additional federal deductions and credits are explicit tax-profile overrid
   assert.equal(tax.totalTax, 0);
 });
 
+test("itemized deductions auto-select when they exceed the standard deduction", () => {
+  const taxProfile = buildTaxProfile({
+    taxYear: 2026,
+    filingStatus: "marriedFilingJointly",
+    state: "Florida",
+    itemizedDeductionMode: "auto",
+    itemizedStateLocalTaxes: 60_000,
+    itemizedMortgageInterest: 10_000,
+    itemizedCharitableContributions: 5_000,
+    itemizedMedicalExpenses: 20_000
+  });
+  const tax = computeIncomeTax({
+    ordinaryIncome: 200_000,
+    profile: taxProfile
+  });
+
+  assert.equal(tax.federalDeductionKind, "itemized");
+  assert.equal(tax.itemizedDeductionBreakdown.stateLocalTaxes, 40_400);
+  assert.equal(tax.itemizedDeductionBreakdown.medicalExpenseFloor, 15_000);
+  assert.equal(tax.itemizedDeductionBreakdown.medicalExpenses, 5_000);
+  assert.equal(tax.itemizedDeduction, 60_400);
+  assert.equal(tax.federalDeduction, 60_400);
+  assert.equal(tax.taxableOrdinaryIncome, 139_600);
+});
+
+test("itemized deductions honor forced standard and forced itemized modes", () => {
+  const autoProfile = buildTaxProfile({
+    taxYear: 2026,
+    filingStatus: "single",
+    state: "Florida",
+    itemizedDeductionMode: "auto",
+    itemizedStateLocalTaxes: 2_000,
+    itemizedMortgageInterest: 1_000
+  });
+  const auto = computeIncomeTax({ ordinaryIncome: 40_000, profile: autoProfile });
+  assert.equal(auto.federalDeductionKind, "standard");
+  assert.equal(auto.federalDeduction, 16_100);
+
+  const forcedItemized = computeIncomeTax({
+    ordinaryIncome: 40_000,
+    profile: {
+      ...autoProfile,
+      itemizedDeductions: { ...autoProfile.itemizedDeductions, mode: "itemized" }
+    }
+  });
+  assert.equal(forcedItemized.federalDeductionKind, "itemized");
+  assert.equal(forcedItemized.federalDeduction, 3_000);
+
+  const forcedStandardProfile = buildTaxProfile({
+    taxYear: 2026,
+    filingStatus: "single",
+    state: "Florida",
+    itemizedDeductionMode: "standard",
+    itemizedStateLocalTaxes: 40_000,
+    itemizedMortgageInterest: 20_000
+  });
+  const forcedStandard = computeIncomeTax({ ordinaryIncome: 80_000, profile: forcedStandardProfile });
+  assert.equal(forcedStandard.federalDeductionKind, "standard");
+  assert.equal(forcedStandard.federalDeduction, 16_100);
+});
+
+test("2026 SALT itemized cap phases down but not below the statutory floor", () => {
+  const taxProfile = buildTaxProfile({
+    taxYear: 2026,
+    filingStatus: "marriedFilingJointly",
+    state: "Florida",
+    itemizedDeductionMode: "itemized",
+    itemizedStateLocalTaxes: 80_000
+  });
+
+  const phased = computeIncomeTax({ ordinaryIncome: 600_000, profile: taxProfile });
+  assert.equal(phased.itemizedDeductionBreakdown.stateLocalTaxLimit, 11_900);
+  assert.equal(phased.itemizedDeductionBreakdown.stateLocalTaxes, 11_900);
+  assert.equal(phased.federalDeduction, 11_900);
+
+  const floor = computeIncomeTax({ ordinaryIncome: 700_000, profile: taxProfile });
+  assert.equal(floor.itemizedDeductionBreakdown.stateLocalTaxLimit, 10_000);
+  assert.equal(floor.itemizedDeductionBreakdown.stateLocalTaxes, 10_000);
+  assert.equal(floor.federalDeduction, 10_000);
+});
+
+test("age-65 standard-deduction bump does not attach to itemized deductions", () => {
+  const baseProfile = buildTaxProfile({
+    taxYear: 2026,
+    filingStatus: "single",
+    state: "Florida",
+    itemizedDeductionMode: "itemized",
+    itemizedStateLocalTaxes: 30_000
+  });
+  const tax = computeIncomeTax({
+    ordinaryIncome: 50_000,
+    profile: {
+      ...baseProfile,
+      additionalDeduction: 2_050,
+      age65AdditionalDeduction: 2_050
+    }
+  });
+
+  assert.equal(tax.federalDeductionKind, "itemized");
+  assert.equal(tax.standardDeductionWithAge65, 18_150);
+  assert.equal(tax.additionalDeduction, 0);
+  assert.equal(tax.federalDeduction, 30_000);
+});
+
 test("enhanced senior deduction applies per eligible person and phases out from MAGI", () => {
   const singleProfile = {
     ...buildTaxProfile({
@@ -559,7 +663,12 @@ test("2026 state capital-gains special cases are represented", () => {
 test("inflateTaxProfile scales standard deduction, child tax credit, and brackets", () => {
   const taxProfile = buildTaxProfile({
     taxYear: 2026,
-    filingStatus: "marriedFilingJointly"
+    filingStatus: "marriedFilingJointly",
+    itemizedDeductionMode: "itemized",
+    itemizedStateLocalTaxes: 10_000,
+    itemizedMortgageInterest: 5_000,
+    itemizedCharitableContributions: 2_000,
+    itemizedMedicalExpenses: 1_000
   });
   taxProfile.childTaxCredit = {
     perChild: 2000,
@@ -571,4 +680,9 @@ test("inflateTaxProfile scales standard deduction, child tax credit, and bracket
   assert.equal(inflated.standardDeduction, 35420); // 32200 * 1.1
   assert.equal(inflated.childTaxCredit.perChild, 2200);
   assert.equal(inflated.childTaxCredit.refundablePerChild, 1760);
+  assert.equal(inflated.itemizedDeductions.stateLocalTaxes, 11_000);
+  assert.equal(inflated.itemizedDeductions.mortgageInterest, 5_500);
+  assert.equal(inflated.itemizedDeductions.charitableContributions, 2_200);
+  assert.equal(inflated.itemizedDeductions.medicalExpenses, 1_100);
+  assert.equal(inflated.itemizedDeductions.limits.salt.cap2025, 40_000);
 });

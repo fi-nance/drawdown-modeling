@@ -168,7 +168,7 @@ const MODULES = [
   { id: "monte-carlo",   label: "Monte Carlo",    desc: "Return model and sampling",                controls: 16, required: false, enabledByDefault: true  },
   { id: "history",       label: "History test",   desc: "How would you have done?",                controls: 7,  required: false, enabledByDefault: false },
   { id: "what-ifs",      label: "What ifs",       desc: "Future expenses or income",                controls: 3,  required: false, enabledByDefault: true  },
-  { id: "tax-overrides", label: "Tax overrides",  desc: "Power-user tax tweaks",                    controls: 12, required: false, enabledByDefault: false }
+  { id: "tax-overrides", label: "Tax overrides",  desc: "Power-user tax tweaks",                    controls: 17, required: false, enabledByDefault: false }
 ];
 
 const TIER_THRESHOLDS = { warn: 0.85, risk: 0.7 };
@@ -1536,6 +1536,8 @@ function renderDeductionsSection(year, profile, bracketScale, incomeScale) {
   // Available deductions for this year.
   const stdDed = (profile?.standardDeduction ?? 0) * bracketScale;
   const age65 = (year?.age65AdditionalDeduction ?? 0) * incomeScale;
+  const itemized = (year?.taxes?.itemizedDeduction ?? 0) * incomeScale;
+  const deductionKind = year?.taxes?.federalDeductionKind ?? "standard";
   const seniorBonus = (year?.enhancedSeniorDeduction ?? year?.taxes?.enhancedSeniorDeduction ?? 0) * incomeScale;
   const additional = (profile?.additionalDeduction ?? 0) * bracketScale;
   // Capital-loss offset is an above-the-line ordinary-only deduction;
@@ -1565,11 +1567,13 @@ function renderDeductionsSection(year, profile, bracketScale, incomeScale) {
     remainingOrd -= ordAbsorbed;
     rows.push({ label: "CL loss", fullLabel: "Capital-loss ordinary offset", capacity: cap, ordAbsorbed, prefAbsorbed: 0 });
   }
-  if (stdDed > 0) {
+  if (deductionKind === "itemized" && itemized > 0) {
+    rows.push({ label: "Itemized", fullLabel: "Itemized deductions", ...allocate(itemized) });
+  } else if (stdDed > 0) {
     rows.push({ label: "Std ded", fullLabel: "Standard deduction", ...allocate(stdDed) });
-  }
-  if (age65 > 0) {
-    rows.push({ label: "Age 65+", fullLabel: "Age 65 additional standard deduction", ...allocate(age65) });
+    if (age65 > 0) {
+      rows.push({ label: "Age 65+", fullLabel: "Age 65 additional standard deduction", ...allocate(age65) });
+    }
   }
   if (seniorBonus > 0) {
     rows.push({ label: "Sr bonus", fullLabel: "Enhanced senior deduction", ...allocate(seniorBonus) });

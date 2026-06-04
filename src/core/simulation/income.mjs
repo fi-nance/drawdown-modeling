@@ -1,7 +1,7 @@
 // Extracted from simulation.mjs during the modular refactor.
 // Single responsibility: income. No behavior changes — pure code movement.
 
-import { DEFAULT_TAX_PROFILE, computeSelfEmploymentTax, computeTaxableSocialSecurityBenefits, netCapitalGainsAndLosses } from "../tax.mjs?v=20260531-ssa-pia";
+import { DEFAULT_TAX_PROFILE, computeSelfEmploymentTax, computeTaxableSocialSecurityBenefits, netCapitalGainsAndLosses } from "../tax.mjs?v=20260604-itemized";
 import { round } from "../utils.mjs";
 import { emptyEarnedIncome } from "./cashFlows.mjs";
 
@@ -210,13 +210,16 @@ export function taxProfileForSimulationYear({
     age65AdditionalDeduction,
     enhancedSeniorDeductionEligibleCount: enhancedSeniorDeductionEligibility.eligibleCount,
     enhancedSeniorDeductionTaxYear: enhancedSeniorDeductionEligibility.taxYear,
+    itemizedDeductionTaxYear: enhancedSeniorDeductionEligibility.taxYear,
     profile: {
       ...inflatedProfile,
       qualifyingChildren,
       additionalDeduction: round((inflatedProfile.additionalDeduction ?? 0) + age65AdditionalDeduction, 6),
+      age65AdditionalDeduction,
       enhancedSeniorDeductionEligibleCount: enhancedSeniorDeductionEligibility.eligibleCount,
       enhancedSeniorDeductionTaxYear: enhancedSeniorDeductionEligibility.taxYear,
       enhancedSeniorDeductionMax: round(enhancedSeniorDeductionEligibility.eligibleCount * enhancedSeniorDeductionEligibility.amountPerPerson, 6),
+      itemizedDeductionTaxYear: enhancedSeniorDeductionEligibility.taxYear,
       state: inflatedProfile.state ? {
         ...inflatedProfile.state,
         primaryAge,

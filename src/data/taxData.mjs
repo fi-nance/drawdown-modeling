@@ -4,7 +4,7 @@ import {
   stateRetirementRulesFor
 } from "./stateRetirementTax2026.mjs";
 
-export const TAX_DATA_VERSION = "2026.5";
+export const TAX_DATA_VERSION = "2026.6";
 export const DEFAULT_TAX_YEAR = 2026;
 
 export const FILING_STATUSES = {
@@ -79,6 +79,24 @@ export const FEDERAL_TAX_2026 = {
   additionalStandardDeduction65: {
     married: 1650,
     unmarried: 2050
+  },
+  itemizedDeductions: {
+    medicalExpenseAgiFloor: 0.075,
+    salt: {
+      temporaryCapStartYear: 2025,
+      temporaryCapEndYear: 2029,
+      cap2025: 40000,
+      mfsCap2025: 20000,
+      phaseoutThreshold2025: 500000,
+      mfsPhaseoutThreshold2025: 250000,
+      annualIncreaseRate: 0.01,
+      phaseoutRate: 0.30,
+      floor: 10000,
+      mfsFloor: 5000,
+      post2029Cap: 10000,
+      mfsPost2029Cap: 5000,
+      source: "IRS 2026 Form 1040-ES SALT correction; IRS Schedule A instructions."
+    }
   },
   enhancedSeniorDeduction: {
     effectiveStartYear: 2025,
@@ -297,7 +315,12 @@ export function buildFederalTaxProfile({
   qualifyingChildren = 0,
   childAges = [],
   additionalDeduction = 0,
-  additionalCredits = 0
+  additionalCredits = 0,
+  itemizedDeductionMode = "auto",
+  itemizedStateLocalTaxes = 0,
+  itemizedMortgageInterest = 0,
+  itemizedCharitableContributions = 0,
+  itemizedMedicalExpenses = 0
 } = {}) {
   const data = FEDERAL_TAX_BY_YEAR[taxYear] ?? FEDERAL_TAX_2026;
   const status = FILING_STATUSES[filingStatus] ? filingStatus : "marriedFilingJointly";
@@ -324,8 +347,20 @@ export function buildFederalTaxProfile({
     childAges: normalizedChildAges,
     additionalDeduction: Math.max(0, Number(additionalDeduction) || 0),
     additionalCredits: Math.max(0, Number(additionalCredits) || 0),
+    itemizedDeductions: {
+      mode: normalizeItemizedDeductionMode(itemizedDeductionMode),
+      stateLocalTaxes: Math.max(0, Number(itemizedStateLocalTaxes) || 0),
+      mortgageInterest: Math.max(0, Number(itemizedMortgageInterest) || 0),
+      charitableContributions: Math.max(0, Number(itemizedCharitableContributions) || 0),
+      medicalExpenses: Math.max(0, Number(itemizedMedicalExpenses) || 0),
+      limits: data.itemizedDeductions
+    },
     source: data.source
   };
+}
+
+function normalizeItemizedDeductionMode(value) {
+  return ["auto", "standard", "itemized"].includes(value) ? value : "auto";
 }
 
 export function buildStateTaxProfile({

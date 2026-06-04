@@ -193,6 +193,35 @@ test("workspace planning runs validate realistic spend before launching workers"
   assert.match(appSource, /runSimulationsInWorker/);
 });
 
+test("itemized deduction controls are visible, persisted, and disclosed in results", async () => {
+  const [html, appSource, redesignSource] = await Promise.all([
+    readFile(new URL("../index.html", import.meta.url), "utf8"),
+    readFile(new URL("../src/app.mjs", import.meta.url), "utf8"),
+    readFile(new URL("../src/redesign.mjs", import.meta.url), "utf8")
+  ]);
+  const controlIds = [
+    "itemizedDeductionMode",
+    "itemizedStateLocalTaxes",
+    "itemizedMortgageInterest",
+    "itemizedCharitableContributions",
+    "itemizedMedicalExpenses"
+  ];
+
+  for (const id of controlIds) {
+    assert.match(html, new RegExp(`id="${id}"`), `${id} should be visible in the tax controls`);
+    assert.match(appSource, new RegExp(`"${id}"`), `${id} should be part of saved control state`);
+    assert.match(appSource, new RegExp(`${id}: document\\.querySelector\\("#${id}"\\)`), `${id} should be queried`);
+  }
+
+  assert.match(appSource, /itemizedDeductionMode: els\.itemizedDeductionMode\?\.value \|\| "auto"/);
+  assert.match(appSource, /itemizedStateLocalTaxes: Number\(els\.itemizedStateLocalTaxes\?\.value\) \|\| 0/);
+  assert.match(appSource, /"Deduction", "Itemized ded"/);
+  assert.match(appSource, /federalDeductionKind/);
+  assert.match(redesignSource, /Itemized deductions/);
+  assert.match(redesignSource, /federalDeductionKind/);
+  assert.match(redesignSource, /id: "tax-overrides"[\s\S]*controls: 17/);
+});
+
 test("workspace scenario construction preserves every advertised spending mode", async () => {
   const [html, appSource] = await Promise.all([
     readFile(new URL("../index.html", import.meta.url), "utf8"),

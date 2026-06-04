@@ -6,8 +6,8 @@ import {
   runHistoricalBacktests,
   runMonteCarlo,
   simulatePlan
-} from "./simulation.mjs";
-import { runDecisionBatch } from "./decisionEngine.mjs";
+} from "./simulation.mjs?v=20260604-itemized";
+import { runDecisionBatch } from "./decisionEngine.mjs?v=20260604-itemized";
 
 const UI_MONTE_CARLO_TIMELINE_LIMIT = 5;
 

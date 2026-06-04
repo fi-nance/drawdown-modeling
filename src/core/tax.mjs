@@ -1,5 +1,5 @@
 import { EPSILON, round } from "./utils.mjs";
-import { buildTaxProfile } from "../data/taxData.mjs?v=20260531-ssa-pia";
+import { buildTaxProfile } from "../data/taxData.mjs?v=20260604-itemized";
 import {
   stateRetirementIncomeExclusion,
   stateSocialSecurityExclusion
@@ -177,7 +177,8 @@ export function computeIncomeTax({
   const preferentialIncome = longGains + dividendPreferentialIncome;
   const magi = round(ordinaryAfterLossOffset + preferentialIncome, 6);
   const enhancedSeniorDeduction = computeEnhancedSeniorDeduction({ magi, profile });
-  const federalDeduction = (profile.standardDeduction ?? 0) + (profile.additionalDeduction ?? 0) + enhancedSeniorDeduction;
+  const deductionChoice = computeFederalDeductionChoice({ agi: magi, profile });
+  const federalDeduction = deductionChoice.federalDeduction + enhancedSeniorDeduction;
   const taxableOrdinaryIncome = Math.max(0, ordinaryAfterLossOffset - federalDeduction);
   const remainingDeduction = Math.max(0, federalDeduction - ordinaryAfterLossOffset);
   const taxablePreferentialIncome = Math.max(0, preferentialIncome - remainingDeduction);
@@ -247,6 +248,12 @@ export function computeIncomeTax({
     taxableLongTermCapitalGains: round(taxableLongTermCapitalGains, 6),
     taxableQualifiedDividends: round(taxableQualifiedDividends, 6),
     federalDeduction: round(federalDeduction, 6),
+    federalDeductionBase: round(deductionChoice.baseDeduction, 6),
+    federalDeductionKind: deductionChoice.kind,
+    standardDeductionWithAge65: round(deductionChoice.standardDeductionWithAge65, 6),
+    itemizedDeduction: round(deductionChoice.itemizedDeduction, 6),
+    itemizedDeductionBreakdown: deductionChoice.itemizedBreakdown,
+    additionalDeduction: round(deductionChoice.additionalDeduction, 6),
     enhancedSeniorDeduction: round(enhancedSeniorDeduction, 6),
     federalOrdinaryTax,
     federalOrdinaryBracketDetails,
@@ -284,6 +291,86 @@ export function computeIncomeTax({
     lossCarryforwardShort: round(shortLossPool, 6),
     lossCarryforwardLong: round(longLossPool, 6)
   };
+}
+
+export function computeFederalDeductionChoice({ agi = 0, profile = DEFAULT_TAX_PROFILE } = {}) {
+  const age65AdditionalDeduction = Math.max(0, Number(profile.age65AdditionalDeduction) || 0);
+  const totalAdditionalDeduction = Math.max(0, Number(profile.additionalDeduction) || 0);
+  const additionalDeduction = Math.max(0, totalAdditionalDeduction - age65AdditionalDeduction);
+  const standardDeductionWithAge65 = Math.max(0, Number(profile.standardDeduction) || 0) + age65AdditionalDeduction;
+  const itemized = computeItemizedDeduction({ agi, profile });
+  const mode = itemized.mode;
+
+  let kind = "standard";
+  let baseDeduction = standardDeductionWithAge65;
+  if (mode === "itemized" || (mode === "auto" && itemized.total > standardDeductionWithAge65)) {
+    kind = "itemized";
+    baseDeduction = itemized.total;
+  }
+
+  return {
+    kind,
+    baseDeduction: round(baseDeduction, 6),
+    federalDeduction: round(baseDeduction + additionalDeduction, 6),
+    standardDeductionWithAge65: round(standardDeductionWithAge65, 6),
+    itemizedDeduction: round(itemized.total, 6),
+    itemizedBreakdown: itemized.breakdown,
+    additionalDeduction: round(additionalDeduction, 6)
+  };
+}
+
+export function computeItemizedDeduction({ agi = 0, profile = DEFAULT_TAX_PROFILE } = {}) {
+  const itemized = profile.itemizedDeductions ?? {};
+  const mode = ["auto", "standard", "itemized"].includes(itemized.mode) ? itemized.mode : "auto";
+  const limits = itemized.limits ?? {};
+  const saltLimit = saltDeductionLimit({
+    agi,
+    filingStatus: profile.filingStatus,
+    taxYear: profile.itemizedDeductionTaxYear ?? profile.year,
+    config: limits.salt
+  });
+  const stateLocalTaxes = Math.max(0, Number(itemized.stateLocalTaxes) || 0);
+  const saltDeduction = Math.min(stateLocalTaxes, saltLimit);
+  const medicalFloorRate = Math.max(0, Number(limits.medicalExpenseAgiFloor) || 0.075);
+  const medicalExpenses = Math.max(0, Number(itemized.medicalExpenses) || 0);
+  const medicalFloor = Math.max(0, Number(agi) || 0) * medicalFloorRate;
+  const medicalDeduction = Math.max(0, medicalExpenses - medicalFloor);
+  const mortgageInterest = Math.max(0, Number(itemized.mortgageInterest) || 0);
+  const charitableContributions = Math.max(0, Number(itemized.charitableContributions) || 0);
+  const total = saltDeduction + mortgageInterest + charitableContributions + medicalDeduction;
+  return {
+    mode,
+    total: round(total, 6),
+    breakdown: {
+      stateLocalTaxes: round(saltDeduction, 6),
+      stateLocalTaxesEntered: round(stateLocalTaxes, 6),
+      stateLocalTaxLimit: round(saltLimit, 6),
+      mortgageInterest: round(mortgageInterest, 6),
+      charitableContributions: round(charitableContributions, 6),
+      medicalExpenses: round(medicalDeduction, 6),
+      medicalExpensesEntered: round(medicalExpenses, 6),
+      medicalExpenseFloor: round(medicalFloor, 6),
+      medicalExpenseFloorRate: medicalFloorRate
+    }
+  };
+}
+
+function saltDeductionLimit({ agi = 0, filingStatus, taxYear, config = {} } = {}) {
+  const year = Number(taxYear);
+  const isMfs = filingStatus === "marriedFilingSeparately";
+  if (Number.isFinite(year) && year >= Number(config.temporaryCapStartYear ?? 2025) && year <= Number(config.temporaryCapEndYear ?? 2029)) {
+    const yearsAfter2025 = Math.max(0, Math.trunc(year - 2025));
+    const growth = Math.pow(1 + Math.max(0, Number(config.annualIncreaseRate) || 0), yearsAfter2025);
+    const capBase = isMfs ? Number(config.mfsCap2025) : Number(config.cap2025);
+    const thresholdBase = isMfs ? Number(config.mfsPhaseoutThreshold2025) : Number(config.phaseoutThreshold2025);
+    const floor = isMfs ? Number(config.mfsFloor) : Number(config.floor);
+    const cap = Number.isFinite(capBase) ? capBase * growth : (isMfs ? 5000 : 10000);
+    const threshold = Number.isFinite(thresholdBase) ? thresholdBase * growth : Infinity;
+    const phaseout = Math.max(0, Number(agi) - threshold) * Math.max(0, Number(config.phaseoutRate) || 0);
+    return round(Math.max(Number.isFinite(floor) ? floor : 0, cap - phaseout), 6);
+  }
+  const postCap = isMfs ? Number(config.mfsPost2029Cap) : Number(config.post2029Cap);
+  return round(Number.isFinite(postCap) ? postCap : (isMfs ? 5000 : 10000), 6);
 }
 
 export function computeEnhancedSeniorDeduction({ magi = 0, profile = DEFAULT_TAX_PROFILE } = {}) {
@@ -621,6 +708,13 @@ export function inflateTaxProfile(profile = DEFAULT_TAX_PROFILE, inflationIndex 
     additionalStandardDeduction65: profile.additionalStandardDeduction65 ? {
       married: round((profile.additionalStandardDeduction65.married ?? 0) * index, 6),
       unmarried: round((profile.additionalStandardDeduction65.unmarried ?? 0) * index, 6)
+    } : null,
+    itemizedDeductions: profile.itemizedDeductions ? {
+      ...profile.itemizedDeductions,
+      stateLocalTaxes: round((profile.itemizedDeductions.stateLocalTaxes ?? 0) * index, 6),
+      mortgageInterest: round((profile.itemizedDeductions.mortgageInterest ?? 0) * index, 6),
+      charitableContributions: round((profile.itemizedDeductions.charitableContributions ?? 0) * index, 6),
+      medicalExpenses: round((profile.itemizedDeductions.medicalExpenses ?? 0) * index, 6)
     } : null,
     childTaxCredit: profile.childTaxCredit ? {
       ...profile.childTaxCredit,

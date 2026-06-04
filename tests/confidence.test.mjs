@@ -121,6 +121,41 @@ test("confidence report flags manual federal tax overrides for CPA review", () =
   );
 });
 
+test("confidence report flags itemized deduction inputs for Schedule A review", () => {
+  const report = buildConfidenceReport({
+    scenario: { aca: { enabled: false } },
+    taxProfile: {
+      itemizedDeductions: {
+        mode: "auto",
+        stateLocalTaxes: 40_000,
+        mortgageInterest: 10_000,
+        charitableContributions: 5_000,
+        medicalExpenses: 20_000
+      }
+    },
+    decision: {
+      status: "ready",
+      base: { historical: { count: 10 }, verdict: { historicalKnown: true, monteCarloPasses: true, historicalPasses: true } }
+    }
+  });
+
+  const flag = report.flags.find((item) => item.id === "itemized-deduction-inputs-review");
+  assert.ok(flag);
+  assert.equal(flag.level, CONFIDENCE_LEVELS.CPA_REVIEW);
+  assert.match(flag.detail, /Schedule A/);
+  assert.match(flag.detail, /SALT cap/);
+  assert.match(flag.detail, /\$40,000/);
+  assert.match(flag.detail, /mortgage acquisition-debt limits/);
+  assert.match(flag.action, /Roth-conversion/);
+
+  assert.equal(actionConfidenceFor("rothConversion", report).level, CONFIDENCE_LEVELS.CPA_REVIEW);
+  assert.equal(actionConfidenceFor("taxReserve", report).level, CONFIDENCE_LEVELS.CPA_REVIEW);
+  assert.equal(
+    rescueConfidenceFor({ kind: "safeSpending", historical: { count: 10 } }, report).level,
+    CONFIDENCE_LEVELS.CPA_REVIEW
+  );
+});
+
 test("confidence report flags enhanced senior deduction eligibility inputs", () => {
   const report = buildConfidenceReport({
     scenario: {

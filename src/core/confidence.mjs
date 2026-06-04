@@ -33,7 +33,7 @@ export function actionConfidenceFor(actionKind, confidenceReport = {}) {
   const find = (ids) => findFlagByPriority(flags, ids);
 
   if (["taxReserve", "traditionalWithdrawal", "rothConversion", "taxGainHarvesting", "taxLossHarvesting"].includes(actionKind)) {
-    const flag = find(["manual-federal-tax-overrides-review", "enhanced-senior-deduction-eligibility"]);
+    const flag = find(["manual-federal-tax-overrides-review", "itemized-deduction-inputs-review", "enhanced-senior-deduction-eligibility"]);
     if (flag) return actionConfidenceFromFlag(flag);
   }
 
@@ -394,6 +394,11 @@ function addFederalTaxScopeFlags(flags, scenario = {}, taxProfile = {}) {
     flags.push(manualFederalTaxOverrideReviewFlag(manualFederalOverrides));
   }
 
+  const itemizedDeductions = itemizedDeductionSummary(taxProfile);
+  if (itemizedDeductions.hasItemizedInput) {
+    flags.push(itemizedDeductionReviewFlag(itemizedDeductions));
+  }
+
   const businessIncome = selfEmploymentIncomeSummary(scenario);
   if (businessIncome.hasSelfEmploymentIncome) {
     flags.push(businessIncomeReviewFlag(businessIncome));
@@ -444,13 +449,56 @@ function enhancedSeniorDeductionAssumptionSummary(scenario = {}, taxProfile = {}
   };
 }
 
+function itemizedDeductionReviewFlag(summary = {}) {
+  return {
+    id: "itemized-deduction-inputs-review",
+    level: CONFIDENCE_LEVELS.CPA_REVIEW,
+    lens: "cpa",
+    title: "Itemized deduction inputs need Schedule A review",
+    detail: `Schedule A itemized deduction controls are present${itemizedDeductionSummaryText(summary)}. The model compares standard versus itemized deductions, applies the 2026 SALT cap and medical-expense AGI floor, and treats entered mortgage interest and charitable gifts as already deductible amounts. It does not validate mortgage acquisition-debt limits, charitable substantiation/AGI caps, state-tax-credit charitable safe harbors, reimbursement rules, casualty losses, or foreign/territory income addbacks for the SALT phaseout.`,
+    action: "Keep Schedule A support for the entered amounts and review deduction-sensitive Roth-conversion, harvesting, spending, and tax-payment recommendations before treating them as filing-grade."
+  };
+}
+
+function itemizedDeductionSummary(taxProfile = {}) {
+  const itemized = taxProfile?.itemizedDeductions ?? {};
+  const amounts = {
+    stateLocalTaxes: Math.max(0, Number(itemized.stateLocalTaxes) || 0),
+    mortgageInterest: Math.max(0, Number(itemized.mortgageInterest) || 0),
+    charitableContributions: Math.max(0, Number(itemized.charitableContributions) || 0),
+    medicalExpenses: Math.max(0, Number(itemized.medicalExpenses) || 0)
+  };
+  const mode = itemized.mode ?? "auto";
+  return {
+    mode,
+    amounts,
+    hasItemizedInput: mode !== "auto" || Object.values(amounts).some((value) => value > 0)
+  };
+}
+
+function itemizedDeductionSummaryText(summary = {}) {
+  const parts = [];
+  if (summary.mode && summary.mode !== "auto") parts.push(`mode ${summary.mode}`);
+  const labels = {
+    stateLocalTaxes: "SALT paid",
+    mortgageInterest: "mortgage interest",
+    charitableContributions: "charitable gifts",
+    medicalExpenses: "medical expenses"
+  };
+  for (const [key, label] of Object.entries(labels)) {
+    const value = summary.amounts?.[key] ?? 0;
+    if (value > 0) parts.push(`${label} ${formatCurrency(value)}`);
+  }
+  return parts.length ? ` (${parts.join("; ")})` : "";
+}
+
 function manualFederalTaxOverrideReviewFlag(summary = {}) {
   return {
     id: "manual-federal-tax-overrides-review",
     level: CONFIDENCE_LEVELS.CPA_REVIEW,
     lens: "cpa",
     title: "Manual federal tax overrides need CPA review",
-    detail: `Manual federal tax overrides are present${manualFederalTaxOverrideText(summary)}. The model applies these amounts mechanically, inflates them forward with the tax profile, and uses them in tax estimates, Roth-conversion bracket room, harvesting, and safe-spending results. It does not validate eligibility, phaseouts, itemized-deduction character, refundable versus nonrefundable credit treatment, or AMT/QBI interactions.`,
+    detail: `Manual federal tax overrides are present${manualFederalTaxOverrideText(summary)}. The model applies these amounts mechanically, inflates them forward with the tax profile, and uses them in tax estimates, Roth-conversion bracket room, harvesting, and safe-spending results. It does not validate eligibility, phaseouts, refundable versus nonrefundable credit treatment, or AMT/QBI interactions.`,
     action: "Keep a worksheet/source for each override and review it before treating tax-payment, Roth-conversion, harvesting, or safe-spending recommendations as filing-grade."
   };
 }
@@ -606,12 +654,12 @@ function rescueFlagIds(kind) {
     case "rothBasisCliffRescue":
     case "conversionGuardrail":
     case "magiSpendTrim":
-      return ["aca-coverage-gap-modeled", "aca-medicaid-handoff-modeled", "aca-coverage-gap-risk", "manual-federal-tax-overrides-review", "enhanced-senior-deduction-eligibility", "aca-magi-threshold", "aca-plan-inputs", "aca-benchmark-state-fallback", "aca-benchmark-out-of-model", "aca-oop-inputs", "aca-net-premium-quote"];
+      return ["aca-coverage-gap-modeled", "aca-medicaid-handoff-modeled", "aca-coverage-gap-risk", "manual-federal-tax-overrides-review", "itemized-deduction-inputs-review", "enhanced-senior-deduction-eligibility", "aca-magi-threshold", "aca-plan-inputs", "aca-benchmark-state-fallback", "aca-benchmark-out-of-model", "aca-oop-inputs", "aca-net-premium-quote"];
     case "taxableLotRescue":
-      return ["manual-federal-tax-overrides-review", "enhanced-senior-deduction-eligibility", "aca-magi-threshold"];
+      return ["manual-federal-tax-overrides-review", "itemized-deduction-inputs-review", "enhanced-senior-deduction-eligibility", "aca-magi-threshold"];
     case "withdrawalShift":
     case "safeSpending":
-      return ["manual-federal-tax-overrides-review", "enhanced-senior-deduction-eligibility", "state-retirement-tax-review"];
+      return ["manual-federal-tax-overrides-review", "itemized-deduction-inputs-review", "enhanced-senior-deduction-eligibility", "state-retirement-tax-review"];
     case "incomeBridge":
     case "combined":
       return ["business-income-tax-review"];

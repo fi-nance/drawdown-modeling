@@ -877,7 +877,7 @@ test("automatic Roth conversions can use enhanced senior deduction room", () => 
     scenario: {
       planYears: 1,
       startYear: 2026,
-      targetSpend: 0,
+      targetSpend: 1_000,
       targetSpendIncludesTaxes: true,
       targetSpendIncludesMedical: true,
       withdrawalOrder: ["traditional"],
@@ -913,7 +913,55 @@ test("automatic Roth conversions can use enhanced senior deduction room", () => 
 
   assert.equal(plan.years[0].enhancedSeniorDeduction, 6000);
   assert.equal(plan.years[0].rothConversionAmount, 16000);
-  assert.equal(plan.years[0].taxes.taxableOrdinaryIncome, 10000);
+  assert.equal(plan.years[0].taxes.taxableOrdinaryIncome, 11000);
+});
+
+test("automatic Roth conversions can use itemized deduction room", () => {
+  const plan = simulatePlan({
+    assets: [{
+      id: "ira-bond",
+      accountType: "traditional",
+      assetClass: "bond",
+      units: 100_000,
+      price: 1,
+      costBasisPerUnit: 1
+    }],
+    scenario: {
+      planYears: 1,
+      startYear: 2026,
+      targetSpend: 1_000,
+      targetSpendIncludesTaxes: true,
+      targetSpendIncludesMedical: true,
+      withdrawalOrder: ["traditional"],
+      withdrawalStrategy: { mode: "heuristic" },
+      currentAge: 50,
+      returnAssumptions: { bond: { mean: 0, stdev: 0 } },
+      rothConversion: { enabled: true, mode: "auto", targetMarginalRate: 0.12, optimizeForAca: false },
+      aca: { enabled: false }
+    },
+    taxProfile: {
+      ...noTaxProfile,
+      filingStatus: "single",
+      ordinaryBrackets: [
+        { upTo: 10_000, rate: 0.1 },
+        { upTo: Infinity, rate: 0.22 }
+      ],
+      itemizedDeductions: {
+        mode: "itemized",
+        stateLocalTaxes: 0,
+        mortgageInterest: 6_000,
+        charitableContributions: 0,
+        medicalExpenses: 0
+      }
+    },
+    returnSequence: [{ bond: 0 }],
+    inflationSequence: [0]
+  });
+
+  assert.equal(plan.years[0].taxes.federalDeductionKind, "itemized");
+  assert.equal(plan.years[0].taxes.itemizedDeduction, 6000);
+  assert.equal(plan.years[0].rothConversionAmount, 16000);
+  assert.equal(plan.years[0].taxes.taxableOrdinaryIncome, 11000);
 });
 
 test("tax attribution identifies tax created by Roth conversions", () => {
