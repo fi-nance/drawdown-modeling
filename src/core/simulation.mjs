@@ -10,10 +10,10 @@ export {
   runMonteCarlo,
   runHistoricalBacktests,
   generateSingleMonteCarloPath
-} from "./simulation/plan.mjs?v=20260604-itemized";
-export { DEFAULT_SCENARIO } from "./simulation/scenario.mjs?v=20260604-itemized";
+} from "./simulation/plan.mjs?v=20260604-amt";
+export { DEFAULT_SCENARIO } from "./simulation/scenario.mjs?v=20260604-amt";
 export {
   MONTE_CARLO_ASSUMPTION_PRESETS,
   DEFAULT_MONTE_CARLO_RUNS,
   MEDICAL_INFLATION_PREMIUM
-} from "./simulation/constants.mjs?v=20260604-itemized";
+} from "./simulation/constants.mjs?v=20260604-amt";

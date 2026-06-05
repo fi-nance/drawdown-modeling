@@ -21,7 +21,7 @@ import {
   runMonteCarlo,
   simulatePlan,
   generateSingleMonteCarloPath
-} from "./core/simulation.mjs?v=20260604-itemized";
+} from "./core/simulation.mjs?v=20260604-amt";
 import { round } from "./core/utils.mjs";
 import { defaultOneOffExpenses, sampleAssets } from "./data/sample.mjs";
 import {
@@ -32,7 +32,7 @@ import {
   HISTORICAL_RETURN_DATA_VERSION,
   makeHistoricalSequences
 } from "./data/historicalReturns.mjs";
-import { buildAcaConfig, buildTaxProfile, STATE_OPTIONS, TAX_DATA_VERSION, getMonthlyBenchmarkPremium } from "./data/taxData.mjs?v=20260604-itemized";
+import { buildAcaConfig, buildTaxProfile, STATE_OPTIONS, TAX_DATA_VERSION, getMonthlyBenchmarkPremium } from "./data/taxData.mjs?v=20260604-amt";
 import { massachusettsConnectorCareEstimate, massachusettsConnectorCarePlanOptions } from "./data/acaPlanPresets.mjs";
 import {
   buildMarketplacePlanSearchRequest,
@@ -228,6 +228,7 @@ const CONTROL_IDS = [
   "itemizedMortgageInterest",
   "itemizedCharitableContributions",
   "itemizedMedicalExpenses",
+  "amtPreferenceItems",
   "stateTaxRate",
   "separateStateGains",
   "stateCapitalRate",
@@ -415,6 +416,7 @@ const els = {
   itemizedMortgageInterest: document.querySelector("#itemizedMortgageInterest"),
   itemizedCharitableContributions: document.querySelector("#itemizedCharitableContributions"),
   itemizedMedicalExpenses: document.querySelector("#itemizedMedicalExpenses"),
+  amtPreferenceItems: document.querySelector("#amtPreferenceItems"),
   stateTaxRate: document.querySelector("#stateTaxRate"),
   separateStateGains: document.querySelector("#separateStateGains"),
   stateCapitalRate: document.querySelector("#stateCapitalRate"),
@@ -1770,7 +1772,7 @@ function downloadJsonText(text, filename) {
 function getSimulationWorker() {
   if (!simulationWorker) {
     simulationWorker = new Worker(
-      new URL("./core/simulation.worker.mjs?v=20260604-itemized", import.meta.url),
+      new URL("./core/simulation.worker.mjs?v=20260604-amt", import.meta.url),
       { type: "module" }
     );
     simulationWorker.addEventListener("error", (ev) => {
@@ -2340,7 +2342,10 @@ function taxAuditLine(scenario) {
   const itemizedMode = profile.itemizedDeductions?.mode && profile.itemizedDeductions.mode !== "auto"
     ? `; deduction choice ${profile.itemizedDeductions.mode}`
     : "";
-  return `${federalYear} federal ${readableFilingStatus(profile.filingStatus ?? scenario.filingStatus)}, ${federalDeduction}${itemizedMode}; future standard deductions and bracket thresholds inflate with the modeled CPI path, while the enhanced senior deduction is applied only in its 2025-2028 window. State: ${state || "None"}${stateSource}.`;
+  const amtNote = Number(profile.amtPreferenceItems) > 0
+    ? `; AMT preference/addback estimate ${moneyFormatter.format(profile.amtPreferenceItems)}`
+    : "";
+  return `${federalYear} federal ${readableFilingStatus(profile.filingStatus ?? scenario.filingStatus)}, ${federalDeduction}${itemizedMode}${amtNote}; future standard deductions and bracket thresholds inflate with the modeled CPI path, while the enhanced senior deduction is applied only in its 2025-2028 window. State: ${state || "None"}${stateSource}.`;
 }
 
 function strategyAuditLine(scenario) {
@@ -2463,7 +2468,7 @@ function simulationAuditLine() {
 }
 
 function knownLimitsAuditLine() {
-  return "Planning model only: verify final ACA enrollment quotes, plan networks, Schedule A substantiation, and tax filings outside the app. AMT/QBI, exact state-exchange CSR designs, and intra-year withholding estimates are not modeled.";
+  return "Planning model only: verify final ACA enrollment quotes, plan networks, Schedule A substantiation, and tax filings outside the app. AMT is a CPA-review tripwire, not a full Form 6251 calculation; QBI, exact state-exchange CSR designs, and intra-year withholding estimates are not modeled.";
 }
 
 function readableFilingStatus(value) {
@@ -4500,6 +4505,7 @@ function readTaxProfile() {
     itemizedMortgageInterest: Number(els.itemizedMortgageInterest?.value) || 0,
     itemizedCharitableContributions: Number(els.itemizedCharitableContributions?.value) || 0,
     itemizedMedicalExpenses: Number(els.itemizedMedicalExpenses?.value) || 0,
+    amtPreferenceItems: Number(els.amtPreferenceItems?.value) || 0,
     overrideRate: percentOrNull(els.stateTaxRate.value),
     overrideCapitalGainsRate: percentOrNull(els.stateCapitalRate.value),
     separateCapitalGains: els.separateStateGains.checked,

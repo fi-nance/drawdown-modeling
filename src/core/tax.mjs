@@ -1,5 +1,5 @@
 import { EPSILON, round } from "./utils.mjs";
-import { buildTaxProfile } from "../data/taxData.mjs?v=20260604-itemized";
+import { buildTaxProfile } from "../data/taxData.mjs?v=20260604-amt";
 import {
   stateRetirementIncomeExclusion,
   stateSocialSecurityExclusion

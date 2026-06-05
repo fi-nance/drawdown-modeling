@@ -208,9 +208,14 @@ but in scope for the north-star if we want CPA-grade coverage):
   charitable gifts, and medical expenses. Confidence flags still require CPA
   review for filing-grade substantiation, mortgage-debt limits, charity caps,
   casualty losses, and other Schedule A edge cases.
+- ✅ **[Shipped] AMT exposure tripwire** source-versions 2026 exemption,
+  phaseout, complete phaseout, and 28% rate thresholds, exposes a Form 6251
+  preference/addback estimate control, and CPA-flags tax-sensitive
+  recommendations when entered addbacks or high modeled income make AMT review
+  relevant. Full Form 6251 tentative-minimum-tax calculation remains out of
+  model.
 - **QBI deduction** for households with pass-through income (relevant to
   consulting-bridge users — see decision-engine "earn bridge income").
-- **AMT** check, at minimum as a tripwire that flags affected households.
 - **Refundable credits**: ACTC, EITC, education, dependent-care — when household
   composition triggers them.
 - **NUA** (Net Unrealized Appreciation) for employer-stock-heavy households.

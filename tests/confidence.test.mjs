@@ -156,6 +156,95 @@ test("confidence report flags itemized deduction inputs for Schedule A review", 
   );
 });
 
+test("confidence report flags AMT exposure for Form 6251 review", () => {
+  const report = buildConfidenceReport({
+    scenario: { aca: { enabled: false } },
+    taxProfile: {
+      filingStatus: "marriedFilingJointly",
+      standardDeduction: 32_200,
+      amtPreferenceItems: 20_000,
+      itemizedDeductions: {
+        mode: "itemized",
+        stateLocalTaxes: 40_000
+      },
+      alternativeMinimumTax: {
+        exemption: {
+          marriedFilingJointly: 140_200
+        },
+        phaseoutThreshold: {
+          marriedFilingJointly: 1_000_000
+        },
+        completePhaseout: {
+          marriedFilingJointly: 1_280_400
+        },
+        rateThreshold: {
+          marriedFilingJointly: 244_500
+        },
+        rates: [0.26, 0.28]
+      }
+    },
+    plan: {
+      years: [{
+        year: 2026,
+        federalAgi: 950_000
+      }]
+    },
+    decision: {
+      status: "ready",
+      base: { historical: { count: 10 }, verdict: { historicalKnown: true, monteCarloPasses: true, historicalPasses: true } }
+    }
+  });
+
+  const flag = report.flags.find((item) => item.id === "amt-exposure-review");
+  assert.ok(flag);
+  assert.equal(flag.level, CONFIDENCE_LEVELS.CPA_REVIEW);
+  assert.match(flag.title, /AMT exposure/);
+  assert.match(flag.detail, /Form 6251/);
+  assert.match(flag.detail, /\$20,000/);
+  assert.match(flag.detail, /2026 \(\$950,000\)/);
+  assert.match(flag.detail, /\$140,200/);
+  assert.match(flag.detail, /\$1,000,000/);
+  assert.match(flag.detail, /Schedule A tax addback/);
+  assert.match(flag.action, /Roth conversions/);
+
+  assert.equal(actionConfidenceFor("rothConversion", report).level, CONFIDENCE_LEVELS.CPA_REVIEW);
+  assert.equal(actionConfidenceFor("taxGainHarvesting", report).level, CONFIDENCE_LEVELS.CPA_REVIEW);
+  assert.equal(
+    rescueConfidenceFor({ kind: "safeSpending", historical: { count: 10 } }, report).level,
+    CONFIDENCE_LEVELS.CPA_REVIEW
+  );
+  assert.equal(
+    rescueConfidenceFor({ kind: "conversionGuardrail", historical: { count: 10 } }, report).level,
+    CONFIDENCE_LEVELS.CPA_REVIEW
+  );
+  assert.equal(
+    rescueConfidenceFor({ kind: "incomeBridge", historical: { count: 10 } }, report).level,
+    CONFIDENCE_LEVELS.CPA_REVIEW
+  );
+});
+
+test("confidence report does not flag AMT config alone for ordinary income plans", () => {
+  const report = buildConfidenceReport({
+    scenario: { aca: { enabled: false } },
+    taxProfile: {
+      filingStatus: "marriedFilingJointly",
+      standardDeduction: 32_200,
+      alternativeMinimumTax: {
+        exemption: { marriedFilingJointly: 140_200 },
+        phaseoutThreshold: { marriedFilingJointly: 1_000_000 },
+        completePhaseout: { marriedFilingJointly: 1_280_400 },
+        rateThreshold: { marriedFilingJointly: 244_500 },
+        rates: [0.26, 0.28]
+      }
+    },
+    plan: {
+      years: [{ year: 2026, federalAgi: 150_000 }]
+    }
+  });
+
+  assert.equal(report.flags.some((item) => item.id === "amt-exposure-review"), false);
+});
+
 test("confidence report flags enhanced senior deduction eligibility inputs", () => {
   const report = buildConfidenceReport({
     scenario: {

@@ -204,7 +204,8 @@ test("itemized deduction controls are visible, persisted, and disclosed in resul
     "itemizedStateLocalTaxes",
     "itemizedMortgageInterest",
     "itemizedCharitableContributions",
-    "itemizedMedicalExpenses"
+    "itemizedMedicalExpenses",
+    "amtPreferenceItems"
   ];
 
   for (const id of controlIds) {
@@ -215,11 +216,14 @@ test("itemized deduction controls are visible, persisted, and disclosed in resul
 
   assert.match(appSource, /itemizedDeductionMode: els\.itemizedDeductionMode\?\.value \|\| "auto"/);
   assert.match(appSource, /itemizedStateLocalTaxes: Number\(els\.itemizedStateLocalTaxes\?\.value\) \|\| 0/);
+  assert.match(appSource, /amtPreferenceItems: Number\(els\.amtPreferenceItems\?\.value\) \|\| 0/);
+  assert.match(appSource, /AMT preference\/addback estimate/);
+  assert.match(appSource, /AMT is a CPA-review tripwire/);
   assert.match(appSource, /"Deduction", "Itemized ded"/);
   assert.match(appSource, /federalDeductionKind/);
   assert.match(redesignSource, /Itemized deductions/);
   assert.match(redesignSource, /federalDeductionKind/);
-  assert.match(redesignSource, /id: "tax-overrides"[\s\S]*controls: 17/);
+  assert.match(redesignSource, /id: "tax-overrides"[\s\S]*controls: 18/);
 });
 
 test("workspace scenario construction preserves every advertised spending mode", async () => {

@@ -4,7 +4,7 @@ import {
   stateRetirementRulesFor
 } from "./stateRetirementTax2026.mjs";
 
-export const TAX_DATA_VERSION = "2026.6";
+export const TAX_DATA_VERSION = "2026.7";
 export const DEFAULT_TAX_YEAR = 2026;
 
 export const FILING_STATUSES = {
@@ -97,6 +97,34 @@ export const FEDERAL_TAX_2026 = {
       mfsPost2029Cap: 5000,
       source: "IRS 2026 Form 1040-ES SALT correction; IRS Schedule A instructions."
     }
+  },
+  alternativeMinimumTax: {
+    exemption: {
+      single: 90100,
+      marriedFilingJointly: 140200,
+      marriedFilingSeparately: 70100,
+      headOfHousehold: 90100
+    },
+    rateThreshold: {
+      single: 244500,
+      marriedFilingJointly: 244500,
+      marriedFilingSeparately: 122250,
+      headOfHousehold: 244500
+    },
+    phaseoutThreshold: {
+      single: 500000,
+      marriedFilingJointly: 1000000,
+      marriedFilingSeparately: 500000,
+      headOfHousehold: 500000
+    },
+    completePhaseout: {
+      single: 680200,
+      marriedFilingJointly: 1280400,
+      marriedFilingSeparately: 640200,
+      headOfHousehold: 680200
+    },
+    rates: [0.26, 0.28],
+    source: "IRS Rev. Proc. 2025-32 section 4.10; IRS Topic 556; IRS 2025 Form 6251 instructions."
   },
   enhancedSeniorDeduction: {
     effectiveStartYear: 2025,
@@ -320,7 +348,8 @@ export function buildFederalTaxProfile({
   itemizedStateLocalTaxes = 0,
   itemizedMortgageInterest = 0,
   itemizedCharitableContributions = 0,
-  itemizedMedicalExpenses = 0
+  itemizedMedicalExpenses = 0,
+  amtPreferenceItems = 0
 } = {}) {
   const data = FEDERAL_TAX_BY_YEAR[taxYear] ?? FEDERAL_TAX_2026;
   const status = FILING_STATUSES[filingStatus] ? filingStatus : "marriedFilingJointly";
@@ -338,6 +367,8 @@ export function buildFederalTaxProfile({
     employeePayrollTax: data.employeePayrollTax,
     childTaxCredit: data.childTaxCredit,
     additionalStandardDeduction65: data.additionalStandardDeduction65,
+    alternativeMinimumTax: data.alternativeMinimumTax,
+    amtPreferenceItems: Math.max(0, Number(amtPreferenceItems) || 0),
     enhancedSeniorDeduction: data.enhancedSeniorDeduction,
     socialSecurityTaxation: data.socialSecurityTaxation,
     socialSecurityPiaFormula: data.socialSecurityPiaFormula,

@@ -767,7 +767,7 @@
                     <span class="module-sub">Power-user tax tweaks</span>
                   </div>
                 </div>
-                <div class="module-actions"><span class="controls-pill">17 controls</span></div>
+                <div class="module-actions"><span class="controls-pill">18 controls</span></div>
               </div>
               <div class="module-body">
                 <div class="control-grid">
@@ -795,6 +795,11 @@
                   <label><span>Mortgage interest</span>           <input id="itemizedMortgageInterest" type="number" min="0" step="500" value="0"></label>
                   <label><span>Charitable gifts</span>            <input id="itemizedCharitableContributions" type="number" min="0" step="500" value="0"></label>
                   <label><span>Medical expenses</span>            <input id="itemizedMedicalExpenses" type="number" min="0" step="500" value="0"></label>
+                  <label>
+                    <span>AMT preference/addbacks</span>
+                    <input id="amtPreferenceItems" type="number" min="0" step="500" value="0">
+                    <small>Form 6251 estimate for AMT-sensitive tax guidance; flags review but does not calculate AMT.</small>
+                  </label>
                   <label><span>State tax % override</span>         <input id="stateTaxRate" type="number" min="0" max="20" step="0.1" placeholder="Auto"></label>
                   <label><span>State capital gains %</span>        <input id="stateCapitalRate" type="number" min="0" max="20" step="0.1" placeholder="Auto"></label>
                   <label><span>Manual state retirement exclusion</span><input id="stateRetirementExclusion" type="number" min="0" step="500" value="0"></label>
@@ -1102,7 +1107,7 @@
       <select id="viewMode"><option value="real" selected>Today's $</option><option value="nominal">Future $</option></select>
     </div>
 
-    <script type="module" src="./src/app.mjs?v=20260604-itemized"></script>
-    <script type="module" src="./src/redesign.mjs?v=20260604-itemized"></script>
+    <script type="module" src="./src/app.mjs?v=20260604-amt"></script>
+    <script type="module" src="./src/redesign.mjs?v=20260604-amt"></script>
   </body>
 </html>

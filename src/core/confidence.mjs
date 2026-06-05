@@ -33,7 +33,7 @@ export function actionConfidenceFor(actionKind, confidenceReport = {}) {
   const find = (ids) => findFlagByPriority(flags, ids);
 
   if (["taxReserve", "traditionalWithdrawal", "rothConversion", "taxGainHarvesting", "taxLossHarvesting"].includes(actionKind)) {
-    const flag = find(["manual-federal-tax-overrides-review", "itemized-deduction-inputs-review", "enhanced-senior-deduction-eligibility"]);
+    const flag = find(["amt-exposure-review", "manual-federal-tax-overrides-review", "itemized-deduction-inputs-review", "enhanced-senior-deduction-eligibility"]);
     if (flag) return actionConfidenceFromFlag(flag);
   }
 
@@ -145,7 +145,7 @@ export function buildConfidenceReport({
   addHealthcareFlags(flags, scenario, decision);
   addCoverageGapFlags(flags, scenario, plan);
   addStateTaxFlags(flags, taxProfile);
-  addFederalTaxScopeFlags(flags, scenario, taxProfile);
+  addFederalTaxScopeFlags(flags, scenario, taxProfile, plan);
   addEvidenceFlags(flags, decision, historicalCoverage, historicalAssetClasses);
   addSocialSecurityFlags(flags, scenario);
   addLegacyFlags(flags, scenario);
@@ -383,7 +383,7 @@ function addStateTaxFlags(flags, taxProfile) {
   }
 }
 
-function addFederalTaxScopeFlags(flags, scenario = {}, taxProfile = {}) {
+function addFederalTaxScopeFlags(flags, scenario = {}, taxProfile = {}, plan = null) {
   const enhancedSeniorDeduction = enhancedSeniorDeductionAssumptionSummary(scenario, taxProfile);
   if (enhancedSeniorDeduction.hasPotentialDeduction) {
     flags.push(enhancedSeniorDeductionEligibilityFlag(enhancedSeniorDeduction));
@@ -397,6 +397,11 @@ function addFederalTaxScopeFlags(flags, scenario = {}, taxProfile = {}) {
   const itemizedDeductions = itemizedDeductionSummary(taxProfile);
   if (itemizedDeductions.hasItemizedInput) {
     flags.push(itemizedDeductionReviewFlag(itemizedDeductions));
+  }
+
+  const alternativeMinimumTax = alternativeMinimumTaxSummary({ scenario, taxProfile, plan });
+  if (alternativeMinimumTax.hasAmtExposure) {
+    flags.push(alternativeMinimumTaxReviewFlag(alternativeMinimumTax));
   }
 
   const businessIncome = selfEmploymentIncomeSummary(scenario);
@@ -490,6 +495,89 @@ function itemizedDeductionSummaryText(summary = {}) {
     if (value > 0) parts.push(`${label} ${formatCurrency(value)}`);
   }
   return parts.length ? ` (${parts.join("; ")})` : "";
+}
+
+function alternativeMinimumTaxReviewFlag(summary = {}) {
+  return {
+    id: "amt-exposure-review",
+    level: CONFIDENCE_LEVELS.CPA_REVIEW,
+    lens: "cpa",
+    title: "AMT exposure needs Form 6251 review",
+    detail: `AMT tripwire is active${alternativeMinimumTaxSummaryText(summary)}. The model source-versions the 2026 AMT exemption (${formatCurrency(summary.exemption)} for ${readableFilingStatus(summary.filingStatus)}), phaseout threshold (${formatCurrency(summary.phaseoutThreshold)}), complete phaseout (${formatCurrency(summary.completePhaseout)}), and 28% rate threshold (${formatCurrency(summary.rateThreshold)}). It does not calculate tentative minimum tax, AMT foreign tax credit, private-activity bond interest, ISO/depreciation/passive-loss adjustments, K-1 AMT items, or full Form 6251 adjustments/preferences.`,
+    action: "Review Roth conversions, gain harvesting, withdrawal sequencing, tax reserves, and safe-spending recommendations under Form 6251 before acting."
+  };
+}
+
+function alternativeMinimumTaxSummary({ scenario = {}, taxProfile = {}, plan = null } = {}) {
+  const config = taxProfile?.alternativeMinimumTax;
+  if (!config) return { hasAmtExposure: false };
+
+  const filingStatus = taxProfile?.filingStatus ?? scenario?.filingStatus ?? "marriedFilingJointly";
+  const exemption = finiteOrNull(config.exemption?.[filingStatus]);
+  const phaseoutThreshold = finiteOrNull(config.phaseoutThreshold?.[filingStatus]);
+  const completePhaseout = finiteOrNull(config.completePhaseout?.[filingStatus]);
+  const rateThreshold = finiteOrNull(config.rateThreshold?.[filingStatus]);
+  const preferenceItems = Math.max(0, Number(taxProfile?.amtPreferenceItems) || 0);
+  const itemized = taxProfile?.itemizedDeductions ?? {};
+  const scheduleATaxAddbackExposure = Math.max(0, Number(itemized.stateLocalTaxes) || 0);
+  const standardDeductionAddbackExposure = Math.max(0, Number(taxProfile?.standardDeduction) || 0);
+  const reviewThreshold = Number.isFinite(phaseoutThreshold) ? phaseoutThreshold * 0.9 : Infinity;
+  const highIncomeYears = modeledAmtIncomeYears(plan, reviewThreshold);
+
+  return {
+    hasAmtExposure: preferenceItems > 0 || highIncomeYears.length > 0,
+    filingStatus,
+    exemption,
+    phaseoutThreshold,
+    completePhaseout,
+    rateThreshold,
+    preferenceItems,
+    scheduleATaxAddbackExposure,
+    standardDeductionAddbackExposure,
+    highIncomeYears,
+    reviewThreshold
+  };
+}
+
+function modeledAmtIncomeYears(plan = null, reviewThreshold = Infinity) {
+  if (!Array.isArray(plan?.years) || !Number.isFinite(reviewThreshold)) return [];
+  return plan.years
+    .filter((year) => !year?.postMortality)
+    .map((year) => {
+      const income = Math.max(
+        0,
+        Number(year?.federalAgi) || 0,
+        Number(year?.irmaaMagi) || 0,
+        Number(year?.acaMagi) || 0,
+        Number(year?.magi) || 0
+      );
+      return {
+        year: year?.year ?? year?.calendarYear ?? year?.yearIndex ?? "?",
+        income
+      };
+    })
+    .filter((year) => year.income >= reviewThreshold)
+    .slice(0, 5);
+}
+
+function alternativeMinimumTaxSummaryText(summary = {}) {
+  const parts = [];
+  if (summary.preferenceItems > 0) {
+    parts.push(`entered Form 6251 preference/addbacks ${formatCurrency(summary.preferenceItems)}`);
+  }
+  if (summary.highIncomeYears?.length) {
+    parts.push(`modeled income near AMT phaseout in ${formatModeledAmtYears(summary.highIncomeYears)}`);
+  }
+  if (summary.scheduleATaxAddbackExposure > 0) {
+    parts.push(`Schedule A tax addback exposure ${formatCurrency(summary.scheduleATaxAddbackExposure)}`);
+  } else if (summary.standardDeductionAddbackExposure > 0 && summary.highIncomeYears?.length) {
+    parts.push(`standard-deduction AMT addback exposure ${formatCurrency(summary.standardDeductionAddbackExposure)}`);
+  }
+  return parts.length ? ` (${parts.join("; ")})` : "";
+}
+
+function formatModeledAmtYears(years = []) {
+  return years.map((year) => `${year.year} (${formatCurrency(year.income)})`).join(", ");
 }
 
 function manualFederalTaxOverrideReviewFlag(summary = {}) {
@@ -654,15 +742,15 @@ function rescueFlagIds(kind) {
     case "rothBasisCliffRescue":
     case "conversionGuardrail":
     case "magiSpendTrim":
-      return ["aca-coverage-gap-modeled", "aca-medicaid-handoff-modeled", "aca-coverage-gap-risk", "manual-federal-tax-overrides-review", "itemized-deduction-inputs-review", "enhanced-senior-deduction-eligibility", "aca-magi-threshold", "aca-plan-inputs", "aca-benchmark-state-fallback", "aca-benchmark-out-of-model", "aca-oop-inputs", "aca-net-premium-quote"];
+      return ["amt-exposure-review", "aca-coverage-gap-modeled", "aca-medicaid-handoff-modeled", "aca-coverage-gap-risk", "manual-federal-tax-overrides-review", "itemized-deduction-inputs-review", "enhanced-senior-deduction-eligibility", "aca-magi-threshold", "aca-plan-inputs", "aca-benchmark-state-fallback", "aca-benchmark-out-of-model", "aca-oop-inputs", "aca-net-premium-quote"];
     case "taxableLotRescue":
-      return ["manual-federal-tax-overrides-review", "itemized-deduction-inputs-review", "enhanced-senior-deduction-eligibility", "aca-magi-threshold"];
+      return ["amt-exposure-review", "manual-federal-tax-overrides-review", "itemized-deduction-inputs-review", "enhanced-senior-deduction-eligibility", "aca-magi-threshold"];
     case "withdrawalShift":
     case "safeSpending":
-      return ["manual-federal-tax-overrides-review", "itemized-deduction-inputs-review", "enhanced-senior-deduction-eligibility", "state-retirement-tax-review"];
+      return ["amt-exposure-review", "manual-federal-tax-overrides-review", "itemized-deduction-inputs-review", "enhanced-senior-deduction-eligibility", "state-retirement-tax-review"];
     case "incomeBridge":
     case "combined":
-      return ["business-income-tax-review"];
+      return ["amt-exposure-review", "business-income-tax-review"];
     case "socialSecurityBridge":
       return ["social-security-claiming-inputs"];
     default:
@@ -714,6 +802,17 @@ function historicalCoverageAction(historicalCoverage, historicalAssetClasses) {
     ? `Current coverage for ${classes}: ${historicalCoverage.startYear}-${historicalCoverage.endYear}.`
     : `Check historical coverage for ${classes}.`;
   return `${coverage} Enable documented proxies or adjust the historical range when appropriate.`;
+}
+
+function finiteOrNull(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function readableFilingStatus(value) {
+  return String(value || "")
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/^./, (letter) => letter.toUpperCase());
 }
 
 function formatCurrency(value) {

@@ -2,7 +2,7 @@
 // Single responsibility: heirEstate. No behavior changes — pure code movement.
 
 import { marketValue } from "../portfolio.mjs";
-import { DEFAULT_TAX_PROFILE, taxFromBrackets } from "../tax.mjs?v=20260604-itemized";
+import { DEFAULT_TAX_PROFILE, taxFromBrackets } from "../tax.mjs?v=20260604-amt";
 import { round } from "../utils.mjs";
 import { DEFAULT_SCENARIO } from "./scenario.mjs";
 

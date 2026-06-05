@@ -7,7 +7,7 @@ import {
   taxFromBrackets,
   inflateTaxProfile
 } from "../src/core/tax.mjs";
-import { buildTaxProfile } from "../src/data/taxData.mjs";
+import { buildTaxProfile, TAX_DATA_VERSION } from "../src/data/taxData.mjs";
 
 const profile = {
   standardDeduction: 0,
@@ -373,6 +373,29 @@ test("additional federal deductions and credits are explicit tax-profile overrid
   assert.equal(tax.federalIncomeTaxBeforeCredits, 1000);
   assert.equal(tax.federalCreditsUsed, 1000);
   assert.equal(tax.totalTax, 0);
+});
+
+test("2026 AMT tripwire data and preference addbacks are source-versioned", () => {
+  const taxProfile = buildTaxProfile({
+    taxYear: 2026,
+    filingStatus: "marriedFilingJointly",
+    state: "Florida",
+    amtPreferenceItems: 20_000
+  });
+
+  assert.equal(TAX_DATA_VERSION, "2026.7");
+  assert.equal(taxProfile.amtPreferenceItems, 20_000);
+  assert.equal(taxProfile.buildOptions.amtPreferenceItems, 20_000);
+  assert.deepEqual(taxProfile.alternativeMinimumTax.exemption, {
+    single: 90_100,
+    marriedFilingJointly: 140_200,
+    marriedFilingSeparately: 70_100,
+    headOfHousehold: 90_100
+  });
+  assert.equal(taxProfile.alternativeMinimumTax.phaseoutThreshold.marriedFilingJointly, 1_000_000);
+  assert.equal(taxProfile.alternativeMinimumTax.completePhaseout.marriedFilingJointly, 1_280_400);
+  assert.equal(taxProfile.alternativeMinimumTax.rateThreshold.marriedFilingJointly, 244_500);
+  assert.deepEqual(taxProfile.alternativeMinimumTax.rates, [0.26, 0.28]);
 });
 
 test("itemized deductions auto-select when they exceed the standard deduction", () => {
