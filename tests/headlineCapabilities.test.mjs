@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import { simulatePlan, DEFAULT_SCENARIO, runMonteCarlo, generateSingleMonteCarloPath } from "../src/core/simulation.mjs";
@@ -142,6 +143,18 @@ test("State Inheritance Tax: PA taxes lineal heirs (4.5%), NJ exempts them (Clas
   // parents) are fully exempt, so a lineal heir owes $0 NJ inheritance tax.
   assert.equal(planPA.heirValueBreakdown.stateInheritanceTax, 45_000);
   assert.equal(planNJ.heirValueBreakdown.stateInheritanceTax, 0);
+});
+
+test("state inheritance tax UI labels match the lineal-heir engine scope", async () => {
+  const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
+
+  assert.match(html, /Pennsylvania \(PA - 4\.5% lineal\)/);
+  assert.match(html, /Nebraska \(NE - 1% lineal\)/);
+  assert.match(html, /New Jersey \(NJ - lineal exempt\)/);
+  assert.match(html, /Maryland \(MD - lineal exempt\)/);
+  assert.match(html, /non-spouse bequest value for lineal descendants only/);
+  assert.doesNotMatch(html, /New Jersey \(NJ - 15% non-spouse\)/);
+  assert.doesNotMatch(html, /Maryland \(MD - 10%\)/);
 });
 
 test("Social Security early reductions and delayed retirement credits", () => {

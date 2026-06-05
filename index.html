@@ -560,13 +560,13 @@
                   <label>
                     <span>State inheritance tax</span>
                     <select id="heirState">
-                      <option value="" selected>None (Exempt)</option>
+                      <option value="" selected>None / exempt</option>
                       <option value="PA">Pennsylvania (PA - 4.5% lineal)</option>
-                      <option value="NJ">New Jersey (NJ - 15% non-spouse)</option>
-                      <option value="MD">Maryland (MD - 10%)</option>
-                      <option value="NE">Nebraska (NE - 1%)</option>
+                      <option value="NJ">New Jersey (NJ - lineal exempt)</option>
+                      <option value="MD">Maryland (MD - lineal exempt)</option>
+                      <option value="NE">Nebraska (NE - 1% lineal)</option>
                     </select>
-                    <small>State inheritance tax applied directly to the gross estate.</small>
+                    <small>Applied to non-spouse bequest value for lineal descendants only; non-lineal relationship classes are out of model.</small>
                   </label>
                   <label><span>Annual conversion override</span><input id="rothAmount" type="number" min="0" step="1000" placeholder="Auto"></label>
                   <label><span>Conversion max ACA FPL %</span><input id="rothConversionMaxAcaFplPercent" type="number" min="100" max="600" step="1" value="400"></label>

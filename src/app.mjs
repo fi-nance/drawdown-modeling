@@ -2403,13 +2403,13 @@ function legacyAuditLine(scenario) {
     ? ` Spouse-designated inherited traditional/HSA value ${moneyFormatter.format(breakdown.spouseRolloverValue)} is treated as tax-deferred in the bequest estimate.`
     : "";
   const base = `After-tax bequest estimate assumes a ${heirTypeLabel} household default with heir ordinary tax rate ${rate}; Roth and taxable balances are treated as tax-free to heirs, with taxable unrealized gains assumed stepped up at death.${beneficiaryNote}${rolloverNote}${dragNote}`;
-  if (!breakdown) return `${base} Inherited IRA payout timing and estate/inheritance tax are not modeled.`;
+  if (!breakdown) return `${base} Inherited-account payout timing, federal estate tax, and lineal state inheritance tax are unavailable for this result.`;
 
   const effectiveRateLabel = breakdown.effectiveTraditionalTaxRate != null
     && breakdown.effectiveTraditionalTaxRate !== breakdown.assumedOrdinaryTaxRate
     ? ` (effective traditional tax rate after bracket adjustment: ${percentFormatter.format(breakdown.effectiveTraditionalTaxRate)})`
     : "";
-  return `${base}${effectiveRateLabel} Current modeled ending gross value ${moneyFormatter.format(breakdown.grossValue ?? 0)}, estimated income tax ${moneyFormatter.format(breakdown.totalIncomeTaxEstimate ?? 0)}, after-tax bequest ${moneyFormatter.format(breakdown.afterTaxValue ?? 0)}. Inherited IRA payout timing details and estate/inheritance tax are not modeled.`;
+  return `${base}${effectiveRateLabel} Current modeled ending gross value ${moneyFormatter.format(breakdown.grossValue ?? 0)}, estimated inherited-account income tax ${moneyFormatter.format(breakdown.totalIncomeTaxEstimate ?? 0)}, federal estate tax ${moneyFormatter.format(breakdown.federalEstateTax ?? 0)}, lineal state inheritance tax ${moneyFormatter.format(breakdown.stateInheritanceTax ?? 0)}, after-tax bequest ${moneyFormatter.format(breakdown.afterTaxValue ?? 0)}. Non-lineal relationship classes, trusts, portability, and state estate taxes remain out of model.`;
 }
 
 function acaLocalityAuditLine(scenario) {

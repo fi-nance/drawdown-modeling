@@ -70,7 +70,7 @@ CSV and Google Sheets imports also normalize common retirement account labels: `
 Supported `assetClass` values are `stock`, `bond`, `cash`, `realEstate`, `tips`, and `crypto`.
 Optional `beneficiaryType` values are `default`, `spouse`, `nonSpouse10Yr`, and `eligibleDesignated`; this lets an account override the household-level heir beneficiary assumption in the after-tax bequest estimate.
 
-Private Google Sheets can be imported with Google OAuth by entering a Google OAuth web client ID, the sheet URL or spreadsheet ID, and an A1 range such as `A:J`. The OAuth client must include the app origin, for example `http://127.0.0.1:4175`, in its authorized JavaScript origins. The app requests only `https://www.googleapis.com/auth/spreadsheets.readonly` and keeps the access token in memory.
+Private Google Sheets can be imported with Google OAuth by entering a Google OAuth web client ID, the sheet URL or spreadsheet ID, and an A1 range such as `A:J`. The OAuth client must include the app origin, for example `http://127.0.0.1:4173`, in its authorized JavaScript origins. The app requests only `https://www.googleapis.com/auth/spreadsheets.readonly` and keeps the access token in memory.
 
 Private data can also be imported without OAuth by downloading the sheet as CSV and selecting it with the CSV file input.
 

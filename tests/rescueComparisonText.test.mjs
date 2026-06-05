@@ -186,6 +186,9 @@ test("after-tax bequest control is visible, persisted, and audited", async () =>
   assert.match(appSource, /selectHtml\(index, "beneficiaryType", beneficiaryOptions/);
   assert.match(appSource, /Household default/);
   assert.match(appSource, /Non-spouse 10-year/);
+  assert.match(appSource, /lineal state inheritance tax/);
+  assert.match(appSource, /Non-lineal relationship classes/);
+  assert.doesNotMatch(appSource, /estate\/inheritance tax are not modeled/);
   assert.match(redesignSource, /After-tax bequest/);
   assert.match(redesignSource, /pickHeirValue/);
 });
