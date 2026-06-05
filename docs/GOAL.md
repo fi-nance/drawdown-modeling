@@ -180,8 +180,8 @@ its status today.
 Shipped today (see README and `src/data/taxData.mjs`):
 - Federal 2026 brackets, standard deduction, age-65 bump, LTCG/QDI stacking,
   2025-2028 enhanced senior deduction with MAGI phaseout, NIIT, W-2 employee
-  FICA, Additional Medicare Tax, self-employment tax, child tax credit
-  (nonrefundable).
+  FICA, Additional Medicare Tax, self-employment tax, child tax credit, and
+  common Additional Child Tax Credit earned-income formula.
 - Capital loss carryforwards, ordinary loss offsets.
 - 50-state ordinary + capital-gains tax tables with retirement-income and
   Social Security rule overlays.
@@ -219,8 +219,13 @@ but in scope for the north-star if we want CPA-grade coverage):
   SSTB status, W-2 wage, and UBIA inputs. Confidence flags still require CPA
   review for Form 8995/8995-A support, pass-through/K-1 aggregation, loss
   carryforwards, REIT/PTP components, and business-deduction facts.
-- **Refundable credits**: ACTC, EITC, education, dependent-care — when household
-  composition triggers them.
+- ✅ **[Shipped] Additional Child Tax Credit planning estimate** applies the
+  common Schedule 8812 earned-income formula and surfaces refundable credits in
+  year-by-year tax/cash-flow outputs. Confidence flags still require CPA review
+  for SSNs, qualifying-child facts, EITC coordination, Puerto Rico, combat-pay,
+  Medicaid-waiver, Form 2555, and three-or-more-child Schedule 8812 edge cases.
+- **Other refundable / earned-income-linked credits**: EITC, education,
+  dependent-care — when household composition triggers them.
 - **NUA** (Net Unrealized Appreciation) for employer-stock-heavy households.
 - **72(t) SEPP** as an explicit early-withdrawal mode, not a manual exception.
 - **Form 8606 ordering** and separate Roth IRA vs designated Roth 401(k) clocks.
@@ -406,6 +411,7 @@ risk first, then breadth.
   mortgage, charitable, medical AGI floor) with Schedule A CPA-review flags.
 - ✅ QBI deduction planning for manual or SE bridge income, with Form 8995
   review flags.
+- ✅ ACTC planning estimate with Schedule 8812 review flags.
 - ✅ AMT tripwire.
 - ~~2026 TCJA sunset regime modeling~~ — moot: OBBBA (2025) made the TCJA
   individual structure permanent, so there is no sunset to model. Replaced by:

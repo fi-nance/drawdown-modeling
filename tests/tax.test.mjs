@@ -352,8 +352,75 @@ test("2026 child tax credit reduces regular federal income tax after brackets", 
 
   assert.equal(tax.childTaxCredit, 4400);
   assert.equal(tax.federalIncomeTaxBeforeCredits, 5504);
+  assert.equal(tax.nonrefundableChildTaxCredit, 4400);
+  assert.equal(tax.additionalChildTaxCredit, 0);
   assert.equal(tax.federalCreditsUsed, 4400);
+  assert.equal(tax.federalRefundableCredits, 0);
   assert.equal(tax.totalTax, 1104);
+});
+
+test("2026 Additional Child Tax Credit applies the common earned-income limit", () => {
+  const taxProfile = buildTaxProfile({
+    taxYear: 2026,
+    filingStatus: "marriedFilingJointly",
+    state: "Florida",
+    qualifyingChildren: 2
+  });
+  const tax = computeIncomeTax({
+    ordinaryIncome: 20_000,
+    medicareWages: 20_000,
+    profile: taxProfile
+  });
+
+  assert.equal(tax.childTaxCredit, 4400);
+  assert.equal(tax.nonrefundableChildTaxCredit, 0);
+  assert.equal(tax.unusedChildTaxCredit, 4400);
+  assert.equal(tax.earnedIncomeForRefundableCredits, 20_000);
+  assert.equal(tax.additionalChildTaxCredit, 2625);
+  assert.equal(tax.federalRefundableCredits, 2625);
+  assert.equal(tax.employeePayrollTax, 1530);
+  assert.equal(tax.netFederalIncomeTaxAfterRefundableCredits, -2625);
+  assert.equal(tax.totalTax, -1095);
+});
+
+test("Additional Child Tax Credit is zero at the earned-income threshold", () => {
+  const taxProfile = buildTaxProfile({
+    taxYear: 2026,
+    filingStatus: "marriedFilingJointly",
+    state: "Florida",
+    qualifyingChildren: 1
+  });
+  const tax = computeIncomeTax({
+    ordinaryIncome: 2500,
+    medicareWages: 2500,
+    profile: taxProfile
+  });
+
+  assert.equal(tax.earnedIncomeForRefundableCredits, 2500);
+  assert.equal(tax.childTaxCreditBreakdown.earnedIncomeThreshold, 2500);
+  assert.equal(tax.additionalChildTaxCredit, 0);
+  assert.equal(tax.employeePayrollTax, 191.25);
+  assert.equal(tax.totalTax, 191.25);
+});
+
+test("Additional Child Tax Credit uses self-employment income after half-SE-tax deduction", () => {
+  const taxProfile = buildTaxProfile({
+    taxYear: 2026,
+    filingStatus: "marriedFilingJointly",
+    state: "Florida",
+    qualifyingChildren: 1
+  });
+  const tax = computeIncomeTax({
+    ordinaryIncome: 10_000,
+    selfEmploymentIncome: 10_000,
+    profile: taxProfile
+  });
+
+  assert.equal(tax.selfEmploymentTax, 1412.955);
+  assert.equal(tax.selfEmploymentTaxDeduction, 706.4775);
+  assert.equal(tax.earnedIncomeForRefundableCredits, 9293.5225);
+  assert.equal(tax.additionalChildTaxCredit, 1019.028375);
+  assert.equal(tax.totalTax, 393.926625);
 });
 
 test("additional federal deductions and credits are explicit tax-profile overrides", () => {
@@ -372,6 +439,7 @@ test("additional federal deductions and credits are explicit tax-profile overrid
   assert.equal(tax.taxableOrdinaryIncome, 10000);
   assert.equal(tax.federalIncomeTaxBeforeCredits, 1000);
   assert.equal(tax.federalCreditsUsed, 1000);
+  assert.equal(tax.additionalCreditsUsed, 1000);
   assert.equal(tax.totalTax, 0);
 });
 
@@ -383,7 +451,7 @@ test("2026 AMT tripwire data and preference addbacks are source-versioned", () =
     amtPreferenceItems: 20_000
   });
 
-  assert.equal(TAX_DATA_VERSION, "2026.8");
+  assert.equal(TAX_DATA_VERSION, "2026.9");
   assert.equal(taxProfile.amtPreferenceItems, 20_000);
   assert.equal(taxProfile.buildOptions.amtPreferenceItems, 20_000);
   assert.deepEqual(taxProfile.alternativeMinimumTax.exemption, {
@@ -815,7 +883,8 @@ test("inflateTaxProfile scales standard deduction, child tax credit, and bracket
   });
   taxProfile.childTaxCredit = {
     perChild: 2000,
-    refundablePerChild: 1600
+    refundablePerChild: 1600,
+    refundableEarnedIncomeThreshold: 2500
   };
 
   const inflated = inflateTaxProfile(taxProfile, 1.1);
@@ -823,6 +892,7 @@ test("inflateTaxProfile scales standard deduction, child tax credit, and bracket
   assert.equal(inflated.standardDeduction, 35420); // 32200 * 1.1
   assert.equal(inflated.childTaxCredit.perChild, 2200);
   assert.equal(inflated.childTaxCredit.refundablePerChild, 1760);
+  assert.equal(inflated.childTaxCredit.refundableEarnedIncomeThreshold, 2750);
   assert.equal(inflated.itemizedDeductions.stateLocalTaxes, 11_000);
   assert.equal(inflated.itemizedDeductions.mortgageInterest, 5_500);
   assert.equal(inflated.itemizedDeductions.charitableContributions, 2_200);

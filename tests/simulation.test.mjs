@@ -3061,6 +3061,51 @@ test("child tax credit counts children by age each simulated year", () => {
   assert.equal(plan.years[1].taxes.totalTax, 100);
 });
 
+test("Additional Child Tax Credit appears as refundable cash in simulated years", () => {
+  const plan = simulatePlan({
+    assets: [{
+      id: "cash",
+      accountType: "taxable",
+      assetClass: "cash",
+      units: 50_000,
+      price: 1,
+      costBasisPerUnit: 1
+    }],
+    scenario: {
+      planYears: 1,
+      targetSpend: 30_000,
+      targetSpendIncludesTaxes: false,
+      targetSpendIncludesMedical: true,
+      withdrawalOrder: ["taxable"],
+      currentAge: 40,
+      medicareWages: 20_000,
+      earnedIncomeInflationAdjusted: false,
+      returnAssumptions: { cash: { mean: 0, stdev: 0 } },
+      aca: { enabled: false }
+    },
+    taxProfile: buildTaxProfile({
+      taxYear: 2026,
+      filingStatus: "marriedFilingJointly",
+      state: "Florida",
+      qualifyingChildren: 2
+    }),
+    returnSequence: [{ cash: 0 }],
+    inflationSequence: [0]
+  });
+
+  const year = plan.years[0];
+  assert.equal(year.taxes.additionalChildTaxCredit, 2625);
+  assert.equal(year.taxes.federalRefundableCredits, 2625);
+  assert.equal(year.taxes.employeePayrollTax, 1530);
+  assert.equal(year.taxes.totalTax, -1095);
+  assert.equal(year.taxRefundCash, 1095);
+  assert.ok(year.flows.some((flow) => (
+    flow.from === "Tax refund"
+    && flow.to === "Spending reserve"
+    && flow.amount === 1095
+  )));
+});
+
 test("age 65 additional standard deduction applies by simulated age", () => {
   const plan = simulatePlan({
     assets: [{

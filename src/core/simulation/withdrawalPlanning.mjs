@@ -2,15 +2,15 @@
 // Single responsibility: withdrawalPlanning. No behavior changes — pure code movement.
 
 import { clonePortfolio } from "../portfolio.mjs";
-import { computeIncomeTax } from "../tax.mjs?v=20260604-qbi";
+import { computeIncomeTax } from "../tax.mjs?v=20260605-actc";
 import { round } from "../utils.mjs";
 import { emptyEarnedIncome } from "./cashFlows.mjs";
 import { clampFiniteNumber } from "./guards.mjs";
-import { estimateHeirValueBreakdown } from "./heirEstate.mjs?v=20260604-qbi";
-import { acaMagiForIncome, federalAgiForIncome, incomeForYear, irmaaMagiForIncome } from "./income.mjs?v=20260604-qbi";
+import { estimateHeirValueBreakdown } from "./heirEstate.mjs?v=20260605-actc";
+import { acaMagiForIncome, federalAgiForIncome, incomeForYear, irmaaMagiForIncome } from "./income.mjs?v=20260605-actc";
 import { computeAcaForYear, medicalCostForYear } from "./medical.mjs";
 import { expectedReturnForAsset, isLifetimeOptimizerEnabled, withdrawalStrategyConfig } from "./scenario.mjs";
-import { addPenaltyTax, estimatedFutureCapitalGainRate, estimatedFutureOrdinaryIncomeRate } from "./taxStrategy.mjs?v=20260604-qbi";
+import { addPenaltyTax, estimatedFutureCapitalGainRate, estimatedFutureOrdinaryIncomeRate } from "./taxStrategy.mjs?v=20260605-actc";
 import { mergeWithdrawals, withdrawForCash } from "./withdrawalExecution.mjs";
 import { betterPenaltyAvoidancePlan, earlyPenaltyAvoidanceWithdrawalOrder, hasLowerPenaltyBurden, isBeforePenaltyAge, normalizedWithdrawalOrder, optimizedRothProceedsLimit, rothFirstWithdrawalOrder, rothPreservingWithdrawalOrder, rothWithdrawalProceeds, sameWithdrawalOrder, withdrawalPenaltyBurden } from "./withdrawalOrders.mjs";
 

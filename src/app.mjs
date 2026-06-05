@@ -21,7 +21,7 @@ import {
   runMonteCarlo,
   simulatePlan,
   generateSingleMonteCarloPath
-} from "./core/simulation.mjs?v=20260604-qbi";
+} from "./core/simulation.mjs?v=20260605-actc";
 import { round } from "./core/utils.mjs";
 import { defaultOneOffExpenses, sampleAssets } from "./data/sample.mjs";
 import {
@@ -32,7 +32,7 @@ import {
   HISTORICAL_RETURN_DATA_VERSION,
   makeHistoricalSequences
 } from "./data/historicalReturns.mjs";
-import { buildAcaConfig, buildTaxProfile, STATE_OPTIONS, TAX_DATA_VERSION, getMonthlyBenchmarkPremium } from "./data/taxData.mjs?v=20260604-qbi";
+import { buildAcaConfig, buildTaxProfile, STATE_OPTIONS, TAX_DATA_VERSION, getMonthlyBenchmarkPremium } from "./data/taxData.mjs?v=20260605-actc";
 import { massachusettsConnectorCareEstimate, massachusettsConnectorCarePlanOptions } from "./data/acaPlanPresets.mjs";
 import {
   buildMarketplacePlanSearchRequest,
@@ -1782,7 +1782,7 @@ function downloadJsonText(text, filename) {
 function getSimulationWorker() {
   if (!simulationWorker) {
     simulationWorker = new Worker(
-      new URL("./core/simulation.worker.mjs?v=20260604-qbi", import.meta.url),
+      new URL("./core/simulation.worker.mjs?v=20260605-actc", import.meta.url),
       { type: "module" }
     );
     simulationWorker.addEventListener("error", (ev) => {
@@ -2359,7 +2359,10 @@ function taxAuditLine(scenario) {
   const qbiNote = qbi.sourceMode && qbi.sourceMode !== "none"
     ? `; QBI source ${qbi.sourceMode}${qbi.sourceMode === "manual" ? ` ${moneyFormatter.format(qbi.amount ?? 0)}` : ""}${qbi.specifiedServiceBusiness ? " SSTB" : ""}`
     : "";
-  return `${federalYear} federal ${readableFilingStatus(profile.filingStatus ?? scenario.filingStatus)}, ${federalDeduction}${itemizedMode}${amtNote}${qbiNote}; future standard deductions and bracket thresholds inflate with the modeled CPI path, while the enhanced senior deduction is applied only in its 2025-2028 window. State: ${state || "None"}${stateSource}.`;
+  const childCreditNote = Number(profile.qualifyingChildren) > 0
+    ? `; CTC/ACTC qualifying children ${profile.qualifyingChildren}`
+    : "";
+  return `${federalYear} federal ${readableFilingStatus(profile.filingStatus ?? scenario.filingStatus)}, ${federalDeduction}${itemizedMode}${amtNote}${qbiNote}${childCreditNote}; future standard deductions, child-credit amounts, and bracket thresholds inflate with the modeled CPI path, while the enhanced senior deduction is applied only in its 2025-2028 window. State: ${state || "None"}${stateSource}.`;
 }
 
 function strategyAuditLine(scenario) {
@@ -2553,7 +2556,7 @@ function acaPlanLabel(year) {
 function renderYearTable() {
   const years = activeVisibleYears();
   const magiColumn = selectedMagiColumn();
-  const headers = ["Year", "Age", "Stock", "Bond", "Real estate", "TIPS", "Crypto", "Inflation", "Start value", "End value", "Sales / withdrawals", "Dividends", "Social Security", "Earned income", "One-off income", "RMD", "Total cash", "Total need", "Tax", "Fed income tax", "CG/QD tax", "NIIT", "W-2 FICA", "SE tax", "Addl Medicare", "Credits", "State tax", magiColumn.header, "Taxable SS", "Deduction", "Itemized ded", "65+ deduction", "Senior bonus", "QBI ded", "CTC children", "ACA plan", "ACA SLCSP", "ACA gross", "ACA subsidy", "ACA net", "Medicare", "Spend", "Essential", "Discretionary", "Disc. %", "Market DD", "Medical", "Tax gain harvest", "Roth conv.", "Roth basis available", "Penalty", "Loss carry"];
+  const headers = ["Year", "Age", "Stock", "Bond", "Real estate", "TIPS", "Crypto", "Inflation", "Start value", "End value", "Sales / withdrawals", "Dividends", "Social Security", "Earned income", "One-off income", "RMD", "Total cash", "Total need", "Tax", "Fed income tax", "CG/QD tax", "NIIT", "W-2 FICA", "SE tax", "Addl Medicare", "Credits", "Refundable credits", "State tax", magiColumn.header, "Taxable SS", "Deduction", "Itemized ded", "65+ deduction", "Senior bonus", "QBI ded", "CTC children", "ACA plan", "ACA SLCSP", "ACA gross", "ACA subsidy", "ACA net", "Medicare", "Spend", "Essential", "Discretionary", "Disc. %", "Market DD", "Medical", "Tax gain harvest", "Roth conv.", "Roth basis available", "Penalty", "Loss carry"];
   const rows = years.map((year) => [
     yearDisplayLabel(year),
     ageLabel(year.age),
@@ -2581,6 +2584,7 @@ function renderYearTable() {
     money(year.taxes.selfEmploymentTax ?? 0, year),
     money(year.taxes.additionalMedicareTax ?? 0, year),
     money(year.taxes.federalCreditsUsed ?? 0, year),
+    money(year.taxes.federalRefundableCredits ?? 0, year),
     money(year.taxes.stateTax ?? 0, year),
     money(magiColumn.value(year), year),
     money(year.taxableSocialSecurity ?? 0, year),
@@ -3009,12 +3013,25 @@ function renderActionPlan() {
   }
 
   if ((year.taxes?.totalTax ?? 0) > 0) {
+    const refundableCreditText = (year.taxes?.federalRefundableCredits ?? 0) > 0
+      ? `; ${money(year.taxes.federalRefundableCredits, year)} refundable credits`
+      : "";
     addAction("taxReserve", [
       "Reserve for taxes",
       money(year.taxes.totalTax, year),
       "Spending reserve",
-      `${money(year.taxes.federalIncomeTax ?? 0, year)} federal; ${money(year.taxes.stateTax ?? 0, year)} state; ${money(year.taxes.niitTax ?? 0, year)} NIIT; ${money(year.taxes.employeePayrollTax ?? 0, year)} W-2 FICA; ${money(year.taxes.selfEmploymentTax ?? 0, year)} SE tax; ${money(year.taxes.additionalMedicareTax ?? 0, year)} Additional Medicare`,
+      `${money(year.taxes.federalIncomeTax ?? 0, year)} federal; ${money(year.taxes.stateTax ?? 0, year)} state; ${money(year.taxes.niitTax ?? 0, year)} NIIT; ${money(year.taxes.employeePayrollTax ?? 0, year)} W-2 FICA; ${money(year.taxes.selfEmploymentTax ?? 0, year)} SE tax; ${money(year.taxes.additionalMedicareTax ?? 0, year)} Additional Medicare${refundableCreditText}`,
       "Includes estimated income taxes and any early-withdrawal penalties."
+    ]);
+  }
+
+  if ((year.taxRefundCash ?? 0) > 0) {
+    addAction("taxReserve", [
+      "Receive refundable tax credits",
+      money(year.taxRefundCash, year),
+      "Tax refund",
+      `${money(year.taxes?.additionalChildTaxCredit ?? year.taxes?.federalRefundableCredits ?? 0, year)} Additional Child Tax Credit; ${money(year.taxes?.earnedIncomeForRefundableCredits ?? 0, year)} earned income used for refundable-credit sizing`,
+      "Refundable credits reduce this year's modeled cash need; verify Schedule 8812 before relying on the refund."
     ]);
   }
 
@@ -4108,6 +4125,8 @@ function sankeyNodeDetailsForYear(year) {
 
   const taxDetails = taxPaymentNodeDetails(year);
   if (taxDetails) details["Tax payment"] = taxDetails;
+  const refundDetails = taxRefundNodeDetails(year);
+  if (refundDetails) details["Tax refund"] = refundDetails;
 
   return details;
 }
@@ -4132,9 +4151,25 @@ function taxPaymentNodeDetails(year) {
   if ((taxes.federalCreditsUsed ?? 0) > 0) {
     lines.push(`Federal credits used: -${money(taxes.federalCreditsUsed, year)}`);
   }
+  if ((taxes.federalRefundableCredits ?? 0) > 0) {
+    lines.push(`Refundable federal credits: -${money(taxes.federalRefundableCredits, year)}`);
+  }
   if (penalty > 0) {
     lines.push(`Early withdrawal penalties are shown separately: ${money(penalty, year)}`);
   }
+  return lines.join("\n");
+}
+
+function taxRefundNodeDetails(year) {
+  const refundCash = Math.max(0, Number(year?.taxRefundCash) || 0);
+  if (refundCash <= 0) return "";
+  const taxes = year?.taxes ?? {};
+  const lines = [
+    `Tax refund: ${money(refundCash, year)}`,
+    `Additional Child Tax Credit: ${money(taxes.additionalChildTaxCredit ?? 0, year)}`,
+    `Earned income used for ACTC sizing: ${money(taxes.earnedIncomeForRefundableCredits ?? 0, year)}`,
+    `Unused Child Tax Credit: ${money(taxes.unusedChildTaxCredit ?? 0, year)}`
+  ];
   return lines.join("\n");
 }
 
@@ -4154,6 +4189,7 @@ function portfolioFlowsForYear(year) {
   const socialSecurity = adjustAmount(year.socialSecurityBenefits ?? 0, year);
   const earnedIncome = adjustAmount(year.earnedIncome ?? 0, year);
   const oneOffIncome = adjustAmount(year.oneOffIncome ?? 0, year);
+  const taxRefund = adjustAmount(year.taxRefundCash ?? 0, year);
   const unspent = adjustAmount(year.unspentCash ?? 0, year);
   const spending = adjustAmount(year.plannedSpending ?? 0, year);
   const medical = adjustAmount(year.medicalCost ?? 0, year);
@@ -4162,7 +4198,7 @@ function portfolioFlowsForYear(year) {
   const totalReturn = ending + withdrawals - beginning - unspent;
   const marketGains = Math.max(0, totalReturn);
   const marketLosses = Math.max(0, -totalReturn);
-  const reserveInflow = withdrawals + dividends + socialSecurity + earnedIncome + oneOffIncome;
+  const reserveInflow = withdrawals + dividends + socialSecurity + earnedIncome + oneOffIncome + taxRefund;
   const reserveOutflow = spending + medical + taxes + penalties;
   const flows = [
     { from: "Starting balance", to: "Portfolio after returns", amount: beginning, type: "balance" }
@@ -4175,6 +4211,7 @@ function portfolioFlowsForYear(year) {
   if (socialSecurity > 0) flows.push({ from: "Social Security", to: "Yearly cash flow", amount: socialSecurity, type: "income" });
   if (earnedIncome > 0) flows.push({ from: "Earned income", to: "Yearly cash flow", amount: earnedIncome, type: "income" });
   if (oneOffIncome > 0) flows.push({ from: "One-off income", to: "Yearly cash flow", amount: oneOffIncome, type: "income" });
+  if (taxRefund > 0) flows.push({ from: "Tax refund", to: "Yearly cash flow", amount: taxRefund, type: "income" });
   if (spending > 0) flows.push({ from: "Yearly cash flow", to: "Lifestyle spending", amount: spending, type: "spending" });
   if (medical > 0) flows.push({ from: "Yearly cash flow", to: "Medical", amount: medical, type: "medical" });
   if (taxes > 0) flows.push({ from: "Yearly cash flow", to: "Tax payment", amount: taxes, type: "tax" });

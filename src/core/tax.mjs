@@ -1,5 +1,5 @@
 import { EPSILON, round } from "./utils.mjs";
-import { buildTaxProfile } from "../data/taxData.mjs?v=20260604-qbi";
+import { buildTaxProfile } from "../data/taxData.mjs?v=20260605-actc";
 import {
   stateRetirementIncomeExclusion,
   stateSocialSecurityExclusion
@@ -216,13 +216,25 @@ export function computeIncomeTax({
     rrtaCompensation,
     profile
   });
-  const childTaxCredit = computeChildTaxCredit({
+  const earnedIncomeForRefundableCredits = computeEarnedIncomeForRefundableChildCredit({
+    medicareWages,
+    selfEmploymentIncome,
+    selfEmploymentTaxDeduction: selfEmployment.deduction,
+    rrtaCompensation
+  });
+  const additionalCredits = round(Math.max(0, profile.additionalCredits ?? 0), 6);
+  const childTaxCreditBreakdown = computeChildTaxCreditBreakdown({
     magi,
+    federalIncomeTaxBeforeCredits,
+    additionalCredits,
+    earnedIncomeForRefundableCredits,
     profile
   });
-  const requestedFederalCredits = round(childTaxCredit + Math.max(0, profile.additionalCredits ?? 0), 6);
-  const federalCreditsUsed = round(Math.min(federalIncomeTaxBeforeCredits, requestedFederalCredits), 6);
+  const childTaxCredit = childTaxCreditBreakdown.allowableCredit;
+  const federalCreditsUsed = childTaxCreditBreakdown.federalCreditsUsed;
   const federalIncomeTax = round(federalIncomeTaxBeforeCredits - federalCreditsUsed, 6);
+  const federalRefundableCredits = childTaxCreditBreakdown.additionalChildTaxCredit;
+  const netFederalIncomeTaxAfterRefundableCredits = round(federalIncomeTax - federalRefundableCredits, 6);
 
   // Pass the full retirement-income amounts to the state tax computation;
   // state retirement-income exclusions and taxable-SS adjustments operate on
@@ -274,9 +286,17 @@ export function computeIncomeTax({
     federalPreferentialBracketDetails,
     federalIncomeTaxBeforeCredits,
     childTaxCredit: round(childTaxCredit, 6),
-    additionalCredits: round(Math.max(0, profile.additionalCredits ?? 0), 6),
+    childTaxCreditBreakdown,
+    nonrefundableChildTaxCredit: childTaxCreditBreakdown.nonrefundableChildTaxCredit,
+    unusedChildTaxCredit: childTaxCreditBreakdown.unusedChildTaxCredit,
+    additionalChildTaxCredit: childTaxCreditBreakdown.additionalChildTaxCredit,
+    federalRefundableCredits,
+    earnedIncomeForRefundableCredits,
+    additionalCredits,
+    additionalCreditsUsed: childTaxCreditBreakdown.additionalCreditsUsed,
     federalCreditsUsed,
     federalIncomeTax,
+    netFederalIncomeTaxAfterRefundableCredits,
     niitTax,
     employeePayrollTax: employeePayroll.tax,
     employeeSocialSecurityTax: employeePayroll.socialSecurityTax,
@@ -299,7 +319,7 @@ export function computeIncomeTax({
     additionalMedicareRrtaBase: additionalMedicare.rrtaBase,
     additionalMedicareThreshold: additionalMedicare.threshold,
     stateTax,
-    totalTax: round(federalIncomeTax + niitTax + employeePayroll.tax + selfEmployment.tax + additionalMedicare.tax + stateTax, 6),
+    totalTax: round(netFederalIncomeTaxAfterRefundableCredits + niitTax + employeePayroll.tax + selfEmployment.tax + additionalMedicare.tax + stateTax, 6),
     lossCarryforward: round(lossPool, 6),
     lossCarryforwardShort: round(shortLossPool, 6),
     lossCarryforwardLong: round(longLossPool, 6)
@@ -726,7 +746,7 @@ function computeAdditionalMedicareTax({
   };
 }
 
-function computeChildTaxCredit({ magi, profile }) {
+export function computeChildTaxCredit({ magi, profile }) {
   const config = profile.childTaxCredit;
   const qualifyingChildren = Math.max(0, Math.trunc(Number(profile.qualifyingChildren) || 0));
   if (!config || qualifyingChildren <= 0) return 0;
@@ -736,6 +756,64 @@ function computeChildTaxCredit({ magi, profile }) {
   const excess = Math.max(0, magi - threshold);
   const phaseout = Math.ceil(excess / 1000) * (config.phaseoutPerThousand ?? 0);
   return round(Math.max(0, grossCredit - phaseout), 6);
+}
+
+export function computeChildTaxCreditBreakdown({
+  magi = 0,
+  federalIncomeTaxBeforeCredits = 0,
+  additionalCredits = 0,
+  earnedIncomeForRefundableCredits = 0,
+  profile = DEFAULT_TAX_PROFILE
+} = {}) {
+  const config = profile.childTaxCredit;
+  const qualifyingChildren = Math.max(0, Math.trunc(Number(profile.qualifyingChildren) || 0));
+  const allowableCredit = computeChildTaxCredit({ magi, profile });
+  const taxBeforeCredits = Math.max(0, Number(federalIncomeTaxBeforeCredits) || 0);
+  const manualAdditionalCredits = Math.max(0, Number(additionalCredits) || 0);
+  const nonrefundableChildTaxCredit = round(Math.min(taxBeforeCredits, allowableCredit), 6);
+  const taxAfterChildCredit = Math.max(0, taxBeforeCredits - nonrefundableChildTaxCredit);
+  const additionalCreditsUsed = round(Math.min(taxAfterChildCredit, manualAdditionalCredits), 6);
+  const federalCreditsUsed = round(nonrefundableChildTaxCredit + additionalCreditsUsed, 6);
+  const unusedChildTaxCredit = round(Math.max(0, allowableCredit - nonrefundableChildTaxCredit), 6);
+  const refundablePerChildLimit = round(qualifyingChildren * Math.max(0, Number(config?.refundablePerChild) || 0), 6);
+  const earnedIncomeThreshold = Math.max(0, Number(config?.refundableEarnedIncomeThreshold) || 0);
+  const earnedIncomeRate = Math.max(0, Number(config?.refundableEarnedIncomeRate) || 0);
+  const earnedIncomeLimit = round(Math.max(0, (Number(earnedIncomeForRefundableCredits) || 0) - earnedIncomeThreshold) * earnedIncomeRate, 6);
+  const additionalChildTaxCredit = round(Math.min(unusedChildTaxCredit, refundablePerChildLimit, earnedIncomeLimit), 6);
+  const threeOrMoreChildReviewApplies = qualifyingChildren >= 3
+    && unusedChildTaxCredit > additionalChildTaxCredit + EPSILON
+    && refundablePerChildLimit > additionalChildTaxCredit + EPSILON;
+
+  return {
+    qualifyingChildren,
+    allowableCredit: round(allowableCredit, 6),
+    nonrefundableChildTaxCredit,
+    unusedChildTaxCredit,
+    refundablePerChildLimit,
+    earnedIncomeForRefundableCredits: round(Math.max(0, Number(earnedIncomeForRefundableCredits) || 0), 6),
+    earnedIncomeThreshold: round(earnedIncomeThreshold, 6),
+    earnedIncomeRate,
+    earnedIncomeLimit,
+    additionalChildTaxCredit,
+    additionalCreditsUsed,
+    federalCreditsUsed,
+    threeOrMoreChildReviewApplies
+  };
+}
+
+function computeEarnedIncomeForRefundableChildCredit({
+  medicareWages = 0,
+  selfEmploymentIncome = 0,
+  selfEmploymentTaxDeduction = 0,
+  rrtaCompensation = 0
+} = {}) {
+  const wages = Math.max(0, Number(medicareWages) || 0);
+  const selfEmploymentEarnedIncome = Math.max(
+    0,
+    Math.max(0, Number(selfEmploymentIncome) || 0) - Math.max(0, Number(selfEmploymentTaxDeduction) || 0)
+  );
+  const railroadCompensation = Math.max(0, Number(rrtaCompensation) || 0);
+  return round(wages + selfEmploymentEarnedIncome + railroadCompensation, 6);
 }
 
 export function computeTaxableSocialSecurityBenefits({
@@ -857,7 +935,8 @@ export function inflateTaxProfile(profile = DEFAULT_TAX_PROFILE, inflationIndex 
     childTaxCredit: profile.childTaxCredit ? {
       ...profile.childTaxCredit,
       perChild: round((profile.childTaxCredit.perChild ?? 0) * index, 6),
-      refundablePerChild: round((profile.childTaxCredit.refundablePerChild ?? 0) * index, 6)
+      refundablePerChild: round((profile.childTaxCredit.refundablePerChild ?? 0) * index, 6),
+      refundableEarnedIncomeThreshold: round((profile.childTaxCredit.refundableEarnedIncomeThreshold ?? 0) * index, 6)
     } : null,
     state: profile.state ? {
       ...profile.state,

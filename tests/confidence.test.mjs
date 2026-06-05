@@ -130,6 +130,47 @@ test("confidence report flags QBI deduction inputs for Form 8995 review", () => 
   );
 });
 
+test("confidence report flags Additional Child Tax Credit for Schedule 8812 review", () => {
+  const report = buildConfidenceReport({
+    scenario: { aca: { enabled: false } },
+    taxProfile: {
+      qualifyingChildren: 2
+    },
+    plan: {
+      years: [{
+        year: 2026,
+        taxes: {
+          additionalChildTaxCredit: 2625,
+          earnedIncomeForRefundableCredits: 20_000,
+          childTaxCreditBreakdown: {
+            threeOrMoreChildReviewApplies: false
+          }
+        }
+      }]
+    },
+    decision: {
+      status: "ready",
+      base: { historical: { count: 10 }, verdict: { historicalKnown: true, monteCarloPasses: true, historicalPasses: true } }
+    }
+  });
+
+  const flag = report.flags.find((item) => item.id === "additional-child-tax-credit-review");
+  assert.ok(flag);
+  assert.equal(flag.level, CONFIDENCE_LEVELS.CPA_REVIEW);
+  assert.match(flag.title, /Additional Child Tax Credit/);
+  assert.match(flag.detail, /Schedule 8812/);
+  assert.match(flag.detail, /15% of earned income above \$2,500/);
+  assert.match(flag.detail, /SSNs/);
+  assert.match(flag.detail, /three-or-more-child/);
+  assert.match(flag.action, /income-bridge rescues/);
+
+  assert.equal(actionConfidenceFor("taxReserve", report).level, CONFIDENCE_LEVELS.CPA_REVIEW);
+  assert.equal(
+    rescueConfidenceFor({ kind: "incomeBridge", historical: { count: 10 } }, report).level,
+    CONFIDENCE_LEVELS.CPA_REVIEW
+  );
+});
+
 test("confidence report flags manual federal tax overrides for CPA review", () => {
   const report = buildConfidenceReport({
     scenario: { aca: { enabled: false } },

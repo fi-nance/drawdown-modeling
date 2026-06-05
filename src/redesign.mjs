@@ -1584,11 +1584,13 @@ function renderDeductionsSection(year, profile, bracketScale, incomeScale) {
 
   // Credits don't get "filled by income" the way deductions do — they reduce
   // tax owed after brackets. Show as a simple value row when present.
-  const ctcUsed = (year?.taxes?.childTaxCredit ?? 0) * incomeScale;
-  const otherCredits = (year?.taxes?.additionalCredits ?? 0) * incomeScale;
-  const creditsHtml = (ctcUsed > 0 || otherCredits > 0) ? `
-    ${ctcUsed > 0 ? creditRow("CTC", "Child tax credit", ctcUsed) : ""}
-    ${otherCredits > 0 ? creditRow("Credits", "Other credits", otherCredits) : ""}
+  const ctcUsed = (year?.taxes?.nonrefundableChildTaxCredit ?? year?.taxes?.childTaxCredit ?? 0) * incomeScale;
+  const actcRefund = (year?.taxes?.additionalChildTaxCredit ?? 0) * incomeScale;
+  const otherCredits = (year?.taxes?.additionalCreditsUsed ?? year?.taxes?.additionalCredits ?? 0) * incomeScale;
+  const creditsHtml = (ctcUsed > 0 || actcRefund > 0 || otherCredits > 0) ? `
+    ${ctcUsed > 0 ? creditRow("CTC", "Child tax credit used", ctcUsed) : ""}
+    ${actcRefund > 0 ? creditRow("ACTC", "Refundable additional child tax credit", actcRefund) : ""}
+    ${otherCredits > 0 ? creditRow("Credits", "Other credits used", otherCredits) : ""}
   ` : "";
 
   if (!rows.length && !creditsHtml) return "";

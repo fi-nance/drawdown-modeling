@@ -4,7 +4,7 @@ import {
   stateRetirementRulesFor
 } from "./stateRetirementTax2026.mjs";
 
-export const TAX_DATA_VERSION = "2026.8";
+export const TAX_DATA_VERSION = "2026.9";
 export const DEFAULT_TAX_YEAR = 2026;
 
 export const FILING_STATUSES = {
@@ -68,13 +68,16 @@ export const FEDERAL_TAX_2026 = {
   childTaxCredit: {
     perChild: 2200,
     refundablePerChild: 1700,
+    refundableEarnedIncomeThreshold: 2500,
+    refundableEarnedIncomeRate: 0.15,
     phaseoutThresholds: {
       single: 200000,
       marriedFilingJointly: 400000,
       marriedFilingSeparately: 200000,
       headOfHousehold: 200000
     },
-    phaseoutPerThousand: 50
+    phaseoutPerThousand: 50,
+    source: "26 USC 24; IRS Rev. Proc. 2025-32; IRS Schedule 8812 instructions."
   },
   additionalStandardDeduction65: {
     married: 1650,

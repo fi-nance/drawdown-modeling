@@ -127,7 +127,7 @@ test("module library can scroll to reveal disabled-module knobs", async () => {
 
   assert.match(css, /\.module-library\s*\{[\s\S]*max-height: calc\(100vh - 2rem\)/);
   assert.match(css, /\.module-library\s*\{[\s\S]*overflow-y: auto/);
-  assert.match(html, /src\/redesign\.css\?v=20260604-qbi/);
+  assert.match(html, /src\/redesign\.css\?v=20260605-actc/);
 });
 
 test("rescue comparison table includes per-option confidence labels", async () => {
@@ -243,8 +243,10 @@ test("itemized deduction controls are visible, persisted, and disclosed in resul
   assert.match(appSource, /QBI\/Form 8995/);
   assert.match(appSource, /"Deduction", "Itemized ded"/);
   assert.match(appSource, /"Senior bonus", "QBI ded"/);
+  assert.match(appSource, /"Credits", "Refundable credits", "State tax"/);
   assert.match(appSource, /federalDeductionKind/);
   assert.match(redesignSource, /Itemized deductions/);
+  assert.match(redesignSource, /Refundable additional child tax credit/);
   assert.match(redesignSource, /federalDeductionKind/);
   assert.match(redesignSource, /id: "tax-overrides"[\s\S]*controls: 23/);
 });

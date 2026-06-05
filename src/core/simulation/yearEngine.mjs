@@ -3,7 +3,7 @@
 
 import { inflateAcaConfig } from "../aca.mjs";
 import { accountBreakdown, ageHoldingPeriods, applyTotalReturnsWithIncome, harvestTaxGains, harvestTaxLosses, portfolioValue, removeEmptyLots } from "../portfolio.mjs";
-import { computeIncomeTax, inflateTaxProfile } from "../tax.mjs?v=20260604-qbi";
+import { computeIncomeTax, inflateTaxProfile } from "../tax.mjs?v=20260605-actc";
 import { round } from "../utils.mjs";
 import { allocationStrategyStateForYear } from "./allocation.mjs";
 import { assetLocationStateForYear } from "./assetLocation.mjs";
@@ -11,19 +11,19 @@ import { earnedIncomeForYear, emptyEarnedIncome, mergeEarnedIncome, oneOffCashFl
 import { CASH_GAP_TOLERANCE, CASH_RAISED_EPSILON } from "./constants.mjs";
 import { acaConfigForSimulationYear, buildSurvivorTaxProfile, isMarriedFiling, mortalityStatus } from "./household.mjs";
 import { addHsaContributionLot, hsaContributionForYear, hsaQualifiedExpenseAvailableForWithdrawal, hsaStrategyConfig } from "./hsa.mjs";
-import { acaMagiForIncome, federalAgiForIncome, incomeForYear, irmaaMagiForIncome, lossCarryforwardTotal, normalizeLossCarryforward, taxProfileForSimulationYear } from "./income.mjs?v=20260604-qbi";
+import { acaMagiForIncome, federalAgiForIncome, incomeForYear, irmaaMagiForIncome, lossCarryforwardTotal, normalizeLossCarryforward, taxProfileForSimulationYear } from "./income.mjs?v=20260605-actc";
 import { summarizeAssetClassReturns } from "./market.mjs";
 import { computeAcaForYear, emptyMedicareCost, medicalCostForYear } from "./medical.mjs";
 import { addTaxableCash, assetSnapshot, traditionalAccountValue } from "./portfolioQueries.mjs";
 import { requiredMinimumDistributionForYear } from "./rmd.mjs";
 import { isLifetimeOptimizerEnabled } from "./scenario.mjs";
 import { sequenceRiskReserveStateForYear } from "./sequenceRiskReserve.mjs";
-import { socialSecurityBenefitsForYear, spouseSocialSecurityBenefitsForYear } from "./socialSecurity.mjs?v=20260604-qbi";
+import { socialSecurityBenefitsForYear, spouseSocialSecurityBenefitsForYear } from "./socialSecurity.mjs?v=20260605-actc";
 import { plannedSpendingDetailForYear } from "./spending.mjs";
-import { acaMagiCeiling, addPenaltyTax, automaticTaxLossHarvestLimit, effectiveRothConversionTargetRate, estimateTaxAttribution, gainHarvestingRoom, rothConversionAmountForYear, rothConversionMagiBuffer, strategyLimit } from "./taxStrategy.mjs?v=20260604-qbi";
-import { convertTraditionalToRoth, earlyWithdrawalPenaltyExceptionAmountForYear, emptyWithdrawal, rothBasisAvailableForWithdrawal, rothBasisSummaryForYear, withdrawForCash } from "./withdrawalExecution.mjs?v=20260604-qbi";
+import { acaMagiCeiling, addPenaltyTax, automaticTaxLossHarvestLimit, effectiveRothConversionTargetRate, estimateTaxAttribution, gainHarvestingRoom, rothConversionAmountForYear, rothConversionMagiBuffer, strategyLimit } from "./taxStrategy.mjs?v=20260605-actc";
+import { convertTraditionalToRoth, earlyWithdrawalPenaltyExceptionAmountForYear, emptyWithdrawal, rothBasisAvailableForWithdrawal, rothBasisSummaryForYear, withdrawForCash } from "./withdrawalExecution.mjs?v=20260605-actc";
 import { forcedWithdrawalOrder } from "./withdrawalOrders.mjs";
-import { chooseWithdrawalPlan, evaluateWithdrawalPlan } from "./withdrawalPlanning.mjs?v=20260604-qbi";
+import { chooseWithdrawalPlan, evaluateWithdrawalPlan } from "./withdrawalPlanning.mjs?v=20260605-actc";
 
 export function simulateYear({
   portfolio,
@@ -612,6 +612,15 @@ export function simulateYear({
       type: "income"
     });
   }
+  const taxRefundCash = scenario.targetSpendIncludesTaxes ? 0 : Math.max(0, -finalTaxes.totalTax);
+  if (taxRefundCash > 0) {
+    flows.push({
+      from: "Tax refund",
+      to: "Spending reserve",
+      amount: taxRefundCash,
+      type: "income"
+    });
+  }
   if (finalTaxes.totalTax > 0) {
     const incomeTax = Math.max(0, finalTaxes.totalTax - (finalTaxes.penaltyTax ?? 0));
     if (incomeTax > 0) flows.push({ from: "Spending reserve", to: "Tax payment", amount: incomeTax, type: "tax" });
@@ -715,6 +724,7 @@ export function simulateYear({
     qualifyingChildren: yearTaxProfile.qualifyingChildren,
     earnedIncome: round(recurringEarnedIncome.cash, 6),
     oneOffIncome: round(oneOffCashFlows.income, 6),
+    taxRefundCash: round(taxRefundCash, 6),
     oneOffExpenses: round(oneOffCashFlows.expenses, 6),
     oneOffIncomeDetails: oneOffCashFlows.incomeDetails,
     oneOffExpenseDetails: oneOffCashFlows.expenseDetails,

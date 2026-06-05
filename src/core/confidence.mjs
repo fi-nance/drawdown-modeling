@@ -33,7 +33,7 @@ export function actionConfidenceFor(actionKind, confidenceReport = {}) {
   const find = (ids) => findFlagByPriority(flags, ids);
 
   if (["taxReserve", "traditionalWithdrawal", "rothConversion", "taxGainHarvesting", "taxLossHarvesting"].includes(actionKind)) {
-    const flag = find(["amt-exposure-review", "qbi-deduction-review", "manual-federal-tax-overrides-review", "itemized-deduction-inputs-review", "enhanced-senior-deduction-eligibility"]);
+    const flag = find(["amt-exposure-review", "qbi-deduction-review", "additional-child-tax-credit-review", "manual-federal-tax-overrides-review", "itemized-deduction-inputs-review", "enhanced-senior-deduction-eligibility"]);
     if (flag) return actionConfidenceFromFlag(flag);
   }
 
@@ -51,8 +51,9 @@ export function actionConfidenceFor(actionKind, confidenceReport = {}) {
     return actionConfidenceFromFlag(flags.find((flag) => flag.id === "state-retirement-tax-review"));
   }
 
-  if (actionKind === "earnedIncome" && has("business-income-tax-review")) {
-    return actionConfidenceFromFlag(flags.find((flag) => flag.id === "business-income-tax-review"));
+  if (actionKind === "earnedIncome") {
+    const flag = find(["business-income-tax-review", "additional-child-tax-credit-review"]);
+    if (flag) return actionConfidenceFromFlag(flag);
   }
 
   if (actionKind === "socialSecurity" && has("social-security-claiming-inputs")) {
@@ -409,6 +410,11 @@ function addFederalTaxScopeFlags(flags, scenario = {}, taxProfile = {}, plan = n
     flags.push(qualifiedBusinessIncomeDeductionReviewFlag(qbiDeduction));
   }
 
+  const refundableChildCredit = additionalChildTaxCreditSummary({ scenario, taxProfile, plan });
+  if (refundableChildCredit.hasActcReview) {
+    flags.push(additionalChildTaxCreditReviewFlag(refundableChildCredit));
+  }
+
   const businessIncome = selfEmploymentIncomeSummary(scenario);
   if (businessIncome.hasSelfEmploymentIncome) {
     flags.push(businessIncomeReviewFlag(businessIncome));
@@ -630,6 +636,66 @@ function manualFederalTaxOverrideReviewFlag(summary = {}) {
   };
 }
 
+function additionalChildTaxCreditReviewFlag(summary = {}) {
+  return {
+    id: "additional-child-tax-credit-review",
+    level: CONFIDENCE_LEVELS.CPA_REVIEW,
+    lens: "cpa",
+    title: "Additional Child Tax Credit needs Schedule 8812 review",
+    detail: `Refundable child credit modeling is active${additionalChildTaxCreditSummaryText(summary)}. The model applies the common Schedule 8812 limit: unused Child Tax Credit, capped by the refundable per-child amount and 15% of earned income above $2,500. It does not validate taxpayer/child SSNs, relationship/residency/support facts, Form 2555 foreign earned-income exclusion, nontaxable combat pay elections, Medicaid waiver payment choices, EITC coordination, Puerto Rico rules, or the three-or-more-child Social Security tax comparison.`,
+    action: "Review Schedule 8812 before relying on tax refunds, income-bridge rescues, safe-spending room, or MAGI-sensitive tax moves created by ACTC."
+  };
+}
+
+function additionalChildTaxCreditSummary({ scenario = {}, taxProfile = {}, plan = null } = {}) {
+  const planYears = Array.isArray(plan?.years) ? plan.years : [];
+  const actcYears = planYears
+    .filter((year) => Number(year?.taxes?.additionalChildTaxCredit) > 0)
+    .map((year) => ({
+      year: year?.year ?? year?.calendarYear ?? year?.yearIndex ?? "?",
+      amount: Number(year?.taxes?.additionalChildTaxCredit) || 0
+    }))
+    .slice(0, 5);
+  const threeOrMoreReviewYears = planYears
+    .filter((year) => year?.taxes?.childTaxCreditBreakdown?.threeOrMoreChildReviewApplies === true)
+    .map((year) => year?.year ?? year?.calendarYear ?? year?.yearIndex ?? "?")
+    .slice(0, 5);
+  const potentialFromInputs = Math.max(0, Number(taxProfile?.qualifyingChildren) || 0) > 0
+    && refundableCreditEarnedIncomeInputPresent(scenario);
+
+  return {
+    hasActcReview: actcYears.length > 0 || threeOrMoreReviewYears.length > 0 || (!planYears.length && potentialFromInputs),
+    actcYears,
+    threeOrMoreReviewYears,
+    qualifyingChildren: Math.max(0, Number(taxProfile?.qualifyingChildren) || 0)
+  };
+}
+
+function refundableCreditEarnedIncomeInputPresent(scenario = {}) {
+  if (Number(scenario?.medicareWages) > 0 || Number(scenario?.selfEmploymentIncome) > 0 || Number(scenario?.rrtaCompensation) > 0) {
+    return true;
+  }
+  const oneOffs = Array.isArray(scenario?.oneOffExpenses) ? scenario.oneOffExpenses : [];
+  return oneOffs.some((item) => (
+    ["medicareWages", "selfEmploymentIncome", "rrtaCompensation"].includes(item?.cashFlowType)
+    && Number(item?.amount) > 0
+  ));
+}
+
+function additionalChildTaxCreditSummaryText(summary = {}) {
+  const parts = [];
+  if (summary.actcYears?.length) {
+    parts.push(`ACTC appears in ${summary.actcYears.map((year) => `${year.year} (${formatCurrency(year.amount)})`).join(", ")}`);
+  }
+  if (summary.threeOrMoreReviewYears?.length) {
+    parts.push(`three-or-more-child review in ${summary.threeOrMoreReviewYears.join(", ")}`);
+  }
+  if (!parts.length && summary.qualifyingChildren > 0) {
+    parts.push(`${summary.qualifyingChildren} qualifying child${summary.qualifyingChildren === 1 ? "" : "ren"} with earned-income inputs`);
+  }
+  return parts.length ? ` (${parts.join("; ")})` : "";
+}
+
 function manualFederalTaxOverrideSummary(taxProfile = {}) {
   const additionalDeduction = Math.max(0, Number(taxProfile?.additionalDeduction) || 0);
   const additionalCredits = Math.max(0, Number(taxProfile?.additionalCredits) || 0);
@@ -781,15 +847,15 @@ function rescueFlagIds(kind) {
     case "rothBasisCliffRescue":
     case "conversionGuardrail":
     case "magiSpendTrim":
-      return ["amt-exposure-review", "qbi-deduction-review", "aca-coverage-gap-modeled", "aca-medicaid-handoff-modeled", "aca-coverage-gap-risk", "manual-federal-tax-overrides-review", "itemized-deduction-inputs-review", "enhanced-senior-deduction-eligibility", "aca-magi-threshold", "aca-plan-inputs", "aca-benchmark-state-fallback", "aca-benchmark-out-of-model", "aca-oop-inputs", "aca-net-premium-quote"];
+      return ["amt-exposure-review", "qbi-deduction-review", "additional-child-tax-credit-review", "aca-coverage-gap-modeled", "aca-medicaid-handoff-modeled", "aca-coverage-gap-risk", "manual-federal-tax-overrides-review", "itemized-deduction-inputs-review", "enhanced-senior-deduction-eligibility", "aca-magi-threshold", "aca-plan-inputs", "aca-benchmark-state-fallback", "aca-benchmark-out-of-model", "aca-oop-inputs", "aca-net-premium-quote"];
     case "taxableLotRescue":
-      return ["amt-exposure-review", "qbi-deduction-review", "manual-federal-tax-overrides-review", "itemized-deduction-inputs-review", "enhanced-senior-deduction-eligibility", "aca-magi-threshold"];
+      return ["amt-exposure-review", "qbi-deduction-review", "additional-child-tax-credit-review", "manual-federal-tax-overrides-review", "itemized-deduction-inputs-review", "enhanced-senior-deduction-eligibility", "aca-magi-threshold"];
     case "withdrawalShift":
     case "safeSpending":
-      return ["amt-exposure-review", "qbi-deduction-review", "manual-federal-tax-overrides-review", "itemized-deduction-inputs-review", "enhanced-senior-deduction-eligibility", "state-retirement-tax-review"];
+      return ["amt-exposure-review", "qbi-deduction-review", "additional-child-tax-credit-review", "manual-federal-tax-overrides-review", "itemized-deduction-inputs-review", "enhanced-senior-deduction-eligibility", "state-retirement-tax-review"];
     case "incomeBridge":
     case "combined":
-      return ["amt-exposure-review", "qbi-deduction-review", "business-income-tax-review"];
+      return ["amt-exposure-review", "qbi-deduction-review", "additional-child-tax-credit-review", "business-income-tax-review"];
     case "socialSecurityBridge":
       return ["social-security-claiming-inputs"];
     default:

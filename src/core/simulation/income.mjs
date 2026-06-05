@@ -1,7 +1,7 @@
 // Extracted from simulation.mjs during the modular refactor.
 // Single responsibility: income. No behavior changes — pure code movement.
 
-import { DEFAULT_TAX_PROFILE, computeSelfEmploymentTax, computeTaxableSocialSecurityBenefits, netCapitalGainsAndLosses } from "../tax.mjs?v=20260604-qbi";
+import { DEFAULT_TAX_PROFILE, computeSelfEmploymentTax, computeTaxableSocialSecurityBenefits, netCapitalGainsAndLosses } from "../tax.mjs?v=20260605-actc";
 import { round } from "../utils.mjs";
 import { emptyEarnedIncome } from "./cashFlows.mjs";
 
