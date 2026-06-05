@@ -4,7 +4,7 @@ import {
   runHistoricalBacktests,
   runMonteCarlo,
   simulatePlan
-} from "./simulation.mjs?v=20260604-amt";
+} from "./simulation.mjs?v=20260604-qbi";
 import { round } from "./utils.mjs";
 
 export const DEFAULT_DECISION_PROFILE = Object.freeze({

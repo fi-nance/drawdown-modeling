@@ -61,7 +61,8 @@ test("confidence report flags self-employment income as business-income CPA revi
   assert.ok(flag);
   assert.equal(flag.level, CONFIDENCE_LEVELS.CPA_REVIEW);
   assert.match(flag.detail, /Schedule SE/);
-  assert.match(flag.detail, /QBI\/Form 8995/);
+  assert.match(flag.detail, /QBI from self-employment/);
+  assert.match(flag.detail, /Form 8995\/8995-A/);
   assert.match(flag.detail, /AMT/);
   assert.match(flag.detail, /\$50,000 annual self-employment income/);
   assert.equal(actionConfidenceFor("earnedIncome", report).level, CONFIDENCE_LEVELS.CPA_REVIEW);
@@ -85,6 +86,48 @@ test("confidence report flags scheduled self-employment bridge income", () => {
   const flag = report.flags.find((item) => item.id === "business-income-tax-review");
   assert.ok(flag);
   assert.match(flag.detail, /\$40,000 scheduled self-employment bridge income/);
+});
+
+test("confidence report flags QBI deduction inputs for Form 8995 review", () => {
+  const report = buildConfidenceReport({
+    scenario: { aca: { enabled: false } },
+    taxProfile: {
+      qualifiedBusinessIncome: {
+        sourceMode: "manual",
+        amount: 50_000,
+        specifiedServiceBusiness: true,
+        w2Wages: 20_000,
+        ubiaQualifiedProperty: 100_000
+      }
+    },
+    decision: {
+      status: "ready",
+      base: { historical: { count: 10 }, verdict: { historicalKnown: true, monteCarloPasses: true, historicalPasses: true } }
+    }
+  });
+
+  const flag = report.flags.find((item) => item.id === "qbi-deduction-review");
+  assert.ok(flag);
+  assert.equal(flag.level, CONFIDENCE_LEVELS.CPA_REVIEW);
+  assert.match(flag.title, /QBI deduction/);
+  assert.match(flag.detail, /Form 8995/);
+  assert.match(flag.detail, /20% QBI rule/);
+  assert.match(flag.detail, /\$400 active-QBI minimum/);
+  assert.match(flag.detail, /manual QBI \$50,000/);
+  assert.match(flag.detail, /SSTB selected/);
+  assert.match(flag.detail, /QBI W-2 wages \$20,000/);
+  assert.match(flag.detail, /UBIA property \$100,000/);
+  assert.match(flag.action, /Roth-conversion/);
+
+  assert.equal(actionConfidenceFor("rothConversion", report).level, CONFIDENCE_LEVELS.CPA_REVIEW);
+  assert.equal(
+    rescueConfidenceFor({ kind: "safeSpending", historical: { count: 10 } }, report).level,
+    CONFIDENCE_LEVELS.CPA_REVIEW
+  );
+  assert.equal(
+    rescueConfidenceFor({ kind: "incomeBridge", historical: { count: 10 } }, report).level,
+    CONFIDENCE_LEVELS.CPA_REVIEW
+  );
 });
 
 test("confidence report flags manual federal tax overrides for CPA review", () => {

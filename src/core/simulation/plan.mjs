@@ -2,18 +2,18 @@
 // Single responsibility: plan. No behavior changes — pure code movement.
 
 import { accountBreakdown, clonePortfolio, portfolioValue } from "../portfolio.mjs";
-import { DEFAULT_TAX_PROFILE } from "../tax.mjs?v=20260604-amt";
+import { DEFAULT_TAX_PROFILE } from "../tax.mjs?v=20260604-qbi";
 import { createRng, normalRandom, percentile, round } from "../utils.mjs";
 import { DEFAULT_MONTE_CARLO_RUNS, MONTE_CARLO_ASSUMPTION_PRESETS } from "./constants.mjs";
-import { estimateHeirValueBreakdown } from "./heirEstate.mjs?v=20260604-amt";
+import { estimateHeirValueBreakdown } from "./heirEstate.mjs?v=20260604-qbi";
 import { buildSurvivorTaxProfile, isMarriedFiling, mortalityStatus } from "./household.mjs";
 import { hsaStrategyConfig } from "./hsa.mjs";
-import { normalizeLossCarryforward } from "./income.mjs?v=20260604-amt";
+import { normalizeLossCarryforward } from "./income.mjs?v=20260604-qbi";
 import { annualInflation, annualMedicalInflation, annualReturns, medicalInflationPremium, sampleReturnsForYear } from "./market.mjs";
 import { assetClassValue } from "./portfolioQueries.mjs";
 import { ensureReturnAssumptionsForAssets, mergeScenario } from "./scenario.mjs";
 import { advanceSpendingGuardrailMarketState, initialSpendingGuardrailMarketState, spendingGuardrailStateForYear, spendingStrategyConfig } from "./spending.mjs";
-import { buildPostMortalityYearResult, simulateYear } from "./yearEngine.mjs?v=20260604-amt";
+import { buildPostMortalityYearResult, simulateYear } from "./yearEngine.mjs?v=20260604-qbi";
 
 export function simulatePlan({
   assets,

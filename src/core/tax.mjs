@@ -1,5 +1,5 @@
 import { EPSILON, round } from "./utils.mjs";
-import { buildTaxProfile } from "../data/taxData.mjs?v=20260604-amt";
+import { buildTaxProfile } from "../data/taxData.mjs?v=20260604-qbi";
 import {
   stateRetirementIncomeExclusion,
   stateSocialSecurityExclusion
@@ -179,9 +179,17 @@ export function computeIncomeTax({
   const enhancedSeniorDeduction = computeEnhancedSeniorDeduction({ magi, profile });
   const deductionChoice = computeFederalDeductionChoice({ agi: magi, profile });
   const federalDeduction = deductionChoice.federalDeduction + enhancedSeniorDeduction;
-  const taxableOrdinaryIncome = Math.max(0, ordinaryAfterLossOffset - federalDeduction);
+  const taxableOrdinaryIncomeBeforeQbi = Math.max(0, ordinaryAfterLossOffset - federalDeduction);
   const remainingDeduction = Math.max(0, federalDeduction - ordinaryAfterLossOffset);
   const taxablePreferentialIncome = Math.max(0, preferentialIncome - remainingDeduction);
+  const qbi = computeQualifiedBusinessIncomeDeduction({
+    taxableOrdinaryIncomeBeforeQbi,
+    taxableIncomeBeforeQbi: taxableOrdinaryIncomeBeforeQbi + taxablePreferentialIncome,
+    selfEmploymentIncome,
+    selfEmploymentTaxDeduction: selfEmployment.deduction,
+    profile
+  });
+  const taxableOrdinaryIncome = Math.max(0, taxableOrdinaryIncomeBeforeQbi - qbi.deduction);
   const taxableLongTermCapitalGains = Math.max(0, longGains - remainingDeduction);
   const taxableQualifiedDividends = Math.max(0, taxablePreferentialIncome - taxableLongTermCapitalGains);
 
@@ -235,6 +243,8 @@ export function computeIncomeTax({
     ordinaryInvestmentIncome: round(ordinaryInvestmentIncome, 6),
     taxableSocialSecurity: round(taxableSocialSecurity, 6),
     adjustmentsToIncome: round(adjustments, 6),
+    federalAgi: round(magi, 6),
+    magi: round(magi, 6),
     medicareWages: round(medicareWages, 6),
     socialSecurityWages: employeePayroll.socialSecurityWages,
     selfEmploymentIncome: round(selfEmploymentIncome, 6),
@@ -247,6 +257,7 @@ export function computeIncomeTax({
     taxablePreferentialIncome: round(taxablePreferentialIncome, 6),
     taxableLongTermCapitalGains: round(taxableLongTermCapitalGains, 6),
     taxableQualifiedDividends: round(taxableQualifiedDividends, 6),
+    taxableOrdinaryIncomeBeforeQbi: round(taxableOrdinaryIncomeBeforeQbi, 6),
     federalDeduction: round(federalDeduction, 6),
     federalDeductionBase: round(deductionChoice.baseDeduction, 6),
     federalDeductionKind: deductionChoice.kind,
@@ -255,6 +266,8 @@ export function computeIncomeTax({
     itemizedDeductionBreakdown: deductionChoice.itemizedBreakdown,
     additionalDeduction: round(deductionChoice.additionalDeduction, 6),
     enhancedSeniorDeduction: round(enhancedSeniorDeduction, 6),
+    qbiDeduction: round(qbi.deduction, 6),
+    qbiDeductionBreakdown: qbi.breakdown,
     federalOrdinaryTax,
     federalOrdinaryBracketDetails,
     federalPreferentialTax,
@@ -317,6 +330,119 @@ export function computeFederalDeductionChoice({ agi = 0, profile = DEFAULT_TAX_P
     itemizedBreakdown: itemized.breakdown,
     additionalDeduction: round(additionalDeduction, 6)
   };
+}
+
+export function computeQualifiedBusinessIncomeDeduction({
+  taxableOrdinaryIncomeBeforeQbi = 0,
+  taxableIncomeBeforeQbi = 0,
+  selfEmploymentIncome = 0,
+  selfEmploymentTaxDeduction = 0,
+  profile = DEFAULT_TAX_PROFILE
+} = {}) {
+  const config = profile.qualifiedBusinessIncomeDeduction;
+  const qbiInput = profile.qualifiedBusinessIncome ?? {};
+  const sourceMode = ["manual", "selfEmployment"].includes(qbiInput.sourceMode) ? qbiInput.sourceMode : "none";
+  const taxableOrdinaryCap = Math.max(0, Number(taxableOrdinaryIncomeBeforeQbi) || 0);
+  if (!config || sourceMode === "none" || taxableOrdinaryCap <= EPSILON) {
+    return emptyQbiDeduction(sourceMode, taxableOrdinaryCap);
+  }
+
+  const qualifiedBusinessIncome = sourceMode === "selfEmployment"
+    ? Math.max(0, (Number(selfEmploymentIncome) || 0) - Math.max(0, Number(selfEmploymentTaxDeduction) || 0))
+    : Math.max(0, Number(qbiInput.amount) || 0);
+  if (qualifiedBusinessIncome <= EPSILON) {
+    return emptyQbiDeduction(sourceMode, taxableOrdinaryCap);
+  }
+
+  const filingStatus = profile.filingStatus ?? "marriedFilingJointly";
+  const threshold = qbiConfigAmount(config.threshold, filingStatus, Infinity);
+  const phaseInEnd = qbiConfigAmount(config.phaseInEnd, filingStatus, threshold);
+  const phaseInRange = Math.max(1, phaseInEnd - threshold);
+  const taxableIncome = Math.max(0, Number(taxableIncomeBeforeQbi) || 0);
+  const w2Wages = Math.max(0, Number(qbiInput.w2Wages) || 0);
+  const ubiaQualifiedProperty = Math.max(0, Number(qbiInput.ubiaQualifiedProperty) || 0);
+  const rate = Math.max(0, Number(config.rate) || 0.20);
+  const qbiComponent = qualifiedBusinessIncome * rate;
+  const taxableIncomeCap = taxableOrdinaryCap * rate;
+  const wageLimit = Math.max(
+    w2Wages * Math.max(0, Number(config.wageLimitPercent) || 0),
+    w2Wages * Math.max(0, Number(config.wagePropertyWagePercent) || 0)
+      + ubiaQualifiedProperty * Math.max(0, Number(config.propertyLimitPercent) || 0)
+  );
+  const specifiedServiceBusiness = qbiInput.specifiedServiceBusiness === true;
+  const phaseRatio = taxableIncome <= threshold
+    ? 0
+    : Math.min(1, Math.max(0, (taxableIncome - threshold) / phaseInRange));
+
+  let businessComponent = qbiComponent;
+  if (specifiedServiceBusiness && phaseRatio >= 1) {
+    businessComponent = 0;
+  } else if (specifiedServiceBusiness && phaseRatio > 0) {
+    const applicablePercentage = Math.max(0, 1 - phaseRatio);
+    const reducedQbiComponent = qbiComponent * applicablePercentage;
+    const reducedWageLimit = wageLimit * applicablePercentage;
+    businessComponent = reducedQbiComponent - Math.max(0, reducedQbiComponent - reducedWageLimit) * phaseRatio;
+  } else if (phaseRatio >= 1) {
+    businessComponent = Math.min(qbiComponent, wageLimit);
+  } else if (phaseRatio > 0) {
+    businessComponent = qbiComponent - Math.max(0, qbiComponent - wageLimit) * phaseRatio;
+  }
+
+  let deduction = Math.min(Math.max(0, businessComponent), taxableIncomeCap);
+  const minimumActiveQbi = Math.max(0, Number(config.minimumActiveQbi) || 0);
+  const minimumDeduction = Math.max(0, Number(config.minimumDeduction) || 0);
+  const qualifiesForMinimum = qualifiedBusinessIncome >= minimumActiveQbi
+    && minimumDeduction > 0
+    && (!specifiedServiceBusiness || phaseRatio < 1);
+  if (qualifiesForMinimum) {
+    deduction = Math.max(deduction, Math.min(minimumDeduction, taxableOrdinaryCap));
+  }
+  deduction = Math.min(deduction, taxableOrdinaryCap);
+
+  return {
+    deduction: round(deduction, 6),
+    breakdown: {
+      sourceMode,
+      qualifiedBusinessIncome: round(qualifiedBusinessIncome, 6),
+      qbiComponent: round(qbiComponent, 6),
+      taxableIncomeCap: round(taxableIncomeCap, 6),
+      wageLimit: round(wageLimit, 6),
+      w2Wages: round(w2Wages, 6),
+      ubiaQualifiedProperty: round(ubiaQualifiedProperty, 6),
+      threshold: round(threshold, 6),
+      phaseInEnd: round(phaseInEnd, 6),
+      phaseRatio: round(phaseRatio, 6),
+      specifiedServiceBusiness,
+      minimumDeductionApplied: qualifiesForMinimum && deduction >= minimumDeduction - EPSILON && businessComponent < minimumDeduction
+    }
+  };
+}
+
+function emptyQbiDeduction(sourceMode = "none", taxableOrdinaryCap = 0) {
+  return {
+    deduction: 0,
+    breakdown: {
+      sourceMode,
+      qualifiedBusinessIncome: 0,
+      qbiComponent: 0,
+      taxableIncomeCap: round(Math.max(0, Number(taxableOrdinaryCap) || 0) * 0.20, 6),
+      wageLimit: 0,
+      w2Wages: 0,
+      ubiaQualifiedProperty: 0,
+      threshold: null,
+      phaseInEnd: null,
+      phaseRatio: 0,
+      specifiedServiceBusiness: false,
+      minimumDeductionApplied: false
+    }
+  };
+}
+
+function qbiConfigAmount(map = {}, filingStatus, fallback) {
+  const value = Number(map?.[filingStatus]);
+  if (Number.isFinite(value)) return value;
+  const single = Number(map?.single);
+  return Number.isFinite(single) ? single : fallback;
 }
 
 export function computeItemizedDeduction({ agi = 0, profile = DEFAULT_TAX_PROFILE } = {}) {
@@ -716,6 +842,18 @@ export function inflateTaxProfile(profile = DEFAULT_TAX_PROFILE, inflationIndex 
       charitableContributions: round((profile.itemizedDeductions.charitableContributions ?? 0) * index, 6),
       medicalExpenses: round((profile.itemizedDeductions.medicalExpenses ?? 0) * index, 6)
     } : null,
+    qualifiedBusinessIncomeDeduction: profile.qualifiedBusinessIncomeDeduction ? {
+      ...profile.qualifiedBusinessIncomeDeduction,
+      minimumActiveQbi: round((profile.qualifiedBusinessIncomeDeduction.minimumActiveQbi ?? 0) * index, 6),
+      minimumDeduction: round((profile.qualifiedBusinessIncomeDeduction.minimumDeduction ?? 0) * index, 6),
+      threshold: scaleDollarMap(profile.qualifiedBusinessIncomeDeduction.threshold, index),
+      phaseInEnd: scaleDollarMap(profile.qualifiedBusinessIncomeDeduction.phaseInEnd, index)
+    } : null,
+    qualifiedBusinessIncome: profile.qualifiedBusinessIncome ? {
+      ...profile.qualifiedBusinessIncome,
+      amount: round((profile.qualifiedBusinessIncome.amount ?? 0) * index, 6),
+      w2Wages: round((profile.qualifiedBusinessIncome.w2Wages ?? 0) * index, 6)
+    } : null,
     childTaxCredit: profile.childTaxCredit ? {
       ...profile.childTaxCredit,
       perChild: round((profile.childTaxCredit.perChild ?? 0) * index, 6),
@@ -736,4 +874,11 @@ function scaleBracketLimits(brackets = [], inflationIndex = 1) {
     ...bracket,
     upTo: Number.isFinite(bracket.upTo) ? round(bracket.upTo * inflationIndex, 6) : Infinity
   }));
+}
+
+function scaleDollarMap(values = {}, inflationIndex = 1) {
+  return Object.fromEntries(Object.entries(values ?? {}).map(([key, value]) => [
+    key,
+    Number.isFinite(Number(value)) ? round(Number(value) * inflationIndex, 6) : value
+  ]));
 }

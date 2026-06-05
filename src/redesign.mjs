@@ -168,7 +168,7 @@ const MODULES = [
   { id: "monte-carlo",   label: "Monte Carlo",    desc: "Return model and sampling",                controls: 16, required: false, enabledByDefault: true  },
   { id: "history",       label: "History test",   desc: "How would you have done?",                controls: 7,  required: false, enabledByDefault: false },
   { id: "what-ifs",      label: "What ifs",       desc: "Future expenses or income",                controls: 3,  required: false, enabledByDefault: true  },
-  { id: "tax-overrides", label: "Tax overrides",  desc: "Power-user tax tweaks",                    controls: 18, required: false, enabledByDefault: false }
+  { id: "tax-overrides", label: "Tax overrides",  desc: "Power-user tax tweaks",                    controls: 23, required: false, enabledByDefault: false }
 ];
 
 const TIER_THRESHOLDS = { warn: 0.85, risk: 0.7 };

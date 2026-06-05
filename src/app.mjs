@@ -21,7 +21,7 @@ import {
   runMonteCarlo,
   simulatePlan,
   generateSingleMonteCarloPath
-} from "./core/simulation.mjs?v=20260604-amt";
+} from "./core/simulation.mjs?v=20260604-qbi";
 import { round } from "./core/utils.mjs";
 import { defaultOneOffExpenses, sampleAssets } from "./data/sample.mjs";
 import {
@@ -32,7 +32,7 @@ import {
   HISTORICAL_RETURN_DATA_VERSION,
   makeHistoricalSequences
 } from "./data/historicalReturns.mjs";
-import { buildAcaConfig, buildTaxProfile, STATE_OPTIONS, TAX_DATA_VERSION, getMonthlyBenchmarkPremium } from "./data/taxData.mjs?v=20260604-amt";
+import { buildAcaConfig, buildTaxProfile, STATE_OPTIONS, TAX_DATA_VERSION, getMonthlyBenchmarkPremium } from "./data/taxData.mjs?v=20260604-qbi";
 import { massachusettsConnectorCareEstimate, massachusettsConnectorCarePlanOptions } from "./data/acaPlanPresets.mjs";
 import {
   buildMarketplacePlanSearchRequest,
@@ -229,6 +229,11 @@ const CONTROL_IDS = [
   "itemizedCharitableContributions",
   "itemizedMedicalExpenses",
   "amtPreferenceItems",
+  "qbiSourceMode",
+  "qbiAmount",
+  "qbiSpecifiedServiceBusiness",
+  "qbiW2Wages",
+  "qbiUbiaQualifiedProperty",
   "stateTaxRate",
   "separateStateGains",
   "stateCapitalRate",
@@ -417,6 +422,11 @@ const els = {
   itemizedCharitableContributions: document.querySelector("#itemizedCharitableContributions"),
   itemizedMedicalExpenses: document.querySelector("#itemizedMedicalExpenses"),
   amtPreferenceItems: document.querySelector("#amtPreferenceItems"),
+  qbiSourceMode: document.querySelector("#qbiSourceMode"),
+  qbiAmount: document.querySelector("#qbiAmount"),
+  qbiSpecifiedServiceBusiness: document.querySelector("#qbiSpecifiedServiceBusiness"),
+  qbiW2Wages: document.querySelector("#qbiW2Wages"),
+  qbiUbiaQualifiedProperty: document.querySelector("#qbiUbiaQualifiedProperty"),
   stateTaxRate: document.querySelector("#stateTaxRate"),
   separateStateGains: document.querySelector("#separateStateGains"),
   stateCapitalRate: document.querySelector("#stateCapitalRate"),
@@ -1772,7 +1782,7 @@ function downloadJsonText(text, filename) {
 function getSimulationWorker() {
   if (!simulationWorker) {
     simulationWorker = new Worker(
-      new URL("./core/simulation.worker.mjs?v=20260604-amt", import.meta.url),
+      new URL("./core/simulation.worker.mjs?v=20260604-qbi", import.meta.url),
       { type: "module" }
     );
     simulationWorker.addEventListener("error", (ev) => {
@@ -2345,7 +2355,11 @@ function taxAuditLine(scenario) {
   const amtNote = Number(profile.amtPreferenceItems) > 0
     ? `; AMT preference/addback estimate ${moneyFormatter.format(profile.amtPreferenceItems)}`
     : "";
-  return `${federalYear} federal ${readableFilingStatus(profile.filingStatus ?? scenario.filingStatus)}, ${federalDeduction}${itemizedMode}${amtNote}; future standard deductions and bracket thresholds inflate with the modeled CPI path, while the enhanced senior deduction is applied only in its 2025-2028 window. State: ${state || "None"}${stateSource}.`;
+  const qbi = profile.qualifiedBusinessIncome ?? {};
+  const qbiNote = qbi.sourceMode && qbi.sourceMode !== "none"
+    ? `; QBI source ${qbi.sourceMode}${qbi.sourceMode === "manual" ? ` ${moneyFormatter.format(qbi.amount ?? 0)}` : ""}${qbi.specifiedServiceBusiness ? " SSTB" : ""}`
+    : "";
+  return `${federalYear} federal ${readableFilingStatus(profile.filingStatus ?? scenario.filingStatus)}, ${federalDeduction}${itemizedMode}${amtNote}${qbiNote}; future standard deductions and bracket thresholds inflate with the modeled CPI path, while the enhanced senior deduction is applied only in its 2025-2028 window. State: ${state || "None"}${stateSource}.`;
 }
 
 function strategyAuditLine(scenario) {
@@ -2468,7 +2482,7 @@ function simulationAuditLine() {
 }
 
 function knownLimitsAuditLine() {
-  return "Planning model only: verify final ACA enrollment quotes, plan networks, Schedule A substantiation, and tax filings outside the app. AMT is a CPA-review tripwire, not a full Form 6251 calculation; QBI, exact state-exchange CSR designs, and intra-year withholding estimates are not modeled.";
+  return "Planning model only: verify final ACA enrollment quotes, plan networks, Schedule A substantiation, QBI/Form 8995 support, and tax filings outside the app. AMT is a CPA-review tripwire, not a full Form 6251 calculation; exact state-exchange CSR designs and intra-year withholding estimates are not modeled.";
 }
 
 function readableFilingStatus(value) {
@@ -2539,7 +2553,7 @@ function acaPlanLabel(year) {
 function renderYearTable() {
   const years = activeVisibleYears();
   const magiColumn = selectedMagiColumn();
-  const headers = ["Year", "Age", "Stock", "Bond", "Real estate", "TIPS", "Crypto", "Inflation", "Start value", "End value", "Sales / withdrawals", "Dividends", "Social Security", "Earned income", "One-off income", "RMD", "Total cash", "Total need", "Tax", "Fed income tax", "CG/QD tax", "NIIT", "W-2 FICA", "SE tax", "Addl Medicare", "Credits", "State tax", magiColumn.header, "Taxable SS", "Deduction", "Itemized ded", "65+ deduction", "Senior bonus", "CTC children", "ACA plan", "ACA SLCSP", "ACA gross", "ACA subsidy", "ACA net", "Medicare", "Spend", "Essential", "Discretionary", "Disc. %", "Market DD", "Medical", "Tax gain harvest", "Roth conv.", "Roth basis available", "Penalty", "Loss carry"];
+  const headers = ["Year", "Age", "Stock", "Bond", "Real estate", "TIPS", "Crypto", "Inflation", "Start value", "End value", "Sales / withdrawals", "Dividends", "Social Security", "Earned income", "One-off income", "RMD", "Total cash", "Total need", "Tax", "Fed income tax", "CG/QD tax", "NIIT", "W-2 FICA", "SE tax", "Addl Medicare", "Credits", "State tax", magiColumn.header, "Taxable SS", "Deduction", "Itemized ded", "65+ deduction", "Senior bonus", "QBI ded", "CTC children", "ACA plan", "ACA SLCSP", "ACA gross", "ACA subsidy", "ACA net", "Medicare", "Spend", "Essential", "Discretionary", "Disc. %", "Market DD", "Medical", "Tax gain harvest", "Roth conv.", "Roth basis available", "Penalty", "Loss carry"];
   const rows = years.map((year) => [
     yearDisplayLabel(year),
     ageLabel(year.age),
@@ -2574,6 +2588,7 @@ function renderYearTable() {
     money(year.taxes?.itemizedDeduction ?? 0, year),
     money(year.age65AdditionalDeduction ?? 0, year),
     money(year.enhancedSeniorDeduction ?? 0, year),
+    money(year.taxes?.qbiDeduction ?? 0, year),
     year.qualifyingChildren ?? 0,
     acaPlanLabel(year),
     money(year.aca.benchmarkPremium ?? 0, year),
@@ -4506,6 +4521,11 @@ function readTaxProfile() {
     itemizedCharitableContributions: Number(els.itemizedCharitableContributions?.value) || 0,
     itemizedMedicalExpenses: Number(els.itemizedMedicalExpenses?.value) || 0,
     amtPreferenceItems: Number(els.amtPreferenceItems?.value) || 0,
+    qbiSourceMode: els.qbiSourceMode?.value || "none",
+    qbiAmount: Number(els.qbiAmount?.value) || 0,
+    qbiSpecifiedServiceBusiness: els.qbiSpecifiedServiceBusiness?.checked === true,
+    qbiW2Wages: Number(els.qbiW2Wages?.value) || 0,
+    qbiUbiaQualifiedProperty: Number(els.qbiUbiaQualifiedProperty?.value) || 0,
     overrideRate: percentOrNull(els.stateTaxRate.value),
     overrideCapitalGainsRate: percentOrNull(els.stateCapitalRate.value),
     separateCapitalGains: els.separateStateGains.checked,

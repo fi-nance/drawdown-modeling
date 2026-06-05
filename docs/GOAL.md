@@ -214,8 +214,11 @@ but in scope for the north-star if we want CPA-grade coverage):
   recommendations when entered addbacks or high modeled income make AMT review
   relevant. Full Form 6251 tentative-minimum-tax calculation remains out of
   model.
-- **QBI deduction** for households with pass-through income (relevant to
-  consulting-bridge users — see decision-engine "earn bridge income").
+- ✅ **[Shipped] QBI deduction planning** for households with pass-through or
+  self-employment bridge income, including manual/self-employment QBI source,
+  SSTB status, W-2 wage, and UBIA inputs. Confidence flags still require CPA
+  review for Form 8995/8995-A support, pass-through/K-1 aggregation, loss
+  carryforwards, REIT/PTP components, and business-deduction facts.
 - **Refundable credits**: ACTC, EITC, education, dependent-care — when household
   composition triggers them.
 - **NUA** (Net Unrealized Appreciation) for employer-stock-heavy households.
@@ -401,8 +404,9 @@ risk first, then breadth.
 
 - ✅ Itemized deductions as first-class planning inputs (SALT cap/phaseout,
   mortgage, charitable, medical AGI floor) with Schedule A CPA-review flags.
-- QBI deduction for SE bridge income.
-- AMT tripwire.
+- ✅ QBI deduction planning for manual or SE bridge income, with Form 8995
+  review flags.
+- ✅ AMT tripwire.
 - ~~2026 TCJA sunset regime modeling~~ — moot: OBBBA (2025) made the TCJA
   individual structure permanent, so there is no sunset to model. Replaced by:
   ✅ OBBBA enhanced senior deduction (2025-2028) as a time-boxed regime.

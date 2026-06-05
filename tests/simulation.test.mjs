@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { runMonteCarlo, simulatePlan, runHistoricalBacktests } from "../src/core/simulation.mjs";
-import { buildAcaConfig } from "../src/data/taxData.mjs";
+import { buildAcaConfig, buildTaxProfile } from "../src/data/taxData.mjs";
 
 const noTaxProfile = {
   filingStatus: "marriedFilingJointly",
@@ -540,6 +540,40 @@ test("self-employment income applies SECA tax and half-tax AGI deduction", () =>
   assert.equal(plan.years[0].taxes.totalTax, 14129.55);
   assertNear(plan.endingValue, 85870.45);
   assert.ok(plan.years[0].taxAttribution.some((item) => item.source === "Earned income"));
+});
+
+test("self-employment QBI planning flows into yearly tax results", () => {
+  const taxProfile = buildTaxProfile({
+    taxYear: 2026,
+    filingStatus: "single",
+    state: "Florida",
+    qbiSourceMode: "selfEmployment"
+  });
+  const plan = simulatePlan({
+    assets: [],
+    scenario: {
+      planYears: 1,
+      targetSpend: 0,
+      targetSpendIncludesTaxes: false,
+      targetSpendIncludesMedical: true,
+      selfEmploymentIncome: 100000,
+      earnedIncomeInflationAdjusted: false,
+      rothConversion: { enabled: false },
+      aca: { enabled: false }
+    },
+    taxProfile,
+    returnSequence: [{}],
+    inflationSequence: [0]
+  });
+
+  assertNear(plan.years[0].magi, 92935.225);
+  assert.equal(plan.years[0].taxes.qbiDeductionBreakdown.sourceMode, "selfEmployment");
+  assert.equal(plan.years[0].taxes.qbiDeductionBreakdown.qualifiedBusinessIncome, 92935.225);
+  assert.equal(plan.years[0].taxes.taxableOrdinaryIncomeBeforeQbi, 76835.225);
+  assert.equal(plan.years[0].taxes.qbiDeduction, 15367.045);
+  assert.equal(plan.years[0].taxes.taxableOrdinaryIncome, 61468.18);
+  assert.equal(plan.years[0].taxes.federalIncomeTax, 8234.9996);
+  assert.equal(plan.years[0].taxes.totalTax, 22364.5496);
 });
 
 test("yearly cash audit distinguishes withdrawals from taxable dividend cash", () => {

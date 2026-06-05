@@ -383,7 +383,7 @@ test("2026 AMT tripwire data and preference addbacks are source-versioned", () =
     amtPreferenceItems: 20_000
   });
 
-  assert.equal(TAX_DATA_VERSION, "2026.7");
+  assert.equal(TAX_DATA_VERSION, "2026.8");
   assert.equal(taxProfile.amtPreferenceItems, 20_000);
   assert.equal(taxProfile.buildOptions.amtPreferenceItems, 20_000);
   assert.deepEqual(taxProfile.alternativeMinimumTax.exemption, {
@@ -396,6 +396,122 @@ test("2026 AMT tripwire data and preference addbacks are source-versioned", () =
   assert.equal(taxProfile.alternativeMinimumTax.completePhaseout.marriedFilingJointly, 1_280_400);
   assert.equal(taxProfile.alternativeMinimumTax.rateThreshold.marriedFilingJointly, 244_500);
   assert.deepEqual(taxProfile.alternativeMinimumTax.rates, [0.26, 0.28]);
+});
+
+test("2026 QBI deduction applies below-threshold manual QBI without changing MAGI", () => {
+  const taxProfile = buildTaxProfile({
+    taxYear: 2026,
+    filingStatus: "marriedFilingJointly",
+    state: "Florida",
+    qbiSourceMode: "manual",
+    qbiAmount: 50_000
+  });
+  const tax = computeIncomeTax({
+    ordinaryIncome: taxProfile.standardDeduction + 100_000,
+    profile: taxProfile
+  });
+
+  assert.equal(taxProfile.qualifiedBusinessIncome.sourceMode, "manual");
+  assert.equal(tax.federalAgi, 132_200);
+  assert.equal(tax.magi, 132_200);
+  assert.equal(tax.taxableOrdinaryIncomeBeforeQbi, 100_000);
+  assert.equal(tax.qbiDeduction, 10_000);
+  assert.equal(tax.taxableOrdinaryIncome, 90_000);
+  assert.equal(tax.federalIncomeTax, 10_304);
+  assert.equal(tax.qbiDeductionBreakdown.threshold, 403_500);
+  assert.equal(tax.qbiDeductionBreakdown.sourceMode, "manual");
+});
+
+test("2026 QBI deduction applies the active-QBI minimum when larger than the percentage deduction", () => {
+  const taxProfile = buildTaxProfile({
+    taxYear: 2026,
+    filingStatus: "single",
+    state: "Florida",
+    qbiSourceMode: "manual",
+    qbiAmount: 1_000
+  });
+  const tax = computeIncomeTax({
+    ordinaryIncome: taxProfile.standardDeduction + 5_000,
+    profile: taxProfile
+  });
+
+  assert.equal(tax.qbiDeduction, 400);
+  assert.equal(tax.taxableOrdinaryIncomeBeforeQbi, 5_000);
+  assert.equal(tax.taxableOrdinaryIncome, 4_600);
+  assert.equal(tax.qbiDeductionBreakdown.minimumDeductionApplied, true);
+});
+
+test("2026 QBI deduction phases in wage and UBIA limits and fully phases out SSTBs", () => {
+  const noWageProfile = buildTaxProfile({
+    taxYear: 2026,
+    filingStatus: "marriedFilingJointly",
+    state: "Florida",
+    qbiSourceMode: "manual",
+    qbiAmount: 100_000
+  });
+  const phased = computeIncomeTax({
+    ordinaryIncome: noWageProfile.standardDeduction + 500_000,
+    profile: noWageProfile
+  });
+
+  assert.equal(phased.qbiDeduction, 7_133.333333);
+  assert.equal(phased.qbiDeductionBreakdown.qbiComponent, 20_000);
+  assert.equal(phased.qbiDeductionBreakdown.wageLimit, 0);
+  assert.equal(phased.qbiDeductionBreakdown.phaseRatio, 0.643333);
+
+  const wagePropertyProfile = buildTaxProfile({
+    taxYear: 2026,
+    filingStatus: "marriedFilingJointly",
+    state: "Florida",
+    qbiSourceMode: "manual",
+    qbiAmount: 100_000,
+    qbiW2Wages: 60_000,
+    qbiUbiaQualifiedProperty: 1_000_000
+  });
+  const wageLimited = computeIncomeTax({
+    ordinaryIncome: wagePropertyProfile.standardDeduction + 600_000,
+    profile: wagePropertyProfile
+  });
+
+  assert.equal(wageLimited.qbiDeduction, 20_000);
+  assert.equal(wageLimited.qbiDeductionBreakdown.wageLimit, 40_000);
+
+  const sstbProfile = buildTaxProfile({
+    taxYear: 2026,
+    filingStatus: "marriedFilingJointly",
+    state: "Florida",
+    qbiSourceMode: "manual",
+    qbiAmount: 100_000,
+    qbiSpecifiedServiceBusiness: true
+  });
+  const phasedOutSstb = computeIncomeTax({
+    ordinaryIncome: sstbProfile.standardDeduction + 600_000,
+    profile: sstbProfile
+  });
+
+  assert.equal(phasedOutSstb.qbiDeduction, 0);
+  assert.equal(phasedOutSstb.qbiDeductionBreakdown.phaseRatio, 1);
+  assert.equal(phasedOutSstb.qbiDeductionBreakdown.specifiedServiceBusiness, true);
+});
+
+test("2026 QBI deduction can derive qualified business income from self-employment income", () => {
+  const taxProfile = buildTaxProfile({
+    taxYear: 2026,
+    filingStatus: "single",
+    state: "Florida",
+    qbiSourceMode: "selfEmployment"
+  });
+  const tax = computeIncomeTax({
+    ordinaryIncome: taxProfile.standardDeduction + 100_000,
+    selfEmploymentIncome: 100_000,
+    profile: taxProfile
+  });
+
+  assert.equal(tax.selfEmploymentTaxDeduction, 7_064.775);
+  assert.equal(tax.taxableOrdinaryIncomeBeforeQbi, 92_935.225);
+  assert.equal(tax.qbiDeductionBreakdown.qualifiedBusinessIncome, 92_935.225);
+  assert.equal(tax.qbiDeduction, 18_587.045);
+  assert.equal(tax.qbiDeductionBreakdown.sourceMode, "selfEmployment");
 });
 
 test("itemized deductions auto-select when they exceed the standard deduction", () => {
@@ -691,7 +807,11 @@ test("inflateTaxProfile scales standard deduction, child tax credit, and bracket
     itemizedStateLocalTaxes: 10_000,
     itemizedMortgageInterest: 5_000,
     itemizedCharitableContributions: 2_000,
-    itemizedMedicalExpenses: 1_000
+    itemizedMedicalExpenses: 1_000,
+    qbiSourceMode: "manual",
+    qbiAmount: 10_000,
+    qbiW2Wages: 3_000,
+    qbiUbiaQualifiedProperty: 20_000
   });
   taxProfile.childTaxCredit = {
     perChild: 2000,
@@ -708,4 +828,10 @@ test("inflateTaxProfile scales standard deduction, child tax credit, and bracket
   assert.equal(inflated.itemizedDeductions.charitableContributions, 2_200);
   assert.equal(inflated.itemizedDeductions.medicalExpenses, 1_100);
   assert.equal(inflated.itemizedDeductions.limits.salt.cap2025, 40_000);
+  assert.equal(inflated.qualifiedBusinessIncomeDeduction.threshold.marriedFilingJointly, 443_850);
+  assert.equal(inflated.qualifiedBusinessIncomeDeduction.phaseInEnd.marriedFilingJointly, 608_850);
+  assert.equal(inflated.qualifiedBusinessIncomeDeduction.minimumDeduction, 440);
+  assert.equal(inflated.qualifiedBusinessIncome.amount, 11_000);
+  assert.equal(inflated.qualifiedBusinessIncome.w2Wages, 3_300);
+  assert.equal(inflated.qualifiedBusinessIncome.ubiaQualifiedProperty, 20_000);
 });

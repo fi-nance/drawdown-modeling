@@ -4,7 +4,7 @@ import {
   stateRetirementRulesFor
 } from "./stateRetirementTax2026.mjs";
 
-export const TAX_DATA_VERSION = "2026.7";
+export const TAX_DATA_VERSION = "2026.8";
 export const DEFAULT_TAX_YEAR = 2026;
 
 export const FILING_STATUSES = {
@@ -125,6 +125,27 @@ export const FEDERAL_TAX_2026 = {
     },
     rates: [0.26, 0.28],
     source: "IRS Rev. Proc. 2025-32 section 4.10; IRS Topic 556; IRS 2025 Form 6251 instructions."
+  },
+  qualifiedBusinessIncomeDeduction: {
+    rate: 0.20,
+    minimumActiveQbi: 1000,
+    minimumDeduction: 400,
+    threshold: {
+      single: 201750,
+      marriedFilingJointly: 403500,
+      marriedFilingSeparately: 201775,
+      headOfHousehold: 201750
+    },
+    phaseInEnd: {
+      single: 276750,
+      marriedFilingJointly: 553500,
+      marriedFilingSeparately: 276775,
+      headOfHousehold: 276750
+    },
+    wageLimitPercent: 0.50,
+    wagePropertyWagePercent: 0.25,
+    propertyLimitPercent: 0.025,
+    source: "26 USC 199A as amended by Pub. L. 119-21; IRS Rev. Proc. 2025-32 section 4.26; IRS Form 8995 instructions."
   },
   enhancedSeniorDeduction: {
     effectiveStartYear: 2025,
@@ -349,7 +370,12 @@ export function buildFederalTaxProfile({
   itemizedMortgageInterest = 0,
   itemizedCharitableContributions = 0,
   itemizedMedicalExpenses = 0,
-  amtPreferenceItems = 0
+  amtPreferenceItems = 0,
+  qbiSourceMode = "none",
+  qbiAmount = 0,
+  qbiSpecifiedServiceBusiness = false,
+  qbiW2Wages = 0,
+  qbiUbiaQualifiedProperty = 0
 } = {}) {
   const data = FEDERAL_TAX_BY_YEAR[taxYear] ?? FEDERAL_TAX_2026;
   const status = FILING_STATUSES[filingStatus] ? filingStatus : "marriedFilingJointly";
@@ -369,6 +395,14 @@ export function buildFederalTaxProfile({
     additionalStandardDeduction65: data.additionalStandardDeduction65,
     alternativeMinimumTax: data.alternativeMinimumTax,
     amtPreferenceItems: Math.max(0, Number(amtPreferenceItems) || 0),
+    qualifiedBusinessIncomeDeduction: data.qualifiedBusinessIncomeDeduction,
+    qualifiedBusinessIncome: {
+      sourceMode: normalizeQbiSourceMode(qbiSourceMode),
+      amount: Math.max(0, Number(qbiAmount) || 0),
+      specifiedServiceBusiness: qbiSpecifiedServiceBusiness === true,
+      w2Wages: Math.max(0, Number(qbiW2Wages) || 0),
+      ubiaQualifiedProperty: Math.max(0, Number(qbiUbiaQualifiedProperty) || 0)
+    },
     enhancedSeniorDeduction: data.enhancedSeniorDeduction,
     socialSecurityTaxation: data.socialSecurityTaxation,
     socialSecurityPiaFormula: data.socialSecurityPiaFormula,
@@ -392,6 +426,10 @@ export function buildFederalTaxProfile({
 
 function normalizeItemizedDeductionMode(value) {
   return ["auto", "standard", "itemized"].includes(value) ? value : "auto";
+}
+
+function normalizeQbiSourceMode(value) {
+  return ["none", "manual", "selfEmployment"].includes(value) ? value : "none";
 }
 
 export function buildStateTaxProfile({

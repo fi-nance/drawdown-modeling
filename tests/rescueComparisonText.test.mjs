@@ -119,6 +119,17 @@ test("rescue scenario workspace knobs are visible and persisted", async () => {
   }
 });
 
+test("module library can scroll to reveal disabled-module knobs", async () => {
+  const [html, css] = await Promise.all([
+    readFile(new URL("../index.html", import.meta.url), "utf8"),
+    readFile(new URL("../src/redesign.css", import.meta.url), "utf8")
+  ]);
+
+  assert.match(css, /\.module-library\s*\{[\s\S]*max-height: calc\(100vh - 2rem\)/);
+  assert.match(css, /\.module-library\s*\{[\s\S]*overflow-y: auto/);
+  assert.match(html, /src\/redesign\.css\?v=20260604-qbi/);
+});
+
 test("rescue comparison table includes per-option confidence labels", async () => {
   const source = await readFile(new URL("../src/redesign.mjs", import.meta.url), "utf8");
 
@@ -205,7 +216,12 @@ test("itemized deduction controls are visible, persisted, and disclosed in resul
     "itemizedMortgageInterest",
     "itemizedCharitableContributions",
     "itemizedMedicalExpenses",
-    "amtPreferenceItems"
+    "amtPreferenceItems",
+    "qbiSourceMode",
+    "qbiAmount",
+    "qbiSpecifiedServiceBusiness",
+    "qbiW2Wages",
+    "qbiUbiaQualifiedProperty"
   ];
 
   for (const id of controlIds) {
@@ -217,13 +233,20 @@ test("itemized deduction controls are visible, persisted, and disclosed in resul
   assert.match(appSource, /itemizedDeductionMode: els\.itemizedDeductionMode\?\.value \|\| "auto"/);
   assert.match(appSource, /itemizedStateLocalTaxes: Number\(els\.itemizedStateLocalTaxes\?\.value\) \|\| 0/);
   assert.match(appSource, /amtPreferenceItems: Number\(els\.amtPreferenceItems\?\.value\) \|\| 0/);
+  assert.match(appSource, /qbiSourceMode: els\.qbiSourceMode\?\.value \|\| "none"/);
+  assert.match(appSource, /qbiAmount: Number\(els\.qbiAmount\?\.value\) \|\| 0/);
+  assert.match(appSource, /qbiSpecifiedServiceBusiness: els\.qbiSpecifiedServiceBusiness\?\.checked === true/);
+  assert.match(appSource, /qbiW2Wages: Number\(els\.qbiW2Wages\?\.value\) \|\| 0/);
+  assert.match(appSource, /qbiUbiaQualifiedProperty: Number\(els\.qbiUbiaQualifiedProperty\?\.value\) \|\| 0/);
   assert.match(appSource, /AMT preference\/addback estimate/);
   assert.match(appSource, /AMT is a CPA-review tripwire/);
+  assert.match(appSource, /QBI\/Form 8995/);
   assert.match(appSource, /"Deduction", "Itemized ded"/);
+  assert.match(appSource, /"Senior bonus", "QBI ded"/);
   assert.match(appSource, /federalDeductionKind/);
   assert.match(redesignSource, /Itemized deductions/);
   assert.match(redesignSource, /federalDeductionKind/);
-  assert.match(redesignSource, /id: "tax-overrides"[\s\S]*controls: 18/);
+  assert.match(redesignSource, /id: "tax-overrides"[\s\S]*controls: 23/);
 });
 
 test("workspace scenario construction preserves every advertised spending mode", async () => {

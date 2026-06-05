@@ -33,7 +33,7 @@ export function actionConfidenceFor(actionKind, confidenceReport = {}) {
   const find = (ids) => findFlagByPriority(flags, ids);
 
   if (["taxReserve", "traditionalWithdrawal", "rothConversion", "taxGainHarvesting", "taxLossHarvesting"].includes(actionKind)) {
-    const flag = find(["amt-exposure-review", "manual-federal-tax-overrides-review", "itemized-deduction-inputs-review", "enhanced-senior-deduction-eligibility"]);
+    const flag = find(["amt-exposure-review", "qbi-deduction-review", "manual-federal-tax-overrides-review", "itemized-deduction-inputs-review", "enhanced-senior-deduction-eligibility"]);
     if (flag) return actionConfidenceFromFlag(flag);
   }
 
@@ -404,6 +404,11 @@ function addFederalTaxScopeFlags(flags, scenario = {}, taxProfile = {}, plan = n
     flags.push(alternativeMinimumTaxReviewFlag(alternativeMinimumTax));
   }
 
+  const qbiDeduction = qualifiedBusinessIncomeDeductionSummary(taxProfile);
+  if (qbiDeduction.hasQbiInput) {
+    flags.push(qualifiedBusinessIncomeDeductionReviewFlag(qbiDeduction));
+  }
+
   const businessIncome = selfEmploymentIncomeSummary(scenario);
   if (businessIncome.hasSelfEmploymentIncome) {
     flags.push(businessIncomeReviewFlag(businessIncome));
@@ -580,6 +585,40 @@ function formatModeledAmtYears(years = []) {
   return years.map((year) => `${year.year} (${formatCurrency(year.income)})`).join(", ");
 }
 
+function qualifiedBusinessIncomeDeductionReviewFlag(summary = {}) {
+  return {
+    id: "qbi-deduction-review",
+    level: CONFIDENCE_LEVELS.CPA_REVIEW,
+    lens: "cpa",
+    title: "QBI deduction needs Form 8995 review",
+    detail: `Section 199A QBI planning is active${qualifiedBusinessIncomeDeductionSummaryText(summary)}. The model applies the 2026 20% QBI rule, taxable-income cap, W-2 wage/UBIA limits, SSTB phaseout, and $400 active-QBI minimum when entered facts support it. It does not validate Form 8995/8995-A support, trade-or-business status, material participation, K-1 aggregation, QBI loss carryforwards, REIT/PTP components, cooperative patron reductions, reasonable compensation, guaranteed payments, or whether self-employment income is already net of QBI-attributable deductions.`,
+    action: "Review Form 8995/8995-A support before relying on Roth-conversion room, tax reserves, income-bridge rescues, or safe-spending results affected by QBI."
+  };
+}
+
+function qualifiedBusinessIncomeDeductionSummary(taxProfile = {}) {
+  const qbi = taxProfile?.qualifiedBusinessIncome ?? {};
+  const sourceMode = ["manual", "selfEmployment"].includes(qbi.sourceMode) ? qbi.sourceMode : "none";
+  return {
+    hasQbiInput: sourceMode !== "none",
+    sourceMode,
+    amount: Math.max(0, Number(qbi.amount) || 0),
+    specifiedServiceBusiness: qbi.specifiedServiceBusiness === true,
+    w2Wages: Math.max(0, Number(qbi.w2Wages) || 0),
+    ubiaQualifiedProperty: Math.max(0, Number(qbi.ubiaQualifiedProperty) || 0)
+  };
+}
+
+function qualifiedBusinessIncomeDeductionSummaryText(summary = {}) {
+  const parts = [];
+  if (summary.sourceMode === "manual") parts.push(`manual QBI ${formatCurrency(summary.amount)}`);
+  if (summary.sourceMode === "selfEmployment") parts.push("QBI derived from self-employment income after the half-SE-tax deduction");
+  if (summary.specifiedServiceBusiness) parts.push("SSTB selected");
+  if (summary.w2Wages > 0) parts.push(`QBI W-2 wages ${formatCurrency(summary.w2Wages)}`);
+  if (summary.ubiaQualifiedProperty > 0) parts.push(`UBIA property ${formatCurrency(summary.ubiaQualifiedProperty)}`);
+  return parts.length ? ` (${parts.join("; ")})` : "";
+}
+
 function manualFederalTaxOverrideReviewFlag(summary = {}) {
   return {
     id: "manual-federal-tax-overrides-review",
@@ -614,7 +653,7 @@ function businessIncomeReviewFlag(summary = {}) {
     level: CONFIDENCE_LEVELS.CPA_REVIEW,
     lens: "cpa",
     title: "Business income needs CPA review",
-    detail: `Self-employment income is present${businessIncomeSummaryText(summary)}. The model applies Schedule SE self-employment tax and the one-half SE tax deduction, but it does not model business-expense substantiation, self-employed health insurance, solo retirement-plan deductions, pass-through K-1 detail, QBI/Form 8995 where applicable, AMT interactions, or estimated-tax/withholding timing.`,
+    detail: `Self-employment income is present${businessIncomeSummaryText(summary)}. The model applies Schedule SE self-employment tax and the one-half SE tax deduction, and can derive QBI from self-employment income when QBI planning is enabled, but it does not model business-expense substantiation, self-employed health insurance, solo retirement-plan deductions, pass-through K-1 detail, full Form 8995/8995-A support, AMT interactions, or estimated-tax/withholding timing.`,
     action: "Use manual deduction/credit overrides for known business-tax adjustments, and review business-income years with a CPA before acting on income-bridge, Roth-conversion, or tax-payment recommendations."
   };
 }
@@ -742,15 +781,15 @@ function rescueFlagIds(kind) {
     case "rothBasisCliffRescue":
     case "conversionGuardrail":
     case "magiSpendTrim":
-      return ["amt-exposure-review", "aca-coverage-gap-modeled", "aca-medicaid-handoff-modeled", "aca-coverage-gap-risk", "manual-federal-tax-overrides-review", "itemized-deduction-inputs-review", "enhanced-senior-deduction-eligibility", "aca-magi-threshold", "aca-plan-inputs", "aca-benchmark-state-fallback", "aca-benchmark-out-of-model", "aca-oop-inputs", "aca-net-premium-quote"];
+      return ["amt-exposure-review", "qbi-deduction-review", "aca-coverage-gap-modeled", "aca-medicaid-handoff-modeled", "aca-coverage-gap-risk", "manual-federal-tax-overrides-review", "itemized-deduction-inputs-review", "enhanced-senior-deduction-eligibility", "aca-magi-threshold", "aca-plan-inputs", "aca-benchmark-state-fallback", "aca-benchmark-out-of-model", "aca-oop-inputs", "aca-net-premium-quote"];
     case "taxableLotRescue":
-      return ["amt-exposure-review", "manual-federal-tax-overrides-review", "itemized-deduction-inputs-review", "enhanced-senior-deduction-eligibility", "aca-magi-threshold"];
+      return ["amt-exposure-review", "qbi-deduction-review", "manual-federal-tax-overrides-review", "itemized-deduction-inputs-review", "enhanced-senior-deduction-eligibility", "aca-magi-threshold"];
     case "withdrawalShift":
     case "safeSpending":
-      return ["amt-exposure-review", "manual-federal-tax-overrides-review", "itemized-deduction-inputs-review", "enhanced-senior-deduction-eligibility", "state-retirement-tax-review"];
+      return ["amt-exposure-review", "qbi-deduction-review", "manual-federal-tax-overrides-review", "itemized-deduction-inputs-review", "enhanced-senior-deduction-eligibility", "state-retirement-tax-review"];
     case "incomeBridge":
     case "combined":
-      return ["amt-exposure-review", "business-income-tax-review"];
+      return ["amt-exposure-review", "qbi-deduction-review", "business-income-tax-review"];
     case "socialSecurityBridge":
       return ["social-security-claiming-inputs"];
     default:
