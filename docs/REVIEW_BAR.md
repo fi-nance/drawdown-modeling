@@ -112,6 +112,11 @@ Current seed coverage:
 - `tests/golden_ltcg_stacking.test.mjs` — Long-term capital gains stacking
   above ordinary income, IRS Schedule D Qualified Dividends and Capital Gain
   Tax Worksheet with 2026 MFJ brackets.
+- `tests/golden_senior_deduction.test.mjs` — OBBBA enhanced senior deduction
+  (2025-2028), IRC §151(d)(5) and IRS Schedule 1-A (Form 1040) Part V
+  per-person phaseout worksheet.
+- `tests/golden_actc.test.mjs` — Child Tax Credit and refundable Additional
+  Child Tax Credit, IRC §24 and the IRS Schedule 8812 earned-income formula.
 
 ### Data-source coverage (`tests/dataSourcesCoverage.test.mjs`)
 
