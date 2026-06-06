@@ -179,6 +179,8 @@ test("after-tax bequest control is visible, persisted, and audited", async () =>
   assert.match(appSource, /"heirOrdinaryTaxRate"/);
   assert.match(appSource, /heirOrdinaryTaxRate: document\.querySelector\("#heirOrdinaryTaxRate"\)/);
   assert.match(appSource, /heirOrdinaryTaxRate: percentInputValue\("heirOrdinaryTaxRate", DEFAULT_SCENARIO\.heirOrdinaryTaxRate\)/);
+  assert.match(appSource, /heirState: els\.heirState\.value \|\| null/);
+  assert.doesNotMatch(appSource, /state: els\.heirState\.value \|\| state/);
   assert.match(appSource, /legacyAuditLine/);
   assert.match(appSource, /Median after-tax bequest/);
   assert.match(appSource, /After-tax heirs/);

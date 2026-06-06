@@ -117,7 +117,8 @@ function summarizeScenarioForReview(scenario = {}) {
     legacy: {
       heirType: scenario.heirType ?? null,
       heirBaseIncome: finiteOrNull(scenario.heirBaseIncome),
-      heirAge: finiteOrNull(scenario.heirAge)
+      heirAge: finiteOrNull(scenario.heirAge),
+      heirState: scenario.heirState ?? null
     }
   };
 }

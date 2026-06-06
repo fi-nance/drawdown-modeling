@@ -206,7 +206,7 @@ export function simulatePlan({
     eligibleDesignatedTaxDiscount: mergedScenario.eligibleDesignatedTaxDiscount,
     heirBaseIncome: mergedScenario.heirBaseIncome,
     heirAge: mergedScenario.heirAge,
-    state: mergedScenario.state,
+    state: mergedScenario.heirState ?? mergedScenario.state,
     taxProfile
   });
   return {

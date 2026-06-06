@@ -128,7 +128,10 @@ export const DEFAULT_SCENARIO = {
   // model has no primary source for either: leave 0 unless the household
   // wants to stress-test a specific heir scenario. See KNOWN_LIMITATIONS.
   nonSpouse10YrTaxDrag: 0,
-  eligibleDesignatedTaxDiscount: 0
+  eligibleDesignatedTaxDiscount: 0,
+  heirBaseIncome: 80000,
+  heirAge: 30,
+  heirState: null
 };
 
 // Ensures every asset class present in `assets` has a finite return-assumption

@@ -49,7 +49,8 @@ const latest = {
     },
     heirType: "nonSpouse10Yr",
     heirBaseIncome: 120000,
-    heirAge: 45
+    heirAge: 45,
+    heirState: "PA"
   },
   plan: {
     success: true,
@@ -117,6 +118,7 @@ test("result audit bundle wraps setup, compact result, audit rows, and source ve
   assert.equal(bundle.reviewSummary.scenario.targetSpend, 90000);
   assert.equal(bundle.reviewSummary.scenario.privacyMode, true);
   assert.equal(bundle.reviewSummary.scenario.healthcare.zip, "33101");
+  assert.equal(bundle.reviewSummary.scenario.legacy.heirState, "PA");
   assert.equal(bundle.reviewSummary.verdict.planSuccess, true);
   assert.equal(bundle.reviewSummary.verdict.monteCarloSuccessRate, 0.92);
   assert.equal(bundle.reviewSummary.verdict.decisionTargetSuccessRate, 0.9);

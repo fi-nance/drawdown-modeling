@@ -519,7 +519,7 @@ function lifetimeWithdrawalScore(plan, config, scenario) {
     eligibleDesignatedTaxDiscount: scenario?.eligibleDesignatedTaxDiscount,
     heirBaseIncome: scenario?.heirBaseIncome,
     heirAge: scenario?.heirAge,
-    state: scenario?.state
+    state: scenario?.heirState ?? scenario?.state
   }).afterTaxValue : 0;
   return round(
     plan.modeledCost

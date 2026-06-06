@@ -253,6 +253,41 @@ test("per-account beneficiary overrides split inherited account taxation and inh
   assert.equal(plan.heirValueBreakdown.effectiveTraditionalTaxRate, 0.3);
 });
 
+test("legacy inheritance state does not replace the household tax state", () => {
+  const plan = simulatePlan({
+    assets: [{
+      id: "child-ira",
+      accountType: "traditional",
+      assetClass: "cash",
+      units: 1000,
+      price: 1,
+      costBasisPerUnit: 1
+    }],
+    scenario: {
+      planYears: 1,
+      targetSpend: 0,
+      currentAge: 60,
+      heirOrdinaryTaxRate: 0.3,
+      heirType: "nonSpouse10Yr",
+      state: "Florida",
+      heirState: "PA",
+      rmd: { enabled: false },
+      rothConversion: { enabled: false },
+      taxGainHarvesting: { enabled: false },
+      taxLossHarvesting: { enabled: false },
+      aca: { enabled: false },
+      returnAssumptions: {
+        cash: { mean: 0, stdev: 0 }
+      }
+    },
+    taxProfile: noTaxProfile,
+    returnSequence: [{ cash: 0 }],
+    inflationSequence: [0]
+  });
+
+  assert.equal(plan.heirValueBreakdown.stateInheritanceTax, 45);
+});
+
 test("non-canonical household heir type does not inflate per-account override count", () => {
   const plan = simulatePlan({
     assets: [
