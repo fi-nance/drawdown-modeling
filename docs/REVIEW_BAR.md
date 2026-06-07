@@ -117,6 +117,12 @@ Current seed coverage:
   per-person phaseout worksheet.
 - `tests/golden_actc.test.mjs` — Child Tax Credit and refundable Additional
   Child Tax Credit, IRC §24 and the IRS Schedule 8812 earned-income formula.
+- `tests/golden_qbi.test.mjs` — Section 199A QBI deduction, 26 USC §199A as
+  amended by Pub. L. 119-21 (20% rule, taxable-income cap, W-2 wage limit,
+  SSTB phaseout, $400 minimum) and IRS Form 8995 / 8995-A.
+- `tests/golden_salt.test.mjs` — OBBBA temporary SALT deduction limit, Pub. L.
+  119-21 ($40,000 cap, 1%/yr growth, 30% phasedown to a $10,000 floor, 2030
+  reversion) and IRS Schedule A instructions.
 
 ### Data-source coverage (`tests/dataSourcesCoverage.test.mjs`)
 
