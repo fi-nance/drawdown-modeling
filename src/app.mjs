@@ -4342,7 +4342,6 @@ function readScenario() {
     heirBaseIncome: Number(els.heirBaseIncome.value) || 80000,
     heirAge: Number(els.heirAge.value) || 30,
     heirState: els.heirState.value || null,
-    state: els.heirState.value || state,
     retirementPenaltyAge: Number(els.retirementPenaltyAge.value) || DEFAULT_SCENARIO.retirementPenaltyAge,
     rothBasis: Number(els.rothBasis.value) || 0,
     earlyWithdrawalPenaltyExceptionAmount: numberOrNull(els.earlyWithdrawalPenaltyExceptionAmount.value) ?? 0,

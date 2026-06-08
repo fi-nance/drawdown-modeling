@@ -6,7 +6,7 @@ import { computeIncomeTax } from "../tax.mjs?v=20260605-actc";
 import { round } from "../utils.mjs";
 import { emptyEarnedIncome } from "./cashFlows.mjs";
 import { clampFiniteNumber } from "./guards.mjs";
-import { estimateHeirValueBreakdown } from "./heirEstate.mjs?v=20260605-actc";
+import { estimateHeirValueBreakdown, inheritanceTaxStateForScenario } from "./heirEstate.mjs?v=20260605-actc";
 import { acaMagiForIncome, federalAgiForIncome, incomeForYear, irmaaMagiForIncome } from "./income.mjs?v=20260605-actc";
 import { computeAcaForYear, medicalCostForYear } from "./medical.mjs";
 import { expectedReturnForAsset, isLifetimeOptimizerEnabled, withdrawalStrategyConfig } from "./scenario.mjs";
@@ -513,14 +513,18 @@ function uniqueWithdrawalOrders(orders) {
 
 function lifetimeWithdrawalScore(plan, config, scenario) {
   const heirTaxRate = scenario?.heirOrdinaryTaxRate ?? 0.24;
-  const heirValue = plan.portfolio ? estimateHeirValueBreakdown(plan.portfolio, heirTaxRate, {
+  const inheritanceTaxState = inheritanceTaxStateForScenario(scenario);
+  const heirValueOptions = {
     heirType: scenario?.heirType,
     nonSpouse10YrTaxDrag: scenario?.nonSpouse10YrTaxDrag,
     eligibleDesignatedTaxDiscount: scenario?.eligibleDesignatedTaxDiscount,
     heirBaseIncome: scenario?.heirBaseIncome,
-    heirAge: scenario?.heirAge,
-    state: scenario?.state
-  }).afterTaxValue : 0;
+    heirAge: scenario?.heirAge
+  };
+  if (inheritanceTaxState !== undefined) heirValueOptions.state = inheritanceTaxState;
+  const heirValue = plan.portfolio
+    ? estimateHeirValueBreakdown(plan.portfolio, heirTaxRate, heirValueOptions).afterTaxValue
+    : 0;
   return round(
     plan.modeledCost
       + Math.max(0, plan.withdrawal?.saleOpportunityCost ?? 0) * config.expectedReturnPenaltyYears

@@ -116,8 +116,10 @@ function summarizeScenarioForReview(scenario = {}) {
     },
     legacy: {
       heirType: scenario.heirType ?? null,
+      heirState: scenario.heirState ?? null,
       heirBaseIncome: finiteOrNull(scenario.heirBaseIncome),
-      heirAge: finiteOrNull(scenario.heirAge)
+      heirAge: finiteOrNull(scenario.heirAge),
+      heirOrdinaryTaxRate: finiteOrNull(scenario.heirOrdinaryTaxRate)
     }
   };
 }

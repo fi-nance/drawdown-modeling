@@ -5,7 +5,7 @@ import { accountBreakdown, clonePortfolio, portfolioValue } from "../portfolio.m
 import { DEFAULT_TAX_PROFILE } from "../tax.mjs?v=20260605-actc";
 import { createRng, normalRandom, percentile, round } from "../utils.mjs";
 import { DEFAULT_MONTE_CARLO_RUNS, MONTE_CARLO_ASSUMPTION_PRESETS } from "./constants.mjs";
-import { estimateHeirValueBreakdown } from "./heirEstate.mjs?v=20260605-actc";
+import { estimateHeirValueBreakdown, inheritanceTaxStateForScenario } from "./heirEstate.mjs?v=20260605-actc";
 import { buildSurvivorTaxProfile, isMarriedFiling, mortalityStatus } from "./household.mjs";
 import { hsaStrategyConfig } from "./hsa.mjs";
 import { normalizeLossCarryforward } from "./income.mjs?v=20260605-actc";
@@ -200,15 +200,17 @@ export function simulatePlan({
 
   const endingAccounts = accountBreakdown(portfolio);
   const endingValue = portfolioValue(portfolio);
-  const heirValueBreakdown = estimateHeirValueBreakdown(portfolio, mergedScenario.heirOrdinaryTaxRate, {
+  const inheritanceTaxState = inheritanceTaxStateForScenario(mergedScenario);
+  const heirValueOptions = {
     heirType: mergedScenario.heirType,
     nonSpouse10YrTaxDrag: mergedScenario.nonSpouse10YrTaxDrag,
     eligibleDesignatedTaxDiscount: mergedScenario.eligibleDesignatedTaxDiscount,
     heirBaseIncome: mergedScenario.heirBaseIncome,
     heirAge: mergedScenario.heirAge,
-    state: mergedScenario.state,
     taxProfile
-  });
+  };
+  if (inheritanceTaxState !== undefined) heirValueOptions.state = inheritanceTaxState;
+  const heirValueBreakdown = estimateHeirValueBreakdown(portfolio, mergedScenario.heirOrdinaryTaxRate, heirValueOptions);
   return {
     success,
     years,

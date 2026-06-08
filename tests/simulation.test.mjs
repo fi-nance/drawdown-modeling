@@ -253,6 +253,43 @@ test("per-account beneficiary overrides split inherited account taxation and inh
   assert.equal(plan.heirValueBreakdown.effectiveTraditionalTaxRate, 0.3);
 });
 
+test("heir state controls inheritance tax separately from household state", () => {
+  const assets = [{
+    id: "child-roth",
+    accountType: "roth",
+    assetClass: "cash",
+    units: 1_000_000,
+    price: 1,
+    costBasisPerUnit: 1
+  }];
+  const baseScenario = {
+    planYears: 1,
+    targetSpend: 0,
+    currentAge: 60,
+    heirType: "nonSpouse10Yr",
+    rmd: { enabled: false },
+    rothConversion: { enabled: false },
+    taxGainHarvesting: { enabled: false },
+    taxLossHarvesting: { enabled: false },
+    aca: { enabled: false },
+    returnAssumptions: {
+      cash: { mean: 0, stdev: 0 }
+    }
+  };
+  const run = (scenario) => simulatePlan({
+    assets,
+    scenario: { ...baseScenario, ...scenario },
+    taxProfile: { ...noTaxProfile, state: { ...noTaxProfile.state, state: "PA" } },
+    returnSequence: [{ cash: 0 }],
+    inflationSequence: [0]
+  });
+
+  assert.equal(run({ state: "Massachusetts", heirState: "PA" }).heirValueBreakdown.stateInheritanceTax, 45_000);
+  assert.equal(run({ state: "PA", heirState: null }).heirValueBreakdown.stateInheritanceTax, 0);
+  assert.equal(run({ state: "PA" }).heirValueBreakdown.stateInheritanceTax, 45_000);
+  assert.equal(run({}).heirValueBreakdown.stateInheritanceTax, 45_000);
+});
+
 test("non-canonical household heir type does not inflate per-account override count", () => {
   const plan = simulatePlan({
     assets: [

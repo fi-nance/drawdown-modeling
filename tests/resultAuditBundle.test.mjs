@@ -48,8 +48,10 @@ const latest = {
       marketplaceMembers: 2
     },
     heirType: "nonSpouse10Yr",
+    heirState: "PA",
     heirBaseIncome: 120000,
-    heirAge: 45
+    heirAge: 45,
+    heirOrdinaryTaxRate: 0.3
   },
   plan: {
     success: true,
@@ -117,6 +119,8 @@ test("result audit bundle wraps setup, compact result, audit rows, and source ve
   assert.equal(bundle.reviewSummary.scenario.targetSpend, 90000);
   assert.equal(bundle.reviewSummary.scenario.privacyMode, true);
   assert.equal(bundle.reviewSummary.scenario.healthcare.zip, "33101");
+  assert.equal(bundle.reviewSummary.scenario.legacy.heirState, "PA");
+  assert.equal(bundle.reviewSummary.scenario.legacy.heirOrdinaryTaxRate, 0.3);
   assert.equal(bundle.reviewSummary.verdict.planSuccess, true);
   assert.equal(bundle.reviewSummary.verdict.monteCarloSuccessRate, 0.92);
   assert.equal(bundle.reviewSummary.verdict.decisionTargetSuccessRate, 0.9);
@@ -145,6 +149,7 @@ test("result audit summary is a compact CPA and engineering review surface", () 
   assert.equal(summary.schemaVersion, 1);
   assert.equal(summary.exportedAt, "2026-05-30T00:00:00.000Z");
   assert.equal(summary.scenario.state, "Florida");
+  assert.equal(summary.scenario.legacy.heirState, "PA");
   assert.equal(summary.scenario.privacyMode, true);
   assert.equal(summary.scenario.healthcare.householdSize, 2);
   assert.equal(summary.verdict.historicalBacktestCount, 1);

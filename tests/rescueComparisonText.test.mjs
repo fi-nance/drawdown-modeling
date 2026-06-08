@@ -193,6 +193,18 @@ test("after-tax bequest control is visible, persisted, and audited", async () =>
   assert.match(redesignSource, /pickHeirValue/);
 });
 
+test("heir inheritance-tax state does not overwrite household state", async () => {
+  const appSource = await readFile(new URL("../src/app.mjs", import.meta.url), "utf8");
+  const readScenarioSource = appSource.slice(
+    appSource.indexOf("function readScenario()"),
+    appSource.indexOf("function readWithdrawalOrder()")
+  );
+
+  assert.match(readScenarioSource, /\n\s+state,\n/);
+  assert.match(readScenarioSource, /heirState: els\.heirState\.value \|\| null/);
+  assert.doesNotMatch(readScenarioSource, /state: els\.heirState\.value \|\| state/);
+});
+
 test("workspace planning runs validate realistic spend before launching workers", async () => {
   const [html, appSource] = await Promise.all([
     readFile(new URL("../index.html", import.meta.url), "utf8"),
