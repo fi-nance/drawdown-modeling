@@ -163,7 +163,7 @@ const MODULES = [
   { id: "healthcare",    label: "Healthcare",     desc: "Insurance until Medicare",               controls: 22, required: false, enabledByDefault: true  },
   { id: "medicare",      label: "Medicare/IRMAA", desc: "Premiums after 65",                       controls: 8,  required: false, enabledByDefault: false },
   { id: "other-income",  label: "Other income",   desc: "Social Security, work, SE",               controls: 8,  required: false, enabledByDefault: false },
-  { id: "strategy",      label: "Strategy toolkit", desc: "Taxes, allocations, withdrawal rules",   controls: 25, required: false, enabledByDefault: true  },
+  { id: "strategy",      label: "Strategy toolkit", desc: "Taxes, allocations, withdrawal rules",   controls: 37, required: false, enabledByDefault: true  },
   { id: "reserve",       label: "Cash reserve",   desc: "Bucket strategy",                          controls: 4,  required: false, enabledByDefault: false },
   { id: "monte-carlo",   label: "Monte Carlo",    desc: "Return model and sampling",                controls: 19, required: false, enabledByDefault: true  },
   { id: "history",       label: "History test",   desc: "How would you have done?",                controls: 7,  required: false, enabledByDefault: false },
@@ -1154,13 +1154,13 @@ function riskBasedGuardrailSummary(option = {}) {
   return `${formatCurrencyShort(table.fixedFailsafeSpend)}/yr failsafe; ${formatCurrencyShort(table.initialSpend)}/yr starting spend with lower/upper triggers.`;
 }
 
-function riskBasedGuardrailTableHtml(decision = {}) {
+export function riskBasedGuardrailTableHtml(decision = {}) {
   const option = (Array.isArray(decision.rescueOptions) ? decision.rescueOptions : [])
     .find((item) => item.kind === "riskBasedGuardrailsRescue");
   const table = option?.metadata?.guardrailTable ?? option?.scenario?.spendingStrategy?.riskBasedGuardrails?.table;
   if (!table) return "";
   const rows = [
-    ["Fixed failsafe", table.initialPortfolioValue, table.fixedFailsafeSpend, formatRate(table.upperSuccessRate)],
+    ["Fixed failsafe", table.initialPortfolioValue, table.fixedFailsafeSpend, formatRate(1)],
     ["Starting guardrail spend", table.initialPortfolioValue, table.initialSpend, formatRate(table.targetSuccessRate)],
     ["Lower cut trigger", table.lowerGuardrailPortfolioValue, table.lowerAdjustedSpend, formatRate(table.lowerSuccessRate)],
     ["Upper raise trigger", table.upperGuardrailPortfolioValue, table.upperAdjustedSpend, formatRate(table.upperSuccessRate)]

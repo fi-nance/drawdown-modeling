@@ -10,7 +10,11 @@ globalThis.document = {
   }
 };
 
-const { rescueChangeList, rescueOptimizationText } = await import("../src/redesign.mjs?rescue-comparison-text-test");
+const {
+  rescueChangeList,
+  rescueOptimizationText,
+  riskBasedGuardrailTableHtml
+} = await import("../src/redesign.mjs?rescue-comparison-text-test");
 
 test("rescue comparison text names changed workspace knobs", () => {
   const baseScenario = {
@@ -135,6 +139,43 @@ test("rescue comparison table includes per-option confidence labels", async () =
 
   assert.match(source, /rescueConfidenceFor/, "rescue rows should use core rescue confidence mapping");
   assert.match(source, /"Confidence"/, "rescue comparison table should expose a Confidence column");
+});
+
+test("risk-based guardrail UI labels fixed failsafe target as 100 percent", () => {
+  const html = riskBasedGuardrailTableHtml({
+    rescueOptions: [{
+      kind: "riskBasedGuardrailsRescue",
+      metadata: {
+        guardrailTable: {
+          sequenceCount: 64,
+          initialPortfolioValue: 1_000_000,
+          fixedFailsafeSpend: 40_000,
+          initialSpend: 50_000,
+          lowerGuardrailPortfolioValue: 900_000,
+          lowerAdjustedSpend: 45_000,
+          upperGuardrailPortfolioValue: 1_200_000,
+          upperAdjustedSpend: 55_000,
+          targetSuccessRate: 0.9,
+          lowerSuccessRate: 0.75,
+          upperSuccessRate: 0.95
+        }
+      }
+    }]
+  });
+
+  assert.match(html, /Fixed failsafe/);
+  assert.match(html, /100%/);
+  assert.match(html, /95%/);
+});
+
+test("strategy module library count matches the expanded strategy card", async () => {
+  const [html, source] = await Promise.all([
+    readFile(new URL("../index.html", import.meta.url), "utf8"),
+    readFile(new URL("../src/redesign.mjs", import.meta.url), "utf8")
+  ]);
+
+  assert.match(html, /data-module="strategy"[\s\S]*<span class="controls-pill">37 controls<\/span>/);
+  assert.match(source, /id: "strategy"[\s\S]*controls: 37/);
 });
 
 test("decision panel includes ranked sensitivity output", async () => {
