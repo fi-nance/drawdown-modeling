@@ -232,6 +232,43 @@ test("result audit summary includes compact Monte Carlo sampling assumptions", (
   });
 });
 
+test("legacy fields are null when absent from scenario", () => {
+  const minScenario = {
+    planYears: 10,
+    state: "Florida",
+    aca: { enabled: false }
+  };
+  const minLatest = {
+    ...latest,
+    scenario: minScenario
+  };
+  const summary = createResultAuditSummary({ latest: minLatest });
+  assert.equal(summary.scenario.legacy.heirState, null);
+  assert.equal(summary.scenario.legacy.heirOrdinaryTaxRate, null);
+  assert.equal(summary.scenario.legacy.heirType, null);
+  assert.equal(summary.scenario.legacy.heirBaseIncome, null);
+  assert.equal(summary.scenario.legacy.heirAge, null);
+});
+
+test("heirOrdinaryTaxRate: NaN and Infinity are normalized to null in the audit summary", () => {
+  const summary = createResultAuditSummary({
+    latest: { ...latest, scenario: { ...latest.scenario, heirOrdinaryTaxRate: NaN } }
+  });
+  assert.equal(summary.scenario.legacy.heirOrdinaryTaxRate, null);
+
+  const infSummary = createResultAuditSummary({
+    latest: { ...latest, scenario: { ...latest.scenario, heirOrdinaryTaxRate: Infinity } }
+  });
+  assert.equal(infSummary.scenario.legacy.heirOrdinaryTaxRate, null);
+});
+
+test("heirState null is passed through as null in the audit summary", () => {
+  const summary = createResultAuditSummary({
+    latest: { ...latest, scenario: { ...latest.scenario, heirState: null } }
+  });
+  assert.equal(summary.scenario.legacy.heirState, null);
+});
+
 test("result audit bundle rejects incomplete results", () => {
   assert.throws(
     () => createResultAuditBundle({ latest: { plan: {} }, setupState }),
