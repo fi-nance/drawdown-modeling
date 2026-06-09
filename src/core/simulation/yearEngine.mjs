@@ -3,7 +3,7 @@
 
 import { inflateAcaConfig } from "../aca.mjs";
 import { accountBreakdown, ageHoldingPeriods, applyTotalReturnsWithIncome, harvestTaxGains, harvestTaxLosses, portfolioValue, removeEmptyLots } from "../portfolio.mjs";
-import { computeIncomeTax, inflateTaxProfile } from "../tax.mjs?v=20260605-actc";
+import { computeIncomeTax, inflateTaxProfile } from "../tax.mjs?v=20260608-mc-mr";
 import { round } from "../utils.mjs";
 import { allocationStrategyStateForYear } from "./allocation.mjs";
 import { assetLocationStateForYear } from "./assetLocation.mjs";
@@ -11,19 +11,19 @@ import { earnedIncomeForYear, emptyEarnedIncome, mergeEarnedIncome, oneOffCashFl
 import { CASH_GAP_TOLERANCE, CASH_RAISED_EPSILON } from "./constants.mjs";
 import { acaConfigForSimulationYear, buildSurvivorTaxProfile, isMarriedFiling, mortalityStatus } from "./household.mjs";
 import { addHsaContributionLot, hsaContributionForYear, hsaQualifiedExpenseAvailableForWithdrawal, hsaStrategyConfig } from "./hsa.mjs";
-import { acaMagiForIncome, federalAgiForIncome, incomeForYear, irmaaMagiForIncome, lossCarryforwardTotal, normalizeLossCarryforward, taxProfileForSimulationYear } from "./income.mjs?v=20260605-actc";
+import { acaMagiForIncome, federalAgiForIncome, incomeForYear, irmaaMagiForIncome, lossCarryforwardTotal, normalizeLossCarryforward, taxProfileForSimulationYear } from "./income.mjs?v=20260608-mc-mr";
 import { summarizeAssetClassReturns } from "./market.mjs";
 import { computeAcaForYear, emptyMedicareCost, medicalCostForYear } from "./medical.mjs";
 import { addTaxableCash, assetSnapshot, traditionalAccountValue } from "./portfolioQueries.mjs";
 import { requiredMinimumDistributionForYear } from "./rmd.mjs";
 import { isLifetimeOptimizerEnabled } from "./scenario.mjs";
 import { sequenceRiskReserveStateForYear } from "./sequenceRiskReserve.mjs";
-import { socialSecurityBenefitsForYear, spouseSocialSecurityBenefitsForYear } from "./socialSecurity.mjs?v=20260605-actc";
+import { socialSecurityBenefitsForYear, spouseSocialSecurityBenefitsForYear } from "./socialSecurity.mjs?v=20260608-mc-mr";
 import { plannedSpendingDetailForYear } from "./spending.mjs";
-import { acaMagiCeiling, addPenaltyTax, automaticTaxLossHarvestLimit, effectiveRothConversionTargetRate, estimateTaxAttribution, gainHarvestingRoom, rothConversionAmountForYear, rothConversionMagiBuffer, strategyLimit } from "./taxStrategy.mjs?v=20260605-actc";
-import { convertTraditionalToRoth, earlyWithdrawalPenaltyExceptionAmountForYear, emptyWithdrawal, rothBasisAvailableForWithdrawal, rothBasisSummaryForYear, withdrawForCash } from "./withdrawalExecution.mjs?v=20260605-actc";
+import { acaMagiCeiling, addPenaltyTax, automaticTaxLossHarvestLimit, effectiveRothConversionTargetRate, estimateTaxAttribution, gainHarvestingRoom, rothConversionAmountForYear, rothConversionMagiBuffer, strategyLimit } from "./taxStrategy.mjs?v=20260608-mc-mr";
+import { convertTraditionalToRoth, earlyWithdrawalPenaltyExceptionAmountForYear, emptyWithdrawal, rothBasisAvailableForWithdrawal, rothBasisSummaryForYear, withdrawForCash } from "./withdrawalExecution.mjs?v=20260608-mc-mr";
 import { forcedWithdrawalOrder } from "./withdrawalOrders.mjs";
-import { chooseWithdrawalPlan, evaluateWithdrawalPlan } from "./withdrawalPlanning.mjs?v=20260605-actc";
+import { chooseWithdrawalPlan, evaluateWithdrawalPlan } from "./withdrawalPlanning.mjs?v=20260608-mc-mr";
 
 export function simulateYear({
   portfolio,

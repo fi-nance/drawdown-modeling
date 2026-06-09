@@ -1453,6 +1453,53 @@ body[data-screen="persona"]::before {
 .decision-rescue .action-confidence {
   margin-top: 0.5rem;
 }
+.decision-guardrail-table {
+  grid-column: 1 / -1;
+  border-top: 1px solid var(--border);
+  padding-top: 0.85rem;
+  display: grid;
+  gap: 0.55rem;
+}
+.decision-guardrail-table > div > span {
+  display: block;
+  color: var(--text-muted);
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.decision-guardrail-table strong {
+  display: block;
+  margin-top: 0.15rem;
+  color: var(--text-primary);
+  font-size: 1rem;
+}
+.decision-guardrail-table small {
+  display: block;
+  margin-top: 0.2rem;
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+.decision-guardrail-table table {
+  width: 100%;
+  border-collapse: collapse;
+  overflow: hidden;
+  border-radius: 8px;
+}
+.decision-guardrail-table th,
+.decision-guardrail-table td {
+  border-bottom: 1px solid var(--border);
+  padding: 0.48rem 0.55rem;
+  text-align: left;
+  font-size: 0.78rem;
+}
+.decision-guardrail-table th {
+  color: var(--text-muted);
+  font-size: 0.64rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
 .decision-foot {
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
 }

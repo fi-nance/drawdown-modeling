@@ -4,7 +4,12 @@ import {
   runHistoricalBacktests,
   runMonteCarlo,
   simulatePlan
-} from "./simulation.mjs?v=20260605-actc";
+} from "./simulation.mjs?v=20260608-mc-mr";
+import {
+  buildRiskBasedGuardrailTable,
+  RISK_BASED_GUARDRAILS_MODE,
+  scenarioWithRiskBasedGuardrailTable
+} from "./simulation/riskBasedGuardrails.mjs";
 import { round } from "./utils.mjs";
 
 export const DEFAULT_DECISION_PROFILE = Object.freeze({
@@ -127,8 +132,9 @@ export function runDecisionBatch({
 
   // The discretionary cut is the same lever a guardrails plan already owns,
   // so skip it as a distinct rescue when the base plan already guards spending.
-  const baseUsesGuardrails = ["discretionaryGuardrails", "guytonKlinger", "kitces", "vpw"].includes(scenario?.spendingStrategy?.mode);
+  const baseUsesGuardrails = ["discretionaryGuardrails", "guytonKlinger", "kitces", "vpw", RISK_BASED_GUARDRAILS_MODE].includes(scenario?.spendingStrategy?.mode);
   const discretionaryCut = baseUsesGuardrails ? null : findDiscretionaryCut(solverContext);
+  const riskBasedGuardrails = scenario?.spendingStrategy?.mode === RISK_BASED_GUARDRAILS_MODE ? null : findRiskBasedGuardrailsRescue(solverContext);
   const guytonKlingerRescue = baseUsesGuardrails ? null : findGuytonKlingerRescue(solverContext);
   const vpwRescue = baseUsesGuardrails ? null : findVpwRescue(solverContext);
   const incomeBridge = findIncomeBridge(solverContext);
@@ -164,6 +170,7 @@ export function runDecisionBatch({
 
   const rescueOptions = [
     discretionaryCut,
+    riskBasedGuardrails,
     guytonKlingerRescue,
     vpwRescue,
     incomeBridge,
@@ -288,6 +295,62 @@ function defaultCorrectionCutShare() {
   const correctionCutShare = 1 - (Number.isFinite(defaultCorrection) ? defaultCorrection : 0.5);
   const bearCutShare = 1 - (Number.isFinite(defaultBear) ? defaultBear : 0);
   return bearCutShare > 0 ? Math.max(0, Math.min(1, correctionCutShare / bearCutShare)) : 0.5;
+}
+
+function findRiskBasedGuardrailsRescue({ assets, scenario, taxProfile, runs, seed, sequences, profile, base, tracker }) {
+  if (!Array.isArray(sequences) || sequences.length === 0) return null;
+  const rawConfig = scenario.spendingStrategy?.riskBasedGuardrails ?? {};
+  const config = {
+    ...rawConfig,
+    targetSuccessRate: rawConfig.targetSuccessRate ?? profile.targetSuccessRate ?? DEFAULT_DECISION_PROFILE.targetSuccessRate
+  };
+  const evaluateHistoricalSuccess = ({ assets: probeAssets, scenario: probeScenario }) => {
+    const historical = historicalEvidence(runHistoricalBacktests({
+      assets: probeAssets,
+      scenario: probeScenario,
+      taxProfile,
+      sequences
+    }));
+    return {
+      successRate: historical.successRate,
+      count: historical.count
+    };
+  };
+  const table = buildRiskBasedGuardrailTable({
+    assets,
+    scenario,
+    config,
+    evaluateHistoricalSuccess
+  });
+  if (!table || !(table.sequenceCount > 0)) return null;
+
+  const searchRuns = solverSearchRuns(runs);
+  const cand = runCandidate({
+    id: "risk-based-guardrails-rescue",
+    kind: "riskBasedGuardrailsRescue",
+    label: "Use risk-based historical guardrails",
+    scenario: scenarioWithRiskBasedGuardrailTable(scenario, table, config),
+    assets,
+    taxProfile,
+    runs: searchRuns,
+    seed,
+    sequences,
+    profile,
+    metadata: {
+      strategyMode: RISK_BASED_GUARDRAILS_MODE,
+      guardrailTable: table
+    },
+    includeHistorical: true,
+    tracker
+  });
+  const finalized = finalizeCandidate({ candidate: cand, assets, taxProfile, runs, seed, sequences, profile });
+  return optionWithDelta(finalized, base, {
+    status: meetsTarget(finalized, profile) ? "target-met" : "best-tested",
+    metadata: {
+      ...finalized.metadata,
+      guardrailTable: table
+    }
+  });
 }
 
 export function scenarioWithIncomeBridge(scenario = {}, {
@@ -1334,17 +1397,17 @@ function diagnoseFailure({ base, safeSpending, profile }) {
     primary = "healthcareCliff";
     label = "Healthcare subsidy cliff";
     reason = "Modeled MAGI is above the subsidy ceiling, so losing the healthcare subsidy is the likely failure driver.";
-    recommendedKinds = ["rothBasisCliffRescue", "conversionGuardrail", "healthcareRescue", "magiSpendTrim", "taxableLotRescue", "withdrawalShift", "guytonKlingerRescue", "vpwRescue", "discretionaryCut"];
+    recommendedKinds = ["rothBasisCliffRescue", "conversionGuardrail", "healthcareRescue", "magiSpendTrim", "taxableLotRescue", "withdrawalShift", "riskBasedGuardrailsRescue", "guytonKlingerRescue", "vpwRescue", "discretionaryCut"];
   } else if (failedCount > 0 && anatomy.commonTrigger === "Early sequence risk") {
     primary = "earlySequenceRisk";
     label = "Early sequence risk";
     reason = "Failures cluster in the first ten years, so an early bad-market sequence is the likely failure driver.";
-    recommendedKinds = ["sequenceReserve", "allocationShift", "guytonKlingerRescue", "vpwRescue", "discretionaryCut", "socialSecurityBridge"];
+    recommendedKinds = ["sequenceReserve", "allocationShift", "riskBasedGuardrailsRescue", "guytonKlingerRescue", "vpwRescue", "discretionaryCut", "socialSecurityBridge"];
   } else if (failedCount > 0) {
     primary = "longHorizonDepletion";
     label = "Long-horizon depletion";
     reason = "Failures cluster later in the plan, so structural overspend or portfolio drag is the likely failure driver.";
-    recommendedKinds = ["guytonKlingerRescue", "vpwRescue", "discretionaryCut", "allocationShift", "withdrawalShift", "socialSecurityBridge", "irmaaLookbackRescue"];
+    recommendedKinds = ["riskBasedGuardrailsRescue", "guytonKlingerRescue", "vpwRescue", "discretionaryCut", "allocationShift", "withdrawalShift", "socialSecurityBridge", "irmaaLookbackRescue"];
   }
 
   if (requiredUnsustainable) {
@@ -1748,12 +1811,12 @@ const FAILURE_STRESSOR_MAP = Object.freeze({
   spendingPressure: {
     label: "Spending pressure",
     description: "Required cash flow is high relative to the portfolio during failed paths.",
-    recommendedKinds: ["guytonKlingerRescue", "vpwRescue", "discretionaryCut", "incomeBridge", "socialSecurityBridge"]
+    recommendedKinds: ["riskBasedGuardrailsRescue", "guytonKlingerRescue", "vpwRescue", "discretionaryCut", "incomeBridge", "socialSecurityBridge"]
   },
   reserveShortfall: {
     label: "Reserve shortfall",
     description: "Down-market years lack enough defensive assets to avoid selling volatile assets under stress.",
-    recommendedKinds: ["sequenceReserve", "allocationShift", "guytonKlingerRescue", "vpwRescue", "discretionaryCut"]
+    recommendedKinds: ["sequenceReserve", "allocationShift", "riskBasedGuardrailsRescue", "guytonKlingerRescue", "vpwRescue", "discretionaryCut"]
   },
   allocationMismatch: {
     label: "Allocation mismatch",

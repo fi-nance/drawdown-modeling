@@ -165,7 +165,7 @@ const MODULES = [
   { id: "other-income",  label: "Other income",   desc: "Social Security, work, SE",               controls: 8,  required: false, enabledByDefault: false },
   { id: "strategy",      label: "Strategy toolkit", desc: "Taxes, allocations, withdrawal rules",   controls: 25, required: false, enabledByDefault: true  },
   { id: "reserve",       label: "Cash reserve",   desc: "Bucket strategy",                          controls: 4,  required: false, enabledByDefault: false },
-  { id: "monte-carlo",   label: "Monte Carlo",    desc: "Return model and sampling",                controls: 16, required: false, enabledByDefault: true  },
+  { id: "monte-carlo",   label: "Monte Carlo",    desc: "Return model and sampling",                controls: 19, required: false, enabledByDefault: true  },
   { id: "history",       label: "History test",   desc: "How would you have done?",                controls: 7,  required: false, enabledByDefault: false },
   { id: "what-ifs",      label: "What ifs",       desc: "Future expenses or income",                controls: 3,  required: false, enabledByDefault: true  },
   { id: "tax-overrides", label: "Tax overrides",  desc: "Power-user tax tweaks",                    controls: 23, required: false, enabledByDefault: false }
@@ -994,6 +994,7 @@ function renderDecisionPanel() {
   const healthcare = decision.healthcare ?? {};
   const confidence = latest.confidence ?? { headline: "Confidence not evaluated", flags: [] };
   const rescueCards = rescues.map((option) => rescueCardHtml(option, base, confidence)).join("");
+  const riskGuardrailTable = riskBasedGuardrailTableHtml(decision);
   const diagnosisLine = diagnosis.primary && diagnosis.primary !== "none"
     ? `<p class="decision-sub"><strong>${escapeHtml(diagnosis.label)}.</strong> ${escapeHtml(diagnosis.reason)}</p>`
     : "";
@@ -1014,6 +1015,7 @@ function renderDecisionPanel() {
       <div class="decision-rescues">
         ${rescueCards || `<p class="decision-sub">No rescue candidates were available for the current inputs.</p>`}
       </div>
+      ${riskGuardrailTable}
       <div class="decision-foot">
         <div>
           <span>Failure anatomy</span>
@@ -1066,6 +1068,8 @@ function rescueTitle(option) {
   switch (option?.kind) {
     case "guytonKlingerRescue":
       return "switch to Guyton-Klinger spending guardrails";
+    case "riskBasedGuardrailsRescue":
+      return "use risk-based historical guardrails";
     case "vpwRescue":
       return "switch to Variable Percentage Withdrawal (VPW)";
     case "discretionaryCut":
@@ -1101,7 +1105,7 @@ function rescueTitle(option) {
 
 function rescueTierLabel(kind) {
   if (kind === "incomeBridge" || kind === "combined") return "Income change";
-  if (kind === "discretionaryCut" || kind === "magiSpendTrim" || kind === "guytonKlingerRescue" || kind === "vpwRescue") return "Spending change";
+  if (kind === "discretionaryCut" || kind === "magiSpendTrim" || kind === "guytonKlingerRescue" || kind === "vpwRescue" || kind === "riskBasedGuardrailsRescue") return "Spending change";
   return "No lifestyle change";
 }
 
@@ -1128,6 +1132,7 @@ function rescueCardHtml(option, base, confidenceReport = {}) {
   const title = rescueTitle(option);
   const tier = rescueTierLabel(option.kind);
   const confidence = rescueConfidenceFor(option, confidenceReport);
+  const guardrailSummary = riskBasedGuardrailSummary(option);
   const sideEffect = option.delta?.firstYearSubsidy == null
     ? "No healthcare delta"
     : `${option.delta.firstYearSubsidy >= 0 ? "+" : ""}${formatCurrencyShort(option.delta.firstYearSubsidy)} year-1 subsidy`;
@@ -1137,9 +1142,50 @@ function rescueCardHtml(option, base, confidenceReport = {}) {
       <strong>${escapeHtml(capitalizeFirst(title))}</strong>
       <small>${formatRate(base?.monteCarlo?.successRate)} -> ${formatRate(option.monteCarlo?.successRate)} (${signedRate(delta)})</small>
       <small>Historical ${formatOptionalRate(base?.historical?.successRate)} -> ${formatOptionalRate(option.historical?.successRate)}</small>
+      ${guardrailSummary ? `<small>${escapeHtml(guardrailSummary)}</small>` : ""}
       <small>${escapeHtml(sideEffect)}</small>
       ${confidenceBadgeHtml(confidence)}
     </article>`;
+}
+
+function riskBasedGuardrailSummary(option = {}) {
+  const table = option.metadata?.guardrailTable ?? option.scenario?.spendingStrategy?.riskBasedGuardrails?.table;
+  if (!table || option.kind !== "riskBasedGuardrailsRescue") return "";
+  return `${formatCurrencyShort(table.fixedFailsafeSpend)}/yr failsafe; ${formatCurrencyShort(table.initialSpend)}/yr starting spend with lower/upper triggers.`;
+}
+
+function riskBasedGuardrailTableHtml(decision = {}) {
+  const option = (Array.isArray(decision.rescueOptions) ? decision.rescueOptions : [])
+    .find((item) => item.kind === "riskBasedGuardrailsRescue");
+  const table = option?.metadata?.guardrailTable ?? option?.scenario?.spendingStrategy?.riskBasedGuardrails?.table;
+  if (!table) return "";
+  const rows = [
+    ["Fixed failsafe", table.initialPortfolioValue, table.fixedFailsafeSpend, formatRate(table.upperSuccessRate)],
+    ["Starting guardrail spend", table.initialPortfolioValue, table.initialSpend, formatRate(table.targetSuccessRate)],
+    ["Lower cut trigger", table.lowerGuardrailPortfolioValue, table.lowerAdjustedSpend, formatRate(table.lowerSuccessRate)],
+    ["Upper raise trigger", table.upperGuardrailPortfolioValue, table.upperAdjustedSpend, formatRate(table.upperSuccessRate)]
+  ];
+  return `
+    <div class="decision-guardrail-table">
+      <div>
+        <span>Risk-based guardrails</span>
+        <strong>Fixed vs. historical guardrail plan</strong>
+        <small>${escapeHtml(table.sequenceCount ?? 0)} historical cohorts; spending values are annual current-dollar targets before taxes/medical unless included in the scenario.</small>
+      </div>
+      <table>
+        <thead><tr><th>Step</th><th>Portfolio trigger</th><th>Annual spend</th><th>Historical target</th></tr></thead>
+        <tbody>
+          ${rows.map(([label, portfolio, spend, target]) => `
+            <tr>
+              <td>${escapeHtml(label)}</td>
+              <td>${portfolio == null ? "n/a" : escapeHtml(formatCurrencyShort(portfolio))}</td>
+              <td>${spend == null ? "n/a" : escapeHtml(formatCurrencyShort(spend))}</td>
+              <td>${escapeHtml(target)}</td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    </div>`;
 }
 
 function decisionVerdictLabel(label) {
@@ -2421,6 +2467,12 @@ export function rescueChangeList(option = {}, baseScenario = {}) {
   addNumberChange(changes, "Discretionary spend", baseSpend.discretionarySpend, nextSpend.discretionarySpend, formatCurrencyShort);
   addNumberChange(changes, "Correction discretionary", baseSpend.correctionDiscretionaryPercent, nextSpend.correctionDiscretionaryPercent, formatPercentValue);
   addNumberChange(changes, "Bear discretionary", baseSpend.bearDiscretionaryPercent, nextSpend.bearDiscretionaryPercent, formatPercentValue);
+  const nextRisk = nextSpend.riskBasedGuardrails ?? {};
+  if (nextRisk.table) {
+    addNumberChange(changes, "Risk guardrail starting spend", null, nextRisk.table.initialSpend, formatCurrencyShort);
+    addNumberChange(changes, "Risk guardrail lower trigger", null, nextRisk.table.lowerGuardrailPortfolioValue, formatCurrencyShort);
+    addNumberChange(changes, "Risk guardrail upper trigger", null, nextRisk.table.upperGuardrailPortfolioValue, formatCurrencyShort);
+  }
 
   const addedCashFlows = addedOneOffCashFlows(baseScenario.oneOffExpenses, scenario.oneOffExpenses);
   if (addedCashFlows.length) {
@@ -2547,6 +2599,8 @@ export function rescueOptimizationText(option, baseScenario = {}) {
       return `Maximum annual spending that still clears the decision target.${changeSummary}`;
     case "discretionaryCut":
       return `Flexible-spending cut during early market stress.${changeSummary}`;
+    case "riskBasedGuardrailsRescue":
+      return `Historical guardrail table with a failsafe spend, starting spend, lower cut trigger, and upper raise trigger.${changeSummary}`;
     case "incomeBridge":
       return `Bridge-income amount for ${meta.durationYears ?? 0} years.${changeSummary}`;
     case "combined":

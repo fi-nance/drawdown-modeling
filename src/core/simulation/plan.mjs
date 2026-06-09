@@ -2,18 +2,26 @@
 // Single responsibility: plan. No behavior changes — pure code movement.
 
 import { accountBreakdown, clonePortfolio, portfolioValue } from "../portfolio.mjs";
-import { DEFAULT_TAX_PROFILE } from "../tax.mjs?v=20260605-actc";
+import { DEFAULT_TAX_PROFILE } from "../tax.mjs?v=20260608-mc-mr";
 import { createRng, normalRandom, percentile, round } from "../utils.mjs";
 import { DEFAULT_MONTE_CARLO_RUNS, MONTE_CARLO_ASSUMPTION_PRESETS } from "./constants.mjs";
-import { estimateHeirValueBreakdown } from "./heirEstate.mjs?v=20260605-actc";
+import { estimateHeirValueBreakdown, inheritanceTaxStateForScenario } from "./heirEstate.mjs?v=20260608-mc-mr";
 import { buildSurvivorTaxProfile, isMarriedFiling, mortalityStatus } from "./household.mjs";
 import { hsaStrategyConfig } from "./hsa.mjs";
-import { normalizeLossCarryforward } from "./income.mjs?v=20260605-actc";
-import { annualInflation, annualMedicalInflation, annualReturns, medicalInflationPremium, sampleReturnsForYear } from "./market.mjs";
+import { normalizeLossCarryforward } from "./income.mjs?v=20260608-mc-mr";
+import {
+  annualInflation,
+  annualMedicalInflation,
+  annualReturns,
+  createMonteCarloSamplingState,
+  medicalInflationPremium,
+  sampleReturnsForYearWithState
+} from "./market.mjs";
 import { assetClassValue } from "./portfolioQueries.mjs";
+import { RISK_BASED_GUARDRAILS_MODE, riskBasedGuardrailSpendForYear } from "./riskBasedGuardrails.mjs";
 import { ensureReturnAssumptionsForAssets, mergeScenario } from "./scenario.mjs";
 import { advanceSpendingGuardrailMarketState, initialSpendingGuardrailMarketState, spendingGuardrailStateForYear, spendingStrategyConfig } from "./spending.mjs";
-import { buildPostMortalityYearResult, simulateYear } from "./yearEngine.mjs?v=20260605-actc";
+import { buildPostMortalityYearResult, simulateYear } from "./yearEngine.mjs?v=20260608-mc-mr";
 
 export function simulatePlan({
   assets,
@@ -48,6 +56,7 @@ export function simulatePlan({
   let guytonKlingerInitialWr = null;
   let kitcesBaseSpend = null;
   let kitcesHighWaterMark = null;
+  let riskBasedRealSpend = null;
   const irmaaMagiHistory = [];
   let spendingGuardrailMarketState = initialSpendingGuardrailMarketState();
 
@@ -89,6 +98,7 @@ export function simulatePlan({
     const beginningPortfolioVal = portfolioValue(portfolio);
     const strategy = spendingStrategyConfig(mergedScenario);
     let passedBaseSpend = null;
+    let spendingGuardrail = null;
 
     // Guyton-Klinger is modeled with documented simplifications vs the full
     // published ruleset: the inflation-skip (modified withdrawal) rule keys off
@@ -159,11 +169,26 @@ export function simulatePlan({
         p = 1.0;
       }
       passedBaseSpend = beginningPortfolioVal * p;
+    } else if (strategy.mode === RISK_BASED_GUARDRAILS_MODE) {
+      const config = strategy.riskBasedGuardrails;
+      if (riskBasedRealSpend === null) {
+        riskBasedRealSpend = config.table?.initialSpend ?? mergedScenario.targetSpend ?? 0;
+      }
+      const realPortfolioValue = inflationIndex > 0 ? beginningPortfolioVal / inflationIndex : beginningPortfolioVal;
+      const riskBased = riskBasedGuardrailSpendForYear({
+        currentRealPortfolioValue: realPortfolioValue,
+        currentRealSpend: riskBasedRealSpend,
+        config,
+        table: config.table
+      });
+      riskBasedRealSpend = riskBased.realSpend;
+      passedBaseSpend = riskBasedRealSpend * (config.inflationAdjusted === false ? 1 : inflationIndex);
+      spendingGuardrail = riskBased.guardrail;
     }
 
     const returnByAssetClass = annualReturns(mergedScenario, returnSequence, yearIndex);
     const currentInflationRate = annualInflation(mergedScenario, inflationSequence, yearIndex);
-    const spendingGuardrail = spendingGuardrailStateForYear({
+    spendingGuardrail ??= spendingGuardrailStateForYear({
       scenario: mergedScenario,
       marketState: spendingGuardrailMarketState
     });
@@ -200,15 +225,17 @@ export function simulatePlan({
 
   const endingAccounts = accountBreakdown(portfolio);
   const endingValue = portfolioValue(portfolio);
-  const heirValueBreakdown = estimateHeirValueBreakdown(portfolio, mergedScenario.heirOrdinaryTaxRate, {
+  const inheritanceTaxState = inheritanceTaxStateForScenario(mergedScenario);
+  const heirValueOptions = {
     heirType: mergedScenario.heirType,
     nonSpouse10YrTaxDrag: mergedScenario.nonSpouse10YrTaxDrag,
     eligibleDesignatedTaxDiscount: mergedScenario.eligibleDesignatedTaxDiscount,
     heirBaseIncome: mergedScenario.heirBaseIncome,
     heirAge: mergedScenario.heirAge,
-    state: mergedScenario.state,
     taxProfile
-  });
+  };
+  if (inheritanceTaxState !== undefined) heirValueOptions.state = inheritanceTaxState;
+  const heirValueBreakdown = estimateHeirValueBreakdown(portfolio, mergedScenario.heirOrdinaryTaxRate, heirValueOptions);
   return {
     success,
     years,
@@ -248,22 +275,7 @@ export function runMonteCarlo({
   let batchStart = 0;
 
   for (let run = 0; run < runs; run += 1) {
-    const returnSequence = [];
-    const inflationSequence = [];
-    const medicalInflationSequence = [];
-    for (let year = 0; year < mergedScenario.planYears; year += 1) {
-      returnSequence.push(sampleReturnsForYear(mergedScenario, rng));
-      inflationSequence.push(Math.max(-0.08, normalRandom(
-        rng,
-        mergedScenario.returnAssumptions.inflation?.mean ?? MONTE_CARLO_ASSUMPTION_PRESETS.marketNeutral.inflation.mean,
-        mergedScenario.returnAssumptions.inflation?.stdev ?? MONTE_CARLO_ASSUMPTION_PRESETS.marketNeutral.inflation.stdev
-      )));
-      medicalInflationSequence.push(Math.max(-0.08, normalRandom(
-        rng,
-        mergedScenario.returnAssumptions.medicalInflation?.mean ?? MONTE_CARLO_ASSUMPTION_PRESETS.marketNeutral.medicalInflation.mean,
-        mergedScenario.returnAssumptions.medicalInflation?.stdev ?? MONTE_CARLO_ASSUMPTION_PRESETS.marketNeutral.medicalInflation.stdev
-      )));
-    }
+    const { returnSequence, inflationSequence, medicalInflationSequence } = sampleMonteCarloSequences(mergedScenario, rng);
 
     const plan = simulatePlan({
       assets,
@@ -593,22 +605,7 @@ export function generateSingleMonteCarloPath({
   const rng = createRng(seed);
   
   for (let run = 0; run < scenarioId; run += 1) {
-    const returnSequence = [];
-    const inflationSequence = [];
-    const medicalInflationSequence = [];
-    for (let year = 0; year < mergedScenario.planYears; year += 1) {
-      returnSequence.push(sampleReturnsForYear(mergedScenario, rng));
-      inflationSequence.push(Math.max(-0.08, normalRandom(
-        rng,
-        mergedScenario.returnAssumptions.inflation?.mean ?? MONTE_CARLO_ASSUMPTION_PRESETS.marketNeutral.inflation.mean,
-        mergedScenario.returnAssumptions.inflation?.stdev ?? MONTE_CARLO_ASSUMPTION_PRESETS.marketNeutral.inflation.stdev
-      )));
-      medicalInflationSequence.push(Math.max(-0.08, normalRandom(
-        rng,
-        mergedScenario.returnAssumptions.medicalInflation?.mean ?? MONTE_CARLO_ASSUMPTION_PRESETS.marketNeutral.medicalInflation.mean,
-        mergedScenario.returnAssumptions.medicalInflation?.stdev ?? MONTE_CARLO_ASSUMPTION_PRESETS.marketNeutral.medicalInflation.stdev
-      )));
-    }
+    const { returnSequence, inflationSequence, medicalInflationSequence } = sampleMonteCarloSequences(mergedScenario, rng);
     
     if (run === scenarioId - 1) {
       const plan = simulatePlan({
@@ -623,4 +620,25 @@ export function generateSingleMonteCarloPath({
     }
   }
   return null;
+}
+
+function sampleMonteCarloSequences(mergedScenario, rng) {
+  const returnSequence = [];
+  const inflationSequence = [];
+  const medicalInflationSequence = [];
+  const samplingState = createMonteCarloSamplingState(mergedScenario);
+  for (let year = 0; year < mergedScenario.planYears; year += 1) {
+    returnSequence.push(sampleReturnsForYearWithState(mergedScenario, rng, samplingState));
+    inflationSequence.push(Math.max(-0.08, normalRandom(
+      rng,
+      mergedScenario.returnAssumptions.inflation?.mean ?? MONTE_CARLO_ASSUMPTION_PRESETS.marketNeutral.inflation.mean,
+      mergedScenario.returnAssumptions.inflation?.stdev ?? MONTE_CARLO_ASSUMPTION_PRESETS.marketNeutral.inflation.stdev
+    )));
+    medicalInflationSequence.push(Math.max(-0.08, normalRandom(
+      rng,
+      mergedScenario.returnAssumptions.medicalInflation?.mean ?? MONTE_CARLO_ASSUMPTION_PRESETS.marketNeutral.medicalInflation.mean,
+      mergedScenario.returnAssumptions.medicalInflation?.stdev ?? MONTE_CARLO_ASSUMPTION_PRESETS.marketNeutral.medicalInflation.stdev
+    )));
+  }
+  return { returnSequence, inflationSequence, medicalInflationSequence };
 }

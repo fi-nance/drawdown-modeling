@@ -104,8 +104,10 @@ function summarizeScenarioForReview(scenario = {}) {
     targetSpend: finiteOrNull(scenario.targetSpend),
     targetSpendIncludesTaxes: booleanOrNull(scenario.targetSpendIncludesTaxes),
     targetSpendIncludesMedical: booleanOrNull(scenario.targetSpendIncludesMedical),
+    monteCarlo: summarizeMonteCarloForReview(scenario.monteCarlo),
     withdrawalStrategy: scenario.withdrawalStrategy?.mode ?? scenario.withdrawalStrategy ?? null,
     spendingStrategy: scenario.spendingStrategy?.mode ?? scenario.spendingStrategy ?? null,
+    riskBasedGuardrails: summarizeRiskBasedGuardrails(scenario.spendingStrategy?.riskBasedGuardrails),
     healthcare: {
       acaEnabled: scenario.aca?.enabled !== false,
       acaPlanCostMode: scenario.aca?.planCostMode ?? null,
@@ -116,9 +118,46 @@ function summarizeScenarioForReview(scenario = {}) {
     },
     legacy: {
       heirType: scenario.heirType ?? null,
+      heirState: scenario.heirState ?? null,
       heirBaseIncome: finiteOrNull(scenario.heirBaseIncome),
-      heirAge: finiteOrNull(scenario.heirAge)
+      heirAge: finiteOrNull(scenario.heirAge),
+      heirOrdinaryTaxRate: finiteOrNull(scenario.heirOrdinaryTaxRate)
     }
+  };
+}
+
+function summarizeMonteCarloForReview(config = null) {
+  if (!config || typeof config !== "object") return null;
+  return {
+    assumptionPreset: config.assumptionPreset ?? null,
+    samplingMode: config.samplingMode ?? null,
+    meanReversion: config.meanReversion && typeof config.meanReversion === "object" ? {
+      shortTermStrength: finiteOrNull(config.meanReversion.shortTermStrength),
+      longTermStrength: finiteOrNull(config.meanReversion.longTermStrength),
+      longTermYears: finiteOrNull(config.meanReversion.longTermYears)
+    } : null
+  };
+}
+
+function summarizeRiskBasedGuardrails(config = null) {
+  if (!config || typeof config !== "object") return null;
+  const table = config.table && typeof config.table === "object" ? config.table : null;
+  return {
+    targetSuccessRate: finiteOrNull(config.targetSuccessRate),
+    lowerSuccessRate: finiteOrNull(config.lowerSuccessRate),
+    upperSuccessRate: finiteOrNull(config.upperSuccessRate),
+    minimumAdjustmentPercent: finiteOrNull(config.minimumAdjustmentPercent),
+    incomeFloor: finiteOrNull(config.incomeFloor),
+    incomeCeiling: finiteOrNull(config.incomeCeiling),
+    table: table ? {
+      sequenceCount: finiteOrNull(table.sequenceCount),
+      fixedFailsafeSpend: finiteOrNull(table.fixedFailsafeSpend),
+      initialSpend: finiteOrNull(table.initialSpend),
+      lowerGuardrailPortfolioValue: finiteOrNull(table.lowerGuardrailPortfolioValue),
+      lowerAdjustedSpend: finiteOrNull(table.lowerAdjustedSpend),
+      upperGuardrailPortfolioValue: finiteOrNull(table.upperGuardrailPortfolioValue),
+      upperAdjustedSpend: finiteOrNull(table.upperAdjustedSpend)
+    } : null
   };
 }
 

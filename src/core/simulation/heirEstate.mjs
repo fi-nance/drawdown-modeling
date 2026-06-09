@@ -2,7 +2,7 @@
 // Single responsibility: heirEstate. No behavior changes — pure code movement.
 
 import { marketValue } from "../portfolio.mjs";
-import { DEFAULT_TAX_PROFILE, taxFromBrackets } from "../tax.mjs?v=20260605-actc";
+import { DEFAULT_TAX_PROFILE, taxFromBrackets } from "../tax.mjs?v=20260608-mc-mr";
 import { round } from "../utils.mjs";
 import { DEFAULT_SCENARIO } from "./scenario.mjs";
 
@@ -28,6 +28,16 @@ const STATE_INHERITANCE_TAX_LINEAL = Object.freeze({
 });
 
 const BENEFICIARY_TYPES = Object.freeze(["spouse", "nonSpouse10Yr", "eligibleDesignated"]);
+
+export function inheritanceTaxStateForScenario(scenario = {}) {
+  if (Object.prototype.hasOwnProperty.call(scenario ?? {}, "heirState")) {
+    return scenario.heirState || null;
+  }
+  if (Object.prototype.hasOwnProperty.call(scenario ?? {}, "state")) {
+    return scenario.state ?? null;
+  }
+  return undefined;
+}
 
 function getSingleLifeExpectancy(age) {
   const table = [
@@ -80,8 +90,9 @@ export function estimateHeirValueBreakdown(portfolio, ordinaryTaxRate = 0.24, op
   const drag = Math.max(-1, Math.min(1, Number(nonSpouse10YrTaxDrag) || 0));
   const discount = Math.max(-1, Math.min(1, Number(eligibleDesignatedTaxDiscount) || 0));
 
-  // Determine state of residence from options/taxProfile
-  const state = opts.state ?? opts.taxProfile?.state?.state ?? null;
+  const state = Object.prototype.hasOwnProperty.call(opts, "state")
+    ? opts.state
+    : opts.taxProfile?.state?.state ?? null;
 
   // Extract Single standard deduction and brackets
   let singleBrackets = DEFAULT_TAX_PROFILE?.ordinaryBrackets?.single;

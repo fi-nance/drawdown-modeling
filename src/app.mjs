@@ -15,13 +15,14 @@ import {
   validateUserPlanningScenario
 } from "./core/planningInputValidation.mjs";
 import {
+  DEFAULT_MONTE_CARLO_MEAN_REVERSION,
   DEFAULT_SCENARIO,
   MONTE_CARLO_ASSUMPTION_PRESETS,
   runHistoricalBacktests,
   runMonteCarlo,
   simulatePlan,
   generateSingleMonteCarloPath
-} from "./core/simulation.mjs?v=20260605-actc";
+} from "./core/simulation.mjs?v=20260608-mc-mr";
 import { round } from "./core/utils.mjs";
 import { defaultOneOffExpenses, sampleAssets } from "./data/sample.mjs";
 import {
@@ -32,7 +33,7 @@ import {
   HISTORICAL_RETURN_DATA_VERSION,
   makeHistoricalSequences
 } from "./data/historicalReturns.mjs";
-import { buildAcaConfig, buildTaxProfile, STATE_OPTIONS, TAX_DATA_VERSION, getMonthlyBenchmarkPremium } from "./data/taxData.mjs?v=20260605-actc";
+import { buildAcaConfig, buildTaxProfile, STATE_OPTIONS, TAX_DATA_VERSION, getMonthlyBenchmarkPremium } from "./data/taxData.mjs?v=20260608-mc-mr";
 import { massachusettsConnectorCareEstimate, massachusettsConnectorCarePlanOptions } from "./data/acaPlanPresets.mjs";
 import {
   buildMarketplacePlanSearchRequest,
@@ -95,6 +96,9 @@ const CONTROL_IDS = [
   "seed",
   "mcPreset",
   "mcSamplingMode",
+  "mcShortTermMeanReversion",
+  "mcLongTermMeanReversion",
+  "mcLongTermReversionYears",
   "mcStockMean",
   "mcStockStdev",
   "mcBondMean",
@@ -130,6 +134,12 @@ const CONTROL_IDS = [
   "discretionarySpend",
   "guardrailCorrectionDiscretionaryPercent",
   "guardrailBearDiscretionaryPercent",
+  "riskGuardrailTargetSuccessRate",
+  "riskGuardrailLowerSuccessRate",
+  "riskGuardrailUpperSuccessRate",
+  "riskGuardrailMinimumAdjustmentPercent",
+  "riskGuardrailIncomeFloor",
+  "riskGuardrailIncomeCeiling",
   "sequenceReserveMode",
   "sequenceReserveTargetYears",
   "sequenceReserveTentYears",
@@ -296,6 +306,9 @@ const els = {
   seed: document.querySelector("#seed"),
   mcPreset: document.querySelector("#mcPreset"),
   mcSamplingMode: document.querySelector("#mcSamplingMode"),
+  mcShortTermMeanReversion: document.querySelector("#mcShortTermMeanReversion"),
+  mcLongTermMeanReversion: document.querySelector("#mcLongTermMeanReversion"),
+  mcLongTermReversionYears: document.querySelector("#mcLongTermReversionYears"),
   targetSpend: document.querySelector("#targetSpend"),
   decisionRequiredSpend: document.querySelector("#decisionRequiredSpend"),
   decisionFlexibleSpend: document.querySelector("#decisionFlexibleSpend"),
@@ -315,6 +328,12 @@ const els = {
   discretionarySpend: document.querySelector("#discretionarySpend"),
   guardrailCorrectionDiscretionaryPercent: document.querySelector("#guardrailCorrectionDiscretionaryPercent"),
   guardrailBearDiscretionaryPercent: document.querySelector("#guardrailBearDiscretionaryPercent"),
+  riskGuardrailTargetSuccessRate: document.querySelector("#riskGuardrailTargetSuccessRate"),
+  riskGuardrailLowerSuccessRate: document.querySelector("#riskGuardrailLowerSuccessRate"),
+  riskGuardrailUpperSuccessRate: document.querySelector("#riskGuardrailUpperSuccessRate"),
+  riskGuardrailMinimumAdjustmentPercent: document.querySelector("#riskGuardrailMinimumAdjustmentPercent"),
+  riskGuardrailIncomeFloor: document.querySelector("#riskGuardrailIncomeFloor"),
+  riskGuardrailIncomeCeiling: document.querySelector("#riskGuardrailIncomeCeiling"),
   sequenceReserveMode: document.querySelector("#sequenceReserveMode"),
   sequenceReserveTargetYears: document.querySelector("#sequenceReserveTargetYears"),
   sequenceReserveTentYears: document.querySelector("#sequenceReserveTentYears"),
@@ -694,6 +713,7 @@ function initialize() {
   loadStoredState();
   updatePrivacyModeControls();
   syncSpendingStrategyControls();
+  syncMonteCarloControls();
   syncJsonFromAssets();
   renderAssetTable();
   renderOneOffs();
@@ -959,11 +979,25 @@ function updatePrivacyModeControls({ announce = false } = {}) {
 
 function syncSpendingStrategyControls() {
   const guardrailEnabled = els.spendingStrategyMode?.value === "discretionaryGuardrails";
+  const riskGuardrailEnabled = els.spendingStrategyMode?.value === "riskBasedGuardrails";
   document.querySelectorAll("[data-guardrail-spend-controls]").forEach((element) => {
     element.hidden = !guardrailEnabled;
   });
+  document.querySelectorAll("[data-risk-guardrail-controls]").forEach((element) => {
+    element.hidden = !riskGuardrailEnabled;
+  });
   [els.essentialSpend, els.discretionarySpend].forEach((input) => {
     if (input) input.disabled = !guardrailEnabled;
+  });
+  [
+    els.riskGuardrailTargetSuccessRate,
+    els.riskGuardrailLowerSuccessRate,
+    els.riskGuardrailUpperSuccessRate,
+    els.riskGuardrailMinimumAdjustmentPercent,
+    els.riskGuardrailIncomeFloor,
+    els.riskGuardrailIncomeCeiling
+  ].forEach((input) => {
+    if (input) input.disabled = !riskGuardrailEnabled;
   });
   if (els.targetSpend) {
     els.targetSpend.disabled = guardrailEnabled;
@@ -973,6 +1007,20 @@ function syncSpendingStrategyControls() {
     }
   }
   updateStrategyDescriptions();
+}
+
+function syncMonteCarloControls() {
+  const meanReversionEnabled = els.mcSamplingMode?.value === "meanRevertingCorrelated";
+  document.querySelectorAll("[data-mean-reversion-controls]").forEach((element) => {
+    element.hidden = !meanReversionEnabled;
+  });
+  [
+    els.mcShortTermMeanReversion,
+    els.mcLongTermMeanReversion,
+    els.mcLongTermReversionYears
+  ].forEach((input) => {
+    if (input) input.disabled = !meanReversionEnabled;
+  });
 }
 
 function updateStrategyDescriptions() {
@@ -992,9 +1040,11 @@ function updateStrategyDescriptions() {
 
   if (spendingDescEl) {
     if (spendingMode === "fixed") {
-      spendingDescEl.innerHTML = `<strong>Selected: Fixed Target Spend</strong> — Adjusts your initial target spend annually strictly by CPI inflation. It provides consistent purchasing power but ignores portfolio performance, introducing sequence-of-returns risk during severe bear markets.<br><span style="display: block; margin-top: 0.25rem; opacity: 0.85;"><em>Alternatives:</em> Dynamic rules (Guardrails, Guyton-Klinger, Kitces, VPW) dynamically adjust spending based on market conditions to defend your portfolio.</span>`;
+      spendingDescEl.innerHTML = `<strong>Selected: Fixed Target Spend</strong> — Adjusts your initial target spend annually strictly by CPI inflation. It provides consistent purchasing power but ignores portfolio performance, introducing sequence-of-returns risk during severe bear markets.<br><span style="display: block; margin-top: 0.25rem; opacity: 0.85;"><em>Alternatives:</em> Dynamic rules (Guardrails, Risk-Based Guardrails, Guyton-Klinger, Kitces, VPW) dynamically adjust spending based on market conditions or historical risk thresholds.</span>`;
     } else if (spendingMode === "discretionaryGuardrails") {
-      spendingDescEl.innerHTML = `<strong>Selected: Essential + Discretionary Guardrails</strong> — Splits spending into essential (inflation-adjusted) and discretionary (variable). Discretionary spending dynamically scales down (50% or 0%) when stock markets drop below prior highs, defending the portfolio during market corrections.<br><span style="display: block; margin-top: 0.25rem; opacity: 0.85;"><em>Alternatives:</em> Alternatives include Guyton-Klinger (rules-based adjustments), Kitces (ratchets spending up on bull runs), VPW (percentage-based), and Fixed Spend.</span>`;
+      spendingDescEl.innerHTML = `<strong>Selected: Essential + Discretionary Guardrails</strong> — Splits spending into essential (inflation-adjusted) and discretionary (variable). Discretionary spending dynamically scales down (50% or 0%) when stock markets drop below prior highs, defending the portfolio during market corrections.<br><span style="display: block; margin-top: 0.25rem; opacity: 0.85;"><em>Alternatives:</em> Alternatives include Risk-Based Guardrails (historical thresholds), Guyton-Klinger (rules-based adjustments), Kitces (ratchets spending up on bull runs), VPW (percentage-based), and Fixed Spend.</span>`;
+    } else if (spendingMode === "riskBasedGuardrails") {
+      spendingDescEl.innerHTML = `<strong>Selected: Risk-Based Historical Guardrails</strong> — Uses historical backtest cohorts to solve a failsafe fixed spend, a starting spend, a lower portfolio trigger with a cut, and an upper portfolio trigger with a raise. Decision results show the solved table before the rules are applied.<br><span style="display: block; margin-top: 0.25rem; opacity: 0.85;"><em>Alternatives:</em> Alternatives include Essential + Discretionary Guardrails (market drawdown-based), Guyton-Klinger, Kitces, VPW, and Fixed Spend.</span>`;
     } else if (spendingMode === "guytonKlinger") {
       spendingDescEl.innerHTML = `<strong>Selected: Guyton-Klinger Rules</strong> — Applies rules-based guardrails: increases spending by inflation unless the withdrawal rate rises by &gt;20% (frozen rule), and reduces spending by 10% if the current withdrawal rate exceeds the initial rate by &gt;20% (capital preservation rule).<br><span style="display: block; margin-top: 0.25rem; opacity: 0.85;"><em>Alternatives:</em> Alternatives include Fixed Spend (static inflation-adjusted), Guardrails (market drop-based adjustments), Kitces (upside-focused), and VPW (dynamic percentage).</span>`;
     } else if (spendingMode === "kitces") {
@@ -1336,6 +1386,11 @@ function formatPlanInput(value) {
 function bindMonteCarloControls() {
   if (!els.mcPreset) return;
 
+  els.mcSamplingMode?.addEventListener("change", () => {
+    syncMonteCarloControls();
+    saveStoredState();
+  });
+
   els.mcPreset.addEventListener("change", () => {
     if (Object.prototype.hasOwnProperty.call(MONTE_CARLO_ASSUMPTION_PRESETS, els.mcPreset.value)) {
       applyMonteCarloPreset(els.mcPreset.value);
@@ -1353,6 +1408,15 @@ function bindMonteCarloControls() {
       });
     }
   }
+
+  [
+    els.mcShortTermMeanReversion,
+    els.mcLongTermMeanReversion,
+    els.mcLongTermReversionYears
+  ].forEach((input) => {
+    input?.addEventListener("input", saveStoredState);
+    input?.addEventListener("change", saveStoredState);
+  });
 }
 
 function applyMonteCarloPreset(presetId) {
@@ -1385,6 +1449,18 @@ function readMonteCarloReturnAssumptions() {
       ];
     })
   );
+}
+
+function readMonteCarloMeanReversion() {
+  return {
+    shortTermStrength: readPercentInput("mcShortTermMeanReversion", DEFAULT_MONTE_CARLO_MEAN_REVERSION.shortTermStrength),
+    longTermStrength: readPercentInput("mcLongTermMeanReversion", DEFAULT_MONTE_CARLO_MEAN_REVERSION.longTermStrength),
+    longTermYears: Math.max(2, Math.min(30, Math.trunc(Number(els.mcLongTermReversionYears?.value) || DEFAULT_MONTE_CARLO_MEAN_REVERSION.longTermYears)))
+  };
+}
+
+function normalizeMonteCarloSamplingMode(value) {
+  return ["correlated", "meanRevertingCorrelated", "independent"].includes(value) ? value : DEFAULT_SCENARIO.monteCarlo.samplingMode;
 }
 
 function readPercentInput(id, fallback) {
@@ -1615,6 +1691,13 @@ function applyScenarioControls(scenario) {
   setNumberControl("discretionarySpend", spending.discretionarySpend);
   setPercentControl("guardrailCorrectionDiscretionaryPercent", spending.correctionDiscretionaryPercent);
   setPercentControl("guardrailBearDiscretionaryPercent", spending.bearDiscretionaryPercent);
+  const riskGuardrails = spending.riskBasedGuardrails ?? {};
+  setPercentControl("riskGuardrailTargetSuccessRate", riskGuardrails.targetSuccessRate);
+  setPercentControl("riskGuardrailLowerSuccessRate", riskGuardrails.lowerSuccessRate);
+  setPercentControl("riskGuardrailUpperSuccessRate", riskGuardrails.upperSuccessRate);
+  setPercentControl("riskGuardrailMinimumAdjustmentPercent", riskGuardrails.minimumAdjustmentPercent);
+  setNumberControl("riskGuardrailIncomeFloor", riskGuardrails.incomeFloor);
+  setNumberControl("riskGuardrailIncomeCeiling", riskGuardrails.incomeCeiling);
   if (Number.isFinite(Number(spending.essentialSpend)) && Number.isFinite(Number(spending.discretionarySpend))) {
     setNumberControl("decisionRequiredSpend", spending.essentialSpend);
     setNumberControl("decisionFlexibleSpend", spending.discretionarySpend);
@@ -1782,7 +1865,7 @@ function downloadJsonText(text, filename) {
 function getSimulationWorker() {
   if (!simulationWorker) {
     simulationWorker = new Worker(
-      new URL("./core/simulation.worker.mjs?v=20260605-actc", import.meta.url),
+      new URL("./core/simulation.worker.mjs?v=20260608-mc-mr", import.meta.url),
       { type: "module" }
     );
     simulationWorker.addEventListener("error", (ev) => {
@@ -2477,7 +2560,12 @@ function simulationAuditLine() {
   const runs = summary ? `${numberFormatter.format(summary.runs)}${summary.preliminary ? " preliminary" : ""} Monte Carlo runs` : "Monte Carlo pending";
   const preset = els.mcPreset?.value || latest?.scenario?.monteCarlo?.assumptionPreset || DEFAULT_SCENARIO.monteCarlo.assumptionPreset;
   const presetLabel = MONTE_CARLO_PRESET_LABELS[preset] ?? preset;
-  const sampling = els.mcSamplingMode?.value === "correlated" ? "correlated sampling" : "independent sampling";
+  const samplingMode = normalizeMonteCarloSamplingMode(els.mcSamplingMode?.value ?? latest?.scenario?.monteCarlo?.samplingMode);
+  const sampling = samplingMode === "meanRevertingCorrelated"
+    ? "mean-reverting correlated sampling"
+    : samplingMode === "correlated"
+      ? "correlated sampling"
+      : "independent sampling";
   const coverage = latest?.historicalCoverage
     ? `${historicalDataSourceLabel()} history ${latest.historicalCoverage.startYear}-${latest.historicalCoverage.endYear}`
     : "historical coverage unavailable";
@@ -4320,6 +4408,14 @@ function readScenario() {
   const discretionarySpend = Math.max(0, Number(els.discretionarySpend?.value) || 0);
   const correctionDiscretionaryPercent = percentInputValue("guardrailCorrectionDiscretionaryPercent", 0.5);
   const bearDiscretionaryPercent = percentInputValue("guardrailBearDiscretionaryPercent", 0);
+  const riskBasedGuardrails = {
+    targetSuccessRate: percentInputValue("riskGuardrailTargetSuccessRate", 0.9),
+    lowerSuccessRate: percentInputValue("riskGuardrailLowerSuccessRate", 0.75),
+    upperSuccessRate: percentInputValue("riskGuardrailUpperSuccessRate", 1),
+    minimumAdjustmentPercent: percentInputValue("riskGuardrailMinimumAdjustmentPercent", 0.05),
+    incomeFloor: numberOrNull(els.riskGuardrailIncomeFloor?.value),
+    incomeCeiling: numberOrNull(els.riskGuardrailIncomeCeiling?.value)
+  };
   const targetSpend = spendingStrategyMode === "discretionaryGuardrails"
     ? essentialSpend + discretionarySpend
     : Number(els.targetSpend.value) || 0;
@@ -4342,7 +4438,6 @@ function readScenario() {
     heirBaseIncome: Number(els.heirBaseIncome.value) || 80000,
     heirAge: Number(els.heirAge.value) || 30,
     heirState: els.heirState.value || null,
-    state: els.heirState.value || state,
     retirementPenaltyAge: Number(els.retirementPenaltyAge.value) || DEFAULT_SCENARIO.retirementPenaltyAge,
     rothBasis: Number(els.rothBasis.value) || 0,
     earlyWithdrawalPenaltyExceptionAmount: numberOrNull(els.earlyWithdrawalPenaltyExceptionAmount.value) ?? 0,
@@ -4394,7 +4489,8 @@ function readScenario() {
       bearDrawdownThreshold: 0.2,
       correctionDiscretionaryPercent,
       bearDiscretionaryPercent,
-      marketAssetClass: "stock"
+      marketAssetClass: "stock",
+      riskBasedGuardrails
     },
     sequenceRiskReserve: {
       enabled: (els.sequenceReserveMode?.value ?? "none") !== "none",
@@ -4428,7 +4524,8 @@ function readScenario() {
       assumptionPreset: presetIdIsKnown(els.mcPreset?.value) || els.mcPreset?.value === "custom"
         ? els.mcPreset.value
         : DEFAULT_SCENARIO.monteCarlo.assumptionPreset,
-      samplingMode: els.mcSamplingMode?.value === "correlated" ? "correlated" : "independent"
+      samplingMode: normalizeMonteCarloSamplingMode(els.mcSamplingMode?.value),
+      meanReversion: readMonteCarloMeanReversion()
     },
     returnAssumptions: readMonteCarloReturnAssumptions(),
     oneOffExpenses,

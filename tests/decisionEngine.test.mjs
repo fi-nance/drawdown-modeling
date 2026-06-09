@@ -941,6 +941,7 @@ test("decision batch runs every rescue solver and only returns known rescue kind
   assert.ok(decision.diagnosis);
   const validKinds = new Set([
     "discretionaryCut",
+    "riskBasedGuardrailsRescue",
     "guytonKlingerRescue",
     "vpwRescue",
     "incomeBridge",
@@ -960,6 +961,91 @@ test("decision batch runs every rescue solver and only returns known rescue kind
     assert.ok(validKinds.has(option.kind), `unexpected rescue kind: ${option.kind}`);
     assert.equal(typeof option.monteCarlo.successRate, "number");
   }
+});
+
+test("decision engine offers risk-based historical guardrails when historical sequences are available", () => {
+  const planYears = 8;
+  const scenario = {
+    ...DEFAULT_SCENARIO,
+    planYears,
+    currentAge: 60,
+    spouseAge: 60,
+    targetSpend: 55_000,
+    targetSpendIncludesTaxes: true,
+    targetSpendIncludesMedical: true,
+    withdrawalOrder: ["taxable"],
+    aca: { enabled: false },
+    monteCarlo: { ...DEFAULT_SCENARIO.monteCarlo, samplingMode: "independent" },
+    returnAssumptions: {
+      ...DEFAULT_SCENARIO.returnAssumptions,
+      cash: { mean: 0, stdev: 0 },
+      inflation: { mean: 0, stdev: 0 }
+    },
+    spendingStrategy: {
+      ...DEFAULT_SCENARIO.spendingStrategy,
+      mode: "fixed",
+      riskBasedGuardrails: {
+        targetSuccessRate: 0.75,
+        lowerSuccessRate: 0.5,
+        upperSuccessRate: 1,
+        solverIterations: 3
+      }
+    },
+    taxLossHarvesting: { enabled: false },
+    taxGainHarvesting: { enabled: false },
+    rothConversion: { enabled: false }
+  };
+
+  const sequences = [
+    {
+      name: "Flat cash",
+      returns: Array.from({ length: planYears }, () => ({ cash: 0 })),
+      inflation: Array.from({ length: planYears }, () => 0),
+      sourceYears: Array.from({ length: planYears }, (_, index) => 1970 + index)
+    },
+    {
+      name: "Early drawdown",
+      returns: [
+        { cash: -0.2 },
+        ...Array.from({ length: planYears - 1 }, () => ({ cash: 0 }))
+      ],
+      inflation: Array.from({ length: planYears }, () => 0),
+      sourceYears: Array.from({ length: planYears }, (_, index) => 2000 + index)
+    }
+  ];
+
+  const decision = runDecisionBatch({
+    assets: [{
+      id: "cash",
+      name: "Cash",
+      accountType: "taxable",
+      assetClass: "cash",
+      units: 500_000,
+      price: 1,
+      costBasisPerUnit: 1,
+      dividendYield: 0,
+      qualifiedDividendShare: 0
+    }],
+    scenario,
+    taxProfile: noTaxProfile,
+    runs: 4,
+    seed: 13,
+    sequences,
+    decisionProfile: {
+      requiredSpend: 40_000,
+      flexibleSpend: 15_000,
+      targetSuccessRate: 0.75
+    }
+  });
+
+  const option = decision.rescueOptions.find((item) => item.kind === "riskBasedGuardrailsRescue");
+  assert.ok(option, "expected risk-based historical guardrails to be evaluated");
+  assert.equal(option.scenario.spendingStrategy.mode, "riskBasedGuardrails");
+  assert.equal(option.metadata.strategyMode, "riskBasedGuardrails");
+  assert.equal(option.metadata.guardrailTable.sequenceCount, sequences.length);
+  assert.ok(option.metadata.guardrailTable.initialSpend > 0);
+  assert.ok(option.metadata.guardrailTable.lowerGuardrailPortfolioValue >= 0);
+  assert.ok(option.metadata.guardrailTable.upperGuardrailPortfolioValue >= option.metadata.guardrailTable.initialPortfolioValue);
 });
 
 test("failed scenario analysis aggregates high inflation cause and warning signs", () => {

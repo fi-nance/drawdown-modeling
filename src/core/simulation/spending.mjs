@@ -4,11 +4,12 @@
 import { round } from "../utils.mjs";
 import { oneOffCashFlowsForYear } from "./cashFlows.mjs";
 import { nonNegativeNumber, normalizedPercent } from "./guards.mjs";
+import { normalizeRiskBasedGuardrails, RISK_BASED_GUARDRAILS_MODE } from "./riskBasedGuardrails.mjs";
 import { DEFAULT_SCENARIO } from "./scenario.mjs";
 
 export function spendingStrategyConfig(scenario = {}) {
   const raw = scenario.spendingStrategy ?? {};
-  const mode = ["discretionaryGuardrails", "guytonKlinger", "kitces", "vpw"].includes(raw.mode) ? raw.mode : "fixed";
+  const mode = ["discretionaryGuardrails", "guytonKlinger", "kitces", "vpw", RISK_BASED_GUARDRAILS_MODE].includes(raw.mode) ? raw.mode : "fixed";
   const targetSpend = Math.max(0, Number(scenario.targetSpend) || 0);
   const essentialFallback = mode === "discretionaryGuardrails" ? targetSpend : DEFAULT_SCENARIO.spendingStrategy.essentialSpend;
   const discretionaryFallback = mode === "discretionaryGuardrails" ? 0 : DEFAULT_SCENARIO.spendingStrategy.discretionarySpend;
@@ -37,7 +38,8 @@ export function spendingStrategyConfig(scenario = {}) {
       raw.bearDiscretionaryPercent,
       DEFAULT_SCENARIO.spendingStrategy.bearDiscretionaryPercent
     ),
-    marketAssetClass: raw.marketAssetClass || DEFAULT_SCENARIO.spendingStrategy.marketAssetClass
+    marketAssetClass: raw.marketAssetClass || DEFAULT_SCENARIO.spendingStrategy.marketAssetClass,
+    riskBasedGuardrails: normalizeRiskBasedGuardrails(raw.riskBasedGuardrails ?? DEFAULT_SCENARIO.spendingStrategy.riskBasedGuardrails)
   };
 }
 

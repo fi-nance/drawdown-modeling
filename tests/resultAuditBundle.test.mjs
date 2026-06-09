@@ -48,8 +48,10 @@ const latest = {
       marketplaceMembers: 2
     },
     heirType: "nonSpouse10Yr",
+    heirState: "PA",
     heirBaseIncome: 120000,
-    heirAge: 45
+    heirAge: 45,
+    heirOrdinaryTaxRate: 0.3
   },
   plan: {
     success: true,
@@ -117,6 +119,8 @@ test("result audit bundle wraps setup, compact result, audit rows, and source ve
   assert.equal(bundle.reviewSummary.scenario.targetSpend, 90000);
   assert.equal(bundle.reviewSummary.scenario.privacyMode, true);
   assert.equal(bundle.reviewSummary.scenario.healthcare.zip, "33101");
+  assert.equal(bundle.reviewSummary.scenario.legacy.heirState, "PA");
+  assert.equal(bundle.reviewSummary.scenario.legacy.heirOrdinaryTaxRate, 0.3);
   assert.equal(bundle.reviewSummary.verdict.planSuccess, true);
   assert.equal(bundle.reviewSummary.verdict.monteCarloSuccessRate, 0.92);
   assert.equal(bundle.reviewSummary.verdict.decisionTargetSuccessRate, 0.9);
@@ -145,6 +149,7 @@ test("result audit summary is a compact CPA and engineering review surface", () 
   assert.equal(summary.schemaVersion, 1);
   assert.equal(summary.exportedAt, "2026-05-30T00:00:00.000Z");
   assert.equal(summary.scenario.state, "Florida");
+  assert.equal(summary.scenario.legacy.heirState, "PA");
   assert.equal(summary.scenario.privacyMode, true);
   assert.equal(summary.scenario.healthcare.householdSize, 2);
   assert.equal(summary.verdict.historicalBacktestCount, 1);
@@ -153,6 +158,78 @@ test("result audit summary is a compact CPA and engineering review surface", () 
   assert.deepEqual(summary.audit, [{ label: "Tax assumptions", value: "2026 federal and Florida state" }]);
   assert.equal(summary.setup, undefined);
   assert.equal(summary.result, undefined);
+});
+
+test("result audit summary includes compact risk-based guardrail assumptions", () => {
+  const summary = createResultAuditSummary({
+    latest: {
+      ...latest,
+      scenario: {
+        ...latest.scenario,
+        spendingStrategy: {
+          mode: "riskBasedGuardrails",
+          riskBasedGuardrails: {
+            targetSuccessRate: 0.9,
+            lowerSuccessRate: 0.75,
+            upperSuccessRate: 1,
+            minimumAdjustmentPercent: 0.05,
+            incomeFloor: 40000,
+            incomeCeiling: 120000,
+            table: {
+              sequenceCount: 64,
+              fixedFailsafeSpend: 50000,
+              initialSpend: 65000,
+              lowerGuardrailPortfolioValue: 900000,
+              lowerAdjustedSpend: 58000,
+              upperGuardrailPortfolioValue: 1200000,
+              upperAdjustedSpend: 72000
+            }
+          }
+        }
+      }
+    },
+    auditRows: [],
+    sourceVersions: { seed: 42 },
+    exportedAt: "2026-05-30T00:00:00.000Z"
+  });
+
+  assert.equal(summary.scenario.spendingStrategy, "riskBasedGuardrails");
+  assert.equal(summary.scenario.riskBasedGuardrails.targetSuccessRate, 0.9);
+  assert.equal(summary.scenario.riskBasedGuardrails.incomeFloor, 40000);
+  assert.equal(summary.scenario.riskBasedGuardrails.table.sequenceCount, 64);
+  assert.equal(summary.scenario.riskBasedGuardrails.table.initialSpend, 65000);
+  assert.equal(summary.scenario.riskBasedGuardrails.table.upperAdjustedSpend, 72000);
+});
+
+test("result audit summary includes compact Monte Carlo sampling assumptions", () => {
+  const summary = createResultAuditSummary({
+    latest: {
+      ...latest,
+      scenario: {
+        ...latest.scenario,
+        monteCarlo: {
+          assumptionPreset: "custom",
+          samplingMode: "meanRevertingCorrelated",
+          meanReversion: {
+            shortTermStrength: 0.25,
+            longTermStrength: 0.45,
+            longTermYears: 12
+          }
+        }
+      }
+    },
+    auditRows: [],
+    sourceVersions: { seed: 42 },
+    exportedAt: "2026-05-30T00:00:00.000Z"
+  });
+
+  assert.equal(summary.scenario.monteCarlo.assumptionPreset, "custom");
+  assert.equal(summary.scenario.monteCarlo.samplingMode, "meanRevertingCorrelated");
+  assert.deepEqual(summary.scenario.monteCarlo.meanReversion, {
+    shortTermStrength: 0.25,
+    longTermStrength: 0.45,
+    longTermYears: 12
+  });
 });
 
 test("result audit bundle rejects incomplete results", () => {

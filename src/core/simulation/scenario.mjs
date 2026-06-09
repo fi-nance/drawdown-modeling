@@ -2,8 +2,9 @@
 // Single responsibility: scenario. No behavior changes — pure code movement.
 
 import { DEFAULT_ACA_CONFIG } from "../aca.mjs";
-import { MONTE_CARLO_ASSUMPTION_PRESETS } from "./constants.mjs";
+import { DEFAULT_MONTE_CARLO_MEAN_REVERSION, MONTE_CARLO_ASSUMPTION_PRESETS } from "./constants.mjs";
 import { hasOwn } from "./guards.mjs";
+import { DEFAULT_RISK_BASED_GUARDRAILS } from "./riskBasedGuardrails.mjs";
 
 export const DEFAULT_SCENARIO = {
   planYears: 35,
@@ -22,7 +23,8 @@ export const DEFAULT_SCENARIO = {
     bearDrawdownThreshold: 0.2,
     correctionDiscretionaryPercent: 0.5,
     bearDiscretionaryPercent: 0,
-    marketAssetClass: "stock"
+    marketAssetClass: "stock",
+    riskBasedGuardrails: DEFAULT_RISK_BASED_GUARDRAILS
   },
   medicalExpensesBase: 0,
   expectedOopMaxUsePercent: 0.25,
@@ -100,7 +102,8 @@ export const DEFAULT_SCENARIO = {
   },
   monteCarlo: {
     assumptionPreset: "marketNeutral",
-    samplingMode: "correlated"
+    samplingMode: "correlated",
+    meanReversion: DEFAULT_MONTE_CARLO_MEAN_REVERSION
   },
   returnAssumptions: cloneReturnAssumptions(MONTE_CARLO_ASSUMPTION_PRESETS.marketNeutral),
   taxLossHarvesting: { enabled: true, mode: "auto", overrideMaxLoss: null },

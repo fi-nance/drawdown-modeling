@@ -319,3 +319,79 @@ test("generateSingleMonteCarloPath reconstructs a deterministic run path matchin
   const scenarioResult3 = mc.scenarios[2];
   assert.equal(plan.years[9].endingPortfolioValue, scenarioResult3.endingValue, "Reconstructed ending value matches Monte Carlo cached summary");
 });
+
+test("generateSingleMonteCarloPath reconstructs mean-reverting correlated paths with per-run state reset", () => {
+  const assets = [
+    {
+      id: "stock",
+      name: "Stock Account",
+      accountType: "taxable",
+      assetClass: "stock",
+      units: 100_000,
+      price: 1,
+      costBasisPerUnit: 1
+    },
+    {
+      id: "bond",
+      name: "Bond Account",
+      accountType: "taxable",
+      assetClass: "bond",
+      units: 50_000,
+      price: 1,
+      costBasisPerUnit: 1
+    }
+  ];
+  const scenario = {
+    ...DEFAULT_SCENARIO,
+    planYears: 6,
+    targetSpend: 0,
+    targetSpendIncludesTaxes: true,
+    targetSpendIncludesMedical: true,
+    aca: { enabled: false },
+    monteCarlo: {
+      assumptionPreset: "custom",
+      samplingMode: "meanRevertingCorrelated",
+      meanReversion: {
+        shortTermStrength: 0.8,
+        longTermStrength: 0.6,
+        longTermYears: 4
+      }
+    },
+    returnAssumptions: {
+      stock: { mean: 0.05, stdev: 0.03 },
+      bond: { mean: 0.02, stdev: 0.02 },
+      inflation: { mean: 0.02, stdev: 0.01 },
+      medicalInflation: { mean: 0.04, stdev: 0.01 }
+    }
+  };
+  const seed = 20260608;
+  const limitedTimeline = runMonteCarlo({
+    assets,
+    scenario,
+    runs: 4,
+    seed,
+    scenarioTimelineLimit: 1
+  });
+  const reconstructed = generateSingleMonteCarloPath({
+    assets,
+    scenario,
+    seed,
+    scenarioId: 4
+  });
+  const fullTimeline = runMonteCarlo({
+    assets,
+    scenario,
+    runs: 4,
+    seed,
+    scenarioTimelineLimit: 4
+  });
+
+  assert.ok(reconstructed, "Single MC path reconstruction succeeds");
+  assert.equal(limitedTimeline.scenarios[3].years, undefined, "Run 4 is not retained in the limited batch timeline");
+  assert.equal(reconstructed.years.at(-1).endingPortfolioValue, limitedTimeline.scenarios[3].endingValue);
+  assert.equal(reconstructed.heirValue, limitedTimeline.scenarios[3].heirValue);
+  assert.deepEqual(
+    reconstructed.years.map((year) => year.assetClassReturns),
+    fullTimeline.scenarios[3].years.map((year) => year.assetClassReturns)
+  );
+});

@@ -127,7 +127,7 @@ test("module library can scroll to reveal disabled-module knobs", async () => {
 
   assert.match(css, /\.module-library\s*\{[\s\S]*max-height: calc\(100vh - 2rem\)/);
   assert.match(css, /\.module-library\s*\{[\s\S]*overflow-y: auto/);
-  assert.match(html, /src\/redesign\.css\?v=20260605-actc/);
+  assert.match(html, /src\/redesign\.css\?v=20260608-mc-mr/);
 });
 
 test("rescue comparison table includes per-option confidence labels", async () => {
@@ -191,6 +191,18 @@ test("after-tax bequest control is visible, persisted, and audited", async () =>
   assert.doesNotMatch(appSource, /estate\/inheritance tax are not modeled/);
   assert.match(redesignSource, /After-tax bequest/);
   assert.match(redesignSource, /pickHeirValue/);
+});
+
+test("heir inheritance-tax state does not overwrite household state", async () => {
+  const appSource = await readFile(new URL("../src/app.mjs", import.meta.url), "utf8");
+  const readScenarioSource = appSource.slice(
+    appSource.indexOf("function readScenario()"),
+    appSource.indexOf("function readWithdrawalOrder()")
+  );
+
+  assert.match(readScenarioSource, /\n\s+state,\n/);
+  assert.match(readScenarioSource, /heirState: els\.heirState\.value \|\| null/);
+  assert.doesNotMatch(readScenarioSource, /state: els\.heirState\.value \|\| state/);
 });
 
 test("workspace planning runs validate realistic spend before launching workers", async () => {
@@ -260,9 +272,10 @@ test("workspace scenario construction preserves every advertised spending mode",
     readFile(new URL("../src/app.mjs", import.meta.url), "utf8")
   ]);
 
-  for (const mode of ["fixed", "discretionaryGuardrails", "guytonKlinger", "kitces", "vpw"]) {
+  for (const mode of ["fixed", "discretionaryGuardrails", "riskBasedGuardrails", "guytonKlinger", "kitces", "vpw"]) {
     assert.match(html, new RegExp(`<option value="${mode}"`), `${mode} should remain selectable`);
   }
   assert.match(appSource, /normalizeUserPlanningSpendingMode\(els\.spendingStrategyMode\?\.value\)/);
+  assert.match(appSource, /riskBasedGuardrails/);
   assert.doesNotMatch(appSource, /els\.spendingStrategyMode\?\.value === "discretionaryGuardrails"[\s\S]{0,120}\? "discretionaryGuardrails"[\s\S]{0,120}: "fixed"/);
 });

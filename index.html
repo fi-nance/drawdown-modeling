@@ -8,7 +8,7 @@
     <link rel="icon" href="./favicon.svg?v=20260505-favicon" type="image/svg+xml">
     <meta name="theme-color" content="#07111f">
     <link rel="stylesheet" href="./src/styles.css?v=20260530-ws-mobile-fit">
-    <link rel="stylesheet" href="./src/redesign.css?v=20260605-actc">
+    <link rel="stylesheet" href="./src/redesign.css?v=20260608-mc-mr">
     <script src="https://accounts.google.com/gsi/client" async defer></script>
   </head>
   <body data-screen="persona" data-theme="dark">
@@ -501,20 +501,30 @@
                   <select id="spendingStrategyMode">
                     <option value="fixed" selected>Fixed target spend</option>
                     <option value="discretionaryGuardrails">Essential + discretionary guardrails</option>
-                    <option value="guytonKlinger">Guyton-Klinger rules</option>
-                    <option value="kitces">Kitces Ratcheting</option>
-                    <option value="vpw">Variable Percentage Withdrawal (VPW)</option>
-                  </select>
-                </label>
-                <div id="spendingStrategyDesc" class="assumption-note" style="margin-top: 0.15rem; margin-bottom: 0.5rem;"></div>
+	                    <option value="guytonKlinger">Guyton-Klinger rules</option>
+	                    <option value="kitces">Kitces Ratcheting</option>
+	                    <option value="vpw">Variable Percentage Withdrawal (VPW)</option>
+	                    <option value="riskBasedGuardrails">Risk-based historical guardrails</option>
+	                  </select>
+	                </label>
+	                <div id="spendingStrategyDesc" class="assumption-note" style="margin-top: 0.15rem; margin-bottom: 0.5rem;"></div>
                 <div class="control-grid" data-guardrail-spend-controls hidden>
                   <label><span>Essential spend</span><input id="essentialSpend" type="number" min="0" step="1000" value="60000"></label>
                   <label><span>Discretionary spend</span><input id="discretionarySpend" type="number" min="0" step="1000" value="30000"></label>
                   <label><span>Correction discretionary %</span><input id="guardrailCorrectionDiscretionaryPercent" type="number" min="0" max="100" step="1" value="50"></label>
                   <label><span>Bear discretionary %</span><input id="guardrailBearDiscretionaryPercent" type="number" min="0" max="100" step="1" value="0"></label>
-                </div>
-                <p class="assumption-note" data-guardrail-spend-controls hidden>Assumption: discretionary spending is 100% when stocks are less than 10% below prior highs, 50% from 10% to 20%, and 0% beyond 20%; essential spending inflates, discretionary spending stays nominal.</p>
-                <label class="check-row"><input id="taxLossHarvesting" type="checkbox" checked><span>Tax-loss harvesting</span></label>
+	                </div>
+	                <p class="assumption-note" data-guardrail-spend-controls hidden>Assumption: discretionary spending is 100% when stocks are less than 10% below prior highs, 50% from 10% to 20%, and 0% beyond 20%; essential spending inflates, discretionary spending stays nominal.</p>
+	                <div class="control-grid" data-risk-guardrail-controls hidden>
+	                  <label><span>Target historical success %</span><input id="riskGuardrailTargetSuccessRate" type="number" min="1" max="100" step="1" value="90"></label>
+	                  <label><span>Lower guardrail success %</span><input id="riskGuardrailLowerSuccessRate" type="number" min="1" max="100" step="1" value="75"></label>
+	                  <label><span>Upper guardrail success %</span><input id="riskGuardrailUpperSuccessRate" type="number" min="1" max="100" step="1" value="100"></label>
+	                  <label><span>Minimum adjustment %</span><input id="riskGuardrailMinimumAdjustmentPercent" type="number" min="0" max="50" step="1" value="5"></label>
+	                  <label><span>Annual income floor</span><input id="riskGuardrailIncomeFloor" type="number" min="0" step="1000" placeholder="Optional"></label>
+	                  <label><span>Annual income ceiling</span><input id="riskGuardrailIncomeCeiling" type="number" min="0" step="1000" placeholder="Optional"></label>
+	                </div>
+	                <p class="assumption-note" data-risk-guardrail-controls hidden>Risk-based guardrails solve a fixed failsafe spend, starting spend, lower cut trigger, and upper raise trigger from the selected historical backtest cohorts.</p>
+	                <label class="check-row"><input id="taxLossHarvesting" type="checkbox" checked><span>Tax-loss harvesting</span></label>
                 <label class="check-row"><input id="taxGainHarvesting" type="checkbox" checked><span>Tax-gain harvesting</span></label>
                 <label class="check-row"><input id="rothConversion"    type="checkbox" checked><span>Roth conversions</span></label>
                 <label class="check-row"><input id="rothConversionOptimizeForAca" type="checkbox" checked><span>ACA-aware Roth conversions</span></label>
@@ -640,7 +650,7 @@
                     <span class="module-sub">Return assumptions and sampling</span>
                   </div>
                 </div>
-                <div class="module-actions"><span class="controls-pill">16 controls</span></div>
+                <div class="module-actions"><span class="controls-pill">19 controls</span></div>
               </div>
               <div class="module-body">
                 <div class="control-grid">
@@ -657,9 +667,15 @@
                     <span>Sampling mode</span>
                     <select id="mcSamplingMode">
                       <option value="correlated">Correlated annual factors</option>
+                      <option value="meanRevertingCorrelated">Mean-reverting correlated</option>
                       <option value="independent">Independent annual draws</option>
                     </select>
                   </label>
+                </div>
+                <div class="control-grid" data-mean-reversion-controls hidden>
+                  <label><span>Short-term reversion %</span><input id="mcShortTermMeanReversion" type="number" min="0" max="100" step="1" value="20"></label>
+                  <label><span>Long-term reversion %</span><input id="mcLongTermMeanReversion" type="number" min="0" max="100" step="1" value="35"></label>
+                  <label><span>Long-term horizon years</span><input id="mcLongTermReversionYears" type="number" min="2" max="30" step="1" value="10"></label>
                 </div>
                 <div class="control-grid">
                   <label><span>Stock mean %</span><input id="mcStockMean" type="number" min="-100" max="500" step="0.1" value="7.1"></label>
@@ -1120,7 +1136,7 @@
       <select id="viewMode"><option value="real" selected>Today's $</option><option value="nominal">Future $</option></select>
     </div>
 
-    <script type="module" src="./src/app.mjs?v=20260605-actc"></script>
-    <script type="module" src="./src/redesign.mjs?v=20260605-actc"></script>
+    <script type="module" src="./src/app.mjs?v=20260608-mc-mr"></script>
+    <script type="module" src="./src/redesign.mjs?v=20260608-mc-mr"></script>
   </body>
 </html>

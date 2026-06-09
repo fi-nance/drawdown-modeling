@@ -46,6 +46,12 @@ export const MONTE_CARLO_ASSUMPTION_PRESETS = Object.freeze({
 
 export const DEFAULT_MONTE_CARLO_RUNS = 1000;
 
+export const DEFAULT_MONTE_CARLO_MEAN_REVERSION = Object.freeze({
+  shortTermStrength: 0.2,
+  longTermStrength: 0.35,
+  longTermYears: 10
+});
+
 // Default amount by which healthcare inflation is assumed to exceed general CPI
 // when a scenario does not supply an explicit medical-inflation stream. ~1.8pp
 // reflects the long-run gap between BLS medical-care CPI / CMS National Health

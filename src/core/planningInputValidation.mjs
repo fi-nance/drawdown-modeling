@@ -5,7 +5,8 @@ const USER_PLANNING_SPENDING_MODES = new Set([
   "discretionaryGuardrails",
   "guytonKlinger",
   "kitces",
-  "vpw"
+  "vpw",
+  "riskBasedGuardrails"
 ]);
 
 export function normalizeUserPlanningSpendingMode(value) {

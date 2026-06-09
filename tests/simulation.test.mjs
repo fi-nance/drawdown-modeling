@@ -253,6 +253,43 @@ test("per-account beneficiary overrides split inherited account taxation and inh
   assert.equal(plan.heirValueBreakdown.effectiveTraditionalTaxRate, 0.3);
 });
 
+test("heir state controls inheritance tax separately from household state", () => {
+  const assets = [{
+    id: "child-roth",
+    accountType: "roth",
+    assetClass: "cash",
+    units: 1_000_000,
+    price: 1,
+    costBasisPerUnit: 1
+  }];
+  const baseScenario = {
+    planYears: 1,
+    targetSpend: 0,
+    currentAge: 60,
+    heirType: "nonSpouse10Yr",
+    rmd: { enabled: false },
+    rothConversion: { enabled: false },
+    taxGainHarvesting: { enabled: false },
+    taxLossHarvesting: { enabled: false },
+    aca: { enabled: false },
+    returnAssumptions: {
+      cash: { mean: 0, stdev: 0 }
+    }
+  };
+  const run = (scenario) => simulatePlan({
+    assets,
+    scenario: { ...baseScenario, ...scenario },
+    taxProfile: { ...noTaxProfile, state: { ...noTaxProfile.state, state: "PA" } },
+    returnSequence: [{ cash: 0 }],
+    inflationSequence: [0]
+  });
+
+  assert.equal(run({ state: "Massachusetts", heirState: "PA" }).heirValueBreakdown.stateInheritanceTax, 45_000);
+  assert.equal(run({ state: "PA", heirState: null }).heirValueBreakdown.stateInheritanceTax, 0);
+  assert.equal(run({ state: "PA" }).heirValueBreakdown.stateInheritanceTax, 45_000);
+  assert.equal(run({}).heirValueBreakdown.stateInheritanceTax, 45_000);
+});
+
 test("non-canonical household heir type does not inflate per-account override count", () => {
   const plan = simulatePlan({
     assets: [
@@ -456,6 +493,68 @@ test("discretionary spending guardrails trim nonessential spend by stock-market 
   assert.deepEqual(plan.years.map((year) => year.spendingGuardrail.discretionaryPercent), [1, 0.5, 0, 1]);
   assert.deepEqual(plan.years.map((year) => year.discretionarySpending), [100, 50, 0, 100]);
   assertNear(plan.years[2].spendingGuardrail.marketDrawdown, 0.208);
+});
+
+test("risk-based historical guardrails switch spending at solved portfolio thresholds", () => {
+  const plan = simulatePlan({
+    assets: [{
+      id: "cash",
+      accountType: "taxable",
+      assetClass: "cash",
+      units: 1_000_000,
+      price: 1,
+      costBasisPerUnit: 1
+    }],
+    scenario: {
+      planYears: 3,
+      targetSpend: 50_000,
+      targetSpendIncludesTaxes: true,
+      targetSpendIncludesMedical: true,
+      withdrawalOrder: ["taxable"],
+      currentAge: 65,
+      spendingStrategy: {
+        mode: "riskBasedGuardrails",
+        riskBasedGuardrails: {
+          targetSuccessRate: 0.9,
+          lowerSuccessRate: 0.75,
+          upperSuccessRate: 1,
+          minimumAdjustmentPercent: 0.05,
+          table: {
+            method: "historical",
+            sequenceCount: 64,
+            initialPortfolioValue: 1_000_000,
+            fixedFailsafeSpend: 45_000,
+            initialSpend: 50_000,
+            targetSuccessRate: 0.9,
+            lowerSuccessRate: 0.75,
+            upperSuccessRate: 1,
+            lowerGuardrailPortfolioValue: 900_000,
+            lowerAdjustedSpend: 40_000,
+            upperGuardrailPortfolioValue: 1_100_000,
+            upperAdjustedSpend: 60_000
+          }
+        }
+      },
+      taxLossHarvesting: { enabled: false },
+      taxGainHarvesting: { enabled: false },
+      rothConversion: { enabled: false },
+      aca: { enabled: false }
+    },
+    taxProfile: noTaxProfile,
+    returnSequence: [
+      { cash: -0.2 },
+      { cash: 0 },
+      { cash: 0 }
+    ],
+    inflationSequence: [0, 0, 0]
+  });
+
+  assert.equal(plan.years[0].plannedSpending, 50_000);
+  assert.equal(plan.years[0].spendingGuardrail.action, "none");
+  assert.equal(plan.years[1].plannedSpending, 40_000);
+  assert.equal(plan.years[1].spendingGuardrail.action, "lower");
+  assert.equal(plan.years[2].plannedSpending, 40_000);
+  assert.equal(plan.years[2].spendingGuardrail.action, "none");
 });
 
 test("earned income creates cash, MAGI, and Additional Medicare Tax", () => {
@@ -3612,6 +3711,83 @@ test("Monte Carlo correlated sampling stays deterministic and changes the sample
   assert.notDeepEqual(
     correlated.scenarios[0].years[0].assetClassReturns,
     independent.scenarios[0].years[0].assetClassReturns
+  );
+});
+
+test("Monte Carlo mean-reverting correlated sampling pulls against prior excess returns", () => {
+  const baseInput = {
+    assets: [
+      {
+        id: "stock",
+        accountType: "taxable",
+        assetClass: "stock",
+        holdingPeriod: "long",
+        units: 100,
+        price: 100,
+        costBasisPerUnit: 100
+      },
+      {
+        id: "bond",
+        accountType: "taxable",
+        assetClass: "bond",
+        holdingPeriod: "long",
+        units: 100,
+        price: 100,
+        costBasisPerUnit: 100
+      }
+    ],
+    scenario: {
+      planYears: 3,
+      targetSpend: 0,
+      targetSpendIncludesTaxes: true,
+      targetSpendIncludesMedical: true,
+      withdrawalOrder: ["taxable"],
+      returnAssumptions: {
+        stock: { mean: 0.05, stdev: 0.1 },
+        bond: { mean: 0.02, stdev: 0.04 },
+        inflation: { mean: 0.02, stdev: 0.01 }
+      },
+      aca: { enabled: false }
+    },
+    taxProfile: noTaxProfile,
+    runs: 1,
+    seed: 91
+  };
+
+  const correlated = runMonteCarlo({
+    ...baseInput,
+    scenario: {
+      ...baseInput.scenario,
+      monteCarlo: { samplingMode: "correlated" }
+    }
+  });
+  const meanReverting = runMonteCarlo({
+    ...baseInput,
+    scenario: {
+      ...baseInput.scenario,
+      monteCarlo: {
+        samplingMode: "meanRevertingCorrelated",
+        meanReversion: {
+          shortTermStrength: 1,
+          longTermStrength: 0,
+          longTermYears: 10
+        }
+      }
+    }
+  });
+
+  const correlatedYears = correlated.scenarios[0].years;
+  const meanRevertingYears = meanReverting.scenarios[0].years;
+  assert.deepEqual(meanRevertingYears[0].assetClassReturns, correlatedYears[0].assetClassReturns);
+  assert.notDeepEqual(meanRevertingYears[1].assetClassReturns, correlatedYears[1].assetClassReturns);
+
+  const firstYearStockExcess = correlatedYears[0].assetClassReturns.stock - baseInput.scenario.returnAssumptions.stock.mean;
+  const secondYearPlainStock = correlatedYears[1].assetClassReturns.stock;
+  const secondYearMeanRevertingStock = meanRevertingYears[1].assetClassReturns.stock;
+  assertNear(
+    secondYearMeanRevertingStock - secondYearPlainStock,
+    -firstYearStockExcess,
+    0.000002
   );
 });
 

@@ -97,9 +97,10 @@ test("workspace planning validation preserves advanced spending strategy modes",
   assert.equal(normalizeUserPlanningSpendingMode("guytonKlinger"), "guytonKlinger");
   assert.equal(normalizeUserPlanningSpendingMode("kitces"), "kitces");
   assert.equal(normalizeUserPlanningSpendingMode("vpw"), "vpw");
+  assert.equal(normalizeUserPlanningSpendingMode("riskBasedGuardrails"), "riskBasedGuardrails");
   assert.equal(normalizeUserPlanningSpendingMode("unknown"), "fixed");
 
-  for (const mode of ["guytonKlinger", "kitces", "vpw"]) {
+  for (const mode of ["guytonKlinger", "kitces", "vpw", "riskBasedGuardrails"]) {
     const valid = validateUserPlanningScenario({
       targetSpend: MIN_USER_PLANNING_ANNUAL_SPEND,
       spendingStrategy: { mode }

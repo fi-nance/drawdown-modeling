@@ -117,6 +117,15 @@ export function rescueConfidenceFor(option = {}, confidenceReport = {}) {
   const evidence = find(["evidence-disagreement", "historical-evidence-missing"]);
   if (evidence) return actionConfidenceFromFlag(evidence);
 
+  if (kind === "riskBasedGuardrailsRescue") {
+    return {
+      level: CONFIDENCE_LEVELS.ASSUMPTION_SENSITIVE,
+      label: "Sensitive",
+      title: "Historical guardrail assumptions",
+      detail: "This option derives its lower and upper spending triggers from the selected historical cohorts, spending target, and income inputs. Re-run it when those inputs or the historical range change."
+    };
+  }
+
   if (["allocationShift", "sequenceReserve"].includes(kind)) {
     return {
       level: CONFIDENCE_LEVELS.ASSUMPTION_SENSITIVE,
@@ -852,6 +861,7 @@ function rescueFlagIds(kind) {
       return ["amt-exposure-review", "qbi-deduction-review", "additional-child-tax-credit-review", "manual-federal-tax-overrides-review", "itemized-deduction-inputs-review", "enhanced-senior-deduction-eligibility", "aca-magi-threshold"];
     case "withdrawalShift":
     case "safeSpending":
+    case "riskBasedGuardrailsRescue":
       return ["amt-exposure-review", "qbi-deduction-review", "additional-child-tax-credit-review", "manual-federal-tax-overrides-review", "itemized-deduction-inputs-review", "enhanced-senior-deduction-eligibility", "state-retirement-tax-review"];
     case "incomeBridge":
     case "combined":
