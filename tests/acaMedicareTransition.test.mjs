@@ -50,6 +50,22 @@ test("community-rated SBE states (NY) also exclude 65+ members", () => {
   assert.equal(couple.medicareExcludedMemberCount, 1);
 });
 
+test("SBE state-default states without a ZIP3 map (MA) also exclude 65+ members", () => {
+  const couple = sbeSlcspMonthlyFor({ state: "MA", zip: "02101", householdAges: [60, 70] });
+  const alone60 = sbeSlcspMonthlyFor({ state: "MA", zip: "02101", householdAges: [60] });
+  assert.equal(couple.fallback, "state");
+  assert.equal(couple.monthlyPremium, alone60.monthlyPremium);
+  assert.equal(couple.medicareExcludedMemberCount, 1);
+});
+
+test("non-SBE state-level fallback path (IL) also excludes 65+ members", () => {
+  const couple = slcspMonthlyFor({ zip: "60601", householdAges: [60, 70] });
+  const alone60 = slcspMonthlyFor({ zip: "60601", householdAges: [60] });
+  assert.equal(couple.fallback, "state");
+  assert.equal(couple.monthlyPremium, alone60.monthlyPremium);
+  assert.equal(couple.medicareExcludedMemberCount, 1);
+});
+
 // ─── computeAcaForYear: fallback household ages for the ZIP path ────────────
 
 test("ZIP-mode ACA without member ages prices [age, spouseAge] and drops the 65+ spouse", () => {

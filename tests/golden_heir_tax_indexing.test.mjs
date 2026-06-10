@@ -69,6 +69,23 @@ test("heir tax is homogeneous under inflation indexing (2x prices at index 2 →
   assert.equal(doubled.heirTaxInflationIndex, 2);
 });
 
+test("eligible-designated stretch is also homogeneous under inflation indexing", () => {
+  // The EDB life-expectancy stretch path shares the indexed brackets/deduction
+  // with the 10-year path; doubling prices at index 2 must exactly double tax.
+  const base = estimateHeirValueBreakdown(milIra(), 0.24, {
+    heirType: "eligibleDesignated", heirBaseIncome: 80000, heirAge: 60
+  });
+  const doubled = estimateHeirValueBreakdown(
+    milIra().map((asset) => ({ ...asset, price: asset.price * 2 })),
+    0.24,
+    { heirType: "eligibleDesignated", heirBaseIncome: 80000, heirAge: 60, inflationIndex: 2 }
+  );
+  assert.ok(
+    Math.abs(doubled.traditionalIncomeTaxEstimate - base.traditionalIncomeTaxEstimate * 2) < 0.02,
+    `${doubled.traditionalIncomeTaxEstimate} vs 2x ${base.traditionalIncomeTaxEstimate}`
+  );
+});
+
 test("federal estate exclusion indexes with the valuation year", () => {
   const estate = [{ id: "roth", accountType: "roth", assetClass: "stock", units: 1, price: 20000000, costBasisPerUnit: 1 }];
 

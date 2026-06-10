@@ -895,6 +895,11 @@ test("inflateTaxProfile scales standard deduction, child tax credit, and bracket
   // IRC §24(d)(1)(B)(i): the $2,500 ACTC earned-income threshold is statutory
   // and not inflation-indexed, so inflateTaxProfile must leave it unscaled.
   assert.equal(inflated.childTaxCredit.refundableEarnedIncomeThreshold, 2500);
+  // IRC §24(h)(3): the $400,000 MFJ CTC phaseout threshold is statutory and
+  // not indexed either (checked on an untouched profile, since this test's
+  // fixture replaces childTaxCredit above).
+  const inflatedRealProfile = inflateTaxProfile(buildTaxProfile({ taxYear: 2026, filingStatus: "marriedFilingJointly" }), 1.5);
+  assert.equal(inflatedRealProfile.childTaxCredit.phaseoutThresholds.marriedFilingJointly, 400000);
   assert.equal(inflated.itemizedDeductions.stateLocalTaxes, 11_000);
   assert.equal(inflated.itemizedDeductions.mortgageInterest, 5_500);
   assert.equal(inflated.itemizedDeductions.charitableContributions, 2_200);
