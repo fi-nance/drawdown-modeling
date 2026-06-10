@@ -2,7 +2,7 @@
 // Single responsibility: taxStrategy. No behavior changes — pure code movement.
 
 import { computeAca } from "../aca.mjs";
-import { computeFederalDeductionChoice, computeIncomeTax } from "../tax.mjs?v=20260608-mc-mr";
+import { computeFederalDeductionChoice, computeIncomeTax } from "../tax.mjs?v=20260609-deepfix";
 import { getMedicareIrmaaConfig } from "../../data/taxData.mjs";
 import { round } from "../utils.mjs";
 import { emptyRebalanceResult } from "./allocation.mjs";
@@ -11,7 +11,7 @@ import { emptyEarnedIncome, emptyOneOffCashFlows } from "./cashFlows.mjs";
 import { CASH_RAISED_EPSILON } from "./constants.mjs";
 import { finiteRoom } from "./guards.mjs";
 import { emptyHsaContribution, hsaStrategyConfig } from "./hsa.mjs";
-import { acaMagiForIncome, incomeForYear, irmaaMagiForIncome } from "./income.mjs?v=20260608-mc-mr";
+import { acaMagiForIncome, incomeForYear, irmaaMagiForIncome } from "./income.mjs?v=20260609-deepfix";
 import { medicalCostForYear, medicareIrmaaBracketKey } from "./medical.mjs";
 import { embeddedTaxableGains, traditionalAccountValue } from "./portfolioQueries.mjs";
 import { defaultRmdStartAge } from "./rmd.mjs";
@@ -85,6 +85,7 @@ export function estimateTaxAttribution({
 
   const traditionalOrdinaryIncome = sumSaleIncome(withdrawal.sales, "traditional");
   const rothEarningsIncome = sumSaleIncome(withdrawal.sales, "roth");
+  const hsaOrdinaryIncome = sumSaleIncome(withdrawal.sales, "hsa");
 
   addSource("Earned income", {
     ordinaryIncome: earnedIncome.ordinaryIncome,
@@ -121,6 +122,10 @@ export function estimateTaxAttribution({
     taxableSocialSecurity
   });
   addSource("Roth earnings withdrawals", { ordinaryIncome: rothEarningsIncome });
+  addSource("HSA nonqualified withdrawals", {
+    ordinaryIncome: hsaOrdinaryIncome,
+    retirementOrdinaryIncome: hsaOrdinaryIncome
+  });
   addSource("Taxable sales", {
     shortTermCapitalGains: withdrawal.shortTermCapitalGains,
     longTermCapitalGains: withdrawal.longTermCapitalGains,

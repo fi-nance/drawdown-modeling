@@ -62,7 +62,7 @@ export const DEFAULT_SCENARIO = {
     hsaContributionInflationAdjusted: true,
     hsaCatchUpEnabled: true,
     hsaInvestmentAssetClass: "stock",
-    hsaUseForQualifiedExpenses: false,
+    hsaUseForQualifiedExpenses: true,
     startingHsaQualifiedExpenseBalance: 0
   },
   oneOffExpenses: [],
@@ -83,6 +83,10 @@ export const DEFAULT_SCENARIO = {
   socialSecurityWages: null,
   selfEmploymentIncome: 0,
   rrtaCompensation: 0,
+  spouseMedicareWages: 0,
+  spouseSocialSecurityWages: null,
+  spouseSelfEmploymentIncome: 0,
+  estimateSocialSecurityFromEarnings: false,
   earnedIncomeInflationAdjusted: true,
   socialSecurityAnnualBenefit: 0,
   socialSecurityStartAge: 67,
@@ -96,6 +100,10 @@ export const DEFAULT_SCENARIO = {
     partBEnrollees: null,
     partDEnrollees: null,
     partDMonthlyPremium: 0,
+    // Annual non-premium out-of-pocket estimate (today's dollars) applied once
+    // the whole household is on Medicare. Null → legacy ACA-plan OOP proxy
+    // (flagged input-limited by the confidence layer).
+    annualOopBase: null,
     twoYearsPriorMagi: null,
     priorYearMagi: null,
     marriedFilingSeparatelyLivedTogether: false

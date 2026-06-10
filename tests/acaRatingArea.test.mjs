@@ -128,10 +128,29 @@ test("throws when no usable age is supplied", () => {
   assert.throws(() => slcspMonthlyFor({ zip: "33101" }), /requires/);
 });
 
-test("ages above 64 are clamped to the marketplace ceiling", () => {
-  const at64 = slcspMonthlyFor({ zip: "33101", age: 64 }).monthlyPremium;
-  const at70 = slcspMonthlyFor({ zip: "33101", age: 70 }).monthlyPremium;
-  assert.equal(at64, at70);
+test("Medicare-eligible (65+) members are excluded from the marketplace premium", () => {
+  // A 65+ member is NOT clamped to the age-64 rate — they leave the
+  // marketplace for Medicare, so charging them an ACA premium would
+  // double-count against the simulator's Part B/D billing.
+  const at64 = slcspMonthlyFor({ zip: "33101", age: 64 });
+  assert.ok(at64.monthlyPremium > 0);
+  assert.equal(at64.medicareExcludedMemberCount, 0);
+
+  const at70 = slcspMonthlyFor({ zip: "33101", age: 70 });
+  assert.equal(at70.monthlyPremium, 0);
+  assert.equal(at70.medicareExcludedMemberCount, 1);
+
+  // Mixed-age couple: only the under-65 member is priced.
+  const couple = slcspMonthlyFor({ zip: "33101", householdAges: [62, 70] });
+  const aloneAt62 = slcspMonthlyFor({ zip: "33101", age: 62 });
+  assert.equal(couple.monthlyPremium, aloneAt62.monthlyPremium);
+  assert.equal(couple.medicareExcludedMemberCount, 1);
+
+  // All-65+ household: zero marketplace premium, no throw.
+  const bothOnMedicare = slcspMonthlyFor({ zip: "33101", householdAges: [70, 68] });
+  assert.equal(bothOnMedicare.monthlyPremium, 0);
+  assert.equal(bothOnMedicare.medicareExcludedMemberCount, 2);
+  assert.equal(bothOnMedicare.fallback, null);
 });
 
 // ─── data integrity ──────────────────────────────────────────────────────────

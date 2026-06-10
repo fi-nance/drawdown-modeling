@@ -22,7 +22,11 @@ export function slugify(value) {
 }
 
 export function createRng(seed = 1) {
-  let state = seed >>> 0;
+  // Numeric seeds keep the historical `>>> 0` coercion so existing seeded runs
+  // stay bit-identical. String seeds are hashed (FNV-1a 32-bit) — previously
+  // every string coerced to 0 via `>>> 0`, so "finance" and any other string
+  // produced the same stream.
+  let state = typeof seed === "string" ? hashStringSeed(seed) : seed >>> 0;
   return function rng() {
     state += 0x6D2B79F5;
     let t = state;
@@ -30,6 +34,17 @@ export function createRng(seed = 1) {
     t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
+}
+
+// FNV-1a 32-bit hash. Deterministic and well-distributed so distinct string
+// seeds produce distinct, reproducible streams.
+function hashStringSeed(text) {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return hash >>> 0;
 }
 
 export function normalRandom(rng, mean = 0, stdev = 1) {

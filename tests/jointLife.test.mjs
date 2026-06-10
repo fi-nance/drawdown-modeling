@@ -154,8 +154,16 @@ test("plan.years.length stays equal to planYears: post-mortality years are emitt
     assert.equal(plan.years[i].postMortality, true, `year ${i} should be post-mortality`);
     assert.equal(plan.years[i].plannedSpending, 0);
     assert.equal(plan.years[i].socialSecurityBenefits, 0);
-    assert.equal(plan.years[i].taxes.total, 0);
+    // Stub years use the live-year tax shape (totalTax, not legacy `total`).
+    assert.equal(plan.years[i].taxes.totalTax, 0);
+    assert.equal(plan.years[i].taxes.penaltyTax, 0);
     assert.equal(plan.years[i].filingStatus, null);
+    // Shape parity with live years: object-valued fields stay objects so
+    // consumers never need postMortality-specific handling.
+    assert.equal(plan.years[i].medicare.totalAnnualPremium, 0);
+    assert.equal(plan.years[i].hsaContribution.amount, 0);
+    assert.equal(plan.years[i].assetClassReturns.stock, null);
+    assert.equal(plan.years[i].spendingStrategy.mode, "postMortality");
   }
 
   // Post-mortality years don't count as failures.

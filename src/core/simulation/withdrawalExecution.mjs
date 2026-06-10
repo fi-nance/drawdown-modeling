@@ -7,6 +7,13 @@ import { allocationWithdrawalStateForPortfolio } from "./allocation.mjs";
 import { accountLabel, saleSortForWithdrawalContext } from "./saleComparators.mjs";
 import { expectedReturnForAsset } from "./scenario.mjs";
 
+// IRC §223(f)(4)(C): the 20% additional tax on nonqualified HSA distributions
+// no longer applies once the account holder reaches 65 — the distribution is
+// simply ordinary income. Before 65 the withdrawal engine never sells beyond
+// the tracked qualified-expense pool (a penalized nonqualified distribution
+// is never a planning recommendation), so the 20% additional tax is not modeled.
+const HSA_ORDINARY_DISTRIBUTION_AGE = 65;
+
 export function earlyWithdrawalPenaltyExceptionAmountForYear(scenario) {
   const amount = Number(scenario.earlyWithdrawalPenaltyExceptionAmount);
   return Number.isFinite(amount) && amount > 0 ? amount : 0;
@@ -81,6 +88,7 @@ export function withdrawForCash(portfolio, amount, withdrawalOrder = [], context
     ? Math.max(0, Number(context.hsaQualifiedExpenseAvailable))
     : Infinity;
   const isEarly = age < penaltyAge;
+  const hsaOrdinaryEligible = age >= HSA_ORDINARY_DISTRIBUTION_AGE;
   const result = {
     cashRaised: 0,
     ordinaryIncome: 0,
@@ -116,7 +124,10 @@ export function withdrawForCash(portfolio, amount, withdrawalOrder = [], context
         const rothRoom = maxRothProceeds - result.rothProceeds;
         if (rothRoom <= 0.000001) break;
         requestedSale = Math.min(requestedSale, rothRoom);
-      } else if (accountType === "hsa") {
+      } else if (accountType === "hsa" && !hsaOrdinaryEligible) {
+        // Before 65, HSA sales are capped at the tracked qualified-expense
+        // pool. At 65+, the cap lifts: the excess is sold and taxed as
+        // ordinary income in applyRetirementDistributionTax.
         const hsaRoom = maxHsaProceeds - result.hsaProceeds;
         if (hsaRoom <= 0.000001) break;
         requestedSale = Math.min(requestedSale, hsaRoom);
@@ -139,6 +150,7 @@ export function withdrawForCash(portfolio, amount, withdrawalOrder = [], context
       applyRetirementDistributionTax(sale, {
         result,
         isEarly,
+        hsaOrdinaryEligible,
         penaltyRate,
         calendarYear,
         rothFiveYearRuleSatisfied,
@@ -239,6 +251,22 @@ function applyRetirementDistributionTax(sale, context) {
     context.result.ordinaryIncome += sale.proceeds;
     context.result.penaltyBase += sale.penaltyBase;
     context.result.penaltyTax += sale.penaltyTax;
+    return;
+  }
+
+  if (sale.accountType === "hsa") {
+    // The qualified-expense portion is tax-free. At 65+, proceeds beyond the
+    // tracked qualified pool are taxed as ordinary income with no additional
+    // tax (IRC §223(f)(4)(C)). Before 65 the sale is already capped at the
+    // qualified pool, so the taxable portion is always zero there.
+    const qualified = Math.max(0, Math.min(sale.proceeds, sale.hsaQualifiedExpenseUsed ?? sale.proceeds));
+    const taxableHsaIncome = context.hsaOrdinaryEligible ? Math.max(0, sale.proceeds - qualified) : 0;
+    sale.ordinaryIncome = taxableHsaIncome;
+    sale.penaltyBase = 0;
+    sale.penaltyExceptionUsed = 0;
+    sale.penaltyTax = 0;
+    if (taxableHsaIncome > 0.000001) sale.taxType = "hsa-ordinary";
+    context.result.ordinaryIncome += taxableHsaIncome;
     return;
   }
 

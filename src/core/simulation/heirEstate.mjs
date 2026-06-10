@@ -2,7 +2,8 @@
 // Single responsibility: heirEstate. No behavior changes — pure code movement.
 
 import { marketValue } from "../portfolio.mjs";
-import { DEFAULT_TAX_PROFILE, taxFromBrackets } from "../tax.mjs?v=20260608-mc-mr";
+import { taxFromBrackets } from "../tax.mjs?v=20260609-deepfix";
+import { FEDERAL_TAX_2026, buildTaxProfile } from "../../data/taxData.mjs";
 import { round } from "../utils.mjs";
 import { DEFAULT_SCENARIO } from "./scenario.mjs";
 
@@ -11,6 +12,10 @@ import { DEFAULT_SCENARIO } from "./scenario.mjs";
 // the pre-OBBBA scheduled sunset to ~$7.1M did NOT occur. 40% top rate. This is
 // consistent with the OBBBA law basis documented for FEDERAL_TAX_2026. Source:
 // IRS 2026 inflation adjustments incl. OBBBA — see docs/DATA_SOURCES.md.
+// IRC §2010(c)(3)(B) indexes the exclusion after 2026, so the heir valuation
+// scales it by the plan's inflation index at the valuation (death) year —
+// comparing a nominal future estate against the frozen 2026 amount would
+// overstate estate tax for late-death scenarios.
 const FEDERAL_ESTATE_EXCLUSION_2026 = 15000000;
 
 const FEDERAL_ESTATE_TAX_RATE = 0.40;
@@ -82,7 +87,8 @@ export function estimateHeirValueBreakdown(portfolio, ordinaryTaxRate = 0.24, op
     nonSpouse10YrTaxDrag = 0,
     eligibleDesignatedTaxDiscount = 0,
     heirBaseIncome = 80000,
-    heirAge = 30
+    heirAge = 30,
+    inflationIndex = 1
   } = opts;
 
   const assumedOrdinaryTaxRate = Math.max(0, Math.min(1, Number(ordinaryTaxRate) || 0));
@@ -94,35 +100,16 @@ export function estimateHeirValueBreakdown(portfolio, ordinaryTaxRate = 0.24, op
     ? opts.state
     : opts.taxProfile?.state?.state ?? null;
 
-  // Extract Single standard deduction and brackets
-  let singleBrackets = DEFAULT_TAX_PROFILE?.ordinaryBrackets?.single;
-  if (opts.taxProfile?.ordinaryBrackets) {
-    if (Array.isArray(opts.taxProfile.ordinaryBrackets)) {
-      singleBrackets = opts.taxProfile.ordinaryBrackets;
-    } else if (opts.taxProfile.ordinaryBrackets.single) {
-      singleBrackets = opts.taxProfile.ordinaryBrackets.single;
-    }
-  }
-  if (!singleBrackets) {
-    singleBrackets = [
-      { upTo: 12400, rate: 0.1 },
-      { upTo: 50400, rate: 0.12 },
-      { upTo: 105700, rate: 0.22 },
-      { upTo: 201775, rate: 0.24 },
-      { upTo: 256225, rate: 0.32 },
-      { upTo: 640600, rate: 0.35 },
-      { upTo: Infinity, rate: 0.37 }
-    ];
-  }
-
-  let singleDeduction = DEFAULT_TAX_PROFILE?.standardDeduction?.single ?? 16100;
-  if (opts.taxProfile?.standardDeduction != null) {
-    if (typeof opts.taxProfile.standardDeduction === "number") {
-      singleDeduction = opts.taxProfile.standardDeduction;
-    } else if (opts.taxProfile.standardDeduction.single != null) {
-      singleDeduction = opts.taxProfile.standardDeduction.single;
-    }
-  }
+  // Heir taxes are always computed as a SINGLE filer (the documented model);
+  // a household MFJ/HoH profile is re-resolved to Single brackets and the
+  // Single standard deduction. Dollar parameters (brackets, deduction, heir
+  // base income, estate exclusion) are indexed to the valuation-year price
+  // level via `inflationIndex` so a death decades after the 2026 base year is
+  // not taxed against frozen 2026 nominal thresholds.
+  const { brackets: singleBrackets, deduction: singleDeduction, index } =
+    resolveHeirSingleTaxParams(opts.taxProfile, inflationIndex);
+  const indexedHeirBaseIncome = Math.max(0, Number(heirBaseIncome) || 0) * index;
+  const federalEstateExclusion = FEDERAL_ESTATE_EXCLUSION_2026 * index;
 
   // Group portfolio assets. `asset.beneficiaryType` can override the scenario's
   // household-level heir type so a spouse can inherit some accounts while a
@@ -193,7 +180,7 @@ export function estimateHeirValueBreakdown(portfolio, ordinaryTaxRate = 0.24, op
       assumedOrdinaryTaxRate,
       drag,
       discount,
-      heirBaseIncome,
+      heirBaseIncome: indexedHeirBaseIncome,
       heirAge,
       singleDeduction,
       singleBrackets
@@ -203,13 +190,14 @@ export function estimateHeirValueBreakdown(portfolio, ordinaryTaxRate = 0.24, op
     spouseRolloverValue += taxed.spouseRolloverValue;
   }
 
-  // Federal estate tax: 40% above the 2026 $15M exclusion. Transfers to a
-  // surviving spouse are estate-tax-free under the unlimited marital deduction.
+  // Federal estate tax: 40% above the 2026 $15M exclusion, indexed to the
+  // valuation-year price level (IRC §2010(c)(3)(B)). Transfers to a surviving
+  // spouse are estate-tax-free under the unlimited marital deduction.
   const nonSpouseBeneficiaryValue = nonSpouse10YrBeneficiaryValue + eligibleDesignatedBeneficiaryValue;
   const federalEstateTax = nonSpouseBeneficiaryValue <= 0
     ? 0
-    : (nonSpouseBeneficiaryValue > FEDERAL_ESTATE_EXCLUSION_2026
-        ? (nonSpouseBeneficiaryValue - FEDERAL_ESTATE_EXCLUSION_2026) * FEDERAL_ESTATE_TAX_RATE
+    : (nonSpouseBeneficiaryValue > federalEstateExclusion
+        ? (nonSpouseBeneficiaryValue - federalEstateExclusion) * FEDERAL_ESTATE_TAX_RATE
         : 0);
 
   // State inheritance tax assuming a lineal-descendant (child) heir. Spouses
@@ -253,15 +241,76 @@ export function estimateHeirValueBreakdown(portfolio, ordinaryTaxRate = 0.24, op
     otherValue,
     totalIncomeTaxEstimate,
     federalEstateTax,
-    stateInheritanceTax
+    federalEstateExclusion,
+    stateInheritanceTax,
+    heirTaxInflationIndex: index
   };
 
   return Object.fromEntries(
     Object.entries(breakdown).map(([key, value]) => [
       key,
-      key === "assumedOrdinaryTaxRate" || key === "effectiveTraditionalTaxRate" ? round(value, 6) : round(value, 2)
+      ["assumedOrdinaryTaxRate", "effectiveTraditionalTaxRate", "heirTaxInflationIndex"].includes(key)
+        ? round(value, 6)
+        : round(value, 2)
     ])
   );
+}
+
+// Statutory Single-filer parameters used when no household tax profile is
+// supplied or a hand-rolled fixture lacks `buildOptions`.
+const STATUTORY_SINGLE_BRACKETS = FEDERAL_TAX_2026.ordinaryBrackets.single;
+const STATUTORY_SINGLE_DEDUCTION = FEDERAL_TAX_2026.standardDeduction.single;
+
+// Cache the Single-filer rebuild per buildOptions object (stable for the life
+// of a simulation run) — the lifetime optimizer scores heir value in a hot
+// path, and rebuilding the full profile per call would be wasteful.
+const heirSingleProfileCache = new WeakMap();
+
+function resolveHeirSingleTaxParams(taxProfile, inflationIndex = 1) {
+  let brackets = STATUTORY_SINGLE_BRACKETS;
+  let deduction = STATUTORY_SINGLE_DEDUCTION;
+
+  if (taxProfile?.buildOptions && typeof taxProfile.buildOptions === "object") {
+    // Production path: every profile from buildTaxProfile carries its build
+    // inputs, so rebuild it as a Single filer. Adopting the household's own
+    // brackets here was a bug — an MFJ household's heir was taxed on MFJ
+    // bracket widths and the MFJ standard deduction, understating heir tax.
+    let cached = heirSingleProfileCache.get(taxProfile.buildOptions);
+    if (!cached) {
+      const singleProfile = buildTaxProfile({ ...taxProfile.buildOptions, filingStatus: "single" });
+      cached = {
+        brackets: Array.isArray(singleProfile.ordinaryBrackets) ? singleProfile.ordinaryBrackets : STATUTORY_SINGLE_BRACKETS,
+        deduction: Number.isFinite(singleProfile.standardDeduction) ? singleProfile.standardDeduction : STATUTORY_SINGLE_DEDUCTION
+      };
+      heirSingleProfileCache.set(taxProfile.buildOptions, cached);
+    }
+    brackets = cached.brackets;
+    deduction = cached.deduction;
+  } else if (taxProfile) {
+    // Hand-rolled profile (test fixtures, manual overrides): honor it as-is.
+    // A 1-element bracket array intentionally triggers the flat-rate path in
+    // inheritedAccountTaxEstimate.
+    if (Array.isArray(taxProfile.ordinaryBrackets)) brackets = taxProfile.ordinaryBrackets;
+    else if (Array.isArray(taxProfile.ordinaryBrackets?.single)) brackets = taxProfile.ordinaryBrackets.single;
+    if (typeof taxProfile.standardDeduction === "number") deduction = taxProfile.standardDeduction;
+    else if (Number.isFinite(taxProfile.standardDeduction?.single)) deduction = taxProfile.standardDeduction.single;
+  }
+
+  const index = normalizedHeirInflationIndex(inflationIndex);
+  if (index === 1) return { brackets, deduction, index };
+  return {
+    brackets: brackets.map((bracket) => ({
+      ...bracket,
+      upTo: Number.isFinite(bracket.upTo) ? bracket.upTo * index : Infinity
+    })),
+    deduction: deduction * index,
+    index
+  };
+}
+
+function normalizedHeirInflationIndex(value) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric > 0 ? numeric : 1;
 }
 
 function beneficiaryTypeForAsset(asset, fallback) {

@@ -139,6 +139,10 @@ const SBE_RATING_AREA_SLCSP_2026 = Object.freeze({
 });
 
 const MAX_RATING_AGE = 64;
+// Members 65+ are Medicare-eligible and are EXCLUDED from the marketplace
+// household premium (mirrors acaRatingArea.mjs — clamping them to the age-64
+// rate would double-charge mixed ACA/Medicare households).
+const MEDICARE_ELIGIBILITY_AGE = 65;
 // CMS benchmark reference age; the bundled non-community SBE figures are quoted
 // at this age, matching ACA_DEFAULT_BENCHMARK_REFERENCE_AGE in taxData.mjs.
 const REFERENCE_AGE = 40;
@@ -151,7 +155,7 @@ export function sbeSlcspMonthlyFor({ state, zip, planYear = 2026, age, household
   if (!memberAges.length) {
     throw new Error("sbeSlcspMonthlyFor requires `age`, `householdAges`, or `householdComposition` with member ages.");
   }
-  const counted = countedMembers(memberAges);
+  const { counted, medicareExcludedMemberCount } = splitMarketplaceMembers(memberAges);
 
   const rates = SBE_RATING_AREA_SLCSP_2026[state];
   if (!rates) {
@@ -205,6 +209,7 @@ export function sbeSlcspMonthlyFor({ state, zip, planYear = 2026, age, household
       source: "SBE Rating Area Mapping"
     }),
     ageRatingFactorTotal: round6(factorTotal),
+    medicareExcludedMemberCount,
     fallback: resolvedRatingArea ? null : "state",
     fallbackReason: resolvedRatingArea ? null : "sbe-state-default",
     planYear,
@@ -233,6 +238,16 @@ function resolveMemberAges({ age, householdAges, householdComposition }) {
   }
   if (!ages.length && Number.isFinite(Number(age))) ages.push(Number(age));
   return ages.map((a) => Math.max(0, Math.trunc(a)));
+}
+
+// Medicare-eligible (65+) members are excluded from the marketplace premium;
+// the count is surfaced so callers can explain the exclusion.
+function splitMarketplaceMembers(memberAges) {
+  const marketplaceAges = memberAges.filter((memberAge) => memberAge < MEDICARE_ELIGIBILITY_AGE);
+  return {
+    counted: countedMembers(marketplaceAges),
+    medicareExcludedMemberCount: memberAges.length - marketplaceAges.length
+  };
 }
 
 function countedMembers(memberAges) {

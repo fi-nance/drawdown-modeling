@@ -8,7 +8,7 @@
     <link rel="icon" href="./favicon.svg?v=20260505-favicon" type="image/svg+xml">
     <meta name="theme-color" content="#07111f">
     <link rel="stylesheet" href="./src/styles.css?v=20260530-ws-mobile-fit">
-    <link rel="stylesheet" href="./src/redesign.css?v=20260608-mc-mr">
+    <link rel="stylesheet" href="./src/redesign.css?v=20260609-deepfix">
     <script src="https://accounts.google.com/gsi/client" async defer></script>
   </head>
   <body data-screen="persona" data-theme="dark">
@@ -419,7 +419,7 @@
                     <span class="module-sub">Premiums after 65</span>
                   </div>
                 </div>
-                <div class="module-actions"><span class="controls-pill">9 controls</span></div>
+                <div class="module-actions"><span class="controls-pill">10 controls</span></div>
               </div>
               <div class="module-body">
                 <label class="check-row"><input id="irmaaEnabled" type="checkbox" checked><span>Apply Medicare / IRMAA surcharges</span></label>
@@ -427,6 +427,7 @@
                   <label><span>Part B enrollees</span>      <input id="medicarePartBEnrollees" type="number" min="0" max="2" step="1" placeholder="Auto"></label>
                   <label><span>Part D enrollees</span>      <input id="medicarePartDEnrollees" type="number" min="0" max="2" step="1" placeholder="Auto"></label>
                   <label><span>Part D monthly premium</span><input id="medicarePartDMonthlyPremium" type="number" min="0" step="1" value="0"></label>
+                  <label><span>Medicare annual OOP</span>   <input id="medicareAnnualOopBase" type="number" min="0" step="500" placeholder="ACA-plan proxy"><small>Non-premium out-of-pocket estimate (today's dollars) once the household is fully on Medicare. Blank keeps the ACA-plan OOP proxy.</small></label>
                   <label><span>MAGI two years ago</span>   <input id="twoYearsPriorMagi" type="number" min="0" step="1000" placeholder="Use estimate"></label>
                   <label><span>MAGI last year</span>       <input id="priorYearMagi" type="number" min="0" step="1000" placeholder="Use estimate"></label>
                   <label><span>Max IRMAA tier</span>       <input id="maxIrmaaTier" type="number" min="0" max="5" step="1" placeholder="No cap"></label>
@@ -447,7 +448,7 @@
                     <span class="module-sub">Social Security, work, SE</span>
                   </div>
                 </div>
-                <div class="module-actions"><span class="controls-pill">8 controls</span></div>
+                <div class="module-actions"><span class="controls-pill">12 controls</span></div>
               </div>
               <div class="module-body">
                 <div class="control-grid">
@@ -459,10 +460,14 @@
                   <label><span>W-2 SS wages</span>         <input id="socialSecurityWages" type="number" min="0" step="1000" placeholder="Auto"></label>
                   <label><span>Self-employment income</span><input id="selfEmploymentIncome" type="number" min="0" step="1000" value="0"></label>
                   <label><span>RRTA compensation</span>    <input id="rrtaCompensation" type="number" min="0" step="1000" value="0"></label>
+                  <label><span>Spouse Medicare wages</span><input id="spouseMedicareWages" type="number" min="0" step="1000" value="0"></label>
+                  <label><span>Spouse W-2 SS wages</span>  <input id="spouseSocialSecurityWages" type="number" min="0" step="1000" placeholder="Auto"></label>
+                  <label><span>Spouse self-employment income</span><input id="spouseSelfEmploymentIncome" type="number" min="0" step="1000" value="0"></label>
                 </div>
                 <label class="check-row"><input id="socialSecurityInflationAdjusted" type="checkbox" checked><span>Inflation-adjust Social Security</span></label>
                 <label class="check-row"><input id="spouseSocialSecurityInflationAdjusted" type="checkbox" checked><span>Inflation-adjust spouse Social Security</span></label>
                 <label class="check-row"><input id="earnedIncomeInflationAdjusted"  type="checkbox" checked><span>Inflation-adjust earned income</span></label>
+                <label class="check-row"><input id="estimateSocialSecurityFromEarnings" type="checkbox"><span>Estimate Social Security from earnings</span><small>Opt-in coarse proxy: entered wages are treated as the career-average AIME against the SSA 2026 bend points. Spouse wages feed the spouse's own PIA; without them a 50% spousal benefit applies.</small></label>
               </div>
             </section>
 
@@ -476,7 +481,7 @@
                     <span class="module-sub">Taxes, allocations, withdrawal rules</span>
                   </div>
                 </div>
-                <div class="module-actions"><span class="controls-pill">37 controls</span></div>
+                <div class="module-actions"><span class="controls-pill">38 controls</span></div>
               </div>
               <div class="module-body">
                 <label>
@@ -533,6 +538,7 @@
                 <label class="check-row"><input id="unifiedMarginalOptimizer" type="checkbox" checked><span>Unified marginal-rate optimizer</span></label>
                 <label class="check-row"><input id="assetLocationOptimization" type="checkbox"><span>Asset-location swaps</span></label>
                 <label class="check-row"><input id="hsaContributionStrategy" type="checkbox"><span>HSA contribution strategy</span></label>
+                <label class="check-row"><input id="hsaQualifiedExpenseLimit" type="checkbox" checked><span>Limit HSA withdrawals to qualified medical expenses</span><small>Tracked modeled medical costs gate tax-free HSA withdrawals; at 65+ the excess is distributable as ordinary income. Unchecking restores the legacy unlimited tax-free treatment.</small></label>
                 <label class="check-row"><input id="allocationAwareWithdrawals" type="checkbox"><span>Allocation-aware withdrawals</span></label>
                 <label class="check-row"><input id="taxAwareRebalancing" type="checkbox"><span>Tax-aware annual rebalancing</span></label>
                 <label class="check-row"><input id="equityGlidepath" type="checkbox"><span>Equity glidepath</span></label>
@@ -1136,7 +1142,7 @@
       <select id="viewMode"><option value="real" selected>Today's $</option><option value="nominal">Future $</option></select>
     </div>
 
-    <script type="module" src="./src/app.mjs?v=20260608-mc-mr"></script>
-    <script type="module" src="./src/redesign.mjs?v=20260608-mc-mr"></script>
+    <script type="module" src="./src/app.mjs?v=20260609-deepfix"></script>
+    <script type="module" src="./src/redesign.mjs?v=20260609-deepfix"></script>
   </body>
 </html>

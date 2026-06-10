@@ -66,7 +66,13 @@ import {
 export { ACA_RATING_AREA_DATA_VERSION } from "./acaRatingArea2026.generated.mjs";
 
 const COVERED_STATE_SET = new Set(ACA_SLCSP_COVERED_STATES);
-const MAX_RATING_AGE = 64; // marketplace age rating tops out at 64; 65+ → Medicare
+const MAX_RATING_AGE = 64; // marketplace age rating tops out at 64
+// Members 65+ are Medicare-eligible and are EXCLUDED from the marketplace
+// household premium (they are not clamped to the age-64 rate — that would
+// double-charge a mixed ACA/Medicare household, since the simulator already
+// bills Part B/D premiums for the 65+ member). Matches the exclude65Plus
+// behavior of the manual age-rated path in src/core/aca.mjs.
+const MEDICARE_ELIGIBILITY_AGE = 65;
 
 // Manifest for the data-sources coverage test.
 export const ACA_RATING_AREA_DATA_SOURCES = Object.freeze([
@@ -90,9 +96,15 @@ export const ACA_RATING_AREA_DATA_SOURCES = Object.freeze([
  *   monthlyPremium: number|null,
  *   ratingArea: {state:string, areaCode:number|null, methodology:string, source:string}|null,
  *   ageRatingFactorTotal: number,
+ *   medicareExcludedMemberCount: number,
  *   fallback: null|"state"|"out-of-model",
  *   sources: {ratingArea:string, slcsp:string, zipToCounty:string}
  * }}
+ *
+ * Members age 65+ are Medicare-eligible and excluded from the marketplace
+ * premium (`medicareExcludedMemberCount` reports how many were dropped). A
+ * household whose members are ALL 65+ returns monthlyPremium 0 rather than
+ * throwing — the marketplace premium for such a household is zero.
  *
  * Never throws on geography. Throws only when no usable age is supplied.
  */
@@ -101,14 +113,14 @@ export function slcspMonthlyFor({ zip, planYear = 2026, age, householdAges, hous
   if (!memberAges.length) {
     throw new Error("slcspMonthlyFor requires `age`, `householdAges`, or `householdComposition` with member ages.");
   }
-  const counted = countedMembers(memberAges);
+  const { counted, medicareExcludedMemberCount } = splitMarketplaceMembers(memberAges);
 
   const geo = resolveZip(zip);
   const state = geo.stateAbbreviation;
 
   // No marketplace: territory, military, or unrecognizable ZIP (no state).
   if (!state) {
-    return outOfModel(geo, planYear);
+    return outOfModel(geo, planYear, medicareExcludedMemberCount);
   }
 
   // State not in the bundled federal-platform set (e.g. a state-based exchange):
@@ -118,14 +130,14 @@ export function slcspMonthlyFor({ zip, planYear = 2026, age, householdAges, hous
     if (isSbeState(state)) {
       return sbeSlcspMonthlyFor({ state, zip, planYear, age, householdAges, householdComposition });
     }
-    return stateFallback({ geo, state: geo.state, counted, planYear, reason: "sbm-not-ingested" });
+    return stateFallback({ geo, state: geo.state, counted, medicareExcludedMemberCount, planYear, reason: "sbm-not-ingested" });
   }
 
   const areaCode = ratingAreaForZip(state, geo);
   const slcsp = areaCode == null ? null : ACA_SLCSP_BY_RATING_AREA_2026[`${state}-${areaCode}`];
   if (!slcsp) {
     // Covered state but the ZIP's county / rating area could not be resolved.
-    return stateFallback({ geo, state: geo.state, counted, planYear, reason: "rating-area-underived" });
+    return stateFallback({ geo, state: geo.state, counted, medicareExcludedMemberCount, planYear, reason: "rating-area-underived" });
   }
 
   const base21 = slcsp.a[21];
@@ -150,6 +162,7 @@ export function slcspMonthlyFor({ zip, planYear = 2026, age, householdAges, hous
       source: ACA_RATING_AREA_GRA_SOURCE.name
     }),
     ageRatingFactorTotal: round6(factorTotal),
+    medicareExcludedMemberCount,
     fallback: null,
     planYear,
     slcspPlanId: slcsp.p,
@@ -179,7 +192,7 @@ function ratingAreaForZip(state, geo) {
 
 // ─── fallbacks ───────────────────────────────────────────────────────────────
 
-function stateFallback({ geo, state, counted, planYear, reason }) {
+function stateFallback({ geo, state, counted, medicareExcludedMemberCount = 0, planYear, reason }) {
   // State-level benchmark is a per-member monthly premium at the default
   // reference age (40). Convert to an age-21 base, then age-rate the household
   // via the federal default age curve — matching how the rest of the model
@@ -205,6 +218,7 @@ function stateFallback({ geo, state, counted, planYear, reason }) {
       source: ACA_2026.source
     }),
     ageRatingFactorTotal: round6(factorTotal),
+    medicareExcludedMemberCount,
     fallback: "state",
     fallbackReason: reason,
     planYear,
@@ -218,11 +232,12 @@ function stateFallback({ geo, state, counted, planYear, reason }) {
   });
 }
 
-function outOfModel(geo, planYear) {
+function outOfModel(geo, planYear, medicareExcludedMemberCount = 0) {
   return Object.freeze({
     monthlyPremium: null,
     ratingArea: null,
     ageRatingFactorTotal: 0,
+    medicareExcludedMemberCount,
     fallback: "out-of-model",
     fallbackReason: geo.fallback ?? "unknown", // "military" | "territory" | "unknown"
     planYear,
@@ -250,6 +265,18 @@ function resolveMemberAges({ age, householdAges, householdComposition }) {
   }
   if (!ages.length && Number.isFinite(Number(age))) ages.push(Number(age));
   return ages.map((a) => Math.max(0, Math.trunc(a)));
+}
+
+// Split a household into marketplace-rated members and Medicare-eligible
+// (65+) members. Medicare-eligible members are excluded from the marketplace
+// premium entirely; the count is surfaced so callers/confidence copy can
+// explain the exclusion.
+function splitMarketplaceMembers(memberAges) {
+  const marketplaceAges = memberAges.filter((memberAge) => memberAge < MEDICARE_ELIGIBILITY_AGE);
+  return {
+    counted: countedMembers(marketplaceAges),
+    medicareExcludedMemberCount: memberAges.length - marketplaceAges.length
+  };
 }
 
 // Apply the ACA family-premium rule: every member age 21+ is counted; among

@@ -29,7 +29,13 @@ export function hsaStrategyConfig(scenario) {
       || DEFENSIVE_ASSET_CLASSES.includes(config.hsaInvestmentAssetClass)
       ? config.hsaInvestmentAssetClass
       : "stock",
-    useForQualifiedExpenses: config.hsaUseForQualifiedExpenses === true || config.hsaContributionEnabled === true,
+    // Default ON: HSA withdrawals are tax-free only against the tracked
+    // qualified-medical-expense pool (accrued modeled medical costs plus the
+    // starting balance); at 65+ the excess is distributable as ordinary
+    // income. Explicit `hsaUseForQualifiedExpenses: false` keeps the legacy
+    // unlimited-tax-free behavior, which is more generous than IRC §223 and
+    // is documented as a modeling escape hatch in KNOWN_LIMITATIONS.md.
+    useForQualifiedExpenses: config.hsaUseForQualifiedExpenses !== false || config.hsaContributionEnabled === true,
     startingQualifiedExpenseBalance: Math.max(0, Number(config.startingHsaQualifiedExpenseBalance) || 0)
   };
 }

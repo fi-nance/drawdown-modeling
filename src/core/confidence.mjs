@@ -38,7 +38,7 @@ export function actionConfidenceFor(actionKind, confidenceReport = {}) {
   }
 
   if (["aca", "medicalReserve"].includes(actionKind)) {
-    const flag = find(["aca-coverage-gap-modeled", "aca-medicaid-handoff-modeled", "aca-coverage-gap-risk", "aca-plan-inputs", "aca-benchmark-state-fallback", "aca-benchmark-out-of-model", "aca-oop-inputs", "aca-net-premium-quote", "aca-magi-threshold"]);
+    const flag = find(["aca-coverage-gap-modeled", "aca-medicaid-handoff-modeled", "aca-coverage-gap-risk", "aca-plan-inputs", "aca-benchmark-state-fallback", "aca-benchmark-out-of-model", "aca-oop-inputs", "medicare-oop-inputs", "aca-net-premium-quote", "aca-magi-threshold"]);
     if (flag) return actionConfidenceFromFlag(flag);
   }
 
@@ -153,6 +153,7 @@ export function buildConfidenceReport({
 } = {}) {
   const flags = [];
   addHealthcareFlags(flags, scenario, decision);
+  addMedicareOopFlags(flags, scenario);
   addCoverageGapFlags(flags, scenario, plan);
   addStateTaxFlags(flags, taxProfile);
   addFederalTaxScopeFlags(flags, scenario, taxProfile, plan);
@@ -221,6 +222,35 @@ function addHealthcareFlags(flags, scenario, decision) {
       action: "Use gross SLCSP and selected-plan premiums when you want an auditable Form 8962-style trace."
     });
   }
+}
+
+// Once the whole household is Medicare-eligible, the model needs an explicit
+// non-premium out-of-pocket estimate (scenario.medicare.annualOopBase). When
+// it is absent, post-65 medical spending falls back to the ACA plan's OOP-max
+// proxy, which is the wrong anchor for Medicare cost exposure — flag it as
+// input-limited so households nearing or in Medicare years fill it in.
+function addMedicareOopFlags(flags, scenario) {
+  const medicare = scenario?.medicare ?? {};
+  if (medicare.irmaaEnabled === false) return;
+  if (Number.isFinite(Number(medicare.annualOopBase))) return;
+  // The proxy only applies when ACA modeling supplies an OOP maximum.
+  if (scenario?.aca?.enabled === false) return;
+
+  const planYears = Math.max(0, Number(scenario?.planYears) || 0);
+  const primaryAge = Number(scenario?.currentAge);
+  const spouseAge = Number(scenario?.spouseAge);
+  const reachesMedicare = (Number.isFinite(primaryAge) && primaryAge + planYears > 65)
+    || (Number.isFinite(spouseAge) && spouseAge + planYears > 65);
+  if (!reachesMedicare) return;
+
+  flags.push({
+    id: "medicare-oop-inputs",
+    level: CONFIDENCE_LEVELS.INPUT_LIMITED,
+    lens: "cpa",
+    title: "Medicare out-of-pocket costs need an input",
+    detail: "The plan includes Medicare years, but no Medicare annual out-of-pocket estimate is entered. Post-65 medical spending falls back to the ACA-era plan OOP proxy when a plan OOP maximum was entered, and to $0 non-premium OOP otherwise — neither is a Medicare-specific anchor.",
+    action: "Enter a Medicare annual OOP estimate (deductibles, coinsurance, dental/vision — premiums are billed separately) in the Medicare module before relying on post-65 healthcare cash flows."
+  });
 }
 
 function acaBenchmarkGeographyFlag(aca) {

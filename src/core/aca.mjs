@@ -159,7 +159,8 @@ export function computeAca({
     // Present only when a ZIP was supplied. `ratingArea` is null and
     // `benchmarkFallback` describes why when no rating-area data applied.
     ratingArea: zipBenchmark?.ratingArea ?? null,
-    benchmarkFallback: zipBenchmark?.fallback ?? null
+    benchmarkFallback: zipBenchmark?.fallback ?? null,
+    benchmarkMedicareExcludedMembers: zipBenchmark?.medicareExcludedMemberCount ?? null
   };
 }
 
@@ -178,6 +179,7 @@ export function benchmarkPremiumForZip({ zip, planYear = 2026, age = null, house
     monthlyBenchmarkPremium: Number.isFinite(monthly) ? round(monthly, 6) : null,
     ratingArea: slcsp.ratingArea,
     ageRatingFactorTotal: slcsp.ageRatingFactorTotal,
+    medicareExcludedMemberCount: slcsp.medicareExcludedMemberCount ?? 0,
     fallback: slcsp.fallback,
     sources: slcsp.sources
   };

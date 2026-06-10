@@ -110,13 +110,40 @@ test("rescue scenario workspace knobs are visible and persisted", async () => {
     "rothConversionMagiBuffer",
     "rothBasisOptimization",
     "rothBasisMagiBuffer",
-    "rothBasisOpportunityCostMode"
+    "rothBasisOpportunityCostMode",
+    "medicareAnnualOopBase",
+    "spouseMedicareWages",
+    "spouseSocialSecurityWages",
+    "spouseSelfEmploymentIncome",
+    "estimateSocialSecurityFromEarnings",
+    "hsaQualifiedExpenseLimit"
   ];
 
   for (const id of rescueControlIds) {
     assert.match(html, new RegExp(`id="${id}"`), `${id} should be visible in the workspace`);
     assert.match(appSource, new RegExp(`"${id}"`), `${id} should be part of app control wiring`);
   }
+
+  assert.match(appSource, /setOptionalNumberControl\("medicareAnnualOopBase", scenario\.medicare\?\.annualOopBase\)/);
+  assert.match(appSource, /setNumberControl\("spouseMedicareWages", scenario\.spouseMedicareWages\)/);
+  assert.match(appSource, /setOptionalNumberControl\("spouseSocialSecurityWages", scenario\.spouseSocialSecurityWages\)/);
+  assert.match(appSource, /setNumberControl\("spouseSelfEmploymentIncome", scenario\.spouseSelfEmploymentIncome\)/);
+  assert.match(appSource, /setCheckedControl\("estimateSocialSecurityFromEarnings", scenario\.estimateSocialSecurityFromEarnings\)/);
+  assert.match(appSource, /setCheckedControl\("hsaQualifiedExpenseLimit", taxEfficiency\.hsaUseForQualifiedExpenses\)/);
+});
+
+test("module library counts match expanded module cards", async () => {
+  const [html, source] = await Promise.all([
+    readFile(new URL("../index.html", import.meta.url), "utf8"),
+    readFile(new URL("../src/redesign.mjs", import.meta.url), "utf8")
+  ]);
+
+  assert.match(html, /data-module="medicare"[\s\S]*<span class="controls-pill">10 controls<\/span>/);
+  assert.match(source, /id: "medicare"[\s\S]*controls: 10/);
+  assert.match(html, /data-module="other-income"[\s\S]*<span class="controls-pill">12 controls<\/span>/);
+  assert.match(source, /id: "other-income"[\s\S]*controls: 12/);
+  assert.match(html, /data-module="strategy"[\s\S]*<span class="controls-pill">38 controls<\/span>/);
+  assert.match(source, /id: "strategy"[\s\S]*controls: 38/);
 });
 
 test("module library can scroll to reveal disabled-module knobs", async () => {
@@ -127,7 +154,7 @@ test("module library can scroll to reveal disabled-module knobs", async () => {
 
   assert.match(css, /\.module-library\s*\{[\s\S]*max-height: calc\(100vh - 2rem\)/);
   assert.match(css, /\.module-library\s*\{[\s\S]*overflow-y: auto/);
-  assert.match(html, /src\/redesign\.css\?v=20260608-mc-mr/);
+  assert.match(html, /src\/redesign\.css\?v=20260609-deepfix/);
 });
 
 test("rescue comparison table includes per-option confidence labels", async () => {

@@ -3,27 +3,27 @@
 
 import { inflateAcaConfig } from "../aca.mjs";
 import { accountBreakdown, ageHoldingPeriods, applyTotalReturnsWithIncome, harvestTaxGains, harvestTaxLosses, portfolioValue, removeEmptyLots } from "../portfolio.mjs";
-import { computeIncomeTax, inflateTaxProfile } from "../tax.mjs?v=20260608-mc-mr";
+import { computeIncomeTax, inflateTaxProfile } from "../tax.mjs?v=20260609-deepfix";
 import { round } from "../utils.mjs";
 import { allocationStrategyStateForYear } from "./allocation.mjs";
 import { assetLocationStateForYear } from "./assetLocation.mjs";
 import { earnedIncomeForYear, emptyEarnedIncome, mergeEarnedIncome, oneOffCashFlowsForYear } from "./cashFlows.mjs";
 import { CASH_GAP_TOLERANCE, CASH_RAISED_EPSILON } from "./constants.mjs";
 import { acaConfigForSimulationYear, buildSurvivorTaxProfile, isMarriedFiling, mortalityStatus } from "./household.mjs";
-import { addHsaContributionLot, hsaContributionForYear, hsaQualifiedExpenseAvailableForWithdrawal, hsaStrategyConfig } from "./hsa.mjs";
-import { acaMagiForIncome, federalAgiForIncome, incomeForYear, irmaaMagiForIncome, lossCarryforwardTotal, normalizeLossCarryforward, taxProfileForSimulationYear } from "./income.mjs?v=20260608-mc-mr";
+import { addHsaContributionLot, emptyHsaContribution, hsaContributionForYear, hsaQualifiedExpenseAvailableForWithdrawal, hsaStrategyConfig } from "./hsa.mjs";
+import { acaMagiForIncome, federalAgiForIncome, incomeForYear, irmaaMagiForIncome, lossCarryforwardTotal, normalizeLossCarryforward, taxProfileForSimulationYear } from "./income.mjs?v=20260609-deepfix";
 import { summarizeAssetClassReturns } from "./market.mjs";
 import { computeAcaForYear, emptyMedicareCost, medicalCostForYear } from "./medical.mjs";
 import { addTaxableCash, assetSnapshot, traditionalAccountValue } from "./portfolioQueries.mjs";
 import { requiredMinimumDistributionForYear } from "./rmd.mjs";
 import { isLifetimeOptimizerEnabled } from "./scenario.mjs";
 import { sequenceRiskReserveStateForYear } from "./sequenceRiskReserve.mjs";
-import { socialSecurityBenefitsForYear, spouseSocialSecurityBenefitsForYear } from "./socialSecurity.mjs?v=20260608-mc-mr";
+import { socialSecurityBenefitsForYear, spouseSocialSecurityBenefitsForYear } from "./socialSecurity.mjs?v=20260609-deepfix";
 import { plannedSpendingDetailForYear } from "./spending.mjs";
-import { acaMagiCeiling, addPenaltyTax, automaticTaxLossHarvestLimit, effectiveRothConversionTargetRate, estimateTaxAttribution, gainHarvestingRoom, rothConversionAmountForYear, rothConversionMagiBuffer, strategyLimit } from "./taxStrategy.mjs?v=20260608-mc-mr";
-import { convertTraditionalToRoth, earlyWithdrawalPenaltyExceptionAmountForYear, emptyWithdrawal, rothBasisAvailableForWithdrawal, rothBasisSummaryForYear, withdrawForCash } from "./withdrawalExecution.mjs?v=20260608-mc-mr";
+import { acaMagiCeiling, addPenaltyTax, automaticTaxLossHarvestLimit, effectiveRothConversionTargetRate, estimateTaxAttribution, gainHarvestingRoom, rothConversionAmountForYear, rothConversionMagiBuffer, strategyLimit } from "./taxStrategy.mjs?v=20260609-deepfix";
+import { convertTraditionalToRoth, earlyWithdrawalPenaltyExceptionAmountForYear, emptyWithdrawal, rothBasisAvailableForWithdrawal, rothBasisSummaryForYear, withdrawForCash } from "./withdrawalExecution.mjs?v=20260609-deepfix";
 import { forcedWithdrawalOrder } from "./withdrawalOrders.mjs";
-import { chooseWithdrawalPlan, evaluateWithdrawalPlan } from "./withdrawalPlanning.mjs?v=20260608-mc-mr";
+import { chooseWithdrawalPlan, evaluateWithdrawalPlan } from "./withdrawalPlanning.mjs?v=20260609-deepfix";
 
 export function simulateYear({
   portfolio,
@@ -695,8 +695,11 @@ export function simulateYear({
 
   const cashShortfall = Math.max(0, totalCashRequired - cashAvailable);
   const unfunded = cashShortfall <= CASH_GAP_TOLERANCE ? 0 : cashShortfall;
+  // Only the qualified portion of HSA proceeds draws down the tracked pool —
+  // at 65+ the engine may sell beyond it (taxed as ordinary income), and that
+  // excess must not double-debit the qualified-expense balance.
   const finalHsaQualifiedExpenseBalance = hsaStrategyConfig(scenario).useForQualifiedExpenses
-    ? round(Math.max(0, hsaQualifiedExpenseBalance + medicalEstimate - (finalWithdrawal.hsaProceeds ?? 0)), 6)
+    ? round(Math.max(0, hsaQualifiedExpenseBalance + medicalEstimate - (finalWithdrawal.hsaQualifiedExpenseUsed ?? finalWithdrawal.hsaProceeds ?? 0)), 6)
     : hsaQualifiedExpenseBalance;
 
   return {
@@ -889,7 +892,7 @@ function reconcileCashRequirement({
           scenario,
           hsaQualifiedExpenseBalance,
           medicalEstimate: currentMedicalEstimate
-        }) - (currentWithdrawal.hsaProceeds ?? 0)
+        }) - (currentWithdrawal.hsaQualifiedExpenseUsed ?? currentWithdrawal.hsaProceeds ?? 0)
       },
       evaluationContext: {
         scenario,
@@ -957,7 +960,7 @@ function reconcileCashRequirement({
           scenario,
           hsaQualifiedExpenseBalance,
           medicalEstimate: currentMedicalEstimate
-        }) - (currentWithdrawal.hsaProceeds ?? 0)
+        }) - (currentWithdrawal.hsaQualifiedExpenseUsed ?? currentWithdrawal.hsaProceeds ?? 0)
       },
       evaluationContext: {
         scenario,
@@ -1010,7 +1013,10 @@ function reconcileCashRequirement({
 // plan.years.length === planYears so downstream UI (sliders, charts, audit
 // bundles) doesn't have to special-case truncated plans. The portfolio is
 // frozen — no returns, no spending, no taxes, no income. Flagged so charts
-// can mask or annotate these rows.
+// can mask or annotate these rows. Field shapes intentionally mirror the
+// live-year result (taxes.totalTax, medicare object, hsaContribution object,
+// assetClassReturns map) so consumers never need postMortality-specific
+// shape handling.
 export function buildPostMortalityYearResult({ scenario, yearIndex, portfolio, inflationIndex }) {
   const calendarYear = (scenario.startYear ?? 0) + yearIndex;
   const frozenValue = portfolioValue(portfolio);
@@ -1021,17 +1027,17 @@ export function buildPostMortalityYearResult({ scenario, yearIndex, portfolio, i
     inflationIndex: round(inflationIndex, 6),
     beginningPortfolioValue: frozenValue,
     beginningAssets: [],
-    assetClassReturns: [],
+    assetClassReturns: summarizeAssetClassReturns({}, null),
     afterReturnPortfolioValue: frozenValue,
     endingPortfolioValue: frozenValue,
     plannedSpending: 0,
-    spendingStrategy: "postMortality",
+    spendingStrategy: { mode: "postMortality", discretionaryPercent: 0 },
     essentialSpending: 0,
     discretionarySpending: 0,
     discretionarySpendingBudget: 0,
     spendingGuardrail: null,
     medicalCost: 0,
-    medicare: null,
+    medicare: emptyMedicareCost(),
     age65AdditionalDeduction: 0,
     enhancedSeniorDeduction: 0,
     enhancedSeniorDeductionEligibleCount: 0,
@@ -1060,16 +1066,23 @@ export function buildPostMortalityYearResult({ scenario, yearIndex, portfolio, i
     unspentCash: 0,
     totalCashRequired: 0,
     taxes: {
-      federal: 0,
-      state: 0,
-      fica: 0,
+      // Same key names as live-year computeIncomeTax output (zero-filled), so
+      // `year.taxes.totalTax` style consumers never see undefined on stub years.
+      totalTax: 0,
+      incomeTax: 0,
+      federalIncomeTax: 0,
+      federalIncomeTaxBeforeCredits: 0,
+      netFederalIncomeTaxAfterRefundableCredits: 0,
+      federalRefundableCredits: 0,
+      childTaxCredit: 0,
+      additionalChildTaxCredit: 0,
+      enhancedSeniorDeduction: 0,
+      stateTax: 0,
+      niitTax: 0,
       employeePayrollTax: 0,
-      niit: 0,
       selfEmploymentTax: 0,
-      additionalMedicare: 0,
       additionalMedicareTax: 0,
       penaltyTax: 0,
-      total: 0,
       lossCarryforward: 0,
       lossCarryforwardShort: 0,
       lossCarryforwardLong: 0
@@ -1102,7 +1115,7 @@ export function buildPostMortalityYearResult({ scenario, yearIndex, portfolio, i
     rothBasisAvailable: 0,
     rothFiveYearRuleSatisfied: scenario.rothFiveYearRuleSatisfied !== false,
     rothBasisOptimization: null,
-    hsaContribution: 0,
+    hsaContribution: emptyHsaContribution(hsaStrategyConfig(scenario)),
     hsaWithdrawals: 0,
     hsaQualifiedExpenseBalance: 0,
     sequenceRiskReserve: null,

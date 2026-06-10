@@ -1,5 +1,5 @@
 import { EPSILON, round } from "./utils.mjs";
-import { buildTaxProfile } from "../data/taxData.mjs?v=20260608-mc-mr";
+import { buildTaxProfile } from "../data/taxData.mjs?v=20260609-deepfix";
 import {
   stateRetirementIncomeExclusion,
   stateSocialSecurityExclusion
@@ -933,10 +933,13 @@ export function inflateTaxProfile(profile = DEFAULT_TAX_PROFILE, inflationIndex 
       w2Wages: round((profile.qualifiedBusinessIncome.w2Wages ?? 0) * index, 6)
     } : null,
     childTaxCredit: profile.childTaxCredit ? {
+      // perChild and refundablePerChild are inflation-indexed under
+      // IRC §24(h)/(d) as amended by OBBBA. The $2,500 refundable
+      // earned-income threshold in §24(d)(1)(B)(i) is statutory and NOT
+      // indexed, so it is deliberately left unscaled here.
       ...profile.childTaxCredit,
       perChild: round((profile.childTaxCredit.perChild ?? 0) * index, 6),
-      refundablePerChild: round((profile.childTaxCredit.refundablePerChild ?? 0) * index, 6),
-      refundableEarnedIncomeThreshold: round((profile.childTaxCredit.refundableEarnedIncomeThreshold ?? 0) * index, 6)
+      refundablePerChild: round((profile.childTaxCredit.refundablePerChild ?? 0) * index, 6)
     } : null,
     state: profile.state ? {
       ...profile.state,

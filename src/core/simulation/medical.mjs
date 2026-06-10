@@ -10,8 +10,28 @@ export function computeAcaForYear({ age, spouseAge, magi, config, filingStatus }
   const married = filingStatus === "marriedFilingJointly" && Number.isFinite(spouseAge);
   const both65Plus = married ? (age >= 65 && spouseAge >= 65) : (age >= 65);
 
-  if (both65Plus) return computeAca({ magi, config: { ...config, enabled: false } });
-  return computeAca({ magi, config });
+  if (both65Plus) {
+    // Whole household is Medicare-eligible: marketplace coverage ends. The
+    // marker lets medical-cost logic switch from the ACA-plan OOP proxy to the
+    // household's Medicare OOP input (scenario.medicare.annualOopBase).
+    return { ...computeAca({ magi, config: { ...config, enabled: false } }), medicareEligibleHousehold: true };
+  }
+  // ZIP-path fallback ages: when the ACA config carries no member ages, derive
+  // them from the modeled primary/spouse ages so the rating-area SLCSP prices
+  // the actual covered members — and drops a Medicare-eligible (65+) spouse
+  // instead of billing the whole household at the primary's age. Only passed
+  // when the config has no member ages, so user-entered/projected
+  // `currentMemberAges` always win inside computeAca.
+  const hasConfigMemberAges = (Array.isArray(config?.currentMemberAges) && config.currentMemberAges.length > 0)
+    || (Array.isArray(config?.memberAges) && config.memberAges.length > 0);
+  const fallbackHouseholdAges = !hasConfigMemberAges && Number.isFinite(age)
+    ? (married ? [age, spouseAge] : [age])
+    : null;
+  return computeAca({
+    magi,
+    config,
+    ...(fallbackHouseholdAges ? { householdAges: fallbackHouseholdAges } : {})
+  });
 }
 
 export function medicalCostForYear({
@@ -150,6 +170,17 @@ export function emptyMedicareCost() {
 
 function medicalCostForScenario(scenario, acaConfig, inflationIndex, aca = null) {
   const base = (scenario.medicalExpensesBase ?? 0) * inflationIndex;
+  // Once the whole household is Medicare-eligible, the ACA plan's OOP maximum
+  // is the wrong anchor for expected out-of-pocket spending. Honor the
+  // explicit Medicare OOP input when provided (today's dollars, inflated with
+  // the medical index, premiums excluded — Part B/D + IRMAA are billed
+  // separately). When the input is absent, the legacy behavior below applies
+  // (the ACA-era plan OOP proxy when a plan OOP was entered, otherwise $0
+  // non-premium OOP) and the confidence layer flags it as input-limited.
+  const medicareOopBase = optionalFiniteNumber(scenario.medicare?.annualOopBase);
+  if (aca?.medicareEligibleHousehold === true && medicareOopBase !== null) {
+    return round(base + Math.max(0, medicareOopBase) * inflationIndex, 6);
+  }
   const hasScenarioOopOverride = Number.isFinite(Number(scenario.oopMaxOverride));
   const scenarioOopOverride = Math.max(0, Number(scenario.oopMaxOverride));
   const activePlanOop = aca?.activePlanRole

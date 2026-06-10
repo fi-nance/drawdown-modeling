@@ -892,7 +892,9 @@ test("inflateTaxProfile scales standard deduction, child tax credit, and bracket
   assert.equal(inflated.standardDeduction, 35420); // 32200 * 1.1
   assert.equal(inflated.childTaxCredit.perChild, 2200);
   assert.equal(inflated.childTaxCredit.refundablePerChild, 1760);
-  assert.equal(inflated.childTaxCredit.refundableEarnedIncomeThreshold, 2750);
+  // IRC §24(d)(1)(B)(i): the $2,500 ACTC earned-income threshold is statutory
+  // and not inflation-indexed, so inflateTaxProfile must leave it unscaled.
+  assert.equal(inflated.childTaxCredit.refundableEarnedIncomeThreshold, 2500);
   assert.equal(inflated.itemizedDeductions.stateLocalTaxes, 11_000);
   assert.equal(inflated.itemizedDeductions.mortgageInterest, 5_500);
   assert.equal(inflated.itemizedDeductions.charitableContributions, 2_200);

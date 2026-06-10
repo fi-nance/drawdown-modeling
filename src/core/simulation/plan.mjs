@@ -2,13 +2,13 @@
 // Single responsibility: plan. No behavior changes — pure code movement.
 
 import { accountBreakdown, clonePortfolio, portfolioValue } from "../portfolio.mjs";
-import { DEFAULT_TAX_PROFILE } from "../tax.mjs?v=20260608-mc-mr";
+import { DEFAULT_TAX_PROFILE } from "../tax.mjs?v=20260609-deepfix";
 import { createRng, normalRandom, percentile, round } from "../utils.mjs";
 import { DEFAULT_MONTE_CARLO_RUNS, MONTE_CARLO_ASSUMPTION_PRESETS } from "./constants.mjs";
-import { estimateHeirValueBreakdown, inheritanceTaxStateForScenario } from "./heirEstate.mjs?v=20260608-mc-mr";
+import { estimateHeirValueBreakdown, inheritanceTaxStateForScenario } from "./heirEstate.mjs?v=20260609-deepfix";
 import { buildSurvivorTaxProfile, isMarriedFiling, mortalityStatus } from "./household.mjs";
 import { hsaStrategyConfig } from "./hsa.mjs";
-import { normalizeLossCarryforward } from "./income.mjs?v=20260608-mc-mr";
+import { normalizeLossCarryforward } from "./income.mjs?v=20260609-deepfix";
 import {
   annualInflation,
   annualMedicalInflation,
@@ -21,7 +21,7 @@ import { assetClassValue } from "./portfolioQueries.mjs";
 import { RISK_BASED_GUARDRAILS_MODE, riskBasedGuardrailSpendForYear } from "./riskBasedGuardrails.mjs";
 import { ensureReturnAssumptionsForAssets, mergeScenario } from "./scenario.mjs";
 import { advanceSpendingGuardrailMarketState, initialSpendingGuardrailMarketState, spendingGuardrailStateForYear, spendingStrategyConfig } from "./spending.mjs";
-import { buildPostMortalityYearResult, simulateYear } from "./yearEngine.mjs?v=20260608-mc-mr";
+import { buildPostMortalityYearResult, simulateYear } from "./yearEngine.mjs?v=20260609-deepfix";
 
 export function simulatePlan({
   assets,
@@ -40,6 +40,10 @@ export function simulatePlan({
   let success = true;
   let inflationIndex = 1;
   let medicalInflationIndex = 1;
+  // Price level at which the heir/estate valuation is performed: the last
+  // living year's index (the portfolio freezes at death, so post-mortality
+  // inflation must not keep indexing heir tax parameters).
+  let heirValuationInflationIndex = 1;
 
   // Whether the caller explicitly modeled a separate medical-inflation stream
   // is detected from the RAW scenario (mergeScenario fills a default from the
@@ -221,6 +225,7 @@ export function simulatePlan({
     irmaaMagiHistory.push(result.irmaaMagi);
     success = success && !isPortfolioDepleted(result);
     years.push(result);
+    heirValuationInflationIndex = inflationIndex;
   }
 
   const endingAccounts = accountBreakdown(portfolio);
@@ -232,6 +237,7 @@ export function simulatePlan({
     eligibleDesignatedTaxDiscount: mergedScenario.eligibleDesignatedTaxDiscount,
     heirBaseIncome: mergedScenario.heirBaseIncome,
     heirAge: mergedScenario.heirAge,
+    inflationIndex: heirValuationInflationIndex,
     taxProfile
   };
   if (inheritanceTaxState !== undefined) heirValueOptions.state = inheritanceTaxState;

@@ -22,7 +22,7 @@ import {
   runMonteCarlo,
   simulatePlan,
   generateSingleMonteCarloPath
-} from "./core/simulation.mjs?v=20260608-mc-mr";
+} from "./core/simulation.mjs?v=20260609-deepfix";
 import { round } from "./core/utils.mjs";
 import { defaultOneOffExpenses, sampleAssets } from "./data/sample.mjs";
 import {
@@ -33,7 +33,7 @@ import {
   HISTORICAL_RETURN_DATA_VERSION,
   makeHistoricalSequences
 } from "./data/historicalReturns.mjs";
-import { buildAcaConfig, buildTaxProfile, STATE_OPTIONS, TAX_DATA_VERSION, getMonthlyBenchmarkPremium } from "./data/taxData.mjs?v=20260608-mc-mr";
+import { buildAcaConfig, buildTaxProfile, STATE_OPTIONS, TAX_DATA_VERSION, getMonthlyBenchmarkPremium } from "./data/taxData.mjs?v=20260609-deepfix";
 import { massachusettsConnectorCareEstimate, massachusettsConnectorCarePlanOptions } from "./data/acaPlanPresets.mjs";
 import {
   buildMarketplacePlanSearchRequest,
@@ -146,6 +146,7 @@ const CONTROL_IDS = [
   "unifiedMarginalOptimizer",
   "assetLocationOptimization",
   "hsaContributionStrategy",
+  "hsaQualifiedExpenseLimit",
   "hsaContributionAmount",
   "hsaCoverage",
   "allocationAwareWithdrawals",
@@ -175,6 +176,10 @@ const CONTROL_IDS = [
   "socialSecurityWages",
   "selfEmploymentIncome",
   "rrtaCompensation",
+  "spouseMedicareWages",
+  "spouseSocialSecurityWages",
+  "spouseSelfEmploymentIncome",
+  "estimateSocialSecurityFromEarnings",
   "earnedIncomeInflationAdjusted",
   "socialSecurityAnnualBenefit",
   "socialSecurityStartAge",
@@ -192,6 +197,7 @@ const CONTROL_IDS = [
   "medicarePartBEnrollees",
   "medicarePartDEnrollees",
   "medicarePartDMonthlyPremium",
+  "medicareAnnualOopBase",
   "twoYearsPriorMagi",
   "priorYearMagi",
   "mfsLivedTogether",
@@ -340,6 +346,7 @@ const els = {
   unifiedMarginalOptimizer: document.querySelector("#unifiedMarginalOptimizer"),
   assetLocationOptimization: document.querySelector("#assetLocationOptimization"),
   hsaContributionStrategy: document.querySelector("#hsaContributionStrategy"),
+  hsaQualifiedExpenseLimit: document.querySelector("#hsaQualifiedExpenseLimit"),
   hsaContributionAmount: document.querySelector("#hsaContributionAmount"),
   hsaCoverage: document.querySelector("#hsaCoverage"),
   allocationAwareWithdrawals: document.querySelector("#allocationAwareWithdrawals"),
@@ -369,6 +376,10 @@ const els = {
   socialSecurityWages: document.querySelector("#socialSecurityWages"),
   selfEmploymentIncome: document.querySelector("#selfEmploymentIncome"),
   rrtaCompensation: document.querySelector("#rrtaCompensation"),
+  spouseMedicareWages: document.querySelector("#spouseMedicareWages"),
+  spouseSocialSecurityWages: document.querySelector("#spouseSocialSecurityWages"),
+  spouseSelfEmploymentIncome: document.querySelector("#spouseSelfEmploymentIncome"),
+  estimateSocialSecurityFromEarnings: document.querySelector("#estimateSocialSecurityFromEarnings"),
   earnedIncomeInflationAdjusted: document.querySelector("#earnedIncomeInflationAdjusted"),
   socialSecurityAnnualBenefit: document.querySelector("#socialSecurityAnnualBenefit"),
   socialSecurityStartAge: document.querySelector("#socialSecurityStartAge"),
@@ -389,6 +400,7 @@ const els = {
   medicarePartBEnrollees: document.querySelector("#medicarePartBEnrollees"),
   medicarePartDEnrollees: document.querySelector("#medicarePartDEnrollees"),
   medicarePartDMonthlyPremium: document.querySelector("#medicarePartDMonthlyPremium"),
+  medicareAnnualOopBase: document.querySelector("#medicareAnnualOopBase"),
   twoYearsPriorMagi: document.querySelector("#twoYearsPriorMagi"),
   priorYearMagi: document.querySelector("#priorYearMagi"),
   mfsLivedTogether: document.querySelector("#mfsLivedTogether"),
@@ -1751,6 +1763,10 @@ function applyScenarioControls(scenario) {
   setOptionalNumberControl("socialSecurityWages", scenario.socialSecurityWages);
   setNumberControl("selfEmploymentIncome", scenario.selfEmploymentIncome);
   setNumberControl("rrtaCompensation", scenario.rrtaCompensation);
+  setNumberControl("spouseMedicareWages", scenario.spouseMedicareWages);
+  setOptionalNumberControl("spouseSocialSecurityWages", scenario.spouseSocialSecurityWages);
+  setNumberControl("spouseSelfEmploymentIncome", scenario.spouseSelfEmploymentIncome);
+  setCheckedControl("estimateSocialSecurityFromEarnings", scenario.estimateSocialSecurityFromEarnings);
   setCheckedControl("earnedIncomeInflationAdjusted", scenario.earnedIncomeInflationAdjusted);
   setValueControl("heirType", scenario.heirType);
   if (Number.isFinite(scenario.nonSpouse10YrTaxDrag)) {
@@ -1763,7 +1779,22 @@ function applyScenarioControls(scenario) {
   setNumberControl("heirAge", scenario.heirAge ?? 30);
   setValueControl("heirState", scenario.heirState ?? "");
   setCheckedControl("irmaaEnabled", scenario.medicare?.irmaaEnabled);
+  setOptionalNumberControl("medicarePartBEnrollees", scenario.medicare?.partBEnrollees);
+  setOptionalNumberControl("medicarePartDEnrollees", scenario.medicare?.partDEnrollees);
+  setOptionalNumberControl("medicarePartDMonthlyPremium", scenario.medicare?.partDMonthlyPremium);
+  setOptionalNumberControl("medicareAnnualOopBase", scenario.medicare?.annualOopBase);
+  setOptionalNumberControl("twoYearsPriorMagi", scenario.medicare?.twoYearsPriorMagi);
+  setOptionalNumberControl("priorYearMagi", scenario.medicare?.priorYearMagi);
   setOptionalNumberControl("maxIrmaaTier", scenario.medicare?.maxIrmaaTier);
+  setCheckedControl("mfsLivedTogether", scenario.medicare?.marriedFilingSeparatelyLivedTogether);
+
+  const taxEfficiency = scenario.taxEfficiencyStrategy ?? {};
+  setCheckedControl("unifiedMarginalOptimizer", taxEfficiency.marginalRateOptimizationEnabled);
+  setCheckedControl("assetLocationOptimization", taxEfficiency.assetLocationEnabled);
+  setCheckedControl("hsaContributionStrategy", taxEfficiency.hsaContributionEnabled);
+  setValueControl("hsaCoverage", taxEfficiency.hsaCoverage);
+  setOptionalNumberControl("hsaContributionAmount", taxEfficiency.hsaAnnualContribution);
+  setCheckedControl("hsaQualifiedExpenseLimit", taxEfficiency.hsaUseForQualifiedExpenses);
 }
 
 function extractRescueScenarioOverride(scenario = {}) {
@@ -1783,6 +1814,12 @@ function extractRescueScenarioOverride(scenario = {}) {
     "socialSecurityAnnualBenefit",
     "spouseSocialSecurityStartAge",
     "spouseSocialSecurityAnnualBenefit",
+    "spouseMedicareWages",
+    "spouseSocialSecurityWages",
+    "spouseSelfEmploymentIncome",
+    "estimateSocialSecurityFromEarnings",
+    "earnedIncomeInflationAdjusted",
+    "taxEfficiencyStrategy",
     "primaryMortalityAge",
     "spouseMortalityAge",
     "heirType",
@@ -1865,7 +1902,7 @@ function downloadJsonText(text, filename) {
 function getSimulationWorker() {
   if (!simulationWorker) {
     simulationWorker = new Worker(
-      new URL("./core/simulation.worker.mjs?v=20260608-mc-mr", import.meta.url),
+      new URL("./core/simulation.worker.mjs?v=20260609-deepfix", import.meta.url),
       { type: "module" }
     );
     simulationWorker.addEventListener("error", (ev) => {
@@ -4447,6 +4484,10 @@ function readScenario() {
     socialSecurityWages: numberOrNull(els.socialSecurityWages.value),
     selfEmploymentIncome: Number(els.selfEmploymentIncome.value) || 0,
     rrtaCompensation: Number(els.rrtaCompensation.value) || 0,
+    spouseMedicareWages: Number(els.spouseMedicareWages?.value) || 0,
+    spouseSocialSecurityWages: numberOrNull(els.spouseSocialSecurityWages?.value),
+    spouseSelfEmploymentIncome: Number(els.spouseSelfEmploymentIncome?.value) || 0,
+    estimateSocialSecurityFromEarnings: els.estimateSocialSecurityFromEarnings?.checked === true,
     earnedIncomeInflationAdjusted: els.earnedIncomeInflationAdjusted.checked,
     socialSecurityAnnualBenefit: Number(els.socialSecurityAnnualBenefit.value) || 0,
     socialSecurityStartAge: Number(els.socialSecurityStartAge.value) || DEFAULT_SCENARIO.socialSecurityStartAge,
@@ -4463,6 +4504,7 @@ function readScenario() {
       partBEnrollees: numberOrNull(els.medicarePartBEnrollees.value),
       partDEnrollees: numberOrNull(els.medicarePartDEnrollees.value),
       partDMonthlyPremium: numberOrNull(els.medicarePartDMonthlyPremium.value) ?? 0,
+      annualOopBase: numberOrNull(els.medicareAnnualOopBase?.value),
       twoYearsPriorMagi: numberOrNull(els.twoYearsPriorMagi.value),
       priorYearMagi: numberOrNull(els.priorYearMagi.value),
       maxIrmaaTier: numberOrNull(els.maxIrmaaTier?.value),
@@ -4518,7 +4560,11 @@ function readScenario() {
       hsaContributionInflationAdjusted: true,
       hsaCatchUpEnabled: true,
       hsaInvestmentAssetClass: "stock",
-      hsaUseForQualifiedExpenses: els.hsaContributionStrategy?.checked === true
+      // Default ON (checkbox checked): cap tax-free HSA withdrawals at the
+      // tracked qualified-expense pool. Explicit opt-out restores the legacy
+      // unlimited tax-free behavior. Contribution strategy still forces
+      // tracking on inside hsaStrategyConfig.
+      hsaUseForQualifiedExpenses: els.hsaQualifiedExpenseLimit?.checked !== false
     },
     monteCarlo: {
       assumptionPreset: presetIdIsKnown(els.mcPreset?.value) || els.mcPreset?.value === "custom"

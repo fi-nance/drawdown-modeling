@@ -2,15 +2,16 @@
 // Single responsibility: withdrawalPlanning. No behavior changes — pure code movement.
 
 import { clonePortfolio } from "../portfolio.mjs";
-import { computeIncomeTax } from "../tax.mjs?v=20260608-mc-mr";
+import { computeIncomeTax } from "../tax.mjs?v=20260609-deepfix";
 import { round } from "../utils.mjs";
 import { emptyEarnedIncome } from "./cashFlows.mjs";
 import { clampFiniteNumber } from "./guards.mjs";
-import { estimateHeirValueBreakdown, inheritanceTaxStateForScenario } from "./heirEstate.mjs?v=20260608-mc-mr";
-import { acaMagiForIncome, federalAgiForIncome, incomeForYear, irmaaMagiForIncome } from "./income.mjs?v=20260608-mc-mr";
+import { hsaStrategyConfig } from "./hsa.mjs";
+import { estimateHeirValueBreakdown, inheritanceTaxStateForScenario } from "./heirEstate.mjs?v=20260609-deepfix";
+import { acaMagiForIncome, federalAgiForIncome, incomeForYear, irmaaMagiForIncome } from "./income.mjs?v=20260609-deepfix";
 import { computeAcaForYear, medicalCostForYear } from "./medical.mjs";
 import { expectedReturnForAsset, isLifetimeOptimizerEnabled, withdrawalStrategyConfig } from "./scenario.mjs";
-import { addPenaltyTax, estimatedFutureCapitalGainRate, estimatedFutureOrdinaryIncomeRate } from "./taxStrategy.mjs?v=20260608-mc-mr";
+import { addPenaltyTax, estimatedFutureCapitalGainRate, estimatedFutureOrdinaryIncomeRate } from "./taxStrategy.mjs?v=20260609-deepfix";
 import { mergeWithdrawals, withdrawForCash } from "./withdrawalExecution.mjs";
 import { betterPenaltyAvoidancePlan, earlyPenaltyAvoidanceWithdrawalOrder, hasLowerPenaltyBurden, isBeforePenaltyAge, normalizedWithdrawalOrder, optimizedRothProceedsLimit, rothFirstWithdrawalOrder, rothPreservingWithdrawalOrder, rothWithdrawalProceeds, sameWithdrawalOrder, withdrawalPenaltyBurden } from "./withdrawalOrders.mjs";
 
@@ -177,7 +178,7 @@ function chooseLifetimeOptimizedWithdrawalPlan({
     modeledSavings: 0,
     requiredSavings: 0
   });
-  let bestScore = lifetimeWithdrawalScore(best, config, evaluationContext.scenario);
+  let bestScore = lifetimeWithdrawalScore(best, config, evaluationContext);
 
   const candidates = optimizedWithdrawalCandidates({
     requestedOrder,
@@ -229,7 +230,7 @@ function chooseLifetimeOptimizedWithdrawalPlan({
       minSavingsRate: rothOptimization.minSavingsRate,
       ...metrics
     });
-    const score = lifetimeWithdrawalScore(annotated, config, evaluationContext.scenario);
+    const score = lifetimeWithdrawalScore(annotated, config, evaluationContext);
     const candidatePenalty = withdrawalPenaltyBurden(annotated.withdrawal);
     const bestPenalty = withdrawalPenaltyBurden(best.withdrawal);
     if (candidatePenalty + 0.01 < bestPenalty) {
@@ -477,8 +478,10 @@ function weightedRetainedFutureTaxRate(sales = [], { futureOrdinaryRate, futureC
       return sum + weight * Math.max(0, futureCapitalGainRate ?? 0) * Math.min(1, gainRatio);
     }
     if (sale.accountType === "hsa") {
-      const hsaQualified = scenario?.taxEfficiencyStrategy?.hsaUseForQualifiedExpenses === true
-        || scenario?.taxEfficiencyStrategy?.hsaContributionEnabled === true;
+      // With qualified-expense tracking on (the default), retained HSA value
+      // is assumed to fund qualified expenses tax-free first; the legacy
+      // opt-out treats retained HSA dollars as future ordinary income.
+      const hsaQualified = hsaStrategyConfig(scenario).useForQualifiedExpenses;
       return sum + weight * (hsaQualified ? 0 : Math.max(0, futureOrdinaryRate ?? 0));
     }
     return sum;
@@ -511,15 +514,23 @@ function uniqueWithdrawalOrders(orders) {
   return result;
 }
 
-function lifetimeWithdrawalScore(plan, config, scenario) {
+function lifetimeWithdrawalScore(plan, config, evaluationContext) {
+  const scenario = evaluationContext?.scenario;
   const heirTaxRate = scenario?.heirOrdinaryTaxRate ?? 0.24;
   const inheritanceTaxState = inheritanceTaxStateForScenario(scenario);
+  // Note: the scorer deliberately uses the statutory Single-filer heir
+  // brackets (the heirEstate default) rather than rebuilding from the year
+  // tax profile — for the single modeled law year (2026) they are identical,
+  // and hand-rolled test profiles must not change candidate ordering. The
+  // current-year inflation index IS passed so heir tax parameters stay in the
+  // same price level as the candidate portfolios being compared.
   const heirValueOptions = {
     heirType: scenario?.heirType,
     nonSpouse10YrTaxDrag: scenario?.nonSpouse10YrTaxDrag,
     eligibleDesignatedTaxDiscount: scenario?.eligibleDesignatedTaxDiscount,
     heirBaseIncome: scenario?.heirBaseIncome,
-    heirAge: scenario?.heirAge
+    heirAge: scenario?.heirAge,
+    inflationIndex: evaluationContext?.inflationIndex
   };
   if (inheritanceTaxState !== undefined) heirValueOptions.state = inheritanceTaxState;
   const heirValue = plan.portfolio
