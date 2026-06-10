@@ -1160,7 +1160,7 @@ function riskBasedGuardrailTableHtml(decision = {}) {
   const table = option?.metadata?.guardrailTable ?? option?.scenario?.spendingStrategy?.riskBasedGuardrails?.table;
   if (!table) return "";
   const rows = [
-    ["Fixed failsafe", table.initialPortfolioValue, table.fixedFailsafeSpend, formatRate(table.upperSuccessRate)],
+    ["Fixed failsafe", table.initialPortfolioValue, table.fixedFailsafeSpend, formatRate(1)],
     ["Starting guardrail spend", table.initialPortfolioValue, table.initialSpend, formatRate(table.targetSuccessRate)],
     ["Lower cut trigger", table.lowerGuardrailPortfolioValue, table.lowerAdjustedSpend, formatRate(table.lowerSuccessRate)],
     ["Upper raise trigger", table.upperGuardrailPortfolioValue, table.upperAdjustedSpend, formatRate(table.upperSuccessRate)]
