@@ -111,8 +111,12 @@ export function plannedSpendingDetailForYear(scenario, planYear, inflationIndex,
   const scheduled = oneOffCashFlows ?? oneOffCashFlowsForYear(scenario, planYear, inflationIndex);
   const strategy = spendingStrategyConfig(scenario);
   const oneOffExpenses = round(scheduled.expenses, 6);
+  const spendingPhase = agePhasedSpendingForYear(scenario, planYear);
 
   if (passedBaseSpend !== null) {
+    // Dynamic strategies (Guyton-Klinger, Kitces, VPW, risk-based guardrails)
+    // set their own spending path; the age-phased multiplier is intentionally
+    // NOT layered on top of them (documented in KNOWN_LIMITATIONS).
     const total = round(passedBaseSpend + oneOffExpenses, 6);
     return {
       total,
@@ -122,6 +126,7 @@ export function plannedSpendingDetailForYear(scenario, planYear, inflationIndex,
       discretionarySpend: 0,
       oneOffExpenses,
       guardrail: spendingGuardrail,
+      spendingPhase: null,
       strategy: {
         mode: strategy.mode,
         discretionaryPercent: 1
@@ -130,8 +135,8 @@ export function plannedSpendingDetailForYear(scenario, planYear, inflationIndex,
   }
 
   if (strategy.mode === "discretionaryGuardrails") {
-    const essentialSpend = round(strategy.essentialSpend * (strategy.essentialInflationAdjusted ? inflationIndex : 1), 6);
-    const discretionaryBudget = round(strategy.discretionarySpend * (strategy.discretionaryInflationAdjusted ? inflationIndex : 1), 6);
+    const essentialSpend = round(strategy.essentialSpend * (strategy.essentialInflationAdjusted ? inflationIndex : 1) * spendingPhase.percent, 6);
+    const discretionaryBudget = round(strategy.discretionarySpend * (strategy.discretionaryInflationAdjusted ? inflationIndex : 1) * spendingPhase.percent, 6);
     const discretionaryPercent = Number.isFinite(Number(spendingGuardrail?.discretionaryPercent))
       ? Math.max(0, Math.min(1, Number(spendingGuardrail.discretionaryPercent)))
       : 1;
@@ -145,6 +150,7 @@ export function plannedSpendingDetailForYear(scenario, planYear, inflationIndex,
       discretionarySpend,
       oneOffExpenses,
       guardrail: spendingGuardrail,
+      spendingPhase: spendingPhase.phase ? spendingPhase : null,
       strategy: {
         mode: strategy.mode,
         essentialInflationAdjusted: strategy.essentialInflationAdjusted,
@@ -155,7 +161,8 @@ export function plannedSpendingDetailForYear(scenario, planYear, inflationIndex,
   }
 
   const baseSpend = (scenario.targetSpend ?? 0)
-    * (scenario.targetSpendInflationAdjusted === false ? 1 : inflationIndex);
+    * (scenario.targetSpendInflationAdjusted === false ? 1 : inflationIndex)
+    * spendingPhase.percent;
   const total = round(baseSpend + oneOffExpenses, 6);
   return {
     total,
@@ -165,6 +172,34 @@ export function plannedSpendingDetailForYear(scenario, planYear, inflationIndex,
     discretionarySpend: 0,
     oneOffExpenses,
     guardrail: null,
+    spendingPhase: spendingPhase.phase ? spendingPhase : null,
     strategy: { mode: "fixed", discretionaryPercent: 1 }
   };
+}
+
+// Opt-in age-banded spending ("retirement smile", Blanchett-style): 100% of
+// real spending through the go-go years, then `slowGoPercent` from
+// `slowGoAge`, then `noGoPercent` from `noGoAge`, keyed to the primary's age
+// clock. One-off expenses are explicit amounts and are never scaled.
+function agePhasedSpendingForYear(scenario = {}, planYear = 1) {
+  const config = scenario.agePhasedSpending ?? {};
+  if (config.enabled !== true) return { percent: 1, phase: null };
+  const age = (Number(scenario.currentAge) || DEFAULT_SCENARIO.currentAge) + Math.max(1, planYear) - 1;
+  const slowGoAge = Number(config.slowGoAge);
+  const noGoAge = Number(config.noGoAge);
+  const slowGoPercent = boundedPhasePercent(config.slowGoPercent, 85);
+  const noGoPercent = boundedPhasePercent(config.noGoPercent, 75);
+  if (Number.isFinite(noGoAge) && age >= noGoAge) {
+    return { percent: round(noGoPercent / 100, 6), phase: "no-go", age };
+  }
+  if (Number.isFinite(slowGoAge) && age >= slowGoAge) {
+    return { percent: round(slowGoPercent / 100, 6), phase: "slow-go", age };
+  }
+  return { percent: 1, phase: "go-go", age };
+}
+
+function boundedPhasePercent(value, fallback) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return fallback;
+  return Math.max(0, Math.min(200, numeric));
 }

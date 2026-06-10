@@ -12,16 +12,17 @@ import { CASH_GAP_TOLERANCE, CASH_RAISED_EPSILON } from "./constants.mjs";
 import { acaConfigForSimulationYear, buildSurvivorTaxProfile, isMarriedFiling, mortalityStatus } from "./household.mjs";
 import { addHsaContributionLot, emptyHsaContribution, hsaContributionForYear, hsaQualifiedExpenseAvailableForWithdrawal, hsaStrategyConfig } from "./hsa.mjs";
 import { acaMagiForIncome, federalAgiForIncome, incomeForYear, irmaaMagiForIncome, lossCarryforwardTotal, normalizeLossCarryforward, taxProfileForSimulationYear } from "./income.mjs?v=20260609-deepfix";
+import { incomeStreamsForYear } from "./incomeStreams.mjs";
 import { summarizeAssetClassReturns } from "./market.mjs";
-import { computeAcaForYear, emptyMedicareCost, medicalCostForYear } from "./medical.mjs";
-import { addTaxableCash, assetSnapshot, traditionalAccountValue } from "./portfolioQueries.mjs";
-import { requiredMinimumDistributionForYear } from "./rmd.mjs";
+import { computeAcaForYear, emptyMedicareCost, ltcStressCostForYear, medicalCostForYear } from "./medical.mjs";
+import { addTaxableCash, assetOwner, assetSnapshot, traditionalAccountValueByOwner } from "./portfolioQueries.mjs";
+import { householdRmdForYear } from "./rmd.mjs";
 import { isLifetimeOptimizerEnabled } from "./scenario.mjs";
 import { sequenceRiskReserveStateForYear } from "./sequenceRiskReserve.mjs";
 import { socialSecurityBenefitsForYear, spouseSocialSecurityBenefitsForYear } from "./socialSecurity.mjs?v=20260609-deepfix";
 import { plannedSpendingDetailForYear } from "./spending.mjs";
 import { acaMagiCeiling, addPenaltyTax, automaticTaxLossHarvestLimit, effectiveRothConversionTargetRate, estimateTaxAttribution, gainHarvestingRoom, rothConversionAmountForYear, rothConversionMagiBuffer, strategyLimit } from "./taxStrategy.mjs?v=20260609-deepfix";
-import { convertTraditionalToRoth, earlyWithdrawalPenaltyExceptionAmountForYear, emptyWithdrawal, rothBasisAvailableForWithdrawal, rothBasisSummaryForYear, withdrawForCash } from "./withdrawalExecution.mjs?v=20260609-deepfix";
+import { convertTraditionalToRoth, earlyWithdrawalPenaltyExceptionAmountForYear, emptyWithdrawal, mergeWithdrawals, rothBasisAvailableForWithdrawal, rothBasisSummaryForYear, withdrawForCash } from "./withdrawalExecution.mjs?v=20260609-deepfix";
 import { forcedWithdrawalOrder } from "./withdrawalOrders.mjs";
 import { chooseWithdrawalPlan, evaluateWithdrawalPlan } from "./withdrawalPlanning.mjs?v=20260609-deepfix";
 
@@ -105,7 +106,11 @@ export function simulateYear({
   // beginning-of-year snapshots and run any sales/harvests.
   ageHoldingPeriods(portfolio, calendarYear);
   const beginningPortfolioValue = portfolioValue(portfolio);
-  const beginningTraditionalValue = traditionalAccountValue(portfolio);
+  const beginningTraditionalByOwner = traditionalAccountValueByOwner(portfolio);
+  // Owner age clock for per-asset penalty/HSA-age rules. In survivor years
+  // (spouseAge === null) the deceased's accounts are assumed rolled over to
+  // the surviving holder, so both owners resolve to the surviving age.
+  const ownerAges = { primary: age, spouse: Number.isFinite(spouseAge) ? spouseAge : age };
   const beginningAssets = assetSnapshot(portfolio);
   const dividends = applyTotalReturnsWithIncome(portfolio, returnByAssetClass);
   const afterReturnPortfolioValue = portfolioValue(portfolio);
@@ -114,8 +119,14 @@ export function simulateYear({
   const oneOffCashFlows = oneOffCashFlowsForYear(scenario, yearIndex + 1, inflationIndex);
   const recurringEarnedIncome = earnedIncomeForYear(scenario, inflationIndex);
   const earnedIncome = mergeEarnedIncome(recurringEarnedIncome, oneOffCashFlows.earnedIncome);
-  const incomeCashAvailable = round(recurringEarnedIncome.cash + oneOffCashFlows.income, 6);
-  let ordinaryIncome = dividends.ordinaryDividends + earnedIncome.ordinaryIncome + oneOffCashFlows.taxableOrdinaryIncome;
+  // Recurring income streams (pension/annuity/rent/other): owner-age gated,
+  // optional COLA, survivor share, ordinary or tax-free character. The
+  // ordinary portion joins household ordinary income; state-retirement-
+  // eligible amounts also count as retirement ordinary income so state
+  // pension/IRA exclusions apply.
+  const streamIncome = incomeStreamsForYear({ scenario, yearIndex, inflationIndex });
+  const incomeCashAvailable = round(recurringEarnedIncome.cash + oneOffCashFlows.income + streamIncome.cash, 6);
+  let ordinaryIncome = dividends.ordinaryDividends + earnedIncome.ordinaryIncome + oneOffCashFlows.taxableOrdinaryIncome + streamIncome.ordinaryIncome;
   let qualifiedDividends = dividends.qualifiedDividends;
   const hsaContribution = hsaContributionForYear({
     scenario,
@@ -170,24 +181,39 @@ export function simulateYear({
   strategyLongTermLosses += allocationStrategy.longTermCapitalLosses;
   flows.push(...allocationStrategy.flows);
 
-  const rmd = requiredMinimumDistributionForYear({
+  // Per-owner RMDs: spouse-owned traditional accounts use the spouse's age,
+  // factor, and SECURE 2.0 start age; each bucket withdraws only from that
+  // owner's traditional lots. Untagged portfolios resolve to a single primary
+  // bucket — the exact pre-owner-dimension behavior.
+  const rmd = householdRmdForYear({
     scenario,
-    age,
-    beginningTraditionalValue
+    primaryAge: age,
+    spouseAge,
+    traditionalByOwner: beginningTraditionalByOwner
   });
-  const rmdWithdrawal = rmd.amount > 0
-    ? withdrawForCash(portfolio, rmd.amount, ["traditional"], {
+  let rmdWithdrawal = emptyWithdrawal(rothBasisRemaining, annualPenaltyExceptionAmount);
+  const rmdBuckets = rmd.byOwner.spouse
+    ? [
+      { amount: rmd.byOwner.primary?.amount ?? 0, assets: portfolio.filter((asset) => asset.accountType === "traditional" && assetOwner(asset) !== "spouse") },
+      { amount: rmd.byOwner.spouse?.amount ?? 0, assets: portfolio.filter((asset) => asset.accountType === "traditional" && assetOwner(asset) === "spouse") }
+    ]
+    : [{ amount: rmd.amount, assets: portfolio }];
+  for (const bucket of rmdBuckets) {
+    if (!(bucket.amount > 0)) continue;
+    const bucketWithdrawal = withdrawForCash(bucket.assets, bucket.amount, ["traditional"], {
       age,
+      ownerAges,
       calendarYear,
       penaltyAge: scenario.retirementPenaltyAge ?? 59.5,
       penaltyRate: scenario.earlyWithdrawalPenaltyRate ?? 0.1,
-      rothBasisRemaining,
+      rothBasisRemaining: rmdWithdrawal.rothBasisRemaining,
       rothFiveYearRuleSatisfied: scenario.rothFiveYearRuleSatisfied !== false,
-      penaltyExceptionRemaining: annualPenaltyExceptionAmount,
+      penaltyExceptionRemaining: rmdWithdrawal.penaltyExceptionRemaining,
       returnAssumptions: scenario.returnAssumptions,
       optimizedLotSelection: isLifetimeOptimizerEnabled(scenario)
-    })
-    : emptyWithdrawal(rothBasisRemaining, annualPenaltyExceptionAmount);
+    });
+    rmdWithdrawal = mergeWithdrawals(rmdWithdrawal, bucketWithdrawal);
+  }
   rothBasisRemaining = rmdWithdrawal.rothBasisRemaining;
 
   let socialSecurityBenefits = 0;
@@ -221,6 +247,10 @@ export function simulateYear({
     }), calendarYear)
     : 0;
   ordinaryIncome += rothConversionAmount;
+  // Retirement-character ordinary income for state exclusions: conversions
+  // plus state-retirement-eligible income streams (withdrawal ordinary income
+  // is added downstream by incomeForYear).
+  const retirementOrdinaryIncomeBase = round(rothConversionAmount + streamIncome.retirementOrdinaryIncome, 6);
   if (rothConversionAmount > 0) {
     flows.push({
       from: "Traditional accounts",
@@ -286,6 +316,7 @@ export function simulateYear({
       withdrawalOrder: scenario.withdrawalOrder,
       withdrawalContext: {
         age,
+        ownerAges,
         calendarYear,
         penaltyAge: scenario.retirementPenaltyAge ?? 59.5,
         penaltyRate: scenario.earlyWithdrawalPenaltyRate ?? 0.1,
@@ -316,7 +347,7 @@ export function simulateYear({
         medicalInflationIndex: medicalInflationIndex ?? inflationIndex,
         ordinaryIncome,
         earnedIncome,
-        retirementOrdinaryIncome: rothConversionAmount,
+        retirementOrdinaryIncome: retirementOrdinaryIncomeBase,
         ordinaryInvestmentIncome: dividends.ordinaryDividends,
         qualifiedDividends,
         adjustmentsToIncome,
@@ -382,7 +413,7 @@ export function simulateYear({
       currentMagi: acaMagiForIncome(incomeForYear({
         ordinaryIncome,
         earnedIncome,
-        retirementOrdinaryIncome: rothConversionAmount,
+        retirementOrdinaryIncome: retirementOrdinaryIncomeBase,
         ordinaryInvestmentIncome: dividends.ordinaryDividends,
         qualifiedDividends,
         strategyShortTermGains,
@@ -409,7 +440,7 @@ export function simulateYear({
       medicalInflationIndex: medicalInflationIndex ?? inflationIndex,
       ordinaryIncome,
       earnedIncome,
-      retirementOrdinaryIncome: rothConversionAmount,
+      retirementOrdinaryIncome: retirementOrdinaryIncomeBase,
       ordinaryInvestmentIncome: dividends.ordinaryDividends,
       qualifiedDividends,
       adjustmentsToIncome,
@@ -434,7 +465,7 @@ export function simulateYear({
       const { income, taxableSocialSecurity } = incomeForYear({
         ordinaryIncome,
         earnedIncome,
-        retirementOrdinaryIncome: rothConversionAmount,
+        retirementOrdinaryIncome: retirementOrdinaryIncomeBase,
         ordinaryInvestmentIncome: dividends.ordinaryDividends,
         qualifiedDividends,
         adjustmentsToIncome,
@@ -498,7 +529,7 @@ export function simulateYear({
     incomeCashAvailable,
     ordinaryIncome,
     earnedIncome,
-    retirementOrdinaryIncome: rothConversionAmount,
+    retirementOrdinaryIncome: retirementOrdinaryIncomeBase,
     ordinaryInvestmentIncome: dividends.ordinaryDividends,
     qualifiedDividends,
     adjustmentsToIncome,
@@ -511,6 +542,7 @@ export function simulateYear({
     socialSecurityBenefits,
     hsaQualifiedExpenseBalance,
     age,
+    ownerAges,
     spouseAge,
     yearIndex,
     calendarYear,
@@ -533,7 +565,7 @@ export function simulateYear({
   const { income: finalIncome, taxableSocialSecurity: reconciledTaxableSocialSecurity } = incomeForYear({
     ordinaryIncome,
     earnedIncome,
-    retirementOrdinaryIncome: rothConversionAmount,
+    retirementOrdinaryIncome: retirementOrdinaryIncomeBase,
     ordinaryInvestmentIncome: dividends.ordinaryDividends,
     qualifiedDividends,
     adjustmentsToIncome,
@@ -609,6 +641,14 @@ export function simulateYear({
       from: "One-off income",
       to: "Spending reserve",
       amount: oneOffCashFlows.income,
+      type: "income"
+    });
+  }
+  if (streamIncome.cash > 0) {
+    flows.push({
+      from: "Pension / annuity / recurring income",
+      to: "Spending reserve",
+      amount: streamIncome.cash,
       type: "income"
     });
   }
@@ -720,12 +760,21 @@ export function simulateYear({
     spendingGuardrail: plannedSpendingDetail.guardrail,
     medicalCost: round(medicalEstimate, 6),
     medicare: finalMedicare,
+    ltcCost: round(ltcStressCostForYear({ scenario, yearIndex, medicalInflationIndex: medicalInflationIndex ?? inflationIndex }), 6),
+    spendingPhase: plannedSpendingDetail.spendingPhase ?? null,
     age65AdditionalDeduction: round(taxProfileContext.age65AdditionalDeduction, 6),
     enhancedSeniorDeduction: round(finalTaxes.enhancedSeniorDeduction ?? 0, 6),
     enhancedSeniorDeductionEligibleCount: taxProfileContext.enhancedSeniorDeductionEligibleCount ?? 0,
     enhancedSeniorDeductionTaxYear: taxProfileContext.enhancedSeniorDeductionTaxYear ?? calendarYear,
     qualifyingChildren: yearTaxProfile.qualifyingChildren,
     earnedIncome: round(recurringEarnedIncome.cash, 6),
+    streamIncome: {
+      cash: round(streamIncome.cash, 6),
+      ordinaryIncome: round(streamIncome.ordinaryIncome, 6),
+      retirementOrdinaryIncome: round(streamIncome.retirementOrdinaryIncome, 6),
+      taxFreeIncome: round(streamIncome.taxFreeIncome, 6),
+      details: streamIncome.details
+    },
     oneOffIncome: round(oneOffCashFlows.income, 6),
     taxRefundCash: round(taxRefundCash, 6),
     oneOffExpenses: round(oneOffCashFlows.expenses, 6),
@@ -742,6 +791,18 @@ export function simulateYear({
     rmdStartAge: rmd.startAge,
     rmdFactor: rmd.factor,
     rmdBase: round(rmd.base, 6),
+    rmdByOwner: rmd.byOwner.spouse ? {
+      primary: {
+        amount: round(rmd.byOwner.primary?.amount ?? 0, 6),
+        factor: rmd.byOwner.primary?.factor ?? null,
+        startAge: rmd.byOwner.primary?.startAge ?? null
+      },
+      spouse: {
+        amount: round(rmd.byOwner.spouse.amount, 6),
+        factor: rmd.byOwner.spouse.factor,
+        startAge: rmd.byOwner.spouse.startAge
+      }
+    } : null,
     cashRaised: round(finalWithdrawal.cashRaised, 6),
     taxableDividendsCash: dividends.cash,
     taxableDividendDetails: dividends.details,
@@ -841,6 +902,7 @@ function reconcileCashRequirement({
   socialSecurityBenefits,
   hsaQualifiedExpenseBalance = 0,
   age,
+  ownerAges = null,
   spouseAge,
   yearIndex,
   calendarYear,
@@ -872,6 +934,7 @@ function reconcileCashRequirement({
       withdrawalOrder: scenario.withdrawalOrder,
       withdrawalContext: {
         age,
+        ownerAges,
         calendarYear,
         penaltyAge: scenario.retirementPenaltyAge ?? 59.5,
         penaltyRate: scenario.earlyWithdrawalPenaltyRate ?? 0.1,
@@ -947,6 +1010,7 @@ function reconcileCashRequirement({
       withdrawalOrder: forcedWithdrawalOrder(scenario.withdrawalOrder),
       withdrawalContext: {
         age,
+        ownerAges,
         calendarYear,
         penaltyAge: scenario.retirementPenaltyAge ?? 59.5,
         penaltyRate: scenario.earlyWithdrawalPenaltyRate ?? 0.1,
@@ -1038,12 +1102,15 @@ export function buildPostMortalityYearResult({ scenario, yearIndex, portfolio, i
     spendingGuardrail: null,
     medicalCost: 0,
     medicare: emptyMedicareCost(),
+    ltcCost: 0,
+    spendingPhase: null,
     age65AdditionalDeduction: 0,
     enhancedSeniorDeduction: 0,
     enhancedSeniorDeductionEligibleCount: 0,
     enhancedSeniorDeductionTaxYear: calendarYear,
     qualifyingChildren: 0,
     earnedIncome: 0,
+    streamIncome: { cash: 0, ordinaryIncome: 0, retirementOrdinaryIncome: 0, taxFreeIncome: 0, details: [] },
     oneOffIncome: 0,
     oneOffExpenses: 0,
     oneOffIncomeDetails: [],
@@ -1059,6 +1126,7 @@ export function buildPostMortalityYearResult({ scenario, yearIndex, portfolio, i
     rmdStartAge: null,
     rmdFactor: null,
     rmdBase: 0,
+    rmdByOwner: null,
     cashRaised: 0,
     taxableDividendsCash: 0,
     taxableDividendDetails: [],

@@ -29,6 +29,45 @@ export const DEFAULT_SCENARIO = {
   medicalExpensesBase: 0,
   expectedOopMaxUsePercent: 0.25,
   oopMaxOverride: null,
+  // Opt-in age-banded spending ("retirement smile"): scales fixed-mode and
+  // essential/discretionary spending by phase percentages keyed to the
+  // primary's age. Disabled by default — no effect on existing plans. Not
+  // applied to the dynamic strategies (Guyton-Klinger, Kitces, VPW,
+  // risk-based guardrails), which set their own spending paths.
+  agePhasedSpending: {
+    enabled: false,
+    slowGoAge: 76,
+    slowGoPercent: 85,
+    noGoAge: 86,
+    noGoPercent: 75
+  },
+  // Opt-in long-term-care stress: an additional medical-inflated annual cost
+  // while the selected member is alive and inside the age window.
+  ltcStress: {
+    enabled: false,
+    member: "primary",
+    startAge: 85,
+    years: 3,
+    annualCost: 100000
+  },
+  // Opt-in survivor basis step-up at the FIRST death of an MFJ couple:
+  // taxable lots owned by the deceased step up fully to market value; lots
+  // owned jointly step up `jointBasisStepUpPercent` of the unrealized gain
+  // (50% = common-law half step-up); survivor-owned lots are unchanged.
+  // Untagged lots default to owner "primary".
+  survivorStepUp: {
+    enabled: false,
+    jointBasisStepUpPercent: 50
+  },
+  // Heir tax-parameter indexing: "indexed" (default) scales heir brackets,
+  // deduction, base income, and the federal estate exclusion to the death/
+  // valuation-year price level; "frozen2026" keeps them at 2026 nominal
+  // amounts for conservative planning.
+  heirTaxIndexing: "indexed",
+  // First-class recurring income streams (pension / annuity / rent / other):
+  // age-started, optional COLA, survivor percentage, tax character, and
+  // state retirement-income eligibility. Empty by default.
+  incomeStreams: [],
   withdrawalOrder: ["taxable", "traditional", "hsa", "roth"],
   withdrawalStrategy: {
     mode: "lifetime",
@@ -93,13 +132,20 @@ export const DEFAULT_SCENARIO = {
   socialSecurityInflationAdjusted: true,
   rmd: {
     enabled: true,
-    startAge: null
+    startAge: null,
+    // Optional override for the spouse's RMD start age when spouse-owned
+    // traditional accounts (asset.owner === "spouse") are modeled. Null →
+    // derived from the spouse's birth year (SECURE 2.0).
+    spouseStartAge: null
   },
   medicare: {
     irmaaEnabled: true,
     partBEnrollees: null,
     partDEnrollees: null,
     partDMonthlyPremium: 0,
+    // Medigap / Medicare Advantage supplemental monthly premium per enrolled
+    // member (today's dollars, medical-inflated, no IRMAA adjustment).
+    medigapMonthlyPremium: 0,
     // Annual non-premium out-of-pocket estimate (today's dollars) applied once
     // the whole household is on Medicare. Null → legacy ACA-plan OOP proxy
     // (flagged input-limited by the confidence layer).
@@ -111,7 +157,13 @@ export const DEFAULT_SCENARIO = {
   monteCarlo: {
     assumptionPreset: "marketNeutral",
     samplingMode: "correlated",
-    meanReversion: DEFAULT_MONTE_CARLO_MEAN_REVERSION
+    meanReversion: DEFAULT_MONTE_CARLO_MEAN_REVERSION,
+    // AR(1) persistence for the sampled inflation streams (0 = i.i.d. draws,
+    // the historical default). Positive values produce serially correlated
+    // inflation paths with the SAME unconditional variance (shocks scaled by
+    // sqrt(1 - phi^2)), capturing sustained-inflation sequence risk. Annual
+    // US CPI lag-1 autocorrelation is commonly estimated around 0.6-0.8.
+    inflationPersistence: 0
   },
   returnAssumptions: cloneReturnAssumptions(MONTE_CARLO_ASSUMPTION_PRESETS.marketNeutral),
   taxLossHarvesting: { enabled: true, mode: "auto", overrideMaxLoss: null },
@@ -238,6 +290,18 @@ export function mergeScenario(scenario) {
       ...DEFAULT_SCENARIO.sequenceRiskReserve,
       ...(scenario.sequenceRiskReserve ?? {})
     },
+    agePhasedSpending: {
+      ...DEFAULT_SCENARIO.agePhasedSpending,
+      ...(scenario.agePhasedSpending ?? {})
+    },
+    ltcStress: {
+      ...DEFAULT_SCENARIO.ltcStress,
+      ...(scenario.ltcStress ?? {})
+    },
+    survivorStepUp: {
+      ...DEFAULT_SCENARIO.survivorStepUp,
+      ...(scenario.survivorStepUp ?? {})
+    },
     allocationStrategy: {
       ...DEFAULT_SCENARIO.allocationStrategy,
       ...(scenario.allocationStrategy ?? {})
@@ -263,7 +327,8 @@ export function mergeScenario(scenario) {
       ...(scenario.medicare ?? {})
     },
     aca: mergeAcaScenario(scenario.aca),
-    oneOffExpenses: scenario.oneOffExpenses ?? DEFAULT_SCENARIO.oneOffExpenses
+    oneOffExpenses: scenario.oneOffExpenses ?? DEFAULT_SCENARIO.oneOffExpenses,
+    incomeStreams: Array.isArray(scenario.incomeStreams) ? scenario.incomeStreams : DEFAULT_SCENARIO.incomeStreams
   };
 }
 

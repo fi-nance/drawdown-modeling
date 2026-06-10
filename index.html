@@ -202,7 +202,7 @@
                   </div>
                 </div>
                 <div class="module-actions">
-                  <span class="controls-pill">14 controls</span>
+                  <span class="controls-pill">19 controls</span>
                 </div>
               </div>
               <div class="module-body">
@@ -238,6 +238,13 @@
                 <label class="check-row"><input id="includeTaxes"   type="checkbox"><span>Target spend already includes taxes</span></label>
                 <label class="check-row"><input id="includeMedical" type="checkbox"><span>Target spend already includes medical</span></label>
                 <label class="check-row"><input id="decisionIncomeBridgeEnabled" type="checkbox" checked><span>Consider returning to work for bridge income</span></label>
+                <label class="check-row"><input id="agePhasedSpending" type="checkbox"><span>Age-banded spending (retirement smile)</span><small>Scales fixed and essential/discretionary spending by phase. Not applied to dynamic strategies (Guyton-Klinger, Kitces, VPW, risk-based guardrails).</small></label>
+                <div class="control-grid">
+                  <label><span>Slow-go from age</span><input id="slowGoAge" type="number" min="40" max="110" step="1" value="76"></label>
+                  <label><span>Slow-go spend %</span><input id="slowGoPercent" type="number" min="0" max="200" step="1" value="85"></label>
+                  <label><span>No-go from age</span><input id="noGoAge" type="number" min="40" max="120" step="1" value="86"></label>
+                  <label><span>No-go spend %</span><input id="noGoPercent" type="number" min="0" max="200" step="1" value="75"></label>
+                </div>
               </div>
             </section>
 
@@ -419,7 +426,7 @@
                     <span class="module-sub">Premiums after 65</span>
                   </div>
                 </div>
-                <div class="module-actions"><span class="controls-pill">10 controls</span></div>
+                <div class="module-actions"><span class="controls-pill">12 controls</span></div>
               </div>
               <div class="module-body">
                 <label class="check-row"><input id="irmaaEnabled" type="checkbox" checked><span>Apply Medicare / IRMAA surcharges</span></label>
@@ -427,6 +434,7 @@
                   <label><span>Part B enrollees</span>      <input id="medicarePartBEnrollees" type="number" min="0" max="2" step="1" placeholder="Auto"></label>
                   <label><span>Part D enrollees</span>      <input id="medicarePartDEnrollees" type="number" min="0" max="2" step="1" placeholder="Auto"></label>
                   <label><span>Part D monthly premium</span><input id="medicarePartDMonthlyPremium" type="number" min="0" step="1" value="0"></label>
+                  <label><span>Medigap/Advantage monthly premium</span><input id="medicareMedigapMonthlyPremium" type="number" min="0" step="10" value="0"><small>Supplemental premium per enrolled member (today's dollars, medical-inflated, no IRMAA).</small></label>
                   <label><span>Medicare annual OOP</span>   <input id="medicareAnnualOopBase" type="number" min="0" step="500" placeholder="ACA-plan proxy"><small>Non-premium out-of-pocket estimate (today's dollars) once the household is fully on Medicare. Blank keeps the ACA-plan OOP proxy.</small></label>
                   <label><span>MAGI two years ago</span>   <input id="twoYearsPriorMagi" type="number" min="0" step="1000" placeholder="Use estimate"></label>
                   <label><span>MAGI last year</span>       <input id="priorYearMagi" type="number" min="0" step="1000" placeholder="Use estimate"></label>
@@ -435,6 +443,7 @@
                 <label class="check-row"><input id="mfsLivedTogether" type="checkbox"><span>MFS lived with spouse</span></label>
                 <label class="check-row"><input id="rmdEnabled" type="checkbox" checked><span>Force RMDs</span></label>
                 <label><span>RMD start age override</span><input id="rmdStartAge" type="number" min="0" max="120" step="0.5" placeholder="Auto"></label>
+                <label><span>Spouse RMD start age override</span><input id="rmdSpouseStartAge" type="number" min="0" max="120" step="0.5" placeholder="Auto"><small>Applies to spouse-owned traditional accounts (Owner = Spouse in the portfolio table). Blank derives from the spouse's birth year (SECURE 2.0).</small></label>
               </div>
             </section>
 
@@ -448,7 +457,7 @@
                     <span class="module-sub">Social Security, work, SE</span>
                   </div>
                 </div>
-                <div class="module-actions"><span class="controls-pill">12 controls</span></div>
+                <div class="module-actions"><span class="controls-pill">22+ controls</span></div>
               </div>
               <div class="module-body">
                 <div class="control-grid">
@@ -468,6 +477,42 @@
                 <label class="check-row"><input id="spouseSocialSecurityInflationAdjusted" type="checkbox" checked><span>Inflation-adjust spouse Social Security</span></label>
                 <label class="check-row"><input id="earnedIncomeInflationAdjusted"  type="checkbox" checked><span>Inflation-adjust earned income</span></label>
                 <label class="check-row"><input id="estimateSocialSecurityFromEarnings" type="checkbox"><span>Estimate Social Security from earnings</span><small>Opt-in coarse proxy: entered wages are treated as the career-average AIME against the SSA 2026 bend points. Spouse wages feed the spouse's own PIA; without them a 50% spousal benefit applies.</small></label>
+                <h4 class="control-subhead">Recurring income streams</h4>
+                <p class="assumption-note">Pensions, annuities, rent, and other recurring income: age-started on the owner's clock, optional COLA, survivor share after the owner's death, and state retirement-income treatment for pensions/annuities.</p>
+                <div class="control-grid">
+                  <label><span>Name</span><input id="incomeStreamName" type="text" value="Pension"></label>
+                  <label>
+                    <span>Type</span>
+                    <select id="incomeStreamType">
+                      <option value="pension">Pension</option>
+                      <option value="annuity">Annuity</option>
+                      <option value="rent">Rental income</option>
+                      <option value="other">Other recurring</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>Owner</span>
+                    <select id="incomeStreamOwner">
+                      <option value="primary">Primary</option>
+                      <option value="spouse">Spouse</option>
+                    </select>
+                  </label>
+                  <label><span>Start age</span><input id="incomeStreamStartAge" type="number" min="0" max="120" step="1" value="65"></label>
+                  <label><span>End age</span><input id="incomeStreamEndAge" type="number" min="0" max="120" step="1" placeholder="Life"></label>
+                  <label><span>Annual amount</span><input id="incomeStreamAmount" type="number" min="0" step="1000" value="24000"></label>
+                  <label><span>Survivor %</span><input id="incomeStreamSurvivorPercent" type="number" min="0" max="100" step="5" value="50"></label>
+                  <label>
+                    <span>Tax character</span>
+                    <select id="incomeStreamTaxCharacter">
+                      <option value="ordinary">Taxable ordinary income</option>
+                      <option value="taxFree">Tax-free</option>
+                    </select>
+                  </label>
+                </div>
+                <label class="check-row"><input id="incomeStreamCola" type="checkbox" checked><span>Inflation adjusted (COLA)</span></label>
+                <label class="check-row"><input id="incomeStreamStateRetirement" type="checkbox" checked><span>State retirement-income exclusion eligible</span></label>
+                <button id="addIncomeStream" class="ghost-button" type="button">+ Add income stream</button>
+                <div id="incomeStreamList" class="one-off-list"></div>
               </div>
             </section>
 
@@ -481,7 +526,7 @@
                     <span class="module-sub">Taxes, allocations, withdrawal rules</span>
                   </div>
                 </div>
-                <div class="module-actions"><span class="controls-pill">38 controls</span></div>
+                <div class="module-actions"><span class="controls-pill">41 controls</span></div>
               </div>
               <div class="module-body">
                 <label>
@@ -542,6 +587,7 @@
                 <label class="check-row"><input id="allocationAwareWithdrawals" type="checkbox"><span>Allocation-aware withdrawals</span></label>
                 <label class="check-row"><input id="taxAwareRebalancing" type="checkbox"><span>Tax-aware annual rebalancing</span></label>
                 <label class="check-row"><input id="equityGlidepath" type="checkbox"><span>Equity glidepath</span></label>
+                <label class="check-row"><input id="survivorStepUpEnabled" type="checkbox"><span>Survivor basis step-up at first death</span><small>Steps up taxable lots owned by the deceased to market value (joint lots by the configured share) at the first death of a married couple. Tag account owners in the portfolio table.</small></label>
                 <div class="control-grid">
                   <label><span>Conversion target rate %</span><input id="rothTargetRate" type="number" min="0" max="37" step="1" value="12"></label>
                   <label><span>Heir ordinary tax rate %</span><input id="heirOrdinaryTaxRate" type="number" min="0" max="100" step="1" value="24"><small>Applied to inherited traditional/HSA balances in the after-tax bequest estimate.</small></label>
@@ -584,6 +630,15 @@
                     </select>
                     <small>Applied to non-spouse bequest value for lineal descendants only; non-lineal relationship classes are out of model.</small>
                   </label>
+                  <label>
+                    <span>Heir tax-law indexing</span>
+                    <select id="heirTaxIndexing">
+                      <option value="indexed" selected>Indexed to death year</option>
+                      <option value="frozen2026">Frozen at 2026 amounts</option>
+                    </select>
+                    <small>Indexed scales heir brackets, deduction, base income, and the $15M estate exclusion to the death-year price level; frozen is the conservative planning view.</small>
+                  </label>
+                  <label><span>Joint basis step-up %</span><input id="survivorStepUpJointPercent" type="number" min="0" max="100" step="5" value="50"><small>Share of jointly-owned taxable gains stepped up at the first death (50 = common-law half step-up; 100 ≈ community property).</small></label>
                   <label><span>Annual conversion override</span><input id="rothAmount" type="number" min="0" step="1000" placeholder="Auto"></label>
                   <label><span>Conversion max ACA FPL %</span><input id="rothConversionMaxAcaFplPercent" type="number" min="100" max="600" step="1" value="400"></label>
                   <label><span>Conversion MAGI buffer</span><input id="rothConversionMagiBuffer" type="number" min="0" step="100" value="0"></label>
@@ -656,7 +711,7 @@
                     <span class="module-sub">Return assumptions and sampling</span>
                   </div>
                 </div>
-                <div class="module-actions"><span class="controls-pill">19 controls</span></div>
+                <div class="module-actions"><span class="controls-pill">20 controls</span></div>
               </div>
               <div class="module-body">
                 <div class="control-grid">
@@ -682,6 +737,9 @@
                   <label><span>Short-term reversion %</span><input id="mcShortTermMeanReversion" type="number" min="0" max="100" step="1" value="20"></label>
                   <label><span>Long-term reversion %</span><input id="mcLongTermMeanReversion" type="number" min="0" max="100" step="1" value="35"></label>
                   <label><span>Long-term horizon years</span><input id="mcLongTermReversionYears" type="number" min="2" max="30" step="1" value="10"></label>
+                </div>
+                <div class="control-grid">
+                  <label><span>Inflation persistence %</span><input id="mcInflationPersistence" type="number" min="0" max="95" step="5" value="0"><small>AR(1) serial correlation for sampled inflation paths (0 = independent draws). Annual US CPI runs roughly 60-80; variance stays calibrated to the volatility above.</small></label>
                 </div>
                 <div class="control-grid">
                   <label><span>Stock mean %</span><input id="mcStockMean" type="number" min="-100" max="500" step="0.1" value="7.1"></label>
@@ -753,7 +811,7 @@
                     <span class="module-sub">Future expenses or income</span>
                   </div>
                 </div>
-                <div class="module-actions"><span class="controls-pill">3+ controls</span></div>
+                <div class="module-actions"><span class="controls-pill">8+ controls</span></div>
               </div>
               <div class="module-body">
                 <div class="control-grid">
@@ -776,6 +834,19 @@
                 <label class="check-row"><input id="oneOffInflation" type="checkbox" checked><span>Inflation adjusted</span></label>
                 <button id="addOneOff" class="ghost-button" type="button">+ Add one-off</button>
                 <div id="oneOffList" class="one-off-list"></div>
+                <label class="check-row"><input id="ltcStressEnabled" type="checkbox"><span>Long-term-care stress test</span><small>Adds a medical-inflated annual care cost while the selected member is alive and inside the age window. A planning stress, not an LTC-insurance model.</small></label>
+                <div class="control-grid">
+                  <label>
+                    <span>LTC member</span>
+                    <select id="ltcStressMember">
+                      <option value="primary">Primary</option>
+                      <option value="spouse">Spouse</option>
+                    </select>
+                  </label>
+                  <label><span>LTC start age</span><input id="ltcStressStartAge" type="number" min="40" max="110" step="1" value="85"></label>
+                  <label><span>LTC years</span><input id="ltcStressYears" type="number" min="1" max="20" step="1" value="3"></label>
+                  <label><span>LTC annual cost</span><input id="ltcStressAnnualCost" type="number" min="0" step="5000" value="100000"></label>
+                </div>
               </div>
             </section>
 

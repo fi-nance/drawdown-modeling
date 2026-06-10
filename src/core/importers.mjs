@@ -35,7 +35,8 @@ const HEADER_ALIASES = buildAliasMap({
     "qualified"
   ],
   holdingPeriod: ["holdingPeriod", "holding period", "holding term", "term", "long short", "long/short"],
-  beneficiaryType: ["beneficiaryType", "beneficiary type", "beneficiary", "inherited rule", "inheritance rule", "heir type"]
+  beneficiaryType: ["beneficiaryType", "beneficiary type", "beneficiary", "inherited rule", "inheritance rule", "heir type"],
+  owner: ["owner", "account owner", "owned by", "registration", "account registration", "titling"]
 });
 
 const ACCOUNT_TYPE_ALIASES = buildAliasMap({
@@ -97,6 +98,12 @@ const BENEFICIARY_TYPE_ALIASES = buildAliasMap({
   spouse: ["spouse", "surviving spouse", "spousal", "spouse rollover", "spousal rollover"],
   nonSpouse10Yr: ["non spouse", "non-spouse", "nonspouse", "non spouse 10 year", "non-spouse 10-year", "10 year", "10-year", "child", "lineal"],
   eligibleDesignated: ["eligible designated", "eligible-designated", "eligible designated beneficiary", "edb", "stretch", "eligible stretch"]
+});
+
+const OWNER_ALIASES = buildAliasMap({
+  primary: ["", "primary", "self", "me", "taxpayer", "owner", "primary owner", "client"],
+  spouse: ["spouse", "partner", "wife", "husband", "spousal"],
+  joint: ["joint", "jointly", "jtwros", "joint tenants", "community", "community property", "shared"]
 });
 
 export function parsePortfolioJson(text) {
@@ -225,7 +232,8 @@ export function normalizeImportedAsset(asset, index = 0) {
     dividendYield: firstFiniteNumber(asset.dividendYield, 0),
     qualifiedDividendShare: firstFiniteNumber(asset.qualifiedDividendShare, defaultQualifiedDividendShare(assetClass)),
     holdingPeriod: canonicalHoldingPeriod(asset.holdingPeriod ?? "long"),
-    beneficiaryType: canonicalBeneficiaryType(asset.beneficiaryType ?? "default")
+    beneficiaryType: canonicalBeneficiaryType(asset.beneficiaryType ?? "default"),
+    owner: canonicalOwner(asset.owner ?? "primary", accountType)
   };
 }
 
@@ -339,6 +347,18 @@ function canonicalBeneficiaryType(value) {
   const trimmed = String(value ?? "").trim();
   const canonical = BENEFICIARY_TYPE_ALIASES.get(normalizedAliasKey(trimmed)) ?? trimmed;
   return VALID_BENEFICIARY_TYPES.has(canonical) ? canonical : "default";
+}
+
+const VALID_OWNERS = new Set(["primary", "spouse", "joint"]);
+
+function canonicalOwner(value, accountType) {
+  const trimmed = String(value ?? "").trim();
+  const canonical = OWNER_ALIASES.get(normalizedAliasKey(trimmed)) ?? trimmed;
+  const owner = VALID_OWNERS.has(canonical) ? canonical : "primary";
+  // Retirement-type accounts are individually owned — "joint" only applies to
+  // taxable registrations, so a joint retirement import normalizes to primary.
+  if (owner === "joint" && accountType !== "taxable") return "primary";
+  return owner;
 }
 
 function buildAliasMap(aliasesByCanonical) {

@@ -87,8 +87,19 @@ export function withdrawForCash(portfolio, amount, withdrawalOrder = [], context
   const maxHsaProceeds = Number.isFinite(Number(context.hsaQualifiedExpenseAvailable))
     ? Math.max(0, Number(context.hsaQualifiedExpenseAvailable))
     : Infinity;
+  // Household-level isEarly drives the lot-sort heuristic; the penalty and
+  // HSA-age rules themselves are applied per asset via ageForAsset below.
   const isEarly = age < penaltyAge;
-  const hsaOrdinaryEligible = age >= HSA_ORDINARY_DISTRIBUTION_AGE;
+  // Per-asset owner ages: when the caller supplies ownerAges, spouse-owned
+  // accounts apply the SPOUSE's age to the early-withdrawal penalty and the
+  // HSA age-65 ordinary-distribution rule. Without ownerAges (or for untagged
+  // assets) everything uses the household `age` — the pre-owner behavior.
+  const ownerAges = context.ownerAges ?? null;
+  const ageForAsset = (asset) => {
+    if (!ownerAges || asset?.owner !== "spouse") return age;
+    const spouseOwnerAge = Number(ownerAges.spouse);
+    return Number.isFinite(spouseOwnerAge) ? spouseOwnerAge : age;
+  };
   const result = {
     cashRaised: 0,
     ordinaryIncome: 0,
@@ -119,17 +130,20 @@ export function withdrawForCash(portfolio, amount, withdrawalOrder = [], context
 
     for (const asset of candidates) {
       if (remaining <= 0) break;
+      const assetAge = ageForAsset(asset);
+      const assetIsEarly = assetAge < penaltyAge;
+      const assetHsaOrdinaryEligible = assetAge >= HSA_ORDINARY_DISTRIBUTION_AGE;
       let requestedSale = remaining;
       if (accountType === "roth") {
         const rothRoom = maxRothProceeds - result.rothProceeds;
         if (rothRoom <= 0.000001) break;
         requestedSale = Math.min(requestedSale, rothRoom);
-      } else if (accountType === "hsa" && !hsaOrdinaryEligible) {
-        // Before 65, HSA sales are capped at the tracked qualified-expense
-        // pool. At 65+, the cap lifts: the excess is sold and taxed as
-        // ordinary income in applyRetirementDistributionTax.
+      } else if (accountType === "hsa" && !assetHsaOrdinaryEligible) {
+        // Before the owner is 65, HSA sales are capped at the tracked
+        // qualified-expense pool. At 65+, the cap lifts: the excess is sold
+        // and taxed as ordinary income in applyRetirementDistributionTax.
         const hsaRoom = maxHsaProceeds - result.hsaProceeds;
-        if (hsaRoom <= 0.000001) break;
+        if (hsaRoom <= 0.000001) continue;
         requestedSale = Math.min(requestedSale, hsaRoom);
       }
       const sale = sellFromLot(asset, requestedSale);
@@ -149,8 +163,8 @@ export function withdrawForCash(portfolio, amount, withdrawalOrder = [], context
       }
       applyRetirementDistributionTax(sale, {
         result,
-        isEarly,
-        hsaOrdinaryEligible,
+        isEarly: assetIsEarly,
+        hsaOrdinaryEligible: assetHsaOrdinaryEligible,
         penaltyRate,
         calendarYear,
         rothFiveYearRuleSatisfied,

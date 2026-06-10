@@ -138,12 +138,12 @@ test("module library counts match expanded module cards", async () => {
     readFile(new URL("../src/redesign.mjs", import.meta.url), "utf8")
   ]);
 
-  assert.match(html, /data-module="medicare"[\s\S]*<span class="controls-pill">10 controls<\/span>/);
-  assert.match(source, /id: "medicare"[\s\S]*controls: 10/);
-  assert.match(html, /data-module="other-income"[\s\S]*<span class="controls-pill">12 controls<\/span>/);
-  assert.match(source, /id: "other-income"[\s\S]*controls: 12/);
-  assert.match(html, /data-module="strategy"[\s\S]*<span class="controls-pill">38 controls<\/span>/);
-  assert.match(source, /id: "strategy"[\s\S]*controls: 38/);
+  assert.match(html, /data-module="medicare"[\s\S]*<span class="controls-pill">12 controls<\/span>/);
+  assert.match(source, /id: "medicare"[\s\S]*controls: 12/);
+  assert.match(html, /data-module="other-income"[\s\S]*<span class="controls-pill">22\+ controls<\/span>/);
+  assert.match(source, /id: "other-income"[\s\S]*controls: 22/);
+  assert.match(html, /data-module="strategy"[\s\S]*<span class="controls-pill">41 controls<\/span>/);
+  assert.match(source, /id: "strategy"[\s\S]*controls: 41/);
 });
 
 test("module library can scroll to reveal disabled-module knobs", async () => {

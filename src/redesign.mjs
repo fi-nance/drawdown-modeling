@@ -158,16 +158,16 @@ const OUTCOMES = [
 ];
 
 const MODULES = [
-  { id: "basics",        label: "The basics",     desc: "Age, plan length, target spend",        controls: 14, required: true,  enabledByDefault: true  },
+  { id: "basics",        label: "The basics",     desc: "Age, plan length, target spend",        controls: 19, required: true,  enabledByDefault: true  },
   { id: "portfolio",     label: "Portfolio",      desc: "Your accounts and holdings",             controls: 5,  required: true,  enabledByDefault: true  },
   { id: "healthcare",    label: "Healthcare",     desc: "Insurance until Medicare",               controls: 22, required: false, enabledByDefault: true  },
-  { id: "medicare",      label: "Medicare/IRMAA", desc: "Premiums after 65",                       controls: 10, required: false, enabledByDefault: false },
-  { id: "other-income",  label: "Other income",   desc: "Social Security, work, SE",               controls: 12, required: false, enabledByDefault: false },
-  { id: "strategy",      label: "Strategy toolkit", desc: "Taxes, allocations, withdrawal rules",   controls: 38, required: false, enabledByDefault: true  },
+  { id: "medicare",      label: "Medicare/IRMAA", desc: "Premiums after 65",                       controls: 12, required: false, enabledByDefault: false },
+  { id: "other-income",  label: "Other income",   desc: "Social Security, work, pensions",         controls: 22, required: false, enabledByDefault: false },
+  { id: "strategy",      label: "Strategy toolkit", desc: "Taxes, allocations, withdrawal rules",   controls: 41, required: false, enabledByDefault: true  },
   { id: "reserve",       label: "Cash reserve",   desc: "Bucket strategy",                          controls: 4,  required: false, enabledByDefault: false },
-  { id: "monte-carlo",   label: "Monte Carlo",    desc: "Return model and sampling",                controls: 19, required: false, enabledByDefault: true  },
+  { id: "monte-carlo",   label: "Monte Carlo",    desc: "Return model and sampling",                controls: 20, required: false, enabledByDefault: true  },
   { id: "history",       label: "History test",   desc: "How would you have done?",                controls: 7,  required: false, enabledByDefault: false },
-  { id: "what-ifs",      label: "What ifs",       desc: "Future expenses or income",                controls: 3,  required: false, enabledByDefault: true  },
+  { id: "what-ifs",      label: "What ifs",       desc: "Future expenses or income",                controls: 8,  required: false, enabledByDefault: true  },
   { id: "tax-overrides", label: "Tax overrides",  desc: "Power-user tax tweaks",                    controls: 23, required: false, enabledByDefault: false }
 ];
 

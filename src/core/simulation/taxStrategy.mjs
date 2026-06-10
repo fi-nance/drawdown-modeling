@@ -68,6 +68,11 @@ export function estimateTaxAttribution({
         : Math.max(0, (income.socialSecurityWages ?? 0) - (adjustments.socialSecurityWages ?? 0)),
       selfEmploymentIncome: Math.max(0, (income.selfEmploymentIncome ?? 0) - (adjustments.selfEmploymentIncome ?? 0)),
       rrtaCompensation: Math.max(0, (income.rrtaCompensation ?? 0) - (adjustments.rrtaCompensation ?? 0)),
+      spouseMedicareWages: Math.max(0, (income.spouseMedicareWages ?? 0) - (adjustments.spouseMedicareWages ?? 0)),
+      spouseSocialSecurityWages: income.spouseSocialSecurityWages == null
+        ? null
+        : Math.max(0, (income.spouseSocialSecurityWages ?? 0) - (adjustments.spouseSocialSecurityWages ?? 0)),
+      spouseSelfEmploymentIncome: Math.max(0, (income.spouseSelfEmploymentIncome ?? 0) - (adjustments.spouseSelfEmploymentIncome ?? 0)),
       taxableSocialSecurity: Math.max(0, (income.taxableSocialSecurity ?? 0) - (adjustments.taxableSocialSecurity ?? 0)),
       shortTermCapitalGains: Math.max(0, income.shortTermCapitalGains - (adjustments.shortTermCapitalGains ?? 0)),
       longTermCapitalGains: Math.max(0, income.longTermCapitalGains - (adjustments.longTermCapitalGains ?? 0)),
@@ -92,7 +97,10 @@ export function estimateTaxAttribution({
     medicareWages: earnedIncome.medicareWages,
     socialSecurityWages: earnedIncome.socialSecurityWages,
     selfEmploymentIncome: earnedIncome.selfEmploymentIncome,
-    rrtaCompensation: earnedIncome.rrtaCompensation
+    rrtaCompensation: earnedIncome.rrtaCompensation,
+    spouseMedicareWages: earnedIncome.spouseMedicareWages ?? 0,
+    spouseSocialSecurityWages: earnedIncome.spouseSocialSecurityWages,
+    spouseSelfEmploymentIncome: earnedIncome.spouseSelfEmploymentIncome ?? 0
   });
   addSource("One-off income", {
     ordinaryIncome: oneOffCashFlows.taxableOrdinaryIncome + oneOffCashFlows.earnedIncome.ordinaryIncome,

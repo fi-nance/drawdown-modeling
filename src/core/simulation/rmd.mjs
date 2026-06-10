@@ -82,3 +82,61 @@ export function defaultRmdStartAge(scenario) {
   if (birthYear >= 1960) return 75;
   return 73;
 }
+
+export function defaultSpouseRmdStartAge(scenario) {
+  const spouseAge = Number(scenario.spouseAge);
+  if (!Number.isFinite(spouseAge)) return defaultRmdStartAge(scenario);
+  const birthYear = (scenario.startYear ?? DEFAULT_SCENARIO.startYear) - spouseAge;
+  if (birthYear >= 1960) return 75;
+  return 73;
+}
+
+// Household RMD with per-owner traditional buckets. Spouse-owned traditional
+// accounts (asset.owner === "spouse") use the SPOUSE's age, Uniform Lifetime
+// factor, and SECURE 2.0 start age — applying the primary's clock to a
+// younger/older spouse's IRA mistimes RMDs by years. When `spouseAge` is null
+// (single filer, no spouse data, or survivor years where the household pools
+// under the surviving holder), everything uses the primary bucket — which is
+// also the exact pre-owner-dimension behavior for untagged portfolios.
+// The IRS Joint Life and Last Survivor Table (spouse sole beneficiary >10
+// years younger) is NOT modeled — see KNOWN_LIMITATIONS.
+export function householdRmdForYear({ scenario, primaryAge, spouseAge = null, traditionalByOwner }) {
+  const spouseValue = Math.max(0, Number(traditionalByOwner?.spouse) || 0);
+  const primaryValue = Math.max(0, Number(traditionalByOwner?.primary) || 0);
+  // Null/undefined spouse age (single filer, no spouse data, or survivor
+  // years) pools everything under the primary clock — Number(null) coerces to
+  // 0, so the nullish check must come first or a survivor year would treat
+  // spouse-owned accounts as belonging to an age-0 owner and skip their RMDs.
+  const pooledSpouse = spouseAge == null || !Number.isFinite(Number(spouseAge));
+
+  const primary = requiredMinimumDistributionForYear({
+    scenario,
+    age: primaryAge,
+    beginningTraditionalValue: pooledSpouse ? primaryValue + spouseValue : primaryValue
+  });
+  if (pooledSpouse || spouseValue <= 0) {
+    return {
+      amount: primary.amount,
+      base: primary.base,
+      factor: primary.factor,
+      startAge: primary.startAge,
+      byOwner: { primary, spouse: null }
+    };
+  }
+
+  const spouseStartAge = scenario.rmd?.spouseStartAge != null && Number.isFinite(Number(scenario.rmd.spouseStartAge))
+    ? Number(scenario.rmd.spouseStartAge)
+    : defaultSpouseRmdStartAge(scenario);
+  const spouse = requiredMinimumDistributionForYear({
+    scenario: { ...scenario, rmd: { ...(scenario.rmd ?? {}), startAge: spouseStartAge } },
+    age: spouseAge,
+    beginningTraditionalValue: spouseValue
+  });
+  return {
+    amount: round(primary.amount + spouse.amount, 6),
+    base: round(primary.base + spouse.base, 6),
+    factor: primary.factor,
+    startAge: primary.startAge,
+    byOwner: { primary, spouse }
+  };
+}

@@ -1,7 +1,7 @@
 // Extracted from simulation.mjs during the modular refactor.
 // Single responsibility: plan. No behavior changes — pure code movement.
 
-import { accountBreakdown, clonePortfolio, portfolioValue } from "../portfolio.mjs";
+import { accountBreakdown, applySurvivorBasisStepUp, clonePortfolio, portfolioValue } from "../portfolio.mjs";
 import { DEFAULT_TAX_PROFILE } from "../tax.mjs?v=20260609-deepfix";
 import { createRng, normalRandom, percentile, round } from "../utils.mjs";
 import { DEFAULT_MONTE_CARLO_RUNS, MONTE_CARLO_ASSUMPTION_PRESETS } from "./constants.mjs";
@@ -68,6 +68,7 @@ export function simulatePlan({
   // Hoist: rebuilding the survivor profile is independent of yearIndex and
   // doesn't need to run inside simulateYear every survivor year.
   const survivorTaxProfile = wasMarried ? buildSurvivorTaxProfile(taxProfile) : null;
+  let survivorStepUpApplied = false;
 
   for (let yearIndex = 0; yearIndex < mergedScenario.planYears; yearIndex += 1) {
     const { primaryDeceased, spouseDeceased, spouseAge } = mortalityStatus(mergedScenario, yearIndex);
@@ -97,6 +98,21 @@ export function simulatePlan({
         medicalInflationIndex
       }));
       continue;
+    }
+
+    // Opt-in survivor basis step-up: applied ONCE, at the start of the first
+    // year exactly one spouse is deceased (the year after the death year —
+    // consistent with the model's "death year is still filed jointly" rule).
+    if (!survivorStepUpApplied
+      && mergedScenario.survivorStepUp?.enabled === true
+      && wasMarried
+      && spouseAge !== null
+      && primaryDeceased !== spouseDeceased) {
+      applySurvivorBasisStepUp(portfolio, {
+        deceasedOwner: primaryDeceased ? "primary" : "spouse",
+        jointStepUpPercent: mergedScenario.survivorStepUp.jointBasisStepUpPercent
+      });
+      survivorStepUpApplied = true;
     }
 
     const beginningPortfolioVal = portfolioValue(portfolio);
@@ -237,7 +253,9 @@ export function simulatePlan({
     eligibleDesignatedTaxDiscount: mergedScenario.eligibleDesignatedTaxDiscount,
     heirBaseIncome: mergedScenario.heirBaseIncome,
     heirAge: mergedScenario.heirAge,
-    inflationIndex: heirValuationInflationIndex,
+    // "frozen2026" pins heir brackets/deduction/base income and the federal
+    // estate exclusion at 2026 nominal values for conservative planning.
+    inflationIndex: mergedScenario.heirTaxIndexing === "frozen2026" ? 1 : heirValuationInflationIndex,
     taxProfile
   };
   if (inheritanceTaxState !== undefined) heirValueOptions.state = inheritanceTaxState;
@@ -633,18 +651,46 @@ function sampleMonteCarloSequences(mergedScenario, rng) {
   const inflationSequence = [];
   const medicalInflationSequence = [];
   const samplingState = createMonteCarloSamplingState(mergedScenario);
+  // Opt-in AR(1) persistence for both inflation streams. phi = 0 (the
+  // default) reproduces the historical i.i.d. draws BIT-IDENTICALLY: the
+  // shock uses the same two rng draws and `mean + shock` matches
+  // normalRandom's own `mean + z * stdev` expression order. For phi > 0 the
+  // shock is scaled by sqrt(1 - phi^2) so the unconditional variance matches
+  // the configured stdev — only the serial correlation changes, which is the
+  // sustained-inflation sequence risk i.i.d. sampling misses.
+  const inflationPhi = inflationPersistenceFor(mergedScenario);
+  const shockScale = Math.sqrt(1 - inflationPhi * inflationPhi);
+  const inflationMean = mergedScenario.returnAssumptions.inflation?.mean ?? MONTE_CARLO_ASSUMPTION_PRESETS.marketNeutral.inflation.mean;
+  const inflationStdev = mergedScenario.returnAssumptions.inflation?.stdev ?? MONTE_CARLO_ASSUMPTION_PRESETS.marketNeutral.inflation.stdev;
+  const medicalMean = mergedScenario.returnAssumptions.medicalInflation?.mean ?? MONTE_CARLO_ASSUMPTION_PRESETS.marketNeutral.medicalInflation.mean;
+  const medicalStdev = mergedScenario.returnAssumptions.medicalInflation?.stdev ?? MONTE_CARLO_ASSUMPTION_PRESETS.marketNeutral.medicalInflation.stdev;
+  let previousInflationDeviation = null;
+  let previousMedicalDeviation = null;
+
   for (let year = 0; year < mergedScenario.planYears; year += 1) {
     returnSequence.push(sampleReturnsForYearWithState(mergedScenario, rng, samplingState));
-    inflationSequence.push(Math.max(-0.08, normalRandom(
-      rng,
-      mergedScenario.returnAssumptions.inflation?.mean ?? MONTE_CARLO_ASSUMPTION_PRESETS.marketNeutral.inflation.mean,
-      mergedScenario.returnAssumptions.inflation?.stdev ?? MONTE_CARLO_ASSUMPTION_PRESETS.marketNeutral.inflation.stdev
-    )));
-    medicalInflationSequence.push(Math.max(-0.08, normalRandom(
-      rng,
-      mergedScenario.returnAssumptions.medicalInflation?.mean ?? MONTE_CARLO_ASSUMPTION_PRESETS.marketNeutral.medicalInflation.mean,
-      mergedScenario.returnAssumptions.medicalInflation?.stdev ?? MONTE_CARLO_ASSUMPTION_PRESETS.marketNeutral.medicalInflation.stdev
-    )));
+
+    const inflationShock = normalRandom(rng, 0, inflationStdev);
+    const inflationValue = inflationPhi === 0 || previousInflationDeviation === null
+      ? inflationMean + inflationShock
+      : inflationMean + inflationPhi * previousInflationDeviation + shockScale * inflationShock;
+    const flooredInflation = Math.max(-0.08, inflationValue);
+    previousInflationDeviation = flooredInflation - inflationMean;
+    inflationSequence.push(flooredInflation);
+
+    const medicalShock = normalRandom(rng, 0, medicalStdev);
+    const medicalValue = inflationPhi === 0 || previousMedicalDeviation === null
+      ? medicalMean + medicalShock
+      : medicalMean + inflationPhi * previousMedicalDeviation + shockScale * medicalShock;
+    const flooredMedical = Math.max(-0.08, medicalValue);
+    previousMedicalDeviation = flooredMedical - medicalMean;
+    medicalInflationSequence.push(flooredMedical);
   }
   return { returnSequence, inflationSequence, medicalInflationSequence };
+}
+
+function inflationPersistenceFor(scenario) {
+  const raw = Number(scenario.monteCarlo?.inflationPersistence);
+  if (!Number.isFinite(raw) || raw <= 0) return 0;
+  return Math.min(0.95, raw);
 }

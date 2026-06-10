@@ -259,6 +259,41 @@ export function ageHoldingPeriods(assets = [], calendarYear) {
   }
 }
 
+// Opt-in basis step-up at the FIRST death of a married couple (IRS Pub 551:
+// inherited-property basis is FMV at the date of death — up OR down).
+// Applies only to TAXABLE lots:
+// - lots owned by the deceased: basis reset fully to current price;
+// - jointly-owned lots: `jointStepUpPercent` of the gap between basis and
+//   price is recognized (50% = common-law half step-up; community-property
+//   households can set 100%);
+// - survivor-owned lots: unchanged.
+// Untagged lots default to owner "primary". Inherited property is long-term
+// by law, so adjusted lots are marked long with any TLH reset-clock cleared.
+export function applySurvivorBasisStepUp(assets = [], { deceasedOwner = "primary", jointStepUpPercent = 50 } = {}) {
+  const jointShare = Math.max(0, Math.min(100, Number.isFinite(Number(jointStepUpPercent)) ? Number(jointStepUpPercent) : 50)) / 100;
+  const deceased = deceasedOwner === "spouse" ? "spouse" : "primary";
+  let adjustedLots = 0;
+
+  for (const asset of assets) {
+    if (asset.accountType !== "taxable") continue;
+    const owner = asset.owner === "spouse" ? "spouse" : asset.owner === "joint" ? "joint" : "primary";
+    const price = Math.max(0, asset.price ?? 0);
+    const basis = asset.costBasisPerUnit ?? price;
+    let nextBasis = null;
+    if (owner === deceased) {
+      nextBasis = price;
+    } else if (owner === "joint") {
+      nextBasis = basis + (price - basis) * jointShare;
+    }
+    if (nextBasis === null || Math.abs(nextBasis - basis) <= EPSILON) continue;
+    asset.costBasisPerUnit = round(nextBasis, 8);
+    asset.holdingPeriod = "long";
+    delete asset.holdingPeriodResetCalendarYear;
+    adjustedLots += 1;
+  }
+  return { adjustedLots };
+}
+
 export function removeEmptyLots(assets) {
   for (let index = assets.length - 1; index >= 0; index -= 1) {
     if ((assets[index].units ?? 0) <= EPSILON || (assets[index].price ?? 0) <= 0) {

@@ -12,14 +12,27 @@ export function earnedIncomeForYear(scenario, inflationIndex) {
     : null;
   const selfEmploymentIncome = round(Math.max(0, Number(scenario.selfEmploymentIncome) || 0) * index, 6);
   const rrtaCompensation = round(Math.max(0, Number(scenario.rrtaCompensation) || 0) * index, 6);
-  const cash = round(medicareWages + selfEmploymentIncome + rrtaCompensation, 6);
+  // Spouse earned income is a SECOND earner with its own Social Security wage
+  // base — pooling both earners' wages under one wage base overstated the SS
+  // cap. Spouse wages count as household cash/ordinary income exactly like
+  // the primary's (and also feed the spouse PIA estimate when the opt-in
+  // earnings estimator is enabled).
+  const spouseMedicareWages = round(Math.max(0, Number(scenario.spouseMedicareWages) || 0) * index, 6);
+  const spouseSocialSecurityWages = scenario.spouseSocialSecurityWages != null && Number.isFinite(Number(scenario.spouseSocialSecurityWages))
+    ? round(Math.max(0, Number(scenario.spouseSocialSecurityWages) || 0) * index, 6)
+    : null;
+  const spouseSelfEmploymentIncome = round(Math.max(0, Number(scenario.spouseSelfEmploymentIncome) || 0) * index, 6);
+  const cash = round(medicareWages + selfEmploymentIncome + rrtaCompensation + spouseMedicareWages + spouseSelfEmploymentIncome, 6);
   return {
     cash,
     ordinaryIncome: cash,
     medicareWages,
     socialSecurityWages,
     selfEmploymentIncome,
-    rrtaCompensation
+    rrtaCompensation,
+    spouseMedicareWages,
+    spouseSocialSecurityWages,
+    spouseSelfEmploymentIncome
   };
 }
 
@@ -30,7 +43,10 @@ export function emptyEarnedIncome() {
     medicareWages: 0,
     socialSecurityWages: null,
     selfEmploymentIncome: 0,
-    rrtaCompensation: 0
+    rrtaCompensation: 0,
+    spouseMedicareWages: 0,
+    spouseSocialSecurityWages: null,
+    spouseSelfEmploymentIncome: 0
   };
 }
 
@@ -47,13 +63,26 @@ export function mergeEarnedIncome(left = emptyEarnedIncome(), right = emptyEarne
   } else if (rightSocialSecurityWages != null && !leftHasEarnedIncome) {
     socialSecurityWages = round(rightSocialSecurityWages, 6);
   }
+  // One-off earned-income entries are household-level and attributed to the
+  // PRIMARY earner; spouse fields only merge across recurring earned income.
+  let spouseSocialSecurityWages = null;
+  if (left.spouseSocialSecurityWages != null && right.spouseSocialSecurityWages != null) {
+    spouseSocialSecurityWages = round((left.spouseSocialSecurityWages ?? 0) + (right.spouseSocialSecurityWages ?? 0), 6);
+  } else if (left.spouseSocialSecurityWages != null) {
+    spouseSocialSecurityWages = round(left.spouseSocialSecurityWages, 6);
+  } else if (right.spouseSocialSecurityWages != null) {
+    spouseSocialSecurityWages = round(right.spouseSocialSecurityWages, 6);
+  }
   return {
     cash: round((left.cash ?? 0) + (right.cash ?? 0), 6),
     ordinaryIncome: round((left.ordinaryIncome ?? 0) + (right.ordinaryIncome ?? 0), 6),
     medicareWages: round((left.medicareWages ?? 0) + (right.medicareWages ?? 0), 6),
     socialSecurityWages,
     selfEmploymentIncome: round((left.selfEmploymentIncome ?? 0) + (right.selfEmploymentIncome ?? 0), 6),
-    rrtaCompensation: round((left.rrtaCompensation ?? 0) + (right.rrtaCompensation ?? 0), 6)
+    rrtaCompensation: round((left.rrtaCompensation ?? 0) + (right.rrtaCompensation ?? 0), 6),
+    spouseMedicareWages: round((left.spouseMedicareWages ?? 0) + (right.spouseMedicareWages ?? 0), 6),
+    spouseSocialSecurityWages,
+    spouseSelfEmploymentIncome: round((left.spouseSelfEmploymentIncome ?? 0) + (right.spouseSelfEmploymentIncome ?? 0), 6)
   };
 }
 

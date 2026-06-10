@@ -124,6 +124,9 @@ export function computeIncomeTax({
   socialSecurityWages = null,
   selfEmploymentIncome = 0,
   rrtaCompensation = 0,
+  spouseMedicareWages = 0,
+  spouseSocialSecurityWages = null,
+  spouseSelfEmploymentIncome = 0,
   capitalLosses = 0,
   shortTermCapitalLosses,
   longTermCapitalLosses,
@@ -140,10 +143,20 @@ export function computeIncomeTax({
     ? Math.max(0, capitalLossCarryforward.longTerm ?? 0)
     : Math.max(0, capitalLossCarryforward);
 
+  // Payroll and self-employment taxes are computed PER EARNER: each spouse
+  // has their own Social Security wage base (pooling both earners' wages
+  // under one base overstated the cap), while the Additional Medicare Tax
+  // threshold applies to the couple's COMBINED wages/earnings per Form 8959.
   const selfEmployment = computeSelfEmploymentTax({
     selfEmploymentIncome,
     medicareWages,
     socialSecurityWages,
+    profile
+  });
+  const spouseSelfEmployment = computeSelfEmploymentTax({
+    selfEmploymentIncome: spouseSelfEmploymentIncome,
+    medicareWages: spouseMedicareWages,
+    socialSecurityWages: spouseSocialSecurityWages,
     profile
   });
   const employeePayroll = computeEmployeePayrollTax({
@@ -151,7 +164,12 @@ export function computeIncomeTax({
     socialSecurityWages,
     profile
   });
-  const adjustments = round(Math.max(0, adjustmentsToIncome) + selfEmployment.deduction, 6);
+  const spouseEmployeePayroll = computeEmployeePayrollTax({
+    medicareWages: spouseMedicareWages,
+    socialSecurityWages: spouseSocialSecurityWages,
+    profile
+  });
+  const adjustments = round(Math.max(0, adjustmentsToIncome) + selfEmployment.deduction + spouseSelfEmployment.deduction, 6);
   const netting = netCapitalGainsAndLosses({
     shortTermCapitalGains,
     longTermCapitalGains,
@@ -211,15 +229,15 @@ export function computeIncomeTax({
     profile
   });
   const additionalMedicare = computeAdditionalMedicareTax({
-    medicareWages,
-    selfEmploymentIncome: selfEmployment.taxableEarnings,
+    medicareWages: medicareWages + Math.max(0, spouseMedicareWages),
+    selfEmploymentIncome: selfEmployment.taxableEarnings + spouseSelfEmployment.taxableEarnings,
     rrtaCompensation,
     profile
   });
   const earnedIncomeForRefundableCredits = computeEarnedIncomeForRefundableChildCredit({
-    medicareWages,
-    selfEmploymentIncome,
-    selfEmploymentTaxDeduction: selfEmployment.deduction,
+    medicareWages: medicareWages + Math.max(0, spouseMedicareWages),
+    selfEmploymentIncome: selfEmploymentIncome + Math.max(0, spouseSelfEmploymentIncome),
+    selfEmploymentTaxDeduction: selfEmployment.deduction + spouseSelfEmployment.deduction,
     rrtaCompensation
   });
   const additionalCredits = round(Math.max(0, profile.additionalCredits ?? 0), 6);
@@ -312,6 +330,14 @@ export function computeIncomeTax({
     selfEmploymentTaxDeduction: selfEmployment.deduction,
     selfEmploymentSocialSecurityWageBase: selfEmployment.socialSecurityWageBase,
     selfEmploymentRemainingSocialSecurityWageBase: selfEmployment.remainingSocialSecurityWageBase,
+    spouseEmployeePayrollTax: spouseEmployeePayroll.tax,
+    spouseEmployeeSocialSecurityTax: spouseEmployeePayroll.socialSecurityTax,
+    spouseEmployeeMedicareTax: spouseEmployeePayroll.medicareTax,
+    spouseSelfEmploymentTax: spouseSelfEmployment.tax,
+    spouseSelfEmploymentTaxDeduction: spouseSelfEmployment.deduction,
+    spouseSelfEmploymentTaxableEarnings: spouseSelfEmployment.taxableEarnings,
+    spouseMedicareWages: round(Math.max(0, spouseMedicareWages), 6),
+    spouseSocialSecurityWages: spouseEmployeePayroll.socialSecurityWages,
     additionalMedicareTax: additionalMedicare.tax,
     additionalMedicareTaxBase: additionalMedicare.taxBase,
     additionalMedicareWageBase: additionalMedicare.wageBase,
@@ -319,7 +345,7 @@ export function computeIncomeTax({
     additionalMedicareRrtaBase: additionalMedicare.rrtaBase,
     additionalMedicareThreshold: additionalMedicare.threshold,
     stateTax,
-    totalTax: round(netFederalIncomeTaxAfterRefundableCredits + niitTax + employeePayroll.tax + selfEmployment.tax + additionalMedicare.tax + stateTax, 6),
+    totalTax: round(netFederalIncomeTaxAfterRefundableCredits + niitTax + employeePayroll.tax + spouseEmployeePayroll.tax + selfEmployment.tax + spouseSelfEmployment.tax + additionalMedicare.tax + stateTax, 6),
     lossCarryforward: round(lossPool, 6),
     lossCarryforwardShort: round(shortLossPool, 6),
     lossCarryforwardLong: round(longLossPool, 6)

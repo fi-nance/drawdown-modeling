@@ -23,6 +23,14 @@ A browser-based, tax-aware retirement decumulation planner with Monte Carlo simu
 - Social Security claiming solver (coarse claiming-age 62-70 grid as a solver dimension, rescaling benefits per age), opt-in earnings-to-PIA estimation with source-versioned SSA 2026 bend points (a coarse single-year proxy, off by default), taxable benefit modeling, forced RMDs, age-65 standard-deduction bumps, the 2025-2028 enhanced senior deduction with MAGI phaseout, and Medicare Part B/D IRMAA estimates
 - Detailed legacy planner with heir-specific rules (spouse rollover, non-spouse 10-year distributions stacked progressively to simulate bracket compression, eligible-designated life-expectancy stretch), Federal Estate Tax (40% above the 2026 $15M per-decedent exclusion; spouse exempt), and lineal-heir state inheritance tax (PA 4.5%, NE 1%; NJ/MD exempt lineal heirs)
 - Target spend controls that can include or exclude taxes and medical costs
+- Opt-in age-banded spending (go-go/slow-go/no-go "retirement smile") that scales fixed and essential/discretionary spending by phase percentages on the primary's age clock
+- Opt-in long-term-care stress test: a medical-inflated annual care cost for a selected member over a configurable age window
+- Opt-in AR(1) inflation persistence for Monte Carlo inflation paths (variance-preserving serial correlation; 0 keeps the historical independent draws bit-identically)
+- Per-account ownership (`owner`: primary/spouse/joint) driving per-owner RMD ages and factors, per-asset early-withdrawal penalty and HSA age-65 rules, and an opt-in survivor basis step-up on taxable lots at the first death
+- Spouse earned-income inputs that count as household income with per-person Social Security wage bases, per-person Schedule SE, and the combined Form 8959 Additional Medicare Tax threshold
+- First-class recurring income streams (pension/annuity/rent/other) with owner age start/end, optional COLA, survivor percentage, ordinary or tax-free character, and state retirement-income exclusion eligibility
+- Medigap/Medicare Advantage supplemental premium input billed per enrolled member alongside Part B/D
+- Heir tax-law indexing control: death-year indexed (default) or frozen at 2026 nominal amounts for conservative planning
 - Workspace planning runs require at least $1,000/year of target spending (or combined essential/discretionary spending) so engine edge-test values like $0 do not look like normal household plans
 - One-off cash flows by year or year range, fixed or inflation adjusted, as expenses, taxable ordinary income, tax-free income, Medicare wages, self-employment income, or RRTA compensation
 - CSV and JSON imports, a sample CSV template, public Google Sheets CSV import, private Google Sheets OAuth import, privacy mode for disabling external lookup helpers, and full setup backup/restore, including the decision profile

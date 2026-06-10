@@ -28,6 +28,28 @@ export function traditionalAccountValue(portfolio) {
     .reduce((total, asset) => total + marketValue(asset), 0), 6);
 }
 
+// Canonical owner for an asset. Untagged assets belong to the primary (the
+// pre-owner-dimension behavior); "joint" only applies to taxable accounts —
+// retirement accounts are individually owned, so a stray joint tag on one
+// resolves to primary.
+export function assetOwner(asset) {
+  if (asset?.owner === "spouse") return "spouse";
+  if (asset?.owner === "joint" && asset?.accountType === "taxable") return "joint";
+  return "primary";
+}
+
+// Traditional balances split by owner for per-owner RMD math. Joint never
+// applies to traditional accounts, so the split is primary/spouse only.
+export function traditionalAccountValueByOwner(portfolio) {
+  const byOwner = { primary: 0, spouse: 0 };
+  for (const asset of portfolio) {
+    if (asset.accountType !== "traditional") continue;
+    const owner = assetOwner(asset) === "spouse" ? "spouse" : "primary";
+    byOwner[owner] += marketValue(asset);
+  }
+  return { primary: round(byOwner.primary, 6), spouse: round(byOwner.spouse, 6) };
+}
+
 export function addTaxableCash(portfolio, amount, calendarYear) {
   const cashAmount = round(Math.max(0, amount), 6);
   if (cashAmount <= 0) return;

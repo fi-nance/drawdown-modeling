@@ -38,6 +38,9 @@ export function normalizeSetupState(state) {
   if (state.oneOffExpenses != null && !Array.isArray(state.oneOffExpenses)) {
     throw new Error("Setup backup one-off expenses must be an array.");
   }
+  if (state.incomeStreams != null && !Array.isArray(state.incomeStreams)) {
+    throw new Error("Setup backup income streams must be an array.");
+  }
   if (state.redesign != null && (typeof state.redesign !== "object" || Array.isArray(state.redesign))) {
     throw new Error("Setup backup redesign state must be an object.");
   }
@@ -50,6 +53,7 @@ export function normalizeSetupState(state) {
     assets: copyObjectArray(state.assets, "assets"),
     oneOffExpenses: copyObjectArray(state.oneOffExpenses ?? [], "one-off expenses")
   };
+  if (state.incomeStreams != null) normalized.incomeStreams = copyObjectArray(state.incomeStreams, "income streams");
   if (state.redesign != null) normalized.redesign = copyPlainObject(state.redesign);
   if (state.decisionProfile != null) normalized.decisionProfile = copyPlainObject(state.decisionProfile);
   return normalized;

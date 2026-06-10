@@ -530,7 +530,7 @@ function lifetimeWithdrawalScore(plan, config, evaluationContext) {
     eligibleDesignatedTaxDiscount: scenario?.eligibleDesignatedTaxDiscount,
     heirBaseIncome: scenario?.heirBaseIncome,
     heirAge: scenario?.heirAge,
-    inflationIndex: evaluationContext?.inflationIndex
+    inflationIndex: scenario?.heirTaxIndexing === "frozen2026" ? 1 : evaluationContext?.inflationIndex
   };
   if (inheritanceTaxState !== undefined) heirValueOptions.state = inheritanceTaxState;
   const heirValue = plan.portfolio

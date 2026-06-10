@@ -51,6 +51,9 @@ function combineIncome({
     socialSecurityWages: earnedIncome.socialSecurityWages,
     selfEmploymentIncome: earnedIncome.selfEmploymentIncome,
     rrtaCompensation: earnedIncome.rrtaCompensation,
+    spouseMedicareWages: earnedIncome.spouseMedicareWages ?? 0,
+    spouseSocialSecurityWages: earnedIncome.spouseSocialSecurityWages ?? null,
+    spouseSelfEmploymentIncome: earnedIncome.spouseSelfEmploymentIncome ?? 0,
     taxableSocialSecurity: taxableSocialSecurityAmount,
     nonTaxableSocialSecurity: Math.max(0, socialSecurityTotal - taxableSocialSecurityAmount),
     shortTermCapitalGains: strategyShortTermGains + withdrawal.shortTermCapitalGains,
@@ -136,7 +139,15 @@ export function federalAgiForIncome(
     socialSecurityWages: income.socialSecurityWages,
     profile: taxProfile
   });
-  const adjustments = Math.max(0, income.adjustmentsToIncome ?? 0) + selfEmployment.deduction;
+  // The spouse's half-SE-tax deduction also reduces AGI (computed against the
+  // spouse's OWN Social Security wage base). Zero spouse inputs → zero.
+  const spouseSelfEmployment = computeSelfEmploymentTax({
+    selfEmploymentIncome: income.spouseSelfEmploymentIncome ?? 0,
+    medicareWages: income.spouseMedicareWages ?? 0,
+    socialSecurityWages: income.spouseSocialSecurityWages ?? null,
+    profile: taxProfile
+  });
+  const adjustments = Math.max(0, income.adjustmentsToIncome ?? 0) + selfEmployment.deduction + spouseSelfEmployment.deduction;
   const carryforward = normalizeLossCarryforward(lossCarryforward);
   const netResult = netCapitalGainsAndLosses({
     shortTermCapitalGains: income.shortTermCapitalGains,

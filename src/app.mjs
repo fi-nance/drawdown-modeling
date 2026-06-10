@@ -197,7 +197,23 @@ const CONTROL_IDS = [
   "medicarePartBEnrollees",
   "medicarePartDEnrollees",
   "medicarePartDMonthlyPremium",
+  "medicareMedigapMonthlyPremium",
   "medicareAnnualOopBase",
+  "rmdSpouseStartAge",
+  "agePhasedSpending",
+  "slowGoAge",
+  "slowGoPercent",
+  "noGoAge",
+  "noGoPercent",
+  "ltcStressEnabled",
+  "ltcStressMember",
+  "ltcStressStartAge",
+  "ltcStressYears",
+  "ltcStressAnnualCost",
+  "heirTaxIndexing",
+  "survivorStepUpEnabled",
+  "survivorStepUpJointPercent",
+  "mcInflationPersistence",
   "twoYearsPriorMagi",
   "priorYearMagi",
   "mfsLivedTogether",
@@ -400,7 +416,35 @@ const els = {
   medicarePartBEnrollees: document.querySelector("#medicarePartBEnrollees"),
   medicarePartDEnrollees: document.querySelector("#medicarePartDEnrollees"),
   medicarePartDMonthlyPremium: document.querySelector("#medicarePartDMonthlyPremium"),
+  medicareMedigapMonthlyPremium: document.querySelector("#medicareMedigapMonthlyPremium"),
   medicareAnnualOopBase: document.querySelector("#medicareAnnualOopBase"),
+  rmdSpouseStartAge: document.querySelector("#rmdSpouseStartAge"),
+  agePhasedSpending: document.querySelector("#agePhasedSpending"),
+  slowGoAge: document.querySelector("#slowGoAge"),
+  slowGoPercent: document.querySelector("#slowGoPercent"),
+  noGoAge: document.querySelector("#noGoAge"),
+  noGoPercent: document.querySelector("#noGoPercent"),
+  ltcStressEnabled: document.querySelector("#ltcStressEnabled"),
+  ltcStressMember: document.querySelector("#ltcStressMember"),
+  ltcStressStartAge: document.querySelector("#ltcStressStartAge"),
+  ltcStressYears: document.querySelector("#ltcStressYears"),
+  ltcStressAnnualCost: document.querySelector("#ltcStressAnnualCost"),
+  heirTaxIndexing: document.querySelector("#heirTaxIndexing"),
+  survivorStepUpEnabled: document.querySelector("#survivorStepUpEnabled"),
+  survivorStepUpJointPercent: document.querySelector("#survivorStepUpJointPercent"),
+  mcInflationPersistence: document.querySelector("#mcInflationPersistence"),
+  incomeStreamName: document.querySelector("#incomeStreamName"),
+  incomeStreamType: document.querySelector("#incomeStreamType"),
+  incomeStreamOwner: document.querySelector("#incomeStreamOwner"),
+  incomeStreamStartAge: document.querySelector("#incomeStreamStartAge"),
+  incomeStreamEndAge: document.querySelector("#incomeStreamEndAge"),
+  incomeStreamAmount: document.querySelector("#incomeStreamAmount"),
+  incomeStreamSurvivorPercent: document.querySelector("#incomeStreamSurvivorPercent"),
+  incomeStreamTaxCharacter: document.querySelector("#incomeStreamTaxCharacter"),
+  incomeStreamCola: document.querySelector("#incomeStreamCola"),
+  incomeStreamStateRetirement: document.querySelector("#incomeStreamStateRetirement"),
+  addIncomeStream: document.querySelector("#addIncomeStream"),
+  incomeStreamList: document.querySelector("#incomeStreamList"),
   twoYearsPriorMagi: document.querySelector("#twoYearsPriorMagi"),
   priorYearMagi: document.querySelector("#priorYearMagi"),
   mfsLivedTogether: document.querySelector("#mfsLivedTogether"),
@@ -506,6 +550,7 @@ const els = {
 
 let assets = sampleAssets.map((asset) => ({ ...asset }));
 let oneOffExpenses = defaultOneOffExpenses.map((expense) => ({ ...expense }));
+let incomeStreams = [];
 let selectedYearIndex = 0;
 let selectedScenarioId = null;
 let selectedBacktestIndex = null;
@@ -729,6 +774,7 @@ function initialize() {
   syncJsonFromAssets();
   renderAssetTable();
   renderOneOffs();
+  renderIncomeStreams();
   bindEvents();
   // Restore previously-rendered results from sessionStorage so a refresh paints
   // the page immediately (instead of staring at empty panels while the worker
@@ -916,6 +962,7 @@ function bindEvents() {
       syncJsonFromAssets();
       renderAssetTable();
       renderOneOffs();
+      renderIncomeStreams();
       saveStoredState();
       runModels();
       const message = `Loaded setup from ${file.name}. ${assets.length} assets loaded.`;
@@ -942,6 +989,23 @@ function bindEvents() {
       inflationAdjusted: els.oneOffInflation.checked
     });
     renderOneOffs();
+    saveStoredState();
+  });
+
+  els.addIncomeStream?.addEventListener("click", () => {
+    incomeStreams.push({
+      name: els.incomeStreamName?.value || "",
+      type: els.incomeStreamType?.value || "pension",
+      owner: els.incomeStreamOwner?.value === "spouse" ? "spouse" : "primary",
+      startAge: Number(els.incomeStreamStartAge?.value) || 65,
+      endAge: numberOrNull(els.incomeStreamEndAge?.value),
+      annualAmount: Number(els.incomeStreamAmount?.value) || 0,
+      survivorPercent: numberOrNull(els.incomeStreamSurvivorPercent?.value) ?? 0,
+      taxCharacter: els.incomeStreamTaxCharacter?.value === "taxFree" ? "taxFree" : "ordinary",
+      inflationAdjusted: els.incomeStreamCola?.checked !== false,
+      stateRetirementIncome: els.incomeStreamStateRetirement?.checked === true
+    });
+    renderIncomeStreams();
     saveStoredState();
   });
 }
@@ -1588,6 +1652,7 @@ function setupStateSnapshot() {
     decisionProfile: decisionProfileStateSnapshot(),
     assets,
     oneOffExpenses,
+    incomeStreams,
     ...(redesign ? { redesign } : {})
   };
 }
@@ -1636,6 +1701,9 @@ function applySetupState(stored) {
   if (Array.isArray(stored.oneOffExpenses)) {
     oneOffExpenses = stored.oneOffExpenses.map((expense) => ({ ...expense }));
   }
+  if (Array.isArray(stored.incomeStreams)) {
+    incomeStreams = stored.incomeStreams.map((stream) => ({ ...stream }));
+  }
 
   for (const [id, value] of Object.entries(stored.controls ?? {})) {
     const input = document.querySelector(`#${id}`);
@@ -1672,6 +1740,10 @@ function applyRescueScenarioToWorkspace(scenario = {}, { label = "rescue scenari
     if (Array.isArray(scenario.oneOffExpenses)) {
       oneOffExpenses = scenario.oneOffExpenses.map((expense) => ({ ...expense }));
       renderOneOffs();
+    }
+    if (Array.isArray(scenario.incomeStreams)) {
+      incomeStreams = scenario.incomeStreams.map((stream) => ({ ...stream }));
+      renderIncomeStreams();
     }
     appliedRescueScenarioOverride = extractRescueScenarioOverride(scenario);
     syncSpendingStrategyControls();
@@ -1782,7 +1854,25 @@ function applyScenarioControls(scenario) {
   setOptionalNumberControl("medicarePartBEnrollees", scenario.medicare?.partBEnrollees);
   setOptionalNumberControl("medicarePartDEnrollees", scenario.medicare?.partDEnrollees);
   setOptionalNumberControl("medicarePartDMonthlyPremium", scenario.medicare?.partDMonthlyPremium);
+  setOptionalNumberControl("medicareMedigapMonthlyPremium", scenario.medicare?.medigapMonthlyPremium);
   setOptionalNumberControl("medicareAnnualOopBase", scenario.medicare?.annualOopBase);
+  setOptionalNumberControl("rmdSpouseStartAge", scenario.rmd?.spouseStartAge);
+  setCheckedControl("agePhasedSpending", scenario.agePhasedSpending?.enabled);
+  setOptionalNumberControl("slowGoAge", scenario.agePhasedSpending?.slowGoAge);
+  setOptionalNumberControl("slowGoPercent", scenario.agePhasedSpending?.slowGoPercent);
+  setOptionalNumberControl("noGoAge", scenario.agePhasedSpending?.noGoAge);
+  setOptionalNumberControl("noGoPercent", scenario.agePhasedSpending?.noGoPercent);
+  setCheckedControl("ltcStressEnabled", scenario.ltcStress?.enabled);
+  setValueControl("ltcStressMember", scenario.ltcStress?.member ?? "primary");
+  setOptionalNumberControl("ltcStressStartAge", scenario.ltcStress?.startAge);
+  setOptionalNumberControl("ltcStressYears", scenario.ltcStress?.years);
+  setOptionalNumberControl("ltcStressAnnualCost", scenario.ltcStress?.annualCost);
+  setCheckedControl("survivorStepUpEnabled", scenario.survivorStepUp?.enabled);
+  setOptionalNumberControl("survivorStepUpJointPercent", scenario.survivorStepUp?.jointBasisStepUpPercent);
+  setValueControl("heirTaxIndexing", scenario.heirTaxIndexing === "frozen2026" ? "frozen2026" : "indexed");
+  if (Number.isFinite(Number(scenario.monteCarlo?.inflationPersistence))) {
+    setNumberControl("mcInflationPersistence", Math.round(Number(scenario.monteCarlo.inflationPersistence) * 100));
+  }
   setOptionalNumberControl("twoYearsPriorMagi", scenario.medicare?.twoYearsPriorMagi);
   setOptionalNumberControl("priorYearMagi", scenario.medicare?.priorYearMagi);
   setOptionalNumberControl("maxIrmaaTier", scenario.medicare?.maxIrmaaTier);
@@ -3531,6 +3621,11 @@ function renderAssetTable() {
     { value: "nonSpouse10Yr", label: "Non-spouse 10-year" },
     { value: "eligibleDesignated", label: "Eligible stretch" }
   ];
+  const ownerOptions = [
+    { value: "primary", label: "Primary" },
+    { value: "spouse", label: "Spouse" },
+    { value: "joint", label: "Joint (taxable)" }
+  ];
   // data-label on each <td> lets the narrow-viewport CSS reflow this editable
   // table into stacked cards (see .asset-table reflow in styles.css), so every
   // holding field is visible without horizontal scrolling on a phone.
@@ -3545,6 +3640,7 @@ function renderAssetTable() {
       <td data-label="Yield"><input data-index="${index}" data-field="dividendYield" type="number" step="0.001" value="${asset.dividendYield ?? 0}"></td>
       <td data-label="Qualified"><input data-index="${index}" data-field="qualifiedDividendShare" type="number" step="0.05" min="0" max="1" value="${asset.qualifiedDividendShare ?? 0}"></td>
       <td data-label="Term">${selectHtml(index, "holdingPeriod", holdingOptions, asset.holdingPeriod ?? "long")}</td>
+      <td data-label="Owner">${selectHtml(index, "owner", ownerOptions, asset.owner ?? "primary")}</td>
       <td data-label="Beneficiary">${selectHtml(index, "beneficiaryType", beneficiaryOptions, asset.beneficiaryType ?? "default")}</td>
       <td data-label="">${`<button type="button" data-remove="${index}">Remove</button>`}</td>
     </tr>
@@ -3554,7 +3650,7 @@ function renderAssetTable() {
     <table>
       <thead>
         <tr>
-          <th>Name</th><th>Account</th><th>Class</th><th>Units</th><th>Price</th><th>Basis</th><th>Yield</th><th>Qualified</th><th>Term</th><th>Beneficiary</th><th></th>
+          <th>Name</th><th>Account</th><th>Class</th><th>Units</th><th>Price</th><th>Basis</th><th>Yield</th><th>Qualified</th><th>Term</th><th>Owner</th><th>Beneficiary</th><th></th>
         </tr>
       </thead>
       <tbody>${rows}</tbody>
@@ -3605,6 +3701,41 @@ function renderOneOffs() {
       saveStoredState();
     });
   });
+}
+
+function renderIncomeStreams() {
+  if (!els.incomeStreamList) return;
+  if (!incomeStreams.length) {
+    els.incomeStreamList.innerHTML = `<p class="empty-state">No recurring income streams.</p>`;
+    return;
+  }
+
+  els.incomeStreamList.innerHTML = incomeStreams.map((stream, index) => `
+    <div class="one-off-item">
+      <div>
+        <strong>${escapeHtml(stream.name || incomeStreamTypeLabel(stream.type))}</strong>
+        <span>${incomeStreamTypeLabel(stream.type)}; ${stream.owner === "spouse" ? "spouse" : "primary"} from age ${stream.startAge}${stream.endAge != null ? `-${stream.endAge}` : " for life"}, ${moneyFormatter.format(stream.annualAmount)}/yr${stream.inflationAdjusted === false ? " fixed" : " COLA"}, survivor ${Math.max(0, Number(stream.survivorPercent) || 0)}%${stream.taxCharacter === "taxFree" ? ", tax-free" : ""}</span>
+      </div>
+      <button type="button" data-remove-income-stream="${index}">Remove</button>
+    </div>
+  `).join("");
+
+  els.incomeStreamList.querySelectorAll("[data-remove-income-stream]").forEach((button) => {
+    button.addEventListener("click", () => {
+      incomeStreams.splice(Number(button.dataset.removeIncomeStream), 1);
+      renderIncomeStreams();
+      saveStoredState();
+    });
+  });
+}
+
+function incomeStreamTypeLabel(type) {
+  return {
+    pension: "Pension",
+    annuity: "Annuity",
+    rent: "Rental income",
+    other: "Recurring income"
+  }[type] ?? "Recurring income";
 }
 
 function normalizedOneOffCashFlowType(type) {
@@ -4497,13 +4628,15 @@ function readScenario() {
     spouseSocialSecurityInflationAdjusted: els.spouseSocialSecurityInflationAdjusted.checked,
     rmd: {
       enabled: els.rmdEnabled.checked,
-      startAge: numberOrNull(els.rmdStartAge.value)
+      startAge: numberOrNull(els.rmdStartAge.value),
+      spouseStartAge: numberOrNull(els.rmdSpouseStartAge?.value)
     },
     medicare: {
       irmaaEnabled: els.irmaaEnabled.checked,
       partBEnrollees: numberOrNull(els.medicarePartBEnrollees.value),
       partDEnrollees: numberOrNull(els.medicarePartDEnrollees.value),
       partDMonthlyPremium: numberOrNull(els.medicarePartDMonthlyPremium.value) ?? 0,
+      medigapMonthlyPremium: numberOrNull(els.medicareMedigapMonthlyPremium?.value) ?? 0,
       annualOopBase: numberOrNull(els.medicareAnnualOopBase?.value),
       twoYearsPriorMagi: numberOrNull(els.twoYearsPriorMagi.value),
       priorYearMagi: numberOrNull(els.priorYearMagi.value),
@@ -4571,10 +4704,31 @@ function readScenario() {
         ? els.mcPreset.value
         : DEFAULT_SCENARIO.monteCarlo.assumptionPreset,
       samplingMode: normalizeMonteCarloSamplingMode(els.mcSamplingMode?.value),
-      meanReversion: readMonteCarloMeanReversion()
+      meanReversion: readMonteCarloMeanReversion(),
+      inflationPersistence: Math.max(0, Math.min(0.95, (numberOrNull(els.mcInflationPersistence?.value) ?? 0) / 100))
     },
     returnAssumptions: readMonteCarloReturnAssumptions(),
     oneOffExpenses,
+    incomeStreams,
+    agePhasedSpending: {
+      enabled: els.agePhasedSpending?.checked === true,
+      slowGoAge: numberOrNull(els.slowGoAge?.value) ?? 76,
+      slowGoPercent: numberOrNull(els.slowGoPercent?.value) ?? 85,
+      noGoAge: numberOrNull(els.noGoAge?.value) ?? 86,
+      noGoPercent: numberOrNull(els.noGoPercent?.value) ?? 75
+    },
+    ltcStress: {
+      enabled: els.ltcStressEnabled?.checked === true,
+      member: els.ltcStressMember?.value === "spouse" ? "spouse" : "primary",
+      startAge: numberOrNull(els.ltcStressStartAge?.value) ?? 85,
+      years: numberOrNull(els.ltcStressYears?.value) ?? 3,
+      annualCost: numberOrNull(els.ltcStressAnnualCost?.value) ?? 100000
+    },
+    survivorStepUp: {
+      enabled: els.survivorStepUpEnabled?.checked === true,
+      jointBasisStepUpPercent: numberOrNull(els.survivorStepUpJointPercent?.value) ?? 50
+    },
+    heirTaxIndexing: els.heirTaxIndexing?.value === "frozen2026" ? "frozen2026" : "indexed",
     taxLossHarvesting: {
       enabled: els.taxLossHarvesting.checked,
       mode: numberOrNull(els.tlhMax.value) == null ? "auto" : "manual",
