@@ -111,7 +111,7 @@ export function plannedSpendingDetailForYear(scenario, planYear, inflationIndex,
   const scheduled = oneOffCashFlows ?? oneOffCashFlowsForYear(scenario, planYear, inflationIndex);
   const strategy = spendingStrategyConfig(scenario);
   const oneOffExpenses = round(scheduled.expenses, 6);
-  const spendingPhase = agePhasedSpendingForYear(scenario, planYear);
+  const fixedSpendingPhase = agePhasedSpendingForYear(scenario, planYear);
 
   if (passedBaseSpend !== null) {
     // Dynamic strategies (Guyton-Klinger, Kitces, VPW, risk-based guardrails)
@@ -135,8 +135,8 @@ export function plannedSpendingDetailForYear(scenario, planYear, inflationIndex,
   }
 
   if (strategy.mode === "discretionaryGuardrails") {
-    const essentialSpend = round(strategy.essentialSpend * (strategy.essentialInflationAdjusted ? inflationIndex : 1) * spendingPhase.percent, 6);
-    const discretionaryBudget = round(strategy.discretionarySpend * (strategy.discretionaryInflationAdjusted ? inflationIndex : 1) * spendingPhase.percent, 6);
+    const essentialSpend = round(strategy.essentialSpend * (strategy.essentialInflationAdjusted ? inflationIndex : 1), 6);
+    const discretionaryBudget = round(strategy.discretionarySpend * (strategy.discretionaryInflationAdjusted ? inflationIndex : 1), 6);
     const discretionaryPercent = Number.isFinite(Number(spendingGuardrail?.discretionaryPercent))
       ? Math.max(0, Math.min(1, Number(spendingGuardrail.discretionaryPercent)))
       : 1;
@@ -150,7 +150,7 @@ export function plannedSpendingDetailForYear(scenario, planYear, inflationIndex,
       discretionarySpend,
       oneOffExpenses,
       guardrail: spendingGuardrail,
-      spendingPhase: spendingPhase.phase ? spendingPhase : null,
+      spendingPhase: null,
       strategy: {
         mode: strategy.mode,
         essentialInflationAdjusted: strategy.essentialInflationAdjusted,
@@ -162,7 +162,7 @@ export function plannedSpendingDetailForYear(scenario, planYear, inflationIndex,
 
   const baseSpend = (scenario.targetSpend ?? 0)
     * (scenario.targetSpendInflationAdjusted === false ? 1 : inflationIndex)
-    * spendingPhase.percent;
+    * fixedSpendingPhase.percent;
   const total = round(baseSpend + oneOffExpenses, 6);
   return {
     total,
@@ -172,7 +172,7 @@ export function plannedSpendingDetailForYear(scenario, planYear, inflationIndex,
     discretionarySpend: 0,
     oneOffExpenses,
     guardrail: null,
-    spendingPhase: spendingPhase.phase ? spendingPhase : null,
+    spendingPhase: fixedSpendingPhase.phase ? fixedSpendingPhase : null,
     strategy: { mode: "fixed", discretionaryPercent: 1 }
   };
 }

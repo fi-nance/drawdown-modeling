@@ -183,6 +183,39 @@ test("age-banded spending does not alter dynamic strategies (Guyton-Klinger)", (
   );
 });
 
+test("age-banded spending does not alter discretionary guardrail strategy", () => {
+  const base = quietScenario({
+    planYears: 3,
+    currentAge: 74,
+    targetSpend: 10000,
+    spendingStrategy: {
+      mode: "discretionaryGuardrails",
+      essentialSpend: 6000,
+      discretionarySpend: 4000,
+      essentialInflationAdjusted: false,
+      discretionaryInflationAdjusted: false
+    }
+  });
+  const run = (scenario) => simulatePlan({
+    assets: [cashAsset()],
+    scenario,
+    taxProfile: flatZeroProfile(),
+    ...zeroSequences(3)
+  }).years;
+
+  const withSmile = run({
+    ...base,
+    agePhasedSpending: { enabled: true, slowGoAge: 75, slowGoPercent: 50, noGoAge: 76, noGoPercent: 25 }
+  });
+  const withoutSmile = run(base);
+
+  assert.deepEqual(
+    withSmile.map((year) => year.plannedSpending),
+    withoutSmile.map((year) => year.plannedSpending)
+  );
+  assert.deepEqual(withSmile.map((year) => year.spendingPhase), [null, null, null]);
+});
+
 // ─── Heir tax-law indexing control ───────────────────────────────────────────
 
 test("heirTaxIndexing frozen2026 pins heir tax parameters at index 1", () => {
