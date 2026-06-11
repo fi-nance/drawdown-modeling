@@ -29,58 +29,65 @@ test("isSbeState correctly flags SBE and FFM states", () => {
   assert.equal(isSbeState("NC"), false);
 });
 
-test("SBE ZIPs resolve offline to SBE rating-area SLCSPs with no fallback", () => {
-  // California Los Angeles (90012 -> CA-15)
+test("SBM-PUF states resolve offline through the main rate-derived path with no fallback", () => {
+  // Phase 4: these values are the CMS SBM QHP PUF filed rates, not the old
+  // hand-maintained estimates.
+  // California Los Angeles (90012 → CA-16 via the GRA zip3 split).
   const ca = slcspMonthlyFor({ zip: "90012", age: 40 });
   assert.equal(ca.fallback, null);
   assert.equal(ca.ratingArea.state, "CA");
-  assert.equal(ca.ratingArea.areaCode, 15);
-  assert.equal(ca.ratingArea.source, "SBE Rating Area Mapping");
-  assert.equal(ca.monthlyPremium, 515.00); // 2026 LA SLCSP at age 40
+  assert.equal(ca.ratingArea.areaCode, 16);
+  assert.equal(ca.ratingArea.methodology, "zip3");
+  assert.equal(ca.monthlyPremium, 459.46); // Covered CA filed age-40 SLCSP
+  assert.match(ca.sources.slcsp, /State-Based Marketplace/);
 
-  // New York NYC (10001 -> NY-6)
+  // New York NYC (10001 → NY-4 per the CMS GRA federal-systems numbering).
   const ny = slcspMonthlyFor({ zip: "10001", age: 40 });
   assert.equal(ny.fallback, null);
   assert.equal(ny.ratingArea.state, "NY");
-  assert.equal(ny.ratingArea.areaCode, 6);
-  assert.equal(ny.monthlyPremium, 835.00); // flat community premium
+  assert.equal(ny.ratingArea.areaCode, 4);
+  assert.equal(ny.monthlyPremium, 585.20); // flat community premium
 
-  // Washington Snohomish (98201 -> WA-4)
+  // Washington Snohomish (98201 → WA-8) — a COUNTY-level benchmark: the
+  // county's available silver plan set differs from its rating area's.
   const wa = slcspMonthlyFor({ zip: "98201", age: 40 });
   assert.equal(wa.fallback, null);
   assert.equal(wa.ratingArea.state, "WA");
-  assert.equal(wa.ratingArea.areaCode, 4);
-  assert.equal(wa.monthlyPremium, 595.00);
+  assert.equal(wa.benchmarkLevel, "county");
+  assert.equal(wa.monthlyPremium, 649.99);
 });
 
 test("NY and VT apply flat community rating (no age penalization)", () => {
-  // NY NYC (10001) - age 21 vs age 60
+  // NY NYC (10001) - age 21 vs age 60: identical filed rates at every adult age.
   const ny21 = slcspMonthlyFor({ zip: "10001", age: 21 });
   const ny60 = slcspMonthlyFor({ zip: "10001", age: 60 });
-  assert.equal(ny21.monthlyPremium, 835.00);
-  assert.equal(ny60.monthlyPremium, 835.00);
+  assert.equal(ny21.monthlyPremium, 585.20);
+  assert.equal(ny60.monthlyPremium, 585.20);
   assert.equal(ny21.ageRatingFactorTotal, 1);
   assert.equal(ny60.ageRatingFactorTotal, 1);
 
-  // VT Burlington (05401) - age 21 vs age 64
+  // VT Burlington (05401) - age 21 vs age 64. VT files family-tier rates; the
+  // adult schedule is the flat INDIVIDUAL RATE and children carry the
+  // tier-derived marginal dependent cost (P+1-dependent minus individual).
   const vt21 = slcspMonthlyFor({ zip: "05401", age: 21 });
   const vt64 = slcspMonthlyFor({ zip: "05401", age: 64 });
-  assert.equal(vt21.monthlyPremium, 1299.00);
-  assert.equal(vt64.monthlyPremium, 1299.00);
+  assert.equal(vt21.monthlyPremium, 1298.94);
+  assert.equal(vt64.monthlyPremium, 1298.94);
+  const vtChild = slcspMonthlyFor({ zip: "05401", age: 10 });
+  assert.equal(vtChild.monthlyPremium, 1208.01);
+  assert.ok(vtChild.monthlyPremium < vt21.monthlyPremium, "VT child rate derives from the family tiers");
 });
 
-test("Standard SBE states (like CA) apply standard federal age curve", () => {
-  // CA (90012) at age 40 is $515.
-  // Age 40 factor is 1.278. Age 21 factor is 1.0.
-  // base21 = 515 / 1.278 ≈ 402.97
+test("age-rated SBM states (like CA) use the issuer's filed per-age rates", () => {
+  // Phase 4 replaced the federal-default-curve approximation with the actual
+  // filed per-age schedule from the SBM Rate PUF.
   const ca21 = slcspMonthlyFor({ zip: "90012", age: 21 });
-  assert.equal(ca21.monthlyPremium, Math.round((515 / 1.278) * 100) / 100);
-
-  // Age 60 factor is 2.714.
-  // premium at 60 = base21 * 2.714 ≈ 402.97 * 2.714 ≈ 1093.67
+  const ca40 = slcspMonthlyFor({ zip: "90012", age: 40 });
   const ca60 = slcspMonthlyFor({ zip: "90012", age: 60 });
-  assert.ok(ca60.monthlyPremium > ca21.monthlyPremium * 2.5);
-  assert.equal(ca60.monthlyPremium, Math.round(( (515 / 1.278) * 2.714 ) * 100) / 100);
+  assert.equal(ca21.monthlyPremium, 359.52);
+  assert.equal(ca40.monthlyPremium, 459.46);
+  assert.equal(ca60.monthlyPremium, 975.73);
+  assert.ok(ca60.monthlyPremium > ca21.monthlyPremium * 2.5, "filed rates rise steeply with age");
 });
 
 test("SBE multi-member household sums individual premiums and obeys minors cap", () => {
@@ -107,16 +114,22 @@ test("community-rated states do not charge children the full adult flat rate", (
   assert.equal(family.ageRatingFactorTotal, Math.round((2 + childFactor) * 1e6) / 1e6);
 });
 
-test("default-only SBE states report fallback:'state' rather than a phantom rating area", () => {
-  // MA / VT have no ZIP3 rating-area map, so they resolve to the state default.
-  // That is a state-level benchmark and must be labeled honestly so the
-  // confidence layer does not present it as rating-area-accurate.
-  for (const zip of ["02139", "05401"]) {
-    const r = slcspMonthlyFor({ zip, age: 40 });
-    assert.equal(r.fallback, "state", `${zip} should be a state fallback`);
-    assert.equal(r.ratingArea.areaCode, null);
-    assert.equal(r.ratingArea.methodology, "state-benchmark");
-  }
+test("marketplaces without any bundled table report fallback:'state' (MD)", () => {
+  // Maryland published no 2026 SBM PUF and has no ZIP3 rating-area map in the
+  // hand-built fallback, so it resolves to the state default. That is a
+  // state-level benchmark and must be labeled honestly so the confidence
+  // layer does not present it as rating-area-accurate. (MA and VT, formerly
+  // in this bucket, are now fully covered by the SBM QHP PUFs.)
+  const r = slcspMonthlyFor({ zip: "21201", age: 40 });
+  assert.equal(r.fallback, "state", "MD should be a state fallback");
+  assert.equal(r.ratingArea.areaCode, null);
+  assert.equal(r.ratingArea.methodology, "state-benchmark");
+
+  // CO also lacks a 2026 SBM PUF but retains a hand-built ZIP3 map.
+  const co = slcspMonthlyFor({ zip: "80202", age: 40 });
+  assert.equal(co.fallback, null);
+  assert.equal(co.ratingArea.state, "CO");
+  assert.equal(co.sources.slcsp, "SBE Public Rate Bulletins");
 });
 
 test("every covered SBE state has a bundled rate table (no California impersonation)", () => {
@@ -134,14 +147,15 @@ test("sbeSlcspMonthlyFor throws for a state with no bundled rate table", () => {
   assert.throws(() => sbeSlcspMonthlyFor({ state: "ZZ", zip: "00000", age: 40 }), /no bundled SBE rate table/);
 });
 
-test("computeAca uses the SBE rating-area SLCSP offline when SBE ZIP is supplied", () => {
+test("computeAca uses the SBM-PUF rating-area SLCSP offline when an SBE ZIP is supplied", () => {
   const config = buildAcaConfig({ taxYear: 2026, state: "California", householdSize: 1, marketplaceMembers: 1 });
   const withZip = computeAca({ magi: 40000, config, zip: "90012", householdAges: [40] });
 
-  // Benchmark now reflects Covered CA LA rating area (515.00/mo × 12), not the CA average ($570/mo × 12)
-  assert.equal(withZip.benchmarkPremium, 515.00 * 12);
+  // Benchmark now reflects the Covered CA LA filed SLCSP (459.46/mo × 12),
+  // not the CA state average ($570/mo × 12).
+  assert.equal(withZip.benchmarkPremium, Math.round(459.46 * 12 * 1e6) / 1e6);
   assert.equal(withZip.ratingArea.state, "CA");
-  assert.equal(withZip.ratingArea.areaCode, 15);
+  assert.equal(withZip.ratingArea.areaCode, 16);
   assert.equal(withZip.ratingArea.methodology, "zip3");
   assert.equal(withZip.benchmarkFallback, null);
 });

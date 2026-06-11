@@ -441,7 +441,7 @@ test("confidence report flags out-of-model ACA ZIPs", () => {
   assert.match(flag.detail, /out of model|does not resolve/i);
 });
 
-test("confidence reports HIGH rating-area SLCSP for a ZIP3-resolved SBE state, without claiming CMS-PUF provenance", () => {
+test("confidence reports HIGH SBM-PUF SLCSP for ingested State-Based Marketplaces (CA)", () => {
   const report = buildConfidenceReport({
     scenario: {
       aca: {
@@ -450,7 +450,7 @@ test("confidence reports HIGH rating-area SLCSP for a ZIP3-resolved SBE state, w
         premiumInputMode: "gross",
         manualOopMaximum: true,
         year: 2026,
-        zip: "90012", // Los Angeles → Covered California rating area 15
+        zip: "90012", // Los Angeles → Covered California rating area 15/16 (zip3 split)
         currentAge: 40,
         memberAges: [40]
       }
@@ -460,13 +460,13 @@ test("confidence reports HIGH rating-area SLCSP for a ZIP3-resolved SBE state, w
   const flag = report.flags.find((item) => item.id === "aca-rating-area-slcsp");
   assert.ok(flag);
   assert.equal(flag.level, CONFIDENCE_LEVELS.HIGH);
-  assert.match(flag.detail, /CA rating area 15/);
-  assert.match(flag.detail, /SBE Public Rate Bulletins/);
-  // SBE data is not from the CMS PUFs; the copy must not claim it is.
-  assert.doesNotMatch(flag.detail, /CMS/);
+  assert.match(flag.detail, /CA rating area 1[56]/);
+  // Phase 4: CA is now rate-sheet-derived from the CMS SBM QHP PUF, and the
+  // provenance copy must say so (not the old hand-maintained bulletins note).
+  assert.match(flag.detail, /State-Based Marketplace/);
 });
 
-test("confidence reports a state fallback for default-only SBE states (no phantom rating area)", () => {
+test("confidence keeps the hand-estimate provenance for SBM states without a 2026 PUF (CO)", () => {
   const report = buildConfidenceReport({
     scenario: {
       aca: {
@@ -475,7 +475,30 @@ test("confidence reports a state fallback for default-only SBE states (no phanto
         premiumInputMode: "gross",
         manualOopMaximum: true,
         year: 2026,
-        zip: "02139", // Massachusetts: SBE-covered but default-only (no rating-area map)
+        zip: "80202", // Denver → sbeRatingArea.mjs fallback (no 2026 CO SBM PUF)
+        currentAge: 40,
+        memberAges: [40]
+      }
+    }
+  });
+
+  const flag = report.flags.find((item) => item.id === "aca-rating-area-slcsp");
+  assert.ok(flag);
+  assert.equal(flag.level, CONFIDENCE_LEVELS.HIGH);
+  assert.match(flag.detail, /SBE Public Rate Bulletins/);
+  assert.doesNotMatch(flag.detail, /CMS/);
+});
+
+test("confidence reports a state fallback for marketplaces with no bundled table (MD)", () => {
+  const report = buildConfidenceReport({
+    scenario: {
+      aca: {
+        enabled: true,
+        planCostMode: "stateBenchmark",
+        premiumInputMode: "gross",
+        manualOopMaximum: true,
+        year: 2026,
+        zip: "21201", // Maryland: no 2026 SBM PUF and no ZIP3 map → state default
         currentAge: 40,
         memberAges: [40]
       }
@@ -483,7 +506,7 @@ test("confidence reports a state fallback for default-only SBE states (no phanto
   });
 
   const flag = report.flags.find((item) => item.id === "aca-benchmark-state-fallback");
-  assert.ok(flag, "default-only SBE state should be an honest state fallback, not HIGH confidence");
+  assert.ok(flag, "default-only marketplace should be an honest state fallback, not HIGH confidence");
   assert.equal(flag.level, CONFIDENCE_LEVELS.INPUT_LIMITED);
 });
 

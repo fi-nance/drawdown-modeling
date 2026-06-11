@@ -256,15 +256,18 @@ Shipped today:
   into Medicaid/CHIP handoff range in expansion states.
 
 Goal-level gaps:
-- **County/service-area-level SLCSP**, not only rating-area-level. The current
-  bundled path computes the second-lowest silver plan filed in a CMS rating
-  area; exact HealthCare.gov SLCSP can differ where plan service areas cover
-  only part of a rating area. Closing this requires incorporating Service Area
-  PUFs or state/API county-level plan availability.
-- **State-based exchange (SBE) coverage**, including CA, NY, WA, CO, CT, DC, ID,
-  KY, ME, MD, MA, MN, NV, NJ, NM, PA, RI, VT. Each SBE publishes its own data;
-  the goal is a per-state ingestion plan documented in DATA_SOURCES.md, with a
-  ZIP → state-exchange routing layer in the UI.
+- ✅ **[Shipped] County-level SLCSP** via the CMS Service Area PUFs: each
+  county's available silver plan set drives a county override wherever it
+  yields a different benchmark than the rating area (`benchmarkLevel:
+  "county"` in results). Remaining refinement: service areas covering only
+  PART of a county count as covering it (conservative for uncovered ZIPs);
+  ZIP-level partial-county resolution is open.
+- ✅ **[Shipped] State-based exchange (SBE) coverage** via the CMS SBM QHP
+  PUFs: 18 SBM states (CA, CT, DC, GA, ID, KY, ME, MA, MN, NV, NJ, NM, NY,
+  PA, RI, VT, VA, WA) are rate-sheet-derived through the same county/
+  rating-area pipeline as the federal-platform states. CO and MD published no
+  2026 SBM PUF and keep the hand-maintained estimate fallback; IL is not yet
+  ingested.
 - **Eligibility-grade Medicaid/CHIP modeling** beyond today's confidence flags:
   the app can now identify modeled low-income years, but still needs household
   member categories, CHIP children, immigration exceptions, state-specific
@@ -386,10 +389,13 @@ risk first, then breadth.
 - Finish ZIP-first UI behavior: derive state/exchange/Medicaid/rating-area facts
   from ZIP in the workspace, surface mismatches, and keep manual overrides for
   residency or state-based exchange edge cases.
-- Extend the shipped rating-area-level SLCSP path from federal-platform states
-  to SBE states where public PUFs or exchange APIs support it.
-- Move from rating-area-level to county/service-area-level SLCSP where data
-  allows.
+- ✅ **[Shipped]** Extend the shipped SLCSP path from federal-platform states to
+  SBE states: 18 State-Based Marketplaces are ingested from the CMS SBM QHP
+  PUFs (2026), with CO/MD on the hand-maintained fallback until they publish.
+- ✅ **[Shipped]** Move from rating-area-level to county-level SLCSP: county
+  overrides derived from the CMS Service Area PUFs apply wherever a county's
+  own silver plan set yields a different benchmark. Remaining: ZIP-level
+  partial-county service areas.
 - Upgrade the shipped modeled-year coverage-gap/Medicaid flags into an
   eligibility engine that uses household composition and state-specific
   Medicaid/CHIP rules.

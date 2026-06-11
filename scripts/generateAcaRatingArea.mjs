@@ -1,4 +1,4 @@
-// Generator for the offline rating-area-level SLCSP lookup tables.
+// Generator for the offline SLCSP lookup tables (rating-area AND county level).
 //
 // This script is a DEV TOOL. It is not part of the runtime bundle and has no
 // runtime dependencies — Node built-ins only. It reads raw primary-source files
@@ -6,33 +6,44 @@
 // rating-area SLCSP tables") and emits three generated modules into src/data/:
 //
 //   acaRatingArea2026.generated.mjs   — SLCSP monthly premium per rating area
-//                                       by single-member age (from the CMS
-//                                       Rate PUF + Plan Attributes PUF).
+//                                       by single-member age, COUNTY-LEVEL
+//                                       overrides where a county's own silver
+//                                       plan set (via the Service Area PUF)
+//                                       yields a different benchmark, and
+//                                       per-state provenance (FFM vs SBM PUF).
 //   countyToRatingArea.generated.mjs  — county FIPS → rating area code per
 //                                       state, plus 3-digit-ZIP rating areas
-//                                       for ZIP-based states (from the CMS
-//                                       state geographic-rating-area pages).
+//                                       (full states like AK, and intra-state
+//                                       zip3 splits like CA's LA County).
 //   zipToCounty.generated.mjs         — ZIP5 → primary county FIPS, limited to
 //                                       counties that resolve to a covered
-//                                       rating area (from the Census ZCTA↔county
-//                                       relationship file + county FIPS list).
+//                                       rating area.
 //
-// Coverage is intentionally limited to federal-platform states — every state
-// that files rates into the CMS PUFs. State-based-exchange states (CA, NY, MA,
-// …) publish their own data and are out of scope here; the runtime module falls
-// back to the state-level benchmark for them. See docs/KNOWN_LIMITATIONS.md.
+// Coverage (Phase 4): every state that files into the CMS FFM PUFs PLUS every
+// State-Based Marketplace that files into the CMS SBM ("SBE") QHP PUFs for the
+// plan year. SBM states without a published PUF for the plan year (2026: CO,
+// MD) keep the hand-maintained fallback in src/data/sbeRatingArea.mjs.
+//
+// County-level SLCSP methodology: within each rating area, a county's silver
+// plan set is the plans whose Service Area covers the county (CoverEntireState,
+// or the county FIPS listed; PARTIAL-county service areas count as covering the
+// county — correct for the covered ZIPs and conservative for the rest). The
+// 2nd-lowest age-21 rate among those plans is the county SLCSP; only counties
+// whose benchmark differs from their rating area's are emitted as overrides.
 //
 // Usage:
-//   RAW_DIR=/path/to/staging node scripts/generateAcaRatingArea.mjs
+//   RAW_DIR=/tmp/puf2026 SBE_RAW_DIR=/tmp/sbe2026 node scripts/generateAcaRatingArea.mjs
 //
-// Expected files under RAW_DIR (override individually with env vars):
-//   $RATE_PUF        rate-puf/Rate_PUF.csv                     (CMS Rate PUF)
-//   $PLAN_ATTR_PUF   plan-attributes-puf/Plan_Attributes_PUF.csv (CMS Plan Attributes PUF)
+// Expected inputs (override individually with env vars):
+//   $RATE_PUF        rate-puf/Rate_PUF.csv                       (CMS FFM Rate PUF)
+//   $PLAN_ATTR_PUF   plan-attributes-puf/Plan_Attributes_PUF.csv (CMS FFM Plan Attributes PUF)
+//   $SERVICE_PUF     service-area-puf/Service_Area_PUF.csv       (CMS FFM Service Area PUF)
+//   $SBE_RAW_DIR     <stateDir>/<ST>{Rates,Plans,ServiceAreas}*.csv per SBM state
 //   $CENSUS_COUNTY   census_county.txt   (Census national_county2020.txt)
 //   $CENSUS_ZCTA     zcta_county.txt     (Census tab20_zcta520_county20_natl.txt)
 //   $GRA_DIR         gra/<state>.html    (one saved CMS <state>-gra page each)
 
-import { createReadStream, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { createReadStream, readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -45,26 +56,40 @@ const RAW_DIR = process.env.RAW_DIR || "/tmp/puf2026";
 const STAGE = process.env.STAGE_DIR || "/tmp";
 const RATE_PUF = process.env.RATE_PUF || path.join(RAW_DIR, "rate-puf", "Rate_PUF.csv");
 const PLAN_ATTR_PUF = process.env.PLAN_ATTR_PUF || path.join(RAW_DIR, "plan-attributes-puf", "Plan_Attributes_PUF.csv");
+const SERVICE_PUF = process.env.SERVICE_PUF || path.join(RAW_DIR, "service-area-puf", "Service_Area_PUF.csv");
+const SBE_RAW_DIR = process.env.SBE_RAW_DIR || "/tmp/sbe2026";
 const CENSUS_COUNTY = process.env.CENSUS_COUNTY || path.join(STAGE, "census_county.txt");
 const CENSUS_ZCTA = process.env.CENSUS_ZCTA || path.join(STAGE, "zcta_county.txt");
 const GRA_DIR = process.env.GRA_DIR || path.join(STAGE, "gra");
 
 const PLAN_YEAR = 2026;
-const DATA_VERSION = "2026.1";
+const DATA_VERSION = "2026.2";
 
-// The federal-platform states whose <state>-gra pages we ingest. The actual
-// covered set is the intersection of this list with what appears in the PUFs;
-// we log any divergence.
-const GRA_STATES = [
+// Federal-platform states (ingested from the FFM PUFs).
+const FFM_STATES = [
   "ak", "al", "ar", "az", "de", "fl", "hi", "ia", "in", "ks", "la", "mi", "mo",
   "ms", "mt", "nc", "nd", "ne", "nh", "oh", "ok", "or", "sc", "sd", "tn", "tx",
   "ut", "wi", "wv", "wy"
 ];
 
+// State-Based Marketplaces with a published CMS SBM QHP PUF for the plan year.
+// 2026: CO and MD did not publish — they keep the sbeRatingArea.mjs fallback.
+// (OR appears in both lists across vintages; the FFM PUF wins when present.)
+const SBM_STATES = [
+  "ca", "ct", "dc", "ga", "id", "ky", "me", "ma", "mn", "nv",
+  "nj", "nm", "ny", "pa", "ri", "vt", "va", "wa"
+];
+
+const GRA_STATES = [...new Set([...FFM_STATES, ...SBM_STATES])];
+
 const SOURCES = {
   slcsp: {
-    name: "CMS Marketplace Rate PUF and Plan Attributes PUF, plan year 2026",
+    name: "CMS Marketplace Rate, Plan Attributes, and Service Area PUFs (FFM) and CMS State-Based Marketplace QHP PUFs, plan year 2026",
     url: "https://www.cms.gov/marketplace/resources/data/public-use-files"
+  },
+  sbm: {
+    name: "CMS State-Based Marketplace (SBE) QHP Public Use Files, plan year 2026",
+    url: "https://www.cms.gov/marketplace/resources/data/state-based-public-use-files"
   },
   ratingArea: {
     name: "CMS state geographic rating areas (2026)",
@@ -97,6 +122,24 @@ function parseCsvLine(line) {
   return out;
 }
 
+// Header join key tolerant to both PUF conventions:
+// FFM "BusinessYear" and SBM "\"BUSINESS YEAR\"" → "BUSINESSYEAR".
+function normHeader(h) {
+  return String(h).replace(/^﻿/, "").replace(/[^a-z0-9]/gi, "").toUpperCase();
+}
+
+function headerIndex(headerCells) {
+  const map = new Map();
+  headerCells.forEach((cell, i) => map.set(normHeader(cell), i));
+  return (...names) => {
+    for (const n of names) {
+      const i = map.get(normHeader(n));
+      if (i != null) return i;
+    }
+    return -1;
+  };
+}
+
 function decodeEntities(s) {
   return String(s)
     .replace(/&nbsp;/gi, " ")
@@ -118,7 +161,10 @@ const GRA_COUNTY_FIXES = {
   "KS|chautaugua": "chautauqua", // CMS "Chautaugua" → Chautauqua County (20019)
   "LA|vermillion": "vermilion", // CMS "Vermillion" → Vermilion Parish (22113)
   "ND|trail": "traill",        // CMS "Trail"      → Traill County    (38097)
-  "OH|galia": "gallia"         // CMS "Galia"      → Gallia County    (39053)
+  "OH|galia": "gallia",        // CMS "Galia"      → Gallia County    (39053)
+  "CA|sanbernadino": "sanbernardino", // CMS "San Bernadino" → San Bernardino County (06071)
+  "GA|heralson": "haralson",   // CMS "Heralson"   → Haralson County  (13143)
+  "NY|deleware": "delaware"    // CMS "Deleware"   → Delaware County  (36025)
 };
 
 // Normalize a county name to a join key: strip the county-class suffix and all
@@ -126,7 +172,8 @@ const GRA_COUNTY_FIXES = {
 function normCounty(name) {
   return decodeEntities(name)
     .toLowerCase()
-    .replace(/\b(county|parish|borough|census area|municipality|city and borough|municipio)\b/g, "")
+    .replace(/[ñ]/g, "n") // Census "Doña Ana" ↔ CMS "Dona Ana"
+    .replace(/\b(county|parish|borough|census area|municipality|city and borough|municipio|city)\b/g, "")
     .replace(/[^a-z0-9]/g, "")
     .trim();
 }
@@ -140,21 +187,32 @@ function ageIndex(token) {
 
 const round2 = (n) => Math.round(n * 100) / 100;
 
-// ─── 1. silver on-exchange individual medical plan set (Plan Attributes PUF) ───
+// "Rating Area 43" → 43
+function areaCodeFromRatingArea(raw) {
+  const m = String(raw).match(/(\d+)/);
+  return m ? Number(m[1]) : null;
+}
 
-function loadSilverPlanSet() {
+// ─── 1. silver on-exchange individual medical plan sets ────────────────────────
+
+// FFM Plan Attributes PUF → { silver:Set(planId), planService:Map(planId -> "ST|issuer|serviceAreaId") }
+function loadFfmSilverPlans() {
   const lines = readFileSync(PLAN_ATTR_PUF, "utf8").split(/\r?\n/);
-  const header = parseCsvLine(lines[0].replace(/^﻿/, ""));
-  const idx = (n) => header.indexOf(n);
-  const cMarket = idx("MarketCoverage");
-  const cDental = idx("DentalOnlyPlan");
-  const cMetal = idx("MetalLevel");
-  const cQHP = idx("QHPNonQHPTypeId");
-  const cStd = idx("StandardComponentId");
-  if ([cMarket, cDental, cMetal, cQHP, cStd].some((c) => c < 0)) {
-    throw new Error("Plan Attributes PUF is missing an expected column header");
+  const header = parseCsvLine(lines[0]);
+  const col = headerIndex(header);
+  const cState = col("StateCode");
+  const cIssuer = col("IssuerId");
+  const cMarket = col("MarketCoverage");
+  const cDental = col("DentalOnlyPlan");
+  const cMetal = col("MetalLevel");
+  const cQHP = col("QHPNonQHPTypeId");
+  const cStd = col("StandardComponentId");
+  const cSvc = col("ServiceAreaId");
+  if ([cState, cIssuer, cMarket, cDental, cMetal, cQHP, cStd, cSvc].some((c) => c < 0)) {
+    throw new Error("FFM Plan Attributes PUF is missing an expected column header");
   }
   const silver = new Set();
+  const planService = new Map();
   for (let i = 1; i < lines.length; i++) {
     if (!lines[i]) continue;
     const f = parseCsvLine(lines[i]);
@@ -162,25 +220,117 @@ function loadSilverPlanSet() {
     if (f[cMarket] !== "Individual") continue;
     if (f[cDental] !== "No") continue;
     if (f[cMetal] !== "Silver") continue;
-    // "On the Exchange" or "Both" → offered on the marketplace; SLCSP only
-    // counts marketplace silver plans.
     if (f[cQHP] !== "On the Exchange" && f[cQHP] !== "Both") continue;
     silver.add(f[cStd]);
+    planService.set(f[cStd], `${f[cState]}|${f[cIssuer]}|${f[cSvc]}`);
   }
-  return silver;
+  return { silver, planService };
 }
 
-// ─── 2. SLCSP per (state, rating area) from the Rate PUF ───────────────────────
+// SBM <ST>Plans*.csv → same shape for one state.
+function loadSbmSilverPlans(csvPath) {
+  const lines = readFileSync(csvPath, "utf8").split(/\r?\n/);
+  const header = parseCsvLine(lines[0]);
+  const col = headerIndex(header);
+  const cState = col("STATE CODE", "StateCode");
+  const cIssuer = col("ISSUER ID", "IssuerId");
+  const cMarket = col("MARKET COVERAGE", "MarketCoverage");
+  const cDental = col("DENTAL ONLY PLAN", "DENTAL PLAN ONLY", "DentalOnlyPlan");
+  const cMetal = col("METAL LEVEL", "MetalLevel");
+  const cQHP = col("QHP NONQHP TYPE ID", "QHPNonQHPTypeId");
+  const cStd = col("STANDARD COMPONENT ID", "StandardComponentId");
+  const cSvc = col("SERVICE AREA ID", "ServiceAreaId");
+  if ([cState, cIssuer, cMarket, cDental, cMetal, cQHP, cStd, cSvc].some((c) => c < 0)) {
+    throw new Error(`SBM plans file ${path.basename(csvPath)} is missing an expected column header`);
+  }
+  const silver = new Set();
+  const planService = new Map();
+  for (let i = 1; i < lines.length; i++) {
+    if (!lines[i]) continue;
+    const f = parseCsvLine(lines[i]);
+    if (f.length <= Math.max(cState, cIssuer, cMarket, cDental, cMetal, cQHP, cStd, cSvc)) continue;
+    if (f[cMarket].trim() !== "Individual") continue;
+    if (f[cDental].trim() !== "No") continue;
+    if (f[cMetal].trim().toLowerCase() !== "silver") continue;
+    const qhp = f[cQHP].trim();
+    if (qhp !== "On the Exchange" && qhp !== "Both") continue;
+    silver.add(f[cStd].trim());
+    planService.set(f[cStd].trim(), `${f[cState].trim()}|${f[cIssuer].trim()}|${f[cSvc].trim()}`);
+  }
+  return { silver, planService };
+}
 
-async function deriveSlcsp(silver) {
-  // state -> areaCode -> planId -> Map(ageIndex -> monthlyRate)
-  const byArea = new Map();
+// ─── 2. service areas → county coverage ─────────────────────────────────────────
+
+// serviceAreas: Map("ST|issuer|serviceAreaId" -> { entireState, counties:Set(fips) })
+// Partial-county rows are treated as covering the county (correct for the
+// covered ZIPs; conservative — possibly-too-low benchmark — for the rest).
+function loadFfmServiceAreas(serviceAreas) {
+  const lines = readFileSync(SERVICE_PUF, "utf8").split(/\r?\n/);
+  const header = parseCsvLine(lines[0]);
+  const col = headerIndex(header);
+  const cState = col("StateCode");
+  const cIssuer = col("IssuerId");
+  const cSvc = col("ServiceAreaId");
+  const cEntire = col("CoverEntireState");
+  const cCounty = col("County");
+  const cMarket = col("MarketCoverage");
+  if ([cState, cIssuer, cSvc, cEntire, cCounty].some((c) => c < 0)) {
+    throw new Error("FFM Service Area PUF is missing an expected column header");
+  }
+  for (let i = 1; i < lines.length; i++) {
+    if (!lines[i]) continue;
+    const f = parseCsvLine(lines[i]);
+    if (f.length < header.length) continue;
+    if (cMarket >= 0 && f[cMarket] && f[cMarket] !== "Individual") continue;
+    addServiceAreaRow(serviceAreas, f[cState], f[cIssuer], f[cSvc], f[cEntire], f[cCounty]);
+  }
+}
+
+function loadSbmServiceAreas(serviceAreas, csvPath) {
+  const lines = readFileSync(csvPath, "utf8").split(/\r?\n/);
+  const header = parseCsvLine(lines[0]);
+  const col = headerIndex(header);
+  const cState = col("STATE CODE", "StateCode");
+  const cIssuer = col("ISSUER ID", "IssuerId");
+  const cSvc = col("SERVICE AREA ID", "ServiceAreaId");
+  const cEntire = col("COVER ENTIRE STATE", "CoverEntireState");
+  const cCounty = col("COUNTY");
+  const cMarket = col("MARKET COVERAGE", "MarketCoverage");
+  if ([cState, cIssuer, cSvc, cEntire, cCounty].some((c) => c < 0)) {
+    throw new Error(`SBM service-area file ${path.basename(csvPath)} is missing an expected column header`);
+  }
+  for (let i = 1; i < lines.length; i++) {
+    if (!lines[i]) continue;
+    const f = parseCsvLine(lines[i]);
+    if (f.length <= Math.max(cState, cIssuer, cSvc, cEntire, cCounty)) continue;
+    if (cMarket >= 0 && f[cMarket] && f[cMarket].trim() && f[cMarket].trim() !== "Individual") continue;
+    // SBM county cells embed the FIPS: "Los Angeles - 06037".
+    const m = String(f[cCounty]).match(/(\d{5})\s*$/);
+    addServiceAreaRow(serviceAreas, f[cState].trim(), f[cIssuer].trim(), f[cSvc].trim(), f[cEntire], m ? m[1] : "");
+  }
+}
+
+function addServiceAreaRow(serviceAreas, state, issuer, svcId, entireRaw, countyRaw) {
+  const key = `${state}|${issuer}|${svcId}`;
+  let entry = serviceAreas.get(key);
+  if (!entry) { entry = { entireState: false, counties: new Set() }; serviceAreas.set(key, entry); }
+  const entire = String(entireRaw).trim().toLowerCase();
+  if (entire === "yes" || entire === "true") entry.entireState = true;
+  const fips = String(countyRaw).trim();
+  if (/^\d{5}$/.test(fips)) entry.counties.add(fips);
+}
+
+// ─── 3. rates → per-plan age schedules per (state, rating area) ────────────────
+
+// byArea: state -> areaCode -> planId -> Map(ageIndex -> monthlyRate)
+async function loadFfmRates(silver, byArea) {
   const rl = createInterface({ input: createReadStream(RATE_PUF), crlfDelay: Infinity });
   let header = true;
   for await (const line of rl) {
     if (header) { header = false; continue; }
     if (!line) continue;
-    const f = line.split(","); // Rate PUF has no quoted fields
+    const f = line.split(","); // FFM Rate PUF has no quoted fields
     const state = f[1];
     const plan = f[7];
     const areaRaw = f[8];
@@ -192,18 +342,113 @@ async function deriveSlcsp(silver) {
     if (!Number.isFinite(rate) || rate <= 0) continue;
     const areaCode = areaCodeFromRatingArea(areaRaw);
     if (areaCode == null) continue;
-    let st = byArea.get(state);
-    if (!st) { st = new Map(); byArea.set(state, st); }
-    const key = areaCode;
-    let area = st.get(key);
-    if (!area) { area = new Map(); st.set(key, area); }
-    let pl = area.get(plan);
-    if (!pl) { pl = new Map(); area.set(plan, pl); }
-    if (!pl.has(ai)) pl.set(ai, rate);
+    addRate(byArea, state, areaCode, plan, ai, rate);
   }
+}
 
-  // Reduce to SLCSP per rating area.
-  const slcsp = {}; // "FL-43" -> { slcspPlanId, lowestPlanId, silverPlanCount, monthlyByAge:[65] }
+// SBM rates: quoted CSV; per-age rows for most states; VT-style family-tier
+// rows (AGE empty) fall back to a tier-derived schedule: adults (21+) at the
+// filed INDIVIDUAL RATE, children (0-20) at the marginal dependent cost
+// (PRIMARY SUBSCRIBER AND ONE DEPENDENT − INDIVIDUAL RATE).
+function loadSbmRates(silver, byArea, csvPath) {
+  const lines = readFileSync(csvPath, "utf8").split(/\r?\n/);
+  const header = parseCsvLine(lines[0]);
+  const col = headerIndex(header);
+  const cState = col("STATE CODE", "StateCode");
+  const cPlan = col("PLAN ID", "PlanId");
+  const cArea = col("RATING AREA ID", "RatingAreaId");
+  const cTobacco = col("TOBACCO", "Tobacco");
+  const cAge = col("AGE", "Age");
+  const cRate = col("INDIVIDUAL RATE", "IndividualRate");
+  const cP1 = col("PRIMARY SUBSCRIBER AND ONE DEPENDENT", "PrimarySubscriberAndOneDependent");
+  if ([cState, cPlan, cArea, cAge, cRate].some((c) => c < 0)) {
+    throw new Error(`SBM rates file ${path.basename(csvPath)} is missing an expected column header`);
+  }
+  const familyTier = new Map(); // "state|area|plan" -> { individual, p1dep }
+  const skip = { len: 0, silver: 0, tobacco: 0, area: 0, rate: 0, age: 0, added: 0 };
+  for (let i = 1; i < lines.length; i++) {
+    if (!lines[i]) continue;
+    const f = parseCsvLine(lines[i]);
+    if (f.length <= Math.max(cState, cPlan, cArea, cAge, cRate)) { skip.len++; continue; }
+    const plan = f[cPlan].trim();
+    if (!silver.has(plan)) { skip.silver++; continue; }
+    // Tobacco column semantics (same as the FFM Rate PUF): "No Preference"
+    // means one rate for everyone; "Tobacco User/Non-Tobacco User" means the
+    // INDIVIDUAL RATE is the NON-tobacco rate (the tobacco rate lives in
+    // INDIVIDUAL TOBACCO RATE) — keep both. Only a hypothetical pure
+    // "Tobacco User" row would be skipped.
+    if (cTobacco >= 0 && String(f[cTobacco] ?? "").trim().toLowerCase() === "tobacco user") { skip.tobacco++; continue; }
+    const state = f[cState].trim();
+    const areaCode = areaCodeFromRatingArea(f[cArea]);
+    if (areaCode == null) { skip.area++; continue; }
+    const rate = Number(f[cRate]);
+    if (!Number.isFinite(rate) || rate <= 0) { skip.rate++; continue; }
+    const ageTok = String(f[cAge] ?? "").trim();
+    if (!ageTok) {
+      // Family-tier row (VT): keep the lowest filed variant per plan/area.
+      const key = `${state}|${areaCode}|${plan}`;
+      const p1 = Number(f[cP1]);
+      const cur = familyTier.get(key);
+      if (!cur || rate < cur.individual) {
+        familyTier.set(key, { individual: rate, p1dep: Number.isFinite(p1) && p1 > 0 ? p1 : null });
+      }
+      continue;
+    }
+    const ai = ageIndex(ageTok);
+    if (ai === null) { skip.age++; continue; }
+    skip.added++;
+    addRate(byArea, state, areaCode, plan, ai, rate);
+  }
+  if (process.env.DEBUG_SBM) console.log(`    [debug ${path.basename(csvPath)}]`, JSON.stringify(skip));
+  // Materialize family-tier schedules for plans with no per-age rows.
+  for (const [key, tier] of familyTier) {
+    const [state, areaStr, plan] = key.split("|");
+    const areaCode = Number(areaStr);
+    const existing = byArea.get(state)?.get(areaCode)?.get(plan);
+    if (existing && existing.size) continue; // per-age rows win
+    const childRate = tier.p1dep != null ? Math.max(0, round2(tier.p1dep - tier.individual)) : tier.individual;
+    addRate(byArea, state, areaCode, plan, 0, childRate || tier.individual);
+    for (let a = 15; a <= 20; a++) addRate(byArea, state, areaCode, plan, a, childRate || tier.individual);
+    for (let a = 21; a <= 64; a++) addRate(byArea, state, areaCode, plan, a, tier.individual);
+  }
+}
+
+function addRate(byArea, state, areaCode, plan, ai, rate) {
+  let st = byArea.get(state);
+  if (!st) { st = new Map(); byArea.set(state, st); }
+  let area = st.get(areaCode);
+  if (!area) { area = new Map(); st.set(areaCode, area); }
+  let pl = area.get(plan);
+  if (!pl) { pl = new Map(); area.set(plan, pl); }
+  if (!pl.has(ai)) pl.set(ai, rate);
+}
+
+// ─── 4. SLCSP reductions (rating-area level and county level) ───────────────────
+
+function rankPlans(plans, planFilter = null) {
+  const ranked = [];
+  for (const [plan, ages] of plans) {
+    if (planFilter && !planFilter(plan)) continue;
+    const r21 = ages.get(21);
+    if (Number.isFinite(r21)) ranked.push({ plan, r21, ages });
+  }
+  ranked.sort((a, b) => a.r21 - b.r21 || a.plan.localeCompare(b.plan));
+  return ranked;
+}
+
+function slcspFromRanked(ranked) {
+  if (!ranked.length) return null;
+  const chosen = ranked[1] ?? ranked[0]; // 2nd lowest, or the only plan
+  return {
+    slcspPlanId: chosen.plan,
+    lowestPlanId: ranked[0].plan,
+    silverPlanCount: ranked.length,
+    monthlyByAge: buildAgeSchedule(chosen.ages)
+  };
+}
+
+function deriveAreaSlcsp(byArea) {
+  const slcsp = {}; // "FL-43" -> entry
   const statesSeen = new Set();
   for (const [state, areas] of byArea) {
     statesSeen.add(state);
@@ -211,30 +456,49 @@ async function deriveSlcsp(silver) {
       // Rank plans by their age-21 rate. The ACA age-rating curve is uniform
       // across all issuers within a state, so this ranking is age-invariant —
       // the 2nd-lowest plan at age 21 is the 2nd-lowest at every age.
-      const ranked = [];
-      for (const [plan, ages] of plans) {
-        const r21 = ages.get(21);
-        if (Number.isFinite(r21)) ranked.push({ plan, r21, ages });
-      }
-      if (!ranked.length) continue;
-      ranked.sort((a, b) => a.r21 - b.r21 || a.plan.localeCompare(b.plan));
-      const chosen = ranked[1] ?? ranked[0]; // 2nd lowest, or the only plan
-      const monthlyByAge = buildAgeSchedule(chosen.ages);
-      slcsp[`${state}-${areaCode}`] = {
-        slcspPlanId: chosen.plan,
-        lowestPlanId: ranked[0].plan,
-        silverPlanCount: ranked.length,
-        monthlyByAge
-      };
+      const entry = slcspFromRanked(rankPlans(plans));
+      if (entry) slcsp[`${state}-${areaCode}`] = entry;
     }
   }
   return { slcsp, statesSeen };
 }
 
-// "Rating Area 43" → 43
-function areaCodeFromRatingArea(raw) {
-  const m = String(raw).match(/(\d+)/);
-  return m ? Number(m[1]) : null;
+// County-level SLCSP: filter each rating area's plans to those whose service
+// area covers the county; emit overrides only where the benchmark differs from
+// the rating-area benchmark (same plan → rating-area entry already exact).
+function deriveCountyOverrides({ byArea, areaSlcsp, planService, serviceAreas, stateCountyAreas }) {
+  const overrides = {}; // fips -> entry
+  let countiesChecked = 0;
+  let countiesNoServiceData = 0;
+  for (const [state, fipsToArea] of Object.entries(stateCountyAreas)) {
+    const areas = byArea.get(state);
+    if (!areas) continue;
+    for (const [fips, areaCode] of Object.entries(fipsToArea)) {
+      const plans = areas.get(areaCode);
+      if (!plans) continue;
+      countiesChecked++;
+      let sawServiceData = false;
+      const covers = (plan) => {
+        const svcKey = planService.get(plan);
+        if (!svcKey) return true; // no service-area info → assume area-wide
+        const svc = serviceAreas.get(svcKey);
+        if (!svc) return true;
+        sawServiceData = true;
+        return svc.entireState || svc.counties.has(fips);
+      };
+      const ranked = rankPlans(plans, covers);
+      if (!sawServiceData) { countiesNoServiceData++; continue; }
+      const entry = slcspFromRanked(ranked);
+      if (!entry) continue;
+      const areaEntry = areaSlcsp[`${state}-${areaCode}`];
+      if (!areaEntry) continue;
+      // Only a DIFFERENT benchmark plan changes premiums; a county that merely
+      // lacks some pricier plan (same SLCSP, smaller count) needs no override.
+      if (entry.slcspPlanId === areaEntry.slcspPlanId) continue;
+      overrides[fips] = { state, ...entry };
+    }
+  }
+  return { overrides, countiesChecked, countiesNoServiceData };
 }
 
 // Expand the SLCSP plan's age rows into a dense [age0 … age64] schedule. Ages
@@ -262,7 +526,7 @@ function buildAgeSchedule(ageMap) {
   return out.map((v) => (v == null ? null : round2(v)));
 }
 
-// ─── 3. county/zip3 → rating area from the CMS GRA pages ───────────────────────
+// ─── 5. county/zip3 → rating area from the CMS GRA pages ───────────────────────
 
 // Pull <tr> rows, then the cell texts, from a GRA HTML page.
 function parseGraRows(html) {
@@ -297,14 +561,15 @@ function parseGraState(stateAbbr, html) {
       const key = normCounty(county);
       if (key) { countyToArea[key] = area; countyRows++; }
     }
-    const z = zip3.match(/^(\d{3})$/);
+    // Accept zip3 cells with annotations, e.g. CA's "906 (only within LA County)".
+    const z = zip3.match(/^(\d{3})\b/);
     if (z) { zip3ToArea[z[1]] = area; zip3Rows++; }
   }
   const methodology = zip3Rows > countyRows ? "zip3" : "county";
   return { stateAbbr, countyToArea, zip3ToArea, countyRows, zip3Rows, methodology };
 }
 
-// ─── 4. county name → FIPS (Census national county file) ───────────────────────
+// ─── 6. county name → FIPS (Census national county file) ───────────────────────
 
 function loadCountyFips() {
   const lines = readFileSync(CENSUS_COUNTY, "utf8").split(/\r?\n/);
@@ -323,7 +588,7 @@ function loadCountyFips() {
   return byStateName;
 }
 
-// ─── 5. ZCTA → primary county FIPS (Census relationship file) ──────────────────
+// ─── 7. ZCTA → primary county FIPS (Census relationship file) ──────────────────
 
 function loadZipToCounty(coveredFips) {
   const lines = readFileSync(CENSUS_ZCTA, "utf8").split(/\r?\n/);
@@ -357,29 +622,66 @@ function banner(extra) {
   ].filter(Boolean).join("\n");
 }
 
-function writeSlcspFile(slcsp, coveredStates) {
-  const entries = Object.keys(slcsp).sort().map((k) => {
-    const v = slcsp[k];
-    const ages = v.monthlyByAge.map((n) => (n == null ? "null" : String(n))).join(",");
-    return `  ${JSON.stringify(k)}: { p: ${JSON.stringify(v.slcspPlanId)}, lo: ${JSON.stringify(v.lowestPlanId)}, n: ${v.silverPlanCount}, a: [${ages}] }`;
-  });
-  const body = `${banner("SLCSP monthly premium per rating area, by single-member age.")}
+function slcspEntryLiteral(v) {
+  const ages = v.monthlyByAge.map((n) => (n == null ? "null" : String(n))).join(",");
+  return `{ p: ${JSON.stringify(v.slcspPlanId)}, lo: ${JSON.stringify(v.lowestPlanId)}, n: ${v.silverPlanCount}, a: [${ages}] }`;
+}
+
+function writeSlcspFile(slcsp, countyOverrides, coveredStates, provenance) {
+  const entries = Object.keys(slcsp).sort().map((k) => `  ${JSON.stringify(k)}: ${slcspEntryLiteral(slcsp[k])}`);
+
+  // Dedupe county-override schedules: counties sharing an IDENTICAL benchmark
+  // entry reference one shared const. The key must include the full per-age
+  // schedule — the same plan id carries different filed rates in different
+  // rating areas, so keying on plan id alone would alias counties across
+  // areas to the wrong schedule.
+  const shared = new Map(); // serialized entry -> constName
+  const sharedDefs = [];
+  const overrideEntries = [];
+  for (const fips of Object.keys(countyOverrides).sort()) {
+    const v = countyOverrides[fips];
+    const key = JSON.stringify([v.slcspPlanId, v.lowestPlanId, v.silverPlanCount, v.monthlyByAge]);
+    let constName = shared.get(key);
+    if (!constName) {
+      constName = `C${sharedDefs.length}`;
+      shared.set(key, constName);
+      sharedDefs.push(`const ${constName} = ${slcspEntryLiteral(v)};`);
+    }
+    overrideEntries.push(`  ${JSON.stringify(fips)}: ${constName}`);
+  }
+
+  const body = `${banner("SLCSP monthly premium per rating area + county-level overrides, by single-member age.")}
 //
 // Each value: { p: SLCSP plan id, lo: lowest-cost silver plan id,
-//               n: silver plan count in the rating area,
-//               a: monthly premium for ONE member at age 0..64 (index = age;
-//                  ages 0-14 share the 0-14 band; clamp ages >64 to 64). }
-// Premiums are the issuer's filed per-age rates from the CMS Rate PUF — i.e.
-// the same rates HealthCare.gov ranks to pick the benchmark.
+//               n: silver plan count, a: monthly premium for ONE member at
+//               age 0..64 (index = age; ages 0-14 share the 0-14 band; clamp
+//               ages >64 to 64). }
+// Premiums are the issuer's filed per-age rates from the CMS Rate PUFs — i.e.
+// the same rates HealthCare.gov / the state exchange ranks for the benchmark.
+// ACA_SLCSP_COUNTY_OVERRIDES_${PLAN_YEAR} holds the counties whose own silver plan
+// set (Service Area PUF filtering) yields a DIFFERENT benchmark than their
+// rating area; all other counties use the rating-area entry exactly.
+// ACA_SLCSP_STATE_PROVENANCE: "ffm-puf" (federal platform) | "sbm-puf"
+// (State-Based Marketplace QHP PUF).
 
 export const ACA_RATING_AREA_DATA_VERSION = ${JSON.stringify(DATA_VERSION)};
 
 export const ACA_RATING_AREA_SLCSP_SOURCE = Object.freeze(${JSON.stringify(SOURCES.slcsp)});
 
+export const ACA_SBM_PUF_SOURCE = Object.freeze(${JSON.stringify(SOURCES.sbm)});
+
 export const ACA_SLCSP_COVERED_STATES = Object.freeze(${JSON.stringify(coveredStates)});
+
+export const ACA_SLCSP_STATE_PROVENANCE = Object.freeze(${JSON.stringify(provenance)});
 
 export const ACA_SLCSP_BY_RATING_AREA_${PLAN_YEAR} = Object.freeze({
 ${entries.join(",\n")}
+});
+
+${sharedDefs.join("\n")}
+
+export const ACA_SLCSP_COUNTY_OVERRIDES_${PLAN_YEAR} = Object.freeze({
+${overrideEntries.join(",\n")}
 });
 `;
   writeFileSync(path.join(OUT_DIR, `acaRatingArea${PLAN_YEAR}.generated.mjs`), body);
@@ -404,8 +706,10 @@ function writeCountyToRatingAreaFile(states) {
   const body = `${banner("County FIPS → rating area code, per state.")}
 //
 // COUNTY_TO_RATING_AREA[stateAbbr][countyFips5] = rating area number.
-// ZIP3_TO_RATING_AREA[stateAbbr][zip3]          = rating area number, for the
-//   handful of states whose rating areas are defined by 3-digit ZIP, not county.
+// ZIP3_TO_RATING_AREA[stateAbbr][zip3]          = rating area number. For
+//   zip3-methodology states (AK) this is the primary path; for
+//   county-methodology states it carries intra-state zip3 splits (e.g. CA's
+//   LA County areas 15/16) and is consulted BEFORE the county map.
 // RATING_AREA_METHODOLOGY[stateAbbr] = "county" | "zip3".
 
 export const ACA_RATING_AREA_GRA_SOURCE = Object.freeze(${JSON.stringify(SOURCES.ratingArea)});
@@ -445,21 +749,76 @@ ${entries.map((e) => `  ${e}`).join(",\n")}
 
 // ─── main ────────────────────────────────────────────────────────────────────
 
+function findSbmFile(stateDirNames, abbr, kind) {
+  // SBM zips extract to one directory per state containing <ST><Kind><date>.csv,
+  // sometimes behind one more nested directory (e.g. KY's KentuckySBEPUF2026/).
+  const upper = abbr.toUpperCase();
+  const matchCsv = (files) => files.find((f) => new RegExp(`^${upper}${kind}`, "i").test(f) && f.endsWith(".csv"));
+  for (const dir of stateDirNames) {
+    const full = path.join(SBE_RAW_DIR, dir);
+    let files;
+    try { files = readdirSync(full, { withFileTypes: true }); } catch { continue; }
+    const hit = matchCsv(files.filter((f) => f.isFile()).map((f) => f.name));
+    if (hit) return path.join(full, hit);
+    for (const sub of files.filter((f) => f.isDirectory())) {
+      let nested;
+      try { nested = readdirSync(path.join(full, sub.name)); } catch { continue; }
+      const nestedHit = matchCsv(nested);
+      if (nestedHit) return path.join(full, sub.name, nestedHit);
+    }
+  }
+  return null;
+}
+
 async function main() {
   mkdirSync(OUT_DIR, { recursive: true });
 
-  console.log("· loading silver on-exchange medical plan set …");
-  const silver = loadSilverPlanSet();
-  console.log(`  ${silver.size} silver plans`);
+  console.log("· loading FFM silver on-exchange medical plan set …");
+  const ffm = loadFfmSilverPlans();
+  console.log(`  ${ffm.silver.size} FFM silver plans`);
 
-  console.log("· streaming Rate PUF → SLCSP per rating area …");
-  const { slcsp, statesSeen } = await deriveSlcsp(silver);
+  const serviceAreas = new Map();
+  console.log("· loading FFM service areas …");
+  loadFfmServiceAreas(serviceAreas);
+
+  console.log("· streaming FFM Rate PUF …");
+  const byArea = new Map();
+  await loadFfmRates(ffm.silver, byArea);
+
+  const planService = new Map(ffm.planService);
+  const provenance = {};
+  for (const st of FFM_STATES) provenance[st.toUpperCase()] = "ffm-puf";
+
+  console.log("· ingesting SBM QHP PUFs …");
+  const sbmDirs = existsSync(SBE_RAW_DIR) ? readdirSync(SBE_RAW_DIR).filter((d) => !d.endsWith(".zip")) : [];
+  const sbmIngested = [];
+  for (const abbr of SBM_STATES) {
+    const plansCsv = findSbmFile(sbmDirs, abbr, "Plans");
+    const ratesCsv = findSbmFile(sbmDirs, abbr, "Rates");
+    const svcCsv = findSbmFile(sbmDirs, abbr, "ServiceAreas");
+    if (!plansCsv || !ratesCsv) {
+      console.warn(`  ⚠ SBM ${abbr.toUpperCase()}: missing Plans/Rates CSV — skipped (falls back to sbeRatingArea.mjs)`);
+      continue;
+    }
+    const sbm = loadSbmSilverPlans(plansCsv);
+    for (const [k, v] of sbm.planService) planService.set(k, v);
+    if (svcCsv) loadSbmServiceAreas(serviceAreas, svcCsv);
+    loadSbmRates(sbm.silver, byArea, ratesCsv);
+    sbmIngested.push(abbr.toUpperCase());
+    provenance[abbr.toUpperCase()] = "sbm-puf";
+    const areaCount = byArea.get(abbr.toUpperCase())?.size ?? 0;
+    console.log(`  ${abbr.toUpperCase()}: ${sbm.silver.size} silver plans, ${areaCount} rating areas with rates (${path.basename(ratesCsv)})`);
+  }
+
+  console.log("· deriving rating-area SLCSP …");
+  const { slcsp, statesSeen } = deriveAreaSlcsp(byArea);
   console.log(`  ${Object.keys(slcsp).length} rating areas across ${statesSeen.size} states`);
 
   console.log("· parsing CMS GRA pages …");
   const countyFips = loadCountyFips();
   const states = [];
   const coveredFips = new Set();
+  const stateCountyAreas = {};
   const unmatchedCounties = [];
   for (const abbr of GRA_STATES) {
     const upper = abbr.toUpperCase();
@@ -473,23 +832,39 @@ async function main() {
       if (fips) { fipsToArea[fips] = area; coveredFips.add(fips); }
       else unmatchedCounties.push(`${upper}:${normName}`);
     }
+    stateCountyAreas[upper] = fipsToArea;
     states.push({ stateAbbr: upper, fipsToArea, zip3ToArea: parsed.zip3ToArea, methodology: parsed.methodology });
   }
   if (unmatchedCounties.length) {
     console.warn(`  ⚠ ${unmatchedCounties.length} GRA counties did not match a FIPS: ${unmatchedCounties.slice(0, 20).join(", ")}${unmatchedCounties.length > 20 ? " …" : ""}`);
   }
 
+  console.log("· deriving county-level SLCSP overrides (Service Area PUF) …");
+  const { overrides, countiesChecked, countiesNoServiceData } = deriveCountyOverrides({
+    byArea,
+    areaSlcsp: slcsp,
+    planService,
+    serviceAreas,
+    stateCountyAreas
+  });
+  console.log(`  ${Object.keys(overrides).length} county overrides out of ${countiesChecked} counties (${countiesNoServiceData} without service-area data)`);
+
   console.log("· building ZIP → primary county (covered counties only) …");
   const zipToCounty = loadZipToCounty(coveredFips);
   console.log(`  ${Object.keys(zipToCounty).length} ZIPs`);
 
-  const coveredStates = states.map((s) => s.stateAbbr).sort();
-  // Sanity: every state present in the SLCSP table should be a GRA state.
+  const coveredStates = [...new Set([...states.map((s) => s.stateAbbr)])]
+    .filter((st) => statesSeen.has(st))
+    .sort();
   for (const st of statesSeen) {
     if (!coveredStates.includes(st)) console.warn(`  ⚠ SLCSP has state ${st} with no GRA page ingested`);
   }
+  // Drop provenance entries for states that produced no SLCSP data.
+  for (const st of Object.keys(provenance)) {
+    if (!coveredStates.includes(st)) delete provenance[st];
+  }
 
-  const s1 = writeSlcspFile(slcsp, coveredStates);
+  const s1 = writeSlcspFile(slcsp, overrides, coveredStates, provenance);
   const s2 = writeCountyToRatingAreaFile(states);
   const s3 = writeZipToCountyFile(zipToCounty);
 
@@ -498,6 +873,7 @@ async function main() {
   console.log(`  countyToRatingArea.generated.mjs    ${(s2 / 1024).toFixed(0)} KB`);
   console.log(`  zipToCounty.generated.mjs           ${(s3 / 1024).toFixed(0)} KB`);
   console.log(`  total raw                           ${((s1 + s2 + s3) / 1024).toFixed(0)} KB`);
+  console.log(`  SBM states ingested: ${sbmIngested.join(", ") || "none"}`);
 }
 
 await main();

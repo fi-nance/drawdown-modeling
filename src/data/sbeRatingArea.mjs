@@ -6,17 +6,18 @@
 // for Covered California, NY State of Health, Pennie, kynect, Access Health CT, Your Health Idaho, etc.
 // Enforces state-specific rules, such as community-rated plans in NY and VT (no age-rating drag).
 //
-// Provenance caveat (CPA lens, docs/REVIEW_BAR.md): unlike the federal-platform
-// SLCSPs in acaRatingArea2026.generated.mjs (derived from the CMS Rate PUFs),
-// these SBE figures are hand-maintained reference estimates, not yet generated
-// from each exchange's official rate sheets. They are reference-age (40) /
-// community-flat second-lowest-silver approximations to be verified against the
-// source bulletins during the annual refresh. The lookup therefore reports SBE
-// provenance ("SBE Public Rate Bulletins"), and states with no ZIP3 rating-area
-// map return fallback:"state" so the confidence layer presents them as
-// state-level estimates rather than rating-area-accurate benchmarks. VT's high
-// figure is consistent with the 2026 VT market (lowest-cost silver ≈ $928/mo per
-// public rate summaries); confirm the exact SLCSP against Vermont Health Connect.
+// Provenance caveat (CPA lens, docs/REVIEW_BAR.md): these SBE figures are
+// hand-maintained reference estimates. As of Phase 4, MOST State-Based
+// Marketplaces are ingested from the CMS SBM QHP PUFs into
+// acaRatingArea2026.generated.mjs (rate-sheet-derived, county/rating-area
+// accurate) and never reach this module — the main resolver in
+// acaRatingArea.mjs only routes here for SBE states WITHOUT a published SBM
+// PUF for the plan year (2026: Colorado and Maryland) or if a regeneration
+// ever drops a state. The remaining estimates are reference-age (40) /
+// community-flat second-lowest-silver approximations to be verified against
+// the source bulletins during the annual refresh; states with no ZIP3
+// rating-area map return fallback:"state" so the confidence layer presents
+// them as state-level estimates rather than rating-area-accurate benchmarks.
 
 import { acaAgeRatingFactor } from "../core/aca.mjs";
 import { resolveZip } from "./geo.mjs";
@@ -212,6 +213,7 @@ export function sbeSlcspMonthlyFor({ state, zip, planYear = 2026, age, household
     medicareExcludedMemberCount,
     fallback: resolvedRatingArea ? null : "state",
     fallbackReason: resolvedRatingArea ? null : "sbe-state-default",
+    benchmarkLevel: resolvedRatingArea ? "rating-area" : "state",
     planYear,
     slcspPlanId: `SBE-${state}-RA${areaCode ?? "DF"}`,
     referenceMonthlyPremium: round2(base21),

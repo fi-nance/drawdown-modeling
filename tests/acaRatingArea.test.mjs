@@ -15,12 +15,15 @@ import test from "node:test";
 import {
   slcspMonthlyFor,
   ACA_RATING_AREA_DATA_SOURCES,
-  ACA_RATING_AREA_DATA_VERSION
+  ACA_RATING_AREA_DATA_VERSION,
+  ACA_SLCSP_STATE_PROVENANCE
 } from "../src/data/acaRatingArea.mjs";
 import {
   ACA_SLCSP_BY_RATING_AREA_2026,
+  ACA_SLCSP_COUNTY_OVERRIDES_2026,
   ACA_SLCSP_COVERED_STATES
 } from "../src/data/acaRatingArea2026.generated.mjs";
+import { COUNTY_TO_RATING_AREA } from "../src/data/countyToRatingArea.generated.mjs";
 import { computeAca, benchmarkPremiumForZip } from "../src/core/aca.mjs";
 import { buildAcaConfig } from "../src/data/taxData.mjs";
 
@@ -62,15 +65,41 @@ test("multi-county ZIP picks the highest-land-area primary county", () => {
 
 // ─── fallbacks ───────────────────────────────────────────────────────────────
 
-test("state-based-exchange states not in SBE database fall back to the state-level benchmark", () => {
-  for (const [zip, state] of [["60601", "IL"], ["30301", "GA"]]) {
+test("marketplace states not in any bundled table fall back to the state-level benchmark", () => {
+  // IL is an SBM without a published 2026 QHP PUF and without a hand-built
+  // SBE table entry, so it is the canonical state-fallback case. (GA gained a
+  // 2026 SBM PUF and is now fully covered.)
+  const r = slcspMonthlyFor({ zip: "60601", age: 40 });
+  assert.equal(r.fallback, "state", "IL should be a state fallback");
+  assert.equal(r.ratingArea.state, "IL");
+  assert.equal(r.ratingArea.areaCode, null);
+  assert.equal(r.ratingArea.methodology, "state-benchmark");
+  assert.ok(r.monthlyPremium > 0);
+});
+
+test("SBM states with published 2026 QHP PUFs resolve through the main rate-derived path", () => {
+  for (const [zip, state] of [["94110", "CA"], ["10001", "NY"], ["30309", "GA"], ["19103", "PA"]]) {
     const r = slcspMonthlyFor({ zip, age: 40 });
-    assert.equal(r.fallback, "state", `${state} should be a state fallback`);
+    assert.equal(r.fallback, null, `${state} should resolve without fallback`);
     assert.equal(r.ratingArea.state, state);
-    assert.equal(r.ratingArea.areaCode, null);
-    assert.equal(r.ratingArea.methodology, "state-benchmark");
-    assert.ok(r.monthlyPremium > 0);
+    assert.ok(Number.isFinite(r.ratingArea.areaCode), `${state} should resolve a rating area`);
+    assert.match(r.sources.slcsp, /State-Based Marketplace/, `${state} provenance should name the SBM PUF`);
   }
+  // SBM states WITHOUT a 2026 PUF still route to the sbeRatingArea fallback.
+  const co = slcspMonthlyFor({ zip: "80202", age: 40 });
+  assert.equal(co.ratingArea.state, "CO");
+  assert.equal(co.sources.slcsp, "SBE Public Rate Bulletins");
+});
+
+test("intra-state zip3 splits resolve county-methodology states correctly (CA Los Angeles)", () => {
+  // LA County is defined only by 3-digit ZIP in the CMS GRA (areas 15/16);
+  // every other CA county resolves through the county map.
+  const la = slcspMonthlyFor({ zip: "90011", age: 40 });
+  assert.equal(la.ratingArea.state, "CA");
+  assert.ok([15, 16].includes(la.ratingArea.areaCode), `LA ZIP should hit area 15/16, saw ${la.ratingArea.areaCode}`);
+  assert.equal(la.fallback, null);
+  const ventura = slcspMonthlyFor({ zip: "91360", age: 40 });
+  assert.equal(ventura.ratingArea.areaCode, 12, "Ventura County must not be captured by the LA zip3 split");
 });
 
 test("territory and military ZIPs are out-of-model (no marketplace)", () => {
@@ -155,14 +184,21 @@ test("Medicare-eligible (65+) members are excluded from the marketplace premium"
 
 // ─── data integrity ──────────────────────────────────────────────────────────
 
-test("covered states are the federal-platform set and exclude state-based exchanges", () => {
-  assert.equal(ACA_SLCSP_COVERED_STATES.length, 30);
-  for (const sbm of ["CA", "NY", "MA", "CO", "WA", "CT", "DC", "ID", "PA", "VA", "IL", "GA"]) {
-    assert.ok(!ACA_SLCSP_COVERED_STATES.includes(sbm), `${sbm} should not be in the bundled set`);
+test("covered states are the FFM set plus the SBM states with published 2026 QHP PUFs", () => {
+  // 30 federal-platform states + 18 SBM states (CA, CT, DC, GA, ID, KY, ME,
+  // MA, MN, NV, NJ, NM, NY, PA, RI, VT, VA, WA). CO and MD published no 2026
+  // SBM PUF and keep the sbeRatingArea.mjs fallback; IL is not yet ingested.
+  assert.equal(ACA_SLCSP_COVERED_STATES.length, 48);
+  for (const uncovered of ["CO", "MD", "IL"]) {
+    assert.ok(!ACA_SLCSP_COVERED_STATES.includes(uncovered), `${uncovered} should not be in the bundled set`);
   }
-  for (const fed of ["FL", "TX", "NC", "AZ", "AK", "OH"]) {
-    assert.ok(ACA_SLCSP_COVERED_STATES.includes(fed), `${fed} should be bundled`);
+  for (const covered of ["FL", "TX", "NC", "AZ", "AK", "OH", "CA", "NY", "MA", "WA", "PA", "GA", "VA", "VT", "DC"]) {
+    assert.ok(ACA_SLCSP_COVERED_STATES.includes(covered), `${covered} should be bundled`);
   }
+  // Provenance distinguishes the two pipelines.
+  assert.equal(ACA_SLCSP_STATE_PROVENANCE.FL, "ffm-puf");
+  assert.equal(ACA_SLCSP_STATE_PROVENANCE.CA, "sbm-puf");
+  assert.equal(ACA_SLCSP_STATE_PROVENANCE.CO, undefined);
 });
 
 test("every SLCSP entry has a full 0..64 age schedule and a plan id", () => {
@@ -170,21 +206,51 @@ test("every SLCSP entry has a full 0..64 age schedule and a plan id", () => {
   const seenStates = new Set();
   for (const [key, v] of Object.entries(ACA_SLCSP_BY_RATING_AREA_2026)) {
     entries++;
-    seenStates.add(key.split("-")[0]);
+    const state = key.split("-")[0];
+    seenStates.add(state);
     assert.equal(v.a.length, 65, `${key} should have 65 age points`);
     assert.ok(typeof v.p === "string" && v.p.length >= 14, `${key} should name an SLCSP plan`);
-    assert.ok(v.a[21] > 0 && v.a[64] > v.a[21], `${key} premiums should rise with age`);
+    // Community-rated states (NY, VT) file FLAT adult rates, so >= rather
+    // than > — every other state's filed rates rise with age.
+    assert.ok(v.a[21] > 0 && v.a[64] >= v.a[21], `${key} premiums should not fall with age`);
+    if (state !== "NY" && state !== "VT") {
+      assert.ok(v.a[64] > v.a[21], `${key} premiums should rise with age`);
+    }
   }
-  assert.ok(entries >= 300, "expected the full federal-platform rating-area set");
+  assert.ok(entries >= 440, "expected the FFM + SBM rating-area set");
   // Every covered state contributes at least one rating area.
   for (const st of ACA_SLCSP_COVERED_STATES) {
     assert.ok(seenStates.has(st), `${st} should have at least one rating area`);
   }
 });
 
+test("county-level SLCSP overrides only tighten the rating-area benchmark", () => {
+  // A county's silver plan set is a SUBSET of its rating area's, so the
+  // county benchmark can only be >= the area benchmark — unless the county
+  // has a single available silver plan (then that plan IS the benchmark,
+  // mirroring HealthCare.gov).
+  const fipsToArea = {};
+  for (const [st, m] of Object.entries(COUNTY_TO_RATING_AREA)) {
+    for (const [fips, area] of Object.entries(m)) fipsToArea[fips] = `${st}-${area}`;
+  }
+  let checked = 0;
+  for (const [fips, entry] of Object.entries(ACA_SLCSP_COUNTY_OVERRIDES_2026)) {
+    const areaEntry = ACA_SLCSP_BY_RATING_AREA_2026[fipsToArea[fips] ?? ""];
+    if (!areaEntry) continue;
+    checked++;
+    assert.equal(entry.a.length, 65, `${fips} override should have 65 age points`);
+    assert.notEqual(entry.p, areaEntry.p, `${fips} override must name a different benchmark plan`);
+    assert.ok(
+      entry.a[21] >= areaEntry.a[21] - 0.005 || entry.n === 1,
+      `${fips} county benchmark ${entry.a[21]} below area ${areaEntry.a[21]} without being a single-plan county`
+    );
+  }
+  assert.ok(checked >= 500, `expected a substantial county-override set, saw ${checked}`);
+});
+
 test("data sources are well-formed for the coverage test", () => {
-  assert.equal(ACA_RATING_AREA_DATA_VERSION, "2026.1");
-  assert.equal(ACA_RATING_AREA_DATA_SOURCES.length, 3);
+  assert.equal(ACA_RATING_AREA_DATA_VERSION, "2026.2");
+  assert.equal(ACA_RATING_AREA_DATA_SOURCES.length, 4);
   for (const s of ACA_RATING_AREA_DATA_SOURCES) {
     assert.ok(typeof s.name === "string" && s.name.length > 0);
     assert.ok(/^https?:\/\//.test(s.url));
