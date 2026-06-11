@@ -51,15 +51,27 @@ test("setup backup wraps full setup state with metadata", () => {
   assert.equal(backup.schemaVersion, SETUP_BACKUP_SCHEMA_VERSION);
   assert.equal(backup.exportedAt, "2026-05-01T00:00:00.000Z");
   assert.equal(backup.privacyNotice, SETUP_BACKUP_PRIVACY_NOTICE);
-  assert.deepEqual(backup.state, setupState);
+  // Normalization fills in the (empty) income-streams array.
+  assert.deepEqual(backup.state, { ...setupState, incomeStreams: [] });
 });
 
 test("setup backup parser accepts wrapped and legacy saved-state JSON", () => {
   const wrapped = createSetupBackup(setupState, { exportedAt: "2026-05-01T00:00:00.000Z" });
   const legacy = { ...setupState, activeScreen: "setup" };
 
-  assert.deepEqual(parseSetupBackup(JSON.stringify(wrapped)), setupState);
-  assert.deepEqual(parseSetupBackup(JSON.stringify(legacy)), setupState);
+  assert.deepEqual(parseSetupBackup(JSON.stringify(wrapped)), { ...setupState, incomeStreams: [] });
+  assert.deepEqual(parseSetupBackup(JSON.stringify(legacy)), { ...setupState, incomeStreams: [] });
+});
+
+test("backups without income streams normalize to an empty array so restores clear current streams", () => {
+  // Pre-v2 (schema v1) backups carry no incomeStreams field; restoring one
+  // must replace the workspace's streams with [], not silently keep them.
+  const restored = parseSetupBackup(JSON.stringify({ type: SETUP_BACKUP_TYPE, state: setupState }));
+  assert.deepEqual(restored.incomeStreams, []);
+  assert.throws(
+    () => parseSetupBackup(JSON.stringify({ ...setupState, incomeStreams: "bad" })),
+    /income streams/i
+  );
 });
 
 test("setup backup parser rejects malformed backups clearly", () => {

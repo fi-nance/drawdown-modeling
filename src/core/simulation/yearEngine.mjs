@@ -61,9 +61,13 @@ export function simulateYear({
 
   let baseProfileToUse = taxProfile;
   let customSocialSecurityBenefits = null;
+  // Which life the household pools under once a survivor year nulls spouseAge;
+  // the RMD clock needs to know when that survivor is the spouse.
+  let survivorOwner = null;
 
   if (wasMarried && hasSpouseLife) {
     if (primaryDeceased && !spouseDeceased) {
+      survivorOwner = "spouse";
       const originalAge = age;
       age = spouseAge;
       spouseAge = null;
@@ -117,7 +121,7 @@ export function simulateYear({
 
   const flows = [...dividends.flows];
   const oneOffCashFlows = oneOffCashFlowsForYear(scenario, yearIndex + 1, inflationIndex);
-  const recurringEarnedIncome = earnedIncomeForYear(scenario, inflationIndex);
+  const recurringEarnedIncome = earnedIncomeForYear(scenario, inflationIndex, { primaryDeceased, spouseDeceased });
   const earnedIncome = mergeEarnedIncome(recurringEarnedIncome, oneOffCashFlows.earnedIncome);
   // Recurring income streams (pension/annuity/rent/other): owner-age gated,
   // optional COLA, survivor share, ordinary or tax-free character. The
@@ -189,7 +193,8 @@ export function simulateYear({
     scenario,
     primaryAge: age,
     spouseAge,
-    traditionalByOwner: beginningTraditionalByOwner
+    traditionalByOwner: beginningTraditionalByOwner,
+    survivorOwner
   });
   let rmdWithdrawal = emptyWithdrawal(rothBasisRemaining, annualPenaltyExceptionAmount);
   const rmdBuckets = rmd.byOwner.spouse
@@ -760,7 +765,13 @@ export function simulateYear({
     spendingGuardrail: plannedSpendingDetail.guardrail,
     medicalCost: round(medicalEstimate, 6),
     medicare: finalMedicare,
-    ltcCost: round(ltcStressCostForYear({ scenario, yearIndex, medicalInflationIndex: medicalInflationIndex ?? inflationIndex }), 6),
+    // LTC stress reaches cash flow only through medicalCostForYear, which
+    // every spending path skips under targetSpendIncludesMedical — report 0
+    // there rather than a charge that was never applied (the combination is
+    // documented in KNOWN_LIMITATIONS).
+    ltcCost: scenario.targetSpendIncludesMedical
+      ? 0
+      : round(ltcStressCostForYear({ scenario, yearIndex, medicalInflationIndex: medicalInflationIndex ?? inflationIndex }), 6),
     spendingPhase: plannedSpendingDetail.spendingPhase ?? null,
     age65AdditionalDeduction: round(taxProfileContext.age65AdditionalDeduction, 6),
     enhancedSeniorDeduction: round(finalTaxes.enhancedSeniorDeduction ?? 0, 6),

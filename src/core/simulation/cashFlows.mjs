@@ -4,24 +4,27 @@
 import { round } from "../utils.mjs";
 import { CASH_RAISED_EPSILON } from "./constants.mjs";
 
-export function earnedIncomeForYear(scenario, inflationIndex) {
+export function earnedIncomeForYear(scenario, inflationIndex, { primaryDeceased = false, spouseDeceased = false } = {}) {
   const index = scenario.earnedIncomeInflationAdjusted === false ? 1 : inflationIndex;
-  const medicareWages = round(Math.max(0, Number(scenario.medicareWages) || 0) * index, 6);
-  const socialSecurityWages = scenario.socialSecurityWages != null && Number.isFinite(Number(scenario.socialSecurityWages))
+  // Earned income is life-gated per earner: a deceased earner's wages and SE
+  // income stop in the first survivor year (the same owner gating
+  // incomeStreamsForYear applies to recurring streams).
+  const medicareWages = primaryDeceased ? 0 : round(Math.max(0, Number(scenario.medicareWages) || 0) * index, 6);
+  const socialSecurityWages = !primaryDeceased && scenario.socialSecurityWages != null && Number.isFinite(Number(scenario.socialSecurityWages))
     ? round(Math.max(0, Number(scenario.socialSecurityWages) || 0) * index, 6)
     : null;
-  const selfEmploymentIncome = round(Math.max(0, Number(scenario.selfEmploymentIncome) || 0) * index, 6);
-  const rrtaCompensation = round(Math.max(0, Number(scenario.rrtaCompensation) || 0) * index, 6);
+  const selfEmploymentIncome = primaryDeceased ? 0 : round(Math.max(0, Number(scenario.selfEmploymentIncome) || 0) * index, 6);
+  const rrtaCompensation = primaryDeceased ? 0 : round(Math.max(0, Number(scenario.rrtaCompensation) || 0) * index, 6);
   // Spouse earned income is a SECOND earner with its own Social Security wage
   // base — pooling both earners' wages under one wage base overstated the SS
   // cap. Spouse wages count as household cash/ordinary income exactly like
   // the primary's (and also feed the spouse PIA estimate when the opt-in
   // earnings estimator is enabled).
-  const spouseMedicareWages = round(Math.max(0, Number(scenario.spouseMedicareWages) || 0) * index, 6);
-  const spouseSocialSecurityWages = scenario.spouseSocialSecurityWages != null && Number.isFinite(Number(scenario.spouseSocialSecurityWages))
+  const spouseMedicareWages = spouseDeceased ? 0 : round(Math.max(0, Number(scenario.spouseMedicareWages) || 0) * index, 6);
+  const spouseSocialSecurityWages = !spouseDeceased && scenario.spouseSocialSecurityWages != null && Number.isFinite(Number(scenario.spouseSocialSecurityWages))
     ? round(Math.max(0, Number(scenario.spouseSocialSecurityWages) || 0) * index, 6)
     : null;
-  const spouseSelfEmploymentIncome = round(Math.max(0, Number(scenario.spouseSelfEmploymentIncome) || 0) * index, 6);
+  const spouseSelfEmploymentIncome = spouseDeceased ? 0 : round(Math.max(0, Number(scenario.spouseSelfEmploymentIncome) || 0) * index, 6);
   const cash = round(medicareWages + selfEmploymentIncome + rrtaCompensation + spouseMedicareWages + spouseSelfEmploymentIncome, 6);
   return {
     cash,

@@ -268,7 +268,8 @@ export function ageHoldingPeriods(assets = [], calendarYear) {
 //   households can set 100%);
 // - survivor-owned lots: unchanged.
 // Untagged lots default to owner "primary". Inherited property is long-term
-// by law, so adjusted lots are marked long with any TLH reset-clock cleared.
+// by law, so deceased-owned lots are marked long with any TLH reset-clock
+// cleared; joint lots keep their holding period (only half is inherited).
 export function applySurvivorBasisStepUp(assets = [], { deceasedOwner = "primary", jointStepUpPercent = 50 } = {}) {
   const jointShare = Math.max(0, Math.min(100, Number.isFinite(Number(jointStepUpPercent)) ? Number(jointStepUpPercent) : 50)) / 100;
   const deceased = deceasedOwner === "spouse" ? "spouse" : "primary";
@@ -287,8 +288,13 @@ export function applySurvivorBasisStepUp(assets = [], { deceasedOwner = "primary
     }
     if (nextBasis === null || Math.abs(nextBasis - basis) <= EPSILON) continue;
     asset.costBasisPerUnit = round(nextBasis, 8);
-    asset.holdingPeriod = "long";
-    delete asset.holdingPeriodResetCalendarYear;
+    if (owner === deceased) {
+      // §1223(9) long-term treatment applies to inherited property. A joint
+      // lot is only half inherited — the survivor's half keeps its actual
+      // holding period, so jointly-owned lots are left as-is.
+      asset.holdingPeriod = "long";
+      delete asset.holdingPeriodResetCalendarYear;
+    }
     adjustedLots += 1;
   }
   return { adjustedLots };

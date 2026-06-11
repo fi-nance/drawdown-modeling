@@ -42,9 +42,16 @@ function combineIncome({
 }) {
   const taxableSocialSecurityAmount = Math.max(0, taxableSocialSecurity);
   const socialSecurityTotal = Math.max(0, socialSecurityBenefits);
+  // 65+ nonqualified HSA distributions are federal ordinary income but NOT
+  // pension/IRA income, so they stay out of the state retirement-income
+  // bucket that stateRetirementIncomeExclusion can exempt.
+  const hsaOrdinaryIncome = (withdrawal.sales ?? []).reduce(
+    (sum, sale) => sale.accountType === "hsa" ? sum + Math.max(0, sale.ordinaryIncome ?? 0) : sum,
+    0
+  );
   return {
     ordinaryIncome: ordinaryIncome + withdrawal.ordinaryIncome + taxableSocialSecurityAmount,
-    retirementOrdinaryIncome: Math.max(0, retirementOrdinaryIncome) + withdrawal.ordinaryIncome,
+    retirementOrdinaryIncome: Math.max(0, retirementOrdinaryIncome) + Math.max(0, withdrawal.ordinaryIncome - hsaOrdinaryIncome),
     ordinaryInvestmentIncome,
     adjustmentsToIncome: Math.max(0, adjustmentsToIncome),
     medicareWages: earnedIncome.medicareWages,

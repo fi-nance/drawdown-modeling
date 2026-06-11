@@ -709,7 +709,8 @@ function writeCountyToRatingAreaFile(states) {
 // ZIP3_TO_RATING_AREA[stateAbbr][zip3]          = rating area number. For
 //   zip3-methodology states (AK) this is the primary path; for
 //   county-methodology states it carries intra-state zip3 splits (e.g. CA's
-//   LA County areas 15/16) and is consulted BEFORE the county map.
+//   LA County areas 15/16) and is consulted as a FALLBACK when the ZIP's
+//   county is not in the county map.
 // RATING_AREA_METHODOLOGY[stateAbbr] = "county" | "zip3".
 
 export const ACA_RATING_AREA_GRA_SOURCE = Object.freeze(${JSON.stringify(SOURCES.ratingArea)});

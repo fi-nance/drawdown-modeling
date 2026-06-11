@@ -8,6 +8,7 @@ import test from "node:test";
 
 import { simulatePlan, runMonteCarlo, generateSingleMonteCarloPath } from "../src/core/simulation.mjs?v=20260609-deepfix";
 import { withdrawForCash } from "../src/core/simulation/withdrawalExecution.mjs?v=20260609-deepfix";
+import { applySurvivorBasisStepUp } from "../src/core/portfolio.mjs";
 import { incomeStreamsForYear } from "../src/core/simulation/incomeStreams.mjs";
 import { householdRmdForYear } from "../src/core/simulation/rmd.mjs";
 import { computeIncomeTax } from "../src/core/tax.mjs?v=20260609-deepfix";
@@ -143,6 +144,25 @@ test("LTC stress applies the medical-inflated cost only inside the member's age 
   assert.deepEqual(spouse.map((year) => year.ltcCost), [0, 50000, 50000, 0]);
 });
 
+test("LTC stress reports no cost when targetSpendIncludesMedical bypasses medical cash flow", () => {
+  const run = (scenario) => simulatePlan({
+    assets: [cashAsset()],
+    scenario,
+    taxProfile: flatZeroProfile(),
+    ...zeroSequences(2)
+  }).years;
+  const base = quietScenario({ planYears: 2, currentAge: 85, targetSpend: 10000, targetSpendIncludesMedical: true });
+  const off = run(base);
+  const on = run({ ...base, ltcStress: { enabled: true, startAge: 85, years: 2, annualCost: 50000 } });
+  // The stress cost never reaches spending under targetSpendIncludesMedical
+  // (see KNOWN_LIMITATIONS), so the year rows must not report a phantom charge.
+  assert.deepEqual(on.map((year) => year.ltcCost), [0, 0]);
+  assert.deepEqual(
+    on.map((year) => year.endingPortfolioValue),
+    off.map((year) => year.endingPortfolioValue)
+  );
+});
+
 // ─── Age-banded spending (retirement smile) ──────────────────────────────────
 
 test("age-banded spending scales fixed-mode spending by phase and is off by default", () => {
@@ -246,6 +266,62 @@ test("simulatePlan withdraws the spouse RMD from spouse-owned traditional lots o
   assert.ok(rmdSale && rmdSale.proceeds >= expectedSpouseRmd - 0.01);
 });
 
+test("survivor years pool the RMD clock under the SURVIVING spouse's start age", () => {
+  // Primary born 1956 (start age 73); spouse born 1960 (SECURE 2.0 start 75).
+  const scenario = { startYear: 2026, currentAge: 70, spouseAge: 66 };
+  // Survivor years pass the spouse's age as primaryAge with spouseAge null.
+  const survivorAt73 = householdRmdForYear({
+    scenario,
+    primaryAge: 73,
+    spouseAge: null,
+    traditionalByOwner: { primary: 100000, spouse: 100000 },
+    survivorOwner: "spouse"
+  });
+  assert.equal(survivorAt73.startAge, 75);
+  assert.equal(survivorAt73.amount, 0);
+  const survivorAt75 = householdRmdForYear({
+    scenario,
+    primaryAge: 75,
+    spouseAge: null,
+    traditionalByOwner: { primary: 100000, spouse: 100000 },
+    survivorOwner: "spouse"
+  });
+  assert.equal(survivorAt75.startAge, 75);
+  assert.ok(survivorAt75.amount > 0);
+  // No survivor hint (single household or surviving primary): primary clock.
+  const survivingPrimary = householdRmdForYear({
+    scenario,
+    primaryAge: 73,
+    spouseAge: null,
+    traditionalByOwner: { primary: 100000, spouse: 100000 }
+  });
+  assert.equal(survivingPrimary.startAge, 73);
+  assert.ok(survivingPrimary.amount > 0);
+});
+
+test("simulatePlan: after the primary's death, pooled RMDs wait for the spouse's start age", () => {
+  const plan = simulatePlan({
+    assets: [
+      { id: "trad-spouse", accountType: "traditional", assetClass: "cash", units: 500000, price: 1, costBasisPerUnit: 1, owner: "spouse" },
+      cashAsset({ id: "spend-cash", units: 200000 })
+    ],
+    scenario: quietScenario({
+      planYears: 10,
+      currentAge: 70, // primary born 1956 → start age 73
+      spouseAge: 66, // spouse born 1960 → SECURE 2.0 start age 75
+      primaryMortalityAge: 71, // dies at index 1; survivor years from index 2
+      targetSpend: 1000
+    }),
+    taxProfile: buildTaxProfile({ taxYear: 2026, filingStatus: "marriedFilingJointly", state: "Florida" }),
+    ...zeroSequences(10)
+  });
+  const required = plan.years.map((year) => year.rmdRequired);
+  // The spouse turns 73 at index 7 — under the primary's (deceased) clock the
+  // pooled IRA would start there. The spouse's own clock starts at 75.
+  assert.deepEqual(required.slice(0, 9), [0, 0, 0, 0, 0, 0, 0, 0, 0]);
+  assert.ok(required[9] > 0, `RMD must start at spouse age 75 (got ${required[9]})`);
+});
+
 // ─── Account owner: per-asset penalty and HSA ages ───────────────────────────
 
 test("spouse-owned retirement lots use the spouse's age for the early-withdrawal penalty", () => {
@@ -329,6 +405,23 @@ test("survivor step-up adjusts deceased-owned and joint taxable lots at the firs
   assert.equal(offBasis["tx-joint"], 50);
 });
 
+test("survivor step-up keeps a joint lot's holding period (only deceased-owned lots go long)", () => {
+  const lots = [
+    { id: "p", accountType: "taxable", assetClass: "stock", units: 1, price: 100, costBasisPerUnit: 50, holdingPeriod: "short", holdingPeriodResetCalendarYear: 2027 },
+    { id: "j", accountType: "taxable", assetClass: "stock", units: 1, price: 100, costBasisPerUnit: 50, owner: "joint", holdingPeriod: "short", holdingPeriodResetCalendarYear: 2027 }
+  ];
+  applySurvivorBasisStepUp(lots, { deceasedOwner: "primary", jointStepUpPercent: 50 });
+  // Deceased-owned lot: full step-up, §1223(9) long-term, TLH clock cleared.
+  assert.equal(lots[0].costBasisPerUnit, 100);
+  assert.equal(lots[0].holdingPeriod, "long");
+  assert.equal(lots[0].holdingPeriodResetCalendarYear, undefined);
+  // Joint lot: basis adjusts, but the survivor's half is NOT inherited — the
+  // lot keeps its actual holding period and reset clock.
+  assert.equal(lots[1].costBasisPerUnit, 75);
+  assert.equal(lots[1].holdingPeriod, "short");
+  assert.equal(lots[1].holdingPeriodResetCalendarYear, 2027);
+});
+
 // ─── Spouse earned income: per-person payroll taxes ──────────────────────────
 
 test("spouse wages get their own Social Security wage base; combined AMT-A threshold", () => {
@@ -357,6 +450,32 @@ test("spouse self-employment income gets its own Schedule SE computation and ded
   // Two equal SE incomes below the wage base → exactly double the SE tax/deduction.
   assert.equal(result.selfEmploymentTax + result.spouseSelfEmploymentTax, single.selfEmploymentTax * 2);
   assert.equal(result.adjustmentsToIncome, single.adjustmentsToIncome * 2);
+});
+
+test("a deceased earner's wages stop in the first survivor year", () => {
+  const run = (scenario) => simulatePlan({
+    assets: [cashAsset()],
+    scenario,
+    taxProfile: buildTaxProfile({ taxYear: 2026, filingStatus: "marriedFilingJointly", state: "Florida" }),
+    ...zeroSequences(4)
+  }).years;
+  const base = quietScenario({
+    planYears: 4,
+    currentAge: 60,
+    spouseAge: 60,
+    earnedIncomeInflationAdjusted: false,
+    medicareWages: 30000,
+    spouseMedicareWages: 50000
+  });
+  // Spouse dies at 61 (year index 1); survivor years from index 2 carry only
+  // the primary's wages — earned income is life-gated per earner, like
+  // recurring income streams.
+  const spouseDies = run({ ...base, primaryMortalityAge: 120, spouseMortalityAge: 61 });
+  assert.deepEqual(spouseDies.map((year) => year.earnedIncome), [80000, 80000, 30000, 30000]);
+  // Symmetric: the primary's wages stop when the primary dies first.
+  const primaryDies = run({ ...base, primaryMortalityAge: 61, spouseMortalityAge: 120 });
+  assert.deepEqual(primaryDies.map((year) => year.earnedIncome), [80000, 80000, 50000, 50000]);
+  assert.deepEqual(primaryDies.map((year) => year.medicareWages), [30000, 30000, 0, 0]);
 });
 
 // ─── Recurring income streams ────────────────────────────────────────────────

@@ -189,6 +189,22 @@ test("at 65+, HSA spending beyond the qualified pool is grossed up and taxed as 
   assert.ok(year.taxAttribution.some((entry) => entry.source === "HSA nonqualified withdrawals"));
 });
 
+test("65+ nonqualified HSA income is NOT state retirement income (Illinois still taxes it)", () => {
+  // Illinois excludes pension/IRA retirement income, but a nonqualified HSA
+  // distribution is ordinary income with no retirement character — it must
+  // stay in the state base rather than ride the retirement exclusion.
+  const plan = simulatePlan({
+    assets: hsaCash(),
+    scenario: hsaOnlyScenario({ currentAge: 66 }),
+    taxProfile: buildTaxProfile({ taxYear: 2026, filingStatus: "single", state: "Illinois" }),
+    returnSequence: [{ cash: 0 }],
+    inflationSequence: [0]
+  });
+  const year = plan.years[0];
+  assert.ok(year.hsaWithdrawals > 10000, `expected grossed-up HSA withdrawal, got ${year.hsaWithdrawals}`);
+  assert.ok(year.taxes.stateTax > 0, `Illinois must tax HSA ordinary income (stateTax ${year.taxes.stateTax})`);
+});
+
 test("legacy opt-out scenario flag preserves unlimited tax-free HSA spending", () => {
   const plan = simulatePlan({
     assets: hsaCash(),

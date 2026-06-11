@@ -100,7 +100,7 @@ export function defaultSpouseRmdStartAge(scenario) {
 // also the exact pre-owner-dimension behavior for untagged portfolios.
 // The IRS Joint Life and Last Survivor Table (spouse sole beneficiary >10
 // years younger) is NOT modeled — see KNOWN_LIMITATIONS.
-export function householdRmdForYear({ scenario, primaryAge, spouseAge = null, traditionalByOwner }) {
+export function householdRmdForYear({ scenario, primaryAge, spouseAge = null, traditionalByOwner, survivorOwner = null }) {
   const spouseValue = Math.max(0, Number(traditionalByOwner?.spouse) || 0);
   const primaryValue = Math.max(0, Number(traditionalByOwner?.primary) || 0);
   // Null/undefined spouse age (single filer, no spouse data, or survivor
@@ -109,8 +109,18 @@ export function householdRmdForYear({ scenario, primaryAge, spouseAge = null, tr
   // spouse-owned accounts as belonging to an age-0 owner and skip their RMDs.
   const pooledSpouse = spouseAge == null || !Number.isFinite(Number(spouseAge));
 
+  const spouseStartAge = scenario.rmd?.spouseStartAge != null && Number.isFinite(Number(scenario.rmd.spouseStartAge))
+    ? Number(scenario.rmd.spouseStartAge)
+    : defaultSpouseRmdStartAge(scenario);
+  // When the household pools under a surviving SPOUSE (`survivorOwner ===
+  // "spouse"`, where `primaryAge` carries the spouse's age), the pooled clock
+  // must use the spouse's start age — the primary's birth-year clock no
+  // longer applies to anyone after the spousal rollover.
+  const pooledScenario = pooledSpouse && survivorOwner === "spouse"
+    ? { ...scenario, rmd: { ...(scenario.rmd ?? {}), startAge: spouseStartAge } }
+    : scenario;
   const primary = requiredMinimumDistributionForYear({
-    scenario,
+    scenario: pooledScenario,
     age: primaryAge,
     beginningTraditionalValue: pooledSpouse ? primaryValue + spouseValue : primaryValue
   });
@@ -124,9 +134,6 @@ export function householdRmdForYear({ scenario, primaryAge, spouseAge = null, tr
     };
   }
 
-  const spouseStartAge = scenario.rmd?.spouseStartAge != null && Number.isFinite(Number(scenario.rmd.spouseStartAge))
-    ? Number(scenario.rmd.spouseStartAge)
-    : defaultSpouseRmdStartAge(scenario);
   const spouse = requiredMinimumDistributionForYear({
     scenario: { ...scenario, rmd: { ...(scenario.rmd ?? {}), startAge: spouseStartAge } },
     age: spouseAge,

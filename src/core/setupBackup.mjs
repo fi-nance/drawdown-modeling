@@ -1,4 +1,6 @@
-export const SETUP_BACKUP_SCHEMA_VERSION = 1;
+// v2: state gained an `incomeStreams` array (recurring pension/annuity/rent
+// streams). v1 backups restore cleanly — missing streams normalize to [].
+export const SETUP_BACKUP_SCHEMA_VERSION = 2;
 export const SETUP_BACKUP_TYPE = "portfolio-success-lab-full-setup";
 export const SETUP_BACKUP_PRIVACY_NOTICE = "Setup backups can include household ages, account balances, tax assumptions, healthcare inputs, heirs/goals, and decision preferences. Keep them local unless you intentionally share them with a CPA or trusted reviewer.";
 
@@ -51,9 +53,11 @@ export function normalizeSetupState(state) {
   const normalized = {
     controls: copyPlainObject(state.controls ?? {}),
     assets: copyObjectArray(state.assets, "assets"),
-    oneOffExpenses: copyObjectArray(state.oneOffExpenses ?? [], "one-off expenses")
+    oneOffExpenses: copyObjectArray(state.oneOffExpenses ?? [], "one-off expenses"),
+    // Default to [] (like oneOffExpenses) so restoring a pre-stream backup
+    // clears the workspace's current streams instead of silently keeping them.
+    incomeStreams: copyObjectArray(state.incomeStreams ?? [], "income streams")
   };
-  if (state.incomeStreams != null) normalized.incomeStreams = copyObjectArray(state.incomeStreams, "income streams");
   if (state.redesign != null) normalized.redesign = copyPlainObject(state.redesign);
   if (state.decisionProfile != null) normalized.decisionProfile = copyPlainObject(state.decisionProfile);
   return normalized;

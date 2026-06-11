@@ -110,7 +110,8 @@ test("result audit bundle wraps setup, compact result, audit rows, and source ve
   assert.equal(bundle.schemaVersion, RESULT_AUDIT_BUNDLE_SCHEMA_VERSION);
   assert.equal(bundle.privacyNotice, RESULT_AUDIT_BUNDLE_PRIVACY_NOTICE);
   assert.equal(bundle.exportedAt, "2026-05-30T00:00:00.000Z");
-  assert.deepEqual(bundle.setup, setupState);
+  // Setup normalization fills in the (empty) income-streams array.
+  assert.deepEqual(bundle.setup, { ...setupState, incomeStreams: [] });
   assert.deepEqual(bundle.audit, [
     { label: "Tax assumptions", value: "2026 federal and Florida state" },
     { label: "Simulation inputs", value: "1000 Monte Carlo runs" }

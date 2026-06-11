@@ -130,9 +130,10 @@ export function estimateTaxAttribution({
     taxableSocialSecurity
   });
   addSource("Roth earnings withdrawals", { ordinaryIncome: rothEarningsIncome });
+  // Mirrors combineIncome: HSA ordinary income is federal-only, never part of
+  // the state retirement-income bucket.
   addSource("HSA nonqualified withdrawals", {
-    ordinaryIncome: hsaOrdinaryIncome,
-    retirementOrdinaryIncome: hsaOrdinaryIncome
+    ordinaryIncome: hsaOrdinaryIncome
   });
   addSource("Taxable sales", {
     shortTermCapitalGains: withdrawal.shortTermCapitalGains,
