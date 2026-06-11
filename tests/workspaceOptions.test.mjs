@@ -359,6 +359,21 @@ test("spouse self-employment income gets its own Schedule SE computation and ded
   assert.equal(result.adjustmentsToIncome, single.adjustmentsToIncome * 2);
 });
 
+test("self-employment QBI source includes spouse self-employment income", () => {
+  const baseProfile = buildTaxProfile({ taxYear: 2026, filingStatus: "marriedFilingJointly", state: "Florida" });
+  const profile = {
+    ...baseProfile,
+    qualifiedBusinessIncome: { sourceMode: "selfEmployment" }
+  };
+  const primaryOnly = computeIncomeTax({ ordinaryIncome: 120000, selfEmploymentIncome: 30000, profile });
+  const spouseOnly = computeIncomeTax({ ordinaryIncome: 120000, spouseSelfEmploymentIncome: 30000, profile });
+  const both = computeIncomeTax({ ordinaryIncome: 120000, selfEmploymentIncome: 30000, spouseSelfEmploymentIncome: 30000, profile });
+
+  assert.ok(primaryOnly.qbiDeduction > 0);
+  assert.equal(spouseOnly.qbiDeduction, primaryOnly.qbiDeduction);
+  assert.equal(both.qbiDeduction, primaryOnly.qbiDeduction * 2);
+});
+
 // ─── Recurring income streams ────────────────────────────────────────────────
 
 test("pension streams start at the owner's age, apply COLA, and continue at the survivor share", () => {

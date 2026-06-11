@@ -203,8 +203,8 @@ export function computeIncomeTax({
   const qbi = computeQualifiedBusinessIncomeDeduction({
     taxableOrdinaryIncomeBeforeQbi,
     taxableIncomeBeforeQbi: taxableOrdinaryIncomeBeforeQbi + taxablePreferentialIncome,
-    selfEmploymentIncome,
-    selfEmploymentTaxDeduction: selfEmployment.deduction,
+    selfEmploymentIncome: selfEmploymentIncome + spouseSelfEmploymentIncome,
+    selfEmploymentTaxDeduction: selfEmployment.deduction + spouseSelfEmployment.deduction,
     profile
   });
   const taxableOrdinaryIncome = Math.max(0, taxableOrdinaryIncomeBeforeQbi - qbi.deduction);
