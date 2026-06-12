@@ -43,6 +43,7 @@ export function estimateTaxAttribution({
   strategyLongTermGains = 0,
   allocationStrategy = emptyRebalanceResult(),
   assetLocation = emptyAssetLocationResult(),
+  tipsLadderBuild = null,
   taxableSocialSecurity = 0
 }) {
   const totalTax = Math.max(0, finalTaxes.incomeTax ?? (finalTaxes.totalTax - (finalTaxes.penaltyTax ?? 0)));
@@ -148,12 +149,18 @@ export function estimateTaxAttribution({
     shortTermCapitalGains: assetLocation.shortTermCapitalGains ?? 0,
     longTermCapitalGains: assetLocation.longTermCapitalGains ?? 0
   });
+  addSource("TIPS ladder funding", {
+    shortTermCapitalGains: tipsLadderBuild?.shortTermCapitalGains ?? 0,
+    longTermCapitalGains: tipsLadderBuild?.longTermCapitalGains ?? 0,
+    capitalLosses: tipsLadderBuild?.capitalLosses ?? 0
+  });
   addSource("Tax gain harvesting", {
     longTermCapitalGains: Math.max(
       0,
       strategyLongTermGains
         - (allocationStrategy.longTermCapitalGains ?? 0)
         - (assetLocation.longTermCapitalGains ?? 0)
+        - (tipsLadderBuild?.longTermCapitalGains ?? 0)
     )
   });
 
