@@ -137,6 +137,12 @@ test("rescue scenario workspace knobs are visible and persisted", async () => {
   assert.match(redesignSource, /modulesForRescueChanges/);
   assert.match(redesignSource, /TIPS ladder\|Ladder /);
   assert.match(redesignSource, /expandWorkspaceModules/);
+  // rescueTitle values are embedded mid-sentence in the decision verdict, so
+  // they must be lowercase phrases (display sites apply capitalizeFirst), and
+  // a resize of an already-enabled ladder must not read as a fresh carve-out.
+  assert.match(redesignSource, /`carve out a \$\{meta\.ladderYears \?\? 0\}-year TIPS ladder`/);
+  assert.match(redesignSource, /`resize the TIPS ladder to \$\{meta\.ladderYears \?\? 0\} years`/);
+  assert.match(redesignSource, /meta\.previousLadderYears != null/);
 
   assert.match(appSource, /setOptionalNumberControl\("medicareAnnualOopBase", scenario\.medicare\?\.annualOopBase\)/);
   assert.match(appSource, /setValueControl\("sequenceReserveMode", reserve\.enabled === false \? "none" : reserve\.mode\)/);

@@ -1134,7 +1134,11 @@ function rescueTitle(option) {
     case "sequenceReserve":
       return `hold a ${meta.reserveYears ?? 0}-year ${meta.reserveMode ?? "cash"} reserve`;
     case "tipsLadder":
-      return `carve out a ${meta.ladderYears ?? 0}-year TIPS ladder`;
+      // previousLadderYears is set when the base plan already has a ladder —
+      // the rescue resizes it rather than carving out a new one.
+      return meta.previousLadderYears != null
+        ? `resize the TIPS ladder to ${meta.ladderYears ?? 0} years`
+        : `carve out a ${meta.ladderYears ?? 0}-year TIPS ladder`;
     case "allocationShift":
       return `shift to ${Math.round(meta.targetStockPercent ?? 0)}% stock`;
     case "withdrawalShift":
