@@ -288,6 +288,35 @@ test("rungs maturing before 59.5 fund taxable-first and mature penalty-free", ()
   assert.equal(rungSale.taxType, "capital-gains");
 });
 
+test("taxable ladder funding is attributed to the ladder, not gain harvesting", () => {
+  const plan = simulatePlan({
+    assets: [
+      { id: "tx-stock", accountType: "taxable", assetClass: "stock", units: 200000, price: 1, costBasisPerUnit: 0.2, holdingPeriod: "long" }
+    ],
+    scenario: quietScenario({
+      currentAge: 50,
+      planYears: 2,
+      targetSpend: 1000,
+      returnAssumptions: deterministicAssumptions({ stockMean: 0, inflationMean: 0 }),
+      tipsLadder: { enabled: true, years: 1, annualRealAmount: 100000, realYieldPercent: 0 }
+    }),
+    taxProfile: goldenProfile()
+  });
+
+  const year0 = plan.years[0];
+  assert.ok(year0.realizedLongTermGains > 80000, "funding sale creates taxable capital gains");
+  assert.equal(year0.taxGainHarvested, 0, "TIPS funding must not render as tax-gain harvesting");
+  assert.ok(
+    year0.taxAttribution.some((entry) => entry.source === "TIPS ladder funding"),
+    "tax attribution should identify the ladder funding sale"
+  );
+  assert.equal(
+    year0.taxAttribution.some((entry) => entry.source === "Tax gain harvesting"),
+    false,
+    "tax-gain harvesting is disabled and should not receive ladder gains"
+  );
+});
+
 test("rungs maturing after 59.5 fund traditional-first and mature as ordinary income", () => {
   const plan = simulatePlan({
     assets: [

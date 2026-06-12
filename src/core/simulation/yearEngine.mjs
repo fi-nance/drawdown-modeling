@@ -741,6 +741,7 @@ export function simulateYear({
     strategyLongTermGains,
     allocationStrategy,
     assetLocation,
+    tipsLadderBuild,
     taxableSocialSecurity: finalTaxableSocialSecurity
   });
   flows.push(...finalWithdrawal.flows);
@@ -956,6 +957,7 @@ export function simulateYear({
       strategyLongTermGains
         - allocationStrategy.longTermCapitalGains
         - assetLocation.longTermCapitalGains
+        - (tipsLadderBuild?.longTermCapitalGains ?? 0)
     ), 6),
     realizedShortTermGains: round(strategyShortTermGains + finalWithdrawal.shortTermCapitalGains, 6),
     realizedCapitalLosses: round(strategyCapitalLosses + finalWithdrawal.capitalLosses, 6),
