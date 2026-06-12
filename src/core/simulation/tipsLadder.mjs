@@ -42,19 +42,33 @@ import { assetOwner } from "./portfolioQueries.mjs";
 // Defensive funding sources are consumed before growth assets so the carve-out
 // disturbs the equity sleeve as little as possible.
 const FUNDING_CLASS_PRIORITY = { bond: 0, tips: 1, cash: 2, realEstate: 3, stock: 4, crypto: 5 };
+// Replenishment after an UP year inverts the priority: the point of the
+// policy is to harvest appreciated stock into the inflation-protected floor.
+const REPLENISH_UP_CLASS_PRIORITY = { stock: 0, crypto: 1, realEstate: 2, bond: 3, tips: 4, cash: 5 };
+
+const MAINTENANCE_MODES = ["none", "always", "stocks-up", "spend-on-stress"];
 
 export function tipsLadderConfig(scenario) {
   const config = scenario?.tipsLadder ?? {};
   const years = Number(config.years);
   const annualRealAmount = Number(config.annualRealAmount);
   const realYieldPercent = Number(config.realYieldPercent);
+  const trigger = Number(config.triggerStockReturnPercent);
   return {
     enabled: config.enabled === true,
     years: Number.isFinite(years) ? Math.max(1, Math.min(40, Math.trunc(years))) : 10,
     annualRealAmount: Number.isFinite(annualRealAmount) && annualRealAmount > 0 ? annualRealAmount : null,
     // Locked real yield at purchase. Clamped to a plausible TIPS range —
     // deeply negative or double-digit real yields are input errors.
-    realYield: Number.isFinite(realYieldPercent) ? Math.max(-2, Math.min(8, realYieldPercent)) / 100 : 0.02
+    realYield: Number.isFinite(realYieldPercent) ? Math.max(-2, Math.min(8, realYieldPercent)) / 100 : 0.02,
+    // Post-build maintenance policy (see DEFAULT_SCENARIO doc comment):
+    // "none" | "always" | "stocks-up" | "spend-on-stress".
+    maintenanceMode: MAINTENANCE_MODES.includes(config.maintenanceMode) ? config.maintenanceMode : "none",
+    replenishCatchUp: config.replenishCatchUp === true,
+    // Trigger threshold on the year's REALIZED stock return, mirroring the
+    // sequence-risk reserve convention: stress when stock <= trigger.
+    // Percent input: 0 = any down year; -10 = down at least 10%.
+    triggerStockReturn: Number.isFinite(trigger) ? Math.max(-95, Math.min(95, trigger)) / 100 : 0
   };
 }
 
@@ -84,7 +98,7 @@ export function repriceTipsLadderRungs(portfolio, { scenario, yearIndex, inflati
 // and pushes one rung lot per (maturity year, accountType, owner).
 // `baseAnnualSpending` is the year-1 base spending target used when the
 // household did not enter an explicit annual rung amount.
-export function buildTipsLadder({ portfolio, scenario, age, baseAnnualSpending = 0, inflationIndex = 1 }) {
+export function buildTipsLadder({ portfolio, scenario, age, ownerAges = null, baseAnnualSpending = 0, inflationIndex = 1 }) {
   const config = tipsLadderConfig(scenario);
   if (!config.enabled) return null;
 
@@ -95,6 +109,7 @@ export function buildTipsLadder({ portfolio, scenario, age, baseAnnualSpending =
   }
 
   const penaltyAge = Number(scenario.retirementPenaltyAge ?? 59.5);
+  const resolvedOwnerAges = ownerAges ?? { primary: age, spouse: age };
   const result = { ...emptyBuildResult(config), annualRealAmount };
 
   // Nearest rungs first: when the portfolio cannot fund the full ladder, the
@@ -109,10 +124,13 @@ export function buildTipsLadder({ portfolio, scenario, age, baseAnnualSpending =
       portfolio,
       rungCost,
       maturityYear,
+      yearsToMaturity: maturityYear,
       accountOrder,
       realYield: config.realYield,
       annualRealAmount,
-      result
+      result,
+      ownerAges: resolvedOwnerAges,
+      penaltyAge
     });
     if (funded > 0) result.fundedYears += 1;
     result.totalCost = round(result.totalCost + funded, 6);
@@ -140,39 +158,56 @@ function emptyBuildResult(config) {
   };
 }
 
-function fundRung({ portfolio, rungCost, maturityYear, accountOrder, realYield, annualRealAmount, result }) {
+function fundRung({ portfolio, rungCost, maturityYear, yearsToMaturity = maturityYear, accountOrder, realYield, annualRealAmount, result, classPriority = FUNDING_CLASS_PRIORITY, idSuffix = "", ownerAges = null, penaltyAge = 59.5 }) {
   let remaining = rungCost;
   // Accumulate funded value per (accountType, owner) so each rung lot lands
   // in the account space — and on the owner's RMD clock — that funded it.
   const rungBuckets = new Map();
 
-  for (const accountType of accountOrder) {
+  // A sheltered lot is a PENALIZED placement when ITS OWNER would still be
+  // under the early-withdrawal penalty age at the rung's maturity — a
+  // younger spouse's IRA must not fund a rung the primary's age clock says
+  // is penalty-free. Penalized lots are a household-wide last resort: they
+  // are consumed only after every other account type has been exhausted.
+  const penalizedPlacement = (asset, accountType) => {
+    if (accountType === "taxable") return false;
+    const owner = assetOwner(asset) === "spouse" ? "spouse" : "primary";
+    const ownerAge = Number(ownerAges?.[owner]);
+    if (!Number.isFinite(ownerAge)) return false;
+    return ownerAge + yearsToMaturity < penaltyAge;
+  };
+
+  for (const allowPenalized of [false, true]) {
     if (remaining <= 0.000001) break;
-    const candidates = portfolio
-      .filter((asset) => asset.accountType === accountType
-        && !isTipsLadderRung(asset)
-        && marketValue(asset) > 0)
-      .sort((a, b) => (FUNDING_CLASS_PRIORITY[a.assetClass] ?? 9) - (FUNDING_CLASS_PRIORITY[b.assetClass] ?? 9)
-        || marketValue(b) - marketValue(a));
-    for (const asset of candidates) {
+    for (const accountType of accountOrder) {
       if (remaining <= 0.000001) break;
-      const take = Math.min(remaining, marketValue(asset));
-      if (!(take > 0.000001)) continue;
-      const owner = assetOwner(asset);
-      if (accountType === "taxable") {
-        // Real sale: realized gains/losses join the year's strategy tax math.
-        const sale = sellFromLot(asset, take);
-        if (!(sale.proceeds > 0)) continue;
-        applyBuildSaleTaxCharacter(result, sale);
-        result.sales.push(sale);
-        remaining = round(remaining - sale.proceeds, 6);
-        bumpBucket(rungBuckets, accountType, owner, sale.proceeds);
-      } else {
-        // Sheltered conversion: no tax event, just shave units.
-        const units = take / asset.price;
-        asset.units = Math.max(0, round(asset.units - units, 8));
-        remaining = round(remaining - take, 6);
-        bumpBucket(rungBuckets, accountType, owner, take);
+      const candidates = portfolio
+        .filter((asset) => asset.accountType === accountType
+          && !isTipsLadderRung(asset)
+          && marketValue(asset) > 0
+          && penalizedPlacement(asset, accountType) === allowPenalized)
+        .sort((a, b) => (classPriority[a.assetClass] ?? 9) - (classPriority[b.assetClass] ?? 9)
+          || marketValue(b) - marketValue(a));
+      for (const asset of candidates) {
+        if (remaining <= 0.000001) break;
+        const take = Math.min(remaining, marketValue(asset));
+        if (!(take > 0.000001)) continue;
+        const owner = assetOwner(asset);
+        if (accountType === "taxable") {
+          // Real sale: realized gains/losses join the year's strategy tax math.
+          const sale = sellFromLot(asset, take);
+          if (!(sale.proceeds > 0)) continue;
+          applyBuildSaleTaxCharacter(result, sale);
+          result.sales.push(sale);
+          remaining = round(remaining - sale.proceeds, 6);
+          bumpBucket(rungBuckets, accountType, owner, sale.proceeds);
+        } else {
+          // Sheltered conversion: no tax event, just shave units.
+          const units = take / asset.price;
+          asset.units = Math.max(0, round(asset.units - units, 8));
+          remaining = round(remaining - take, 6);
+          bumpBucket(rungBuckets, accountType, owner, take);
+        }
       }
     }
   }
@@ -188,7 +223,7 @@ function fundRung({ portfolio, rungCost, maturityYear, accountOrder, realYield, 
     if (!(faceShare > 0.000001) || !(value > 0.000001)) continue;
     const price = round(value / faceShare, 8);
     const rung = {
-      id: `tips-ladder-${maturityYear}-${accountType}${owner === "spouse" ? "-spouse" : ""}`,
+      id: `tips-ladder-${maturityYear}${idSuffix}-${accountType}${owner === "spouse" ? "-spouse" : ""}`,
       name: `TIPS ladder rung (year ${maturityYear})`,
       accountType,
       assetClass: "tips",
@@ -238,6 +273,169 @@ function accountLabelFor(accountType) {
   if (accountType === "roth") return "Roth accounts";
   if (accountType === "hsa") return "HSA accounts";
   return "Taxable accounts";
+}
+
+// Yearly ladder maintenance (runs years >= 1, before the maturity-spend step
+// and the allocation rebalance). Policy by maintenanceMode:
+//   "always"          buy every missing rung out to `years` of coverage.
+//   "stocks-up"       same purchase, but only when the year's realized stock
+//                     return is ABOVE the trigger; replenishCatchUp=false
+//                     limits the purchase to the single far rung (missed
+//                     years stay missed — the ladder shrinks after bad runs).
+//   "spend-on-stress" no purchases ever; in NON-stress years the maturing
+//                     rung rolls `years` forward (reinvested at the locked
+//                     real yield — its real face grows by (1+y)^years), so it
+//                     is only consumed when stocks are at or below the
+//                     trigger.
+// Purchases after an up year sell appreciated stock first; purchases in
+// "always" mode during a down year fall back to defensive-first funding.
+export function maintainTipsLadder({ portfolio, scenario, age, ownerAges = null, yearIndex, inflationIndex, stockReturn, baseAnnualSpending = 0 }) {
+  const config = tipsLadderConfig(scenario);
+  if (!config.enabled || config.maintenanceMode === "none" || yearIndex < 1) return null;
+
+  // Stress when the realized stock return is AT OR BELOW the trigger —
+  // matching the sequence-risk reserve convention and the UI copy.
+  const stressYear = Number(stockReturn ?? 0) <= config.triggerStockReturn;
+  const result = {
+    mode: config.maintenanceMode,
+    stressYear,
+    rolledCount: 0,
+    rolledValue: 0,
+    replenishedCount: 0,
+    replenishedCost: 0,
+    shortfall: 0,
+    shortTermCapitalGains: 0,
+    longTermCapitalGains: 0,
+    capitalLosses: 0,
+    shortTermCapitalLosses: 0,
+    longTermCapitalLosses: 0,
+    sales: [],
+    flows: []
+  };
+
+  if (config.maintenanceMode === "spend-on-stress") {
+    // Stress year: leave maturing rungs alone — the maturity step spends them.
+    if (stressYear) return result;
+    for (const asset of [...portfolio]) {
+      if (!isTipsLadderRung(asset)) continue;
+      if (Number(asset.tipsLadderYear) > yearIndex) continue;
+      const value = marketValue(asset);
+      if (!(value > 0.000001)) continue;
+      const newMaturity = yearIndex + config.years;
+      const growth = Math.pow(1 + config.realYield, config.years);
+      if (asset.accountType === "taxable") {
+        // A taxable roll is a sale + repurchase: the accrued gain is realized
+        // now and the new rung starts at a fresh basis.
+        const sale = sellFromLot(asset, value * 1.000001);
+        if (!(sale.proceeds > 0)) continue;
+        applyBuildSaleTaxCharacter(result, sale);
+        result.sales.push(sale);
+        const units = round(Math.max(0, sale.unitsSold) * growth, 8);
+        if (!(units > 0)) continue;
+        const price = round(sale.proceeds / units, 8);
+        portfolio.push({
+          ...assetShellForRoll(asset, yearIndex),
+          units,
+          price,
+          costBasisPerUnit: price,
+          tipsLadderYear: newMaturity
+        });
+        result.rolledValue = round(result.rolledValue + sale.proceeds, 6);
+      } else {
+        // Sheltered roll: no tax event — retag and reinvest in place.
+        asset.tipsLadderYear = newMaturity;
+        asset.units = round(asset.units * growth, 8);
+        asset.price = round(value / asset.units, 8);
+        result.rolledValue = round(result.rolledValue + value, 6);
+      }
+      result.rolledCount += 1;
+      result.flows.push({
+        from: "TIPS ladder",
+        to: "TIPS ladder roll",
+        amount: round(value, 6),
+        type: "rebalance"
+      });
+    }
+    return result;
+  }
+
+  // Replenishment modes ("always" / "stocks-up").
+  if (config.maintenanceMode === "stocks-up" && stressYear) {
+    return result;
+  }
+  const face = resolveRungFace(portfolio, config, baseAnnualSpending);
+  if (!(face > 0)) return result;
+  const existingYears = new Set(
+    portfolio.filter((asset) => isTipsLadderRung(asset)).map((asset) => Number(asset.tipsLadderYear))
+  );
+  const fullCoverage = config.maintenanceMode === "always" || config.replenishCatchUp;
+  const targets = [];
+  for (let k = yearIndex + 1; k <= yearIndex + config.years; k += 1) {
+    if (existingYears.has(k)) continue;
+    if (fullCoverage || k === yearIndex + config.years) targets.push(k);
+  }
+  if (!targets.length) return result;
+
+  const penaltyAge = Number(scenario.retirementPenaltyAge ?? 59.5);
+  const classPriority = Number(stockReturn ?? 0) > config.triggerStockReturn
+    ? REPLENISH_UP_CLASS_PRIORITY
+    : FUNDING_CLASS_PRIORITY;
+  for (const k of targets) {
+    const rungCost = round(face * inflationIndex / Math.pow(1 + config.realYield, k - yearIndex), 6);
+    const ageAtMaturity = (Number.isFinite(age) ? age : 0) + (k - yearIndex);
+    const accountOrder = ageAtMaturity < penaltyAge
+      ? ["taxable", "roth", "traditional"]
+      : ["traditional", "taxable", "roth"];
+    const funded = fundRung({
+      portfolio,
+      rungCost,
+      maturityYear: k,
+      yearsToMaturity: k - yearIndex,
+      accountOrder,
+      realYield: config.realYield,
+      annualRealAmount: face,
+      result,
+      classPriority,
+      idSuffix: `-r${yearIndex}`,
+      ownerAges: ownerAges ?? { primary: age, spouse: age },
+      penaltyAge
+    });
+    if (funded > 0) result.replenishedCount += 1;
+    result.replenishedCost = round(result.replenishedCost + funded, 6);
+    result.shortfall = round(result.shortfall + Math.max(0, rungCost - funded), 6);
+  }
+  return result;
+}
+
+// The rung's real face: derived from the largest existing per-maturity-year
+// face (replenishment matches the built ladder), else the explicit config
+// amount, else the year's base spending target.
+function resolveRungFace(portfolio, config, baseAnnualSpending) {
+  const byYear = new Map();
+  for (const asset of portfolio) {
+    if (!isTipsLadderRung(asset)) continue;
+    const year = Number(asset.tipsLadderYear);
+    byYear.set(year, (byYear.get(year) ?? 0) + Math.max(0, asset.units ?? 0));
+  }
+  const existingFace = byYear.size ? Math.max(...byYear.values()) : 0;
+  if (existingFace > 0.000001) return round(existingFace, 6);
+  if (config.annualRealAmount) return config.annualRealAmount;
+  return Number.isFinite(baseAnnualSpending) && baseAnnualSpending > 0 ? round(baseAnnualSpending, 6) : 0;
+}
+
+function assetShellForRoll(asset, yearIndex) {
+  const shell = {
+    id: `${asset.id}-roll-${yearIndex}`,
+    name: asset.name,
+    accountType: asset.accountType,
+    assetClass: "tips",
+    beneficiaryType: asset.beneficiaryType ?? "default",
+    holdingPeriod: "long",
+    dividendYield: 0,
+    expectedReturn: asset.expectedReturn
+  };
+  if (asset.owner === "spouse") shell.owner = "spouse";
+  return shell;
 }
 
 // Sell every rung whose maturity year has arrived, through the standard

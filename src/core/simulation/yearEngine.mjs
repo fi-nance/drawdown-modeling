@@ -3,7 +3,7 @@
 
 import { inflateAcaConfig } from "../aca.mjs";
 import { accountBreakdown, ageHoldingPeriods, applyTotalReturnsWithIncome, harvestTaxGains, harvestTaxLosses, portfolioValue, removeEmptyLots } from "../portfolio.mjs";
-import { computeIncomeTax, inflateTaxProfile } from "../tax.mjs?v=20260611-tips-ladder";
+import { computeIncomeTax, inflateTaxProfile } from "../tax.mjs?v=20260612-ladder-maintenance";
 import { round } from "../utils.mjs";
 import { allocationStrategyStateForYear } from "./allocation.mjs";
 import { assetLocationStateForYear } from "./assetLocation.mjs";
@@ -11,7 +11,7 @@ import { earnedIncomeForYear, emptyEarnedIncome, mergeEarnedIncome, oneOffCashFl
 import { CASH_GAP_TOLERANCE, CASH_RAISED_EPSILON } from "./constants.mjs";
 import { acaConfigForSimulationYear, buildSurvivorTaxProfile, isMarriedFiling, mortalityStatus } from "./household.mjs";
 import { addHsaContributionLot, emptyHsaContribution, hsaContributionForYear, hsaQualifiedExpenseAvailableForWithdrawal, hsaStrategyConfig } from "./hsa.mjs";
-import { acaMagiForIncome, federalAgiForIncome, incomeForYear, irmaaMagiForIncome, lossCarryforwardTotal, normalizeLossCarryforward, taxProfileForSimulationYear } from "./income.mjs?v=20260611-tips-ladder";
+import { acaMagiForIncome, federalAgiForIncome, incomeForYear, irmaaMagiForIncome, lossCarryforwardTotal, normalizeLossCarryforward, taxProfileForSimulationYear } from "./income.mjs?v=20260612-ladder-maintenance";
 import { incomeStreamsForYear } from "./incomeStreams.mjs";
 import { summarizeAssetClassReturns } from "./market.mjs";
 import { computeAcaForYear, emptyMedicareCost, ltcStressCostForYear, medicalCostForYear } from "./medical.mjs";
@@ -19,13 +19,13 @@ import { addTaxableCash, assetOwner, assetSnapshot, traditionalAccountValueByOwn
 import { householdRmdForYear } from "./rmd.mjs";
 import { isLifetimeOptimizerEnabled } from "./scenario.mjs";
 import { sequenceRiskReserveStateForYear } from "./sequenceRiskReserve.mjs";
-import { socialSecurityBenefitsForYear, spouseSocialSecurityBenefitsForYear } from "./socialSecurity.mjs?v=20260611-tips-ladder";
+import { socialSecurityBenefitsForYear, spouseSocialSecurityBenefitsForYear } from "./socialSecurity.mjs?v=20260612-ladder-maintenance";
 import { plannedSpendingDetailForYear } from "./spending.mjs";
-import { buildTipsLadder, matureTipsLadderRungs, repriceTipsLadderRungs, tipsLadderConfig, tipsLadderValue } from "./tipsLadder.mjs";
-import { acaMagiCeiling, addPenaltyTax, automaticTaxLossHarvestLimit, effectiveRothConversionTargetRate, estimateTaxAttribution, gainHarvestingRoom, rothConversionAmountForYear, rothConversionMagiBuffer, strategyLimit } from "./taxStrategy.mjs?v=20260611-tips-ladder";
-import { convertTraditionalToRoth, earlyWithdrawalPenaltyExceptionAmountForYear, emptyWithdrawal, mergeWithdrawals, rothBasisAvailableForWithdrawal, rothBasisSummaryForYear, withdrawForCash } from "./withdrawalExecution.mjs?v=20260611-tips-ladder";
+import { buildTipsLadder, maintainTipsLadder, matureTipsLadderRungs, repriceTipsLadderRungs, tipsLadderConfig, tipsLadderValue } from "./tipsLadder.mjs";
+import { acaMagiCeiling, addPenaltyTax, automaticTaxLossHarvestLimit, effectiveRothConversionTargetRate, estimateTaxAttribution, gainHarvestingRoom, rothConversionAmountForYear, rothConversionMagiBuffer, strategyLimit } from "./taxStrategy.mjs?v=20260612-ladder-maintenance";
+import { convertTraditionalToRoth, earlyWithdrawalPenaltyExceptionAmountForYear, emptyWithdrawal, mergeWithdrawals, rothBasisAvailableForWithdrawal, rothBasisSummaryForYear, withdrawForCash } from "./withdrawalExecution.mjs?v=20260612-ladder-maintenance";
 import { forcedWithdrawalOrder } from "./withdrawalOrders.mjs";
-import { chooseWithdrawalPlan, evaluateWithdrawalPlan } from "./withdrawalPlanning.mjs?v=20260611-tips-ladder";
+import { chooseWithdrawalPlan, evaluateWithdrawalPlan } from "./withdrawalPlanning.mjs?v=20260612-ladder-maintenance";
 
 export function simulateYear({
   portfolio,
@@ -195,6 +195,7 @@ export function simulateYear({
       portfolio,
       scenario,
       age,
+      ownerAges,
       baseAnnualSpending: baseSpendingDetail.baseSpend,
       inflationIndex
     });
@@ -205,6 +206,41 @@ export function simulateYear({
       strategyShortTermLosses += tipsLadderBuild.shortTermCapitalLosses;
       strategyLongTermLosses += tipsLadderBuild.longTermCapitalLosses;
       flows.push(...tipsLadderBuild.flows);
+    }
+  }
+
+  // Yearly TIPS ladder maintenance (replenish / roll per maintenanceMode),
+  // BEFORE the allocation rebalance so the managed sleeve rebalances around
+  // the post-maintenance ladder. Taxable purchase/roll sales feed the same
+  // strategy gain accounting as rebalance sales.
+  let tipsLadderMaintenance = null;
+  if (yearIndex > 0 && tipsLadderConfig(scenario).enabled && tipsLadderConfig(scenario).maintenanceMode !== "none") {
+    const maintenanceSpendingDetail = plannedSpendingDetailForYear(
+      scenario,
+      yearIndex + 1,
+      inflationIndex,
+      oneOffCashFlows,
+      spendingGuardrail,
+      passedBaseSpend
+    );
+    tipsLadderMaintenance = maintainTipsLadder({
+      portfolio,
+      scenario,
+      age,
+      ownerAges,
+      yearIndex,
+      inflationIndex,
+      stockReturn: returnByAssetClass?.stock ?? 0,
+      // baseSpend is nominal (already inflated); rung faces are REAL dollars.
+      baseAnnualSpending: maintenanceSpendingDetail.baseSpend / Math.max(inflationIndex, 0.000001)
+    });
+    if (tipsLadderMaintenance) {
+      strategyShortTermGains += tipsLadderMaintenance.shortTermCapitalGains;
+      strategyLongTermGains += tipsLadderMaintenance.longTermCapitalGains;
+      strategyCapitalLosses += tipsLadderMaintenance.capitalLosses;
+      strategyShortTermLosses += tipsLadderMaintenance.shortTermCapitalLosses;
+      strategyLongTermLosses += tipsLadderMaintenance.longTermCapitalLosses;
+      flows.push(...tipsLadderMaintenance.flows);
     }
   }
 
@@ -271,7 +307,7 @@ export function simulateYear({
     : [{ amount: Math.max(0, rmd.amount - ladderRmdCredit.primary - ladderRmdCredit.spouse), assets: portfolio }];
   for (const bucket of rmdBuckets) {
     if (!(bucket.amount > 0)) continue;
-    const bucketWithdrawal = withdrawForCash(bucket.assets, bucket.amount, ["traditional"], {
+    const bucketContext = {
       age,
       ownerAges,
       calendarYear,
@@ -282,7 +318,24 @@ export function simulateYear({
       penaltyExceptionRemaining: rmdWithdrawal.penaltyExceptionRemaining,
       returnAssumptions: scenario.returnAssumptions,
       optimizedLotSelection: isLifetimeOptimizerEnabled(scenario)
-    });
+    };
+    let bucketWithdrawal = withdrawForCash(bucket.assets, bucket.amount, ["traditional"], bucketContext);
+    // An RMD is a LEGAL minimum: when the owner's non-rung traditional sleeve
+    // cannot satisfy it, the remainder must come out of TIPS ladder rungs
+    // (sold/distributed at their accreted value — rungs sort last). Without
+    // this pass, a rung-dominated IRA under "spend-on-stress" maintenance
+    // would silently distribute $0 while an RMD is owed, understating
+    // ordinary income, taxes, and IRMAA/ACA MAGI.
+    const unmetRmd = bucket.amount - bucketWithdrawal.cashRaised;
+    if (unmetRmd > CASH_RAISED_EPSILON) {
+      const rungFallback = withdrawForCash(bucket.assets, unmetRmd, ["traditional"], {
+        ...bucketContext,
+        rothBasisRemaining: bucketWithdrawal.rothBasisRemaining,
+        penaltyExceptionRemaining: bucketWithdrawal.penaltyExceptionRemaining,
+        includeTipsLadderRungs: true
+      });
+      bucketWithdrawal = mergeWithdrawals(bucketWithdrawal, rungFallback);
+    }
     rmdWithdrawal = mergeWithdrawals(rmdWithdrawal, bucketWithdrawal);
   }
   rothBasisRemaining = rmdWithdrawal.rothBasisRemaining;
@@ -939,6 +992,15 @@ export function simulateYear({
         realYield: tipsLadderBuild.realYield,
         totalCost: round(tipsLadderBuild.totalCost, 6),
         shortfall: round(tipsLadderBuild.shortfall, 6)
+      } : null,
+      maintenance: tipsLadderMaintenance ? {
+        mode: tipsLadderMaintenance.mode,
+        stressYear: tipsLadderMaintenance.stressYear,
+        rolledCount: tipsLadderMaintenance.rolledCount,
+        rolledValue: round(tipsLadderMaintenance.rolledValue, 6),
+        replenishedCount: tipsLadderMaintenance.replenishedCount,
+        replenishedCost: round(tipsLadderMaintenance.replenishedCost, 6),
+        shortfall: round(tipsLadderMaintenance.shortfall, 6)
       } : null
     } : null,
     allocationStrategy,

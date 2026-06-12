@@ -91,11 +91,34 @@ export const DEFAULT_SCENARIO = {
   // asset-location / reserve counting / ordinary withdrawals, and matured
   // rungs fund spending before any other withdrawal. Disabled by default —
   // no effect on existing plans.
+  // maintenanceMode — what happens to the ladder after the initial carve-out:
+  //   "none"            (default) build once, deplete: each matured rung funds
+  //                     its year and is not replaced — a declining bond tent
+  //                     that leaves a rising equity glidepath behind.
+  //   "always"          after each maturity, buy a new far rung so the ladder
+  //                     keeps `years` of coverage (full catch-up of any
+  //                     previously unfunded rungs).
+  //   "stocks-up"       replenish only in years where the realized stock
+  //                     return is ABOVE triggerStockReturnPercent (sell
+  //                     appreciated stock to refill the floor);
+  //                     replenishCatchUp controls whether missed rungs are
+  //                     bought back after a recovery (defaults ON: in seeded
+  //                     500-run tournaments catch-up added ~1.5pp success for
+  //                     ~8-10% median heir value — success-first).
+  //   "spend-on-stress" a maturing rung is SPENT only when the stock return
+  //                     is at or below the trigger; in other years it rolls
+  //                     forward `years` ahead and spending comes from the
+  //                     (appreciated) portfolio instead. The tournament's
+  //                     efficiency winner: near always-replenish success at a
+  //                     fraction of its heir-value cost.
   tipsLadder: {
     enabled: false,
     years: 10,
     annualRealAmount: null,
-    realYieldPercent: 2
+    realYieldPercent: 2,
+    maintenanceMode: "none",
+    replenishCatchUp: true,
+    triggerStockReturnPercent: 0
   },
   allocationStrategy: {
     rebalanceEnabled: false,

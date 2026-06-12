@@ -164,7 +164,7 @@ const MODULES = [
   { id: "medicare",      label: "Medicare/IRMAA", desc: "Premiums after 65",                       controls: 12, required: false, enabledByDefault: false },
   { id: "other-income",  label: "Other income",   desc: "Social Security, work, pensions",         controls: 22, required: false, enabledByDefault: false },
   { id: "strategy",      label: "Strategy toolkit", desc: "Taxes, allocations, withdrawal rules",   controls: 41, required: false, enabledByDefault: true  },
-  { id: "reserve",       label: "Cash reserve",   desc: "Bucket strategy",                          controls: 8,  required: false, enabledByDefault: false },
+  { id: "reserve",       label: "Cash reserve",   desc: "Bucket strategy",                          controls: 11, required: false, enabledByDefault: false },
   { id: "monte-carlo",   label: "Monte Carlo",    desc: "Return model and sampling",                controls: 20, required: false, enabledByDefault: true  },
   { id: "history",       label: "History test",   desc: "How would you have done?",                controls: 7,  required: false, enabledByDefault: false },
   { id: "what-ifs",      label: "What ifs",       desc: "Future expenses or income",                controls: 8,  required: false, enabledByDefault: true  },
@@ -2550,6 +2550,9 @@ export function rescueChangeList(option = {}, baseScenario = {}) {
   addNumberChange(changes, "Ladder years", baseLadder.years, nextLadder.years, formatPlainNumber);
   addNumberChange(changes, "Ladder annual amount", baseLadder.annualRealAmount ?? undefined, nextLadder.annualRealAmount ?? undefined, formatCurrencyShort);
   addNumberChange(changes, "Ladder real yield %", baseLadder.realYieldPercent, nextLadder.realYieldPercent, formatPlainNumber);
+  addTextChange(changes, "Ladder maintenance", baseLadder.maintenanceMode, nextLadder.maintenanceMode);
+  addBooleanChange(changes, "Ladder catch-up", baseLadder.replenishCatchUp, nextLadder.replenishCatchUp);
+  addNumberChange(changes, "Ladder down-year trigger %", baseLadder.triggerStockReturnPercent, nextLadder.triggerStockReturnPercent, formatPlainNumber);
 
   const baseAllocation = baseScenario.allocationStrategy ?? {};
   const nextAllocation = scenario.allocationStrategy ?? {};

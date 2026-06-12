@@ -2,7 +2,7 @@
 // Single responsibility: taxStrategy. No behavior changes — pure code movement.
 
 import { computeAca } from "../aca.mjs";
-import { computeFederalDeductionChoice, computeIncomeTax } from "../tax.mjs?v=20260611-tips-ladder";
+import { computeFederalDeductionChoice, computeIncomeTax } from "../tax.mjs?v=20260612-ladder-maintenance";
 import { getMedicareIrmaaConfig } from "../../data/taxData.mjs";
 import { round } from "../utils.mjs";
 import { emptyRebalanceResult } from "./allocation.mjs";
@@ -11,7 +11,7 @@ import { emptyEarnedIncome, emptyOneOffCashFlows } from "./cashFlows.mjs";
 import { CASH_RAISED_EPSILON } from "./constants.mjs";
 import { finiteRoom } from "./guards.mjs";
 import { emptyHsaContribution, hsaStrategyConfig } from "./hsa.mjs";
-import { acaMagiForIncome, incomeForYear, irmaaMagiForIncome } from "./income.mjs?v=20260611-tips-ladder";
+import { acaMagiForIncome, incomeForYear, irmaaMagiForIncome } from "./income.mjs?v=20260612-ladder-maintenance";
 import { medicalCostForYear, medicareIrmaaBracketKey } from "./medical.mjs";
 import { embeddedTaxableGains, traditionalAccountValue } from "./portfolioQueries.mjs";
 import { defaultRmdStartAge } from "./rmd.mjs";

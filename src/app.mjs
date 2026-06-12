@@ -22,7 +22,7 @@ import {
   runMonteCarlo,
   simulatePlan,
   generateSingleMonteCarloPath
-} from "./core/simulation.mjs?v=20260611-tips-ladder";
+} from "./core/simulation.mjs?v=20260612-ladder-maintenance";
 import { round } from "./core/utils.mjs";
 import { defaultOneOffExpenses, sampleAssets } from "./data/sample.mjs";
 import {
@@ -33,7 +33,7 @@ import {
   HISTORICAL_RETURN_DATA_VERSION,
   makeHistoricalSequences
 } from "./data/historicalReturns.mjs";
-import { buildAcaConfig, buildTaxProfile, STATE_OPTIONS, TAX_DATA_VERSION, getMonthlyBenchmarkPremium } from "./data/taxData.mjs?v=20260611-tips-ladder";
+import { buildAcaConfig, buildTaxProfile, STATE_OPTIONS, TAX_DATA_VERSION, getMonthlyBenchmarkPremium } from "./data/taxData.mjs?v=20260612-ladder-maintenance";
 import { massachusettsConnectorCareEstimate, massachusettsConnectorCarePlanOptions } from "./data/acaPlanPresets.mjs";
 import {
   buildMarketplacePlanSearchRequest,
@@ -147,6 +147,9 @@ const CONTROL_IDS = [
   "tipsLadderYears",
   "tipsLadderAnnualAmount",
   "tipsLadderRealYieldPercent",
+  "tipsLadderMaintenanceMode",
+  "tipsLadderReplenishCatchUp",
+  "tipsLadderTriggerStockReturnPercent",
   "unifiedMarginalOptimizer",
   "assetLocationOptimization",
   "hsaContributionStrategy",
@@ -367,6 +370,9 @@ const els = {
   tipsLadderYears: document.querySelector("#tipsLadderYears"),
   tipsLadderAnnualAmount: document.querySelector("#tipsLadderAnnualAmount"),
   tipsLadderRealYieldPercent: document.querySelector("#tipsLadderRealYieldPercent"),
+  tipsLadderMaintenanceMode: document.querySelector("#tipsLadderMaintenanceMode"),
+  tipsLadderReplenishCatchUp: document.querySelector("#tipsLadderReplenishCatchUp"),
+  tipsLadderTriggerStockReturnPercent: document.querySelector("#tipsLadderTriggerStockReturnPercent"),
   unifiedMarginalOptimizer: document.querySelector("#unifiedMarginalOptimizer"),
   assetLocationOptimization: document.querySelector("#assetLocationOptimization"),
   hsaContributionStrategy: document.querySelector("#hsaContributionStrategy"),
@@ -1803,6 +1809,9 @@ function applyScenarioControls(scenario) {
   setOptionalNumberControl("tipsLadderYears", scenario.tipsLadder?.years);
   setOptionalNumberControl("tipsLadderAnnualAmount", scenario.tipsLadder?.annualRealAmount);
   setOptionalNumberControl("tipsLadderRealYieldPercent", scenario.tipsLadder?.realYieldPercent);
+  setValueControl("tipsLadderMaintenanceMode", scenario.tipsLadder?.maintenanceMode ?? "none");
+  setCheckedControl("tipsLadderReplenishCatchUp", scenario.tipsLadder?.replenishCatchUp !== false);
+  setNumberControl("tipsLadderTriggerStockReturnPercent", scenario.tipsLadder?.triggerStockReturnPercent ?? 0);
 
   const allocation = scenario.allocationStrategy ?? {};
   setCheckedControl("allocationAwareWithdrawals", allocation.withdrawalBiasEnabled);
@@ -2005,7 +2014,7 @@ function downloadJsonText(text, filename) {
 function getSimulationWorker() {
   if (!simulationWorker) {
     simulationWorker = new Worker(
-      new URL("./core/simulation.worker.mjs?v=20260611-tips-ladder", import.meta.url),
+      new URL("./core/simulation.worker.mjs?v=20260612-ladder-maintenance", import.meta.url),
       { type: "module" }
     );
     simulationWorker.addEventListener("error", (ev) => {
@@ -4691,7 +4700,10 @@ function readScenario() {
       enabled: els.tipsLadderEnabled?.checked === true,
       years: numberOrNull(els.tipsLadderYears?.value) ?? 10,
       annualRealAmount: numberOrNull(els.tipsLadderAnnualAmount?.value),
-      realYieldPercent: numberOrNull(els.tipsLadderRealYieldPercent?.value) ?? 2
+      realYieldPercent: numberOrNull(els.tipsLadderRealYieldPercent?.value) ?? 2,
+      maintenanceMode: els.tipsLadderMaintenanceMode?.value ?? "none",
+      replenishCatchUp: els.tipsLadderReplenishCatchUp ? els.tipsLadderReplenishCatchUp.checked === true : true,
+      triggerStockReturnPercent: numberOrNull(els.tipsLadderTriggerStockReturnPercent?.value) ?? 0
     },
     allocationStrategy: {
       withdrawalBiasEnabled: els.allocationAwareWithdrawals?.checked === true,

@@ -6,13 +6,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { simulatePlan, runMonteCarlo, generateSingleMonteCarloPath } from "../src/core/simulation.mjs?v=20260611-tips-ladder";
-import { withdrawForCash } from "../src/core/simulation/withdrawalExecution.mjs?v=20260611-tips-ladder";
+import { simulatePlan, runMonteCarlo, generateSingleMonteCarloPath } from "../src/core/simulation.mjs?v=20260612-ladder-maintenance";
+import { withdrawForCash } from "../src/core/simulation/withdrawalExecution.mjs?v=20260612-ladder-maintenance";
 import { incomeStreamsForYear } from "../src/core/simulation/incomeStreams.mjs";
 import { householdRmdForYear } from "../src/core/simulation/rmd.mjs";
 import { mergeScenario } from "../src/core/simulation/scenario.mjs";
 import { applySurvivorBasisStepUp } from "../src/core/portfolio.mjs";
-import { computeIncomeTax } from "../src/core/tax.mjs?v=20260611-tips-ladder";
+import { computeIncomeTax } from "../src/core/tax.mjs?v=20260612-ladder-maintenance";
 import { buildTaxProfile } from "../src/data/taxData.mjs";
 import { parsePortfolioCsv } from "../src/core/importers.mjs";
 import { createSetupBackup, parseSetupBackup } from "../src/core/setupBackup.mjs";
@@ -679,7 +679,15 @@ test("tipsLadder annualRealAmount null auto-sizes to the base annual spending ta
 });
 
 test("mergeScenario fills tipsLadder defaults for partial and absent configs", () => {
-  const defaults = { enabled: false, years: 10, annualRealAmount: null, realYieldPercent: 2 };
+  const defaults = {
+    enabled: false,
+    years: 10,
+    annualRealAmount: null,
+    realYieldPercent: 2,
+    maintenanceMode: "none",
+    replenishCatchUp: true,
+    triggerStockReturnPercent: 0
+  };
   assert.deepEqual(mergeScenario({}).tipsLadder, defaults);
   assert.deepEqual(
     mergeScenario({ tipsLadder: { enabled: true, years: 5 } }).tipsLadder,

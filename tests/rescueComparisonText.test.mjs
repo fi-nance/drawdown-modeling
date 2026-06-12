@@ -109,6 +109,9 @@ test("rescue scenario workspace knobs are visible and persisted", async () => {
     "tipsLadderYears",
     "tipsLadderAnnualAmount",
     "tipsLadderRealYieldPercent",
+    "tipsLadderMaintenanceMode",
+    "tipsLadderReplenishCatchUp",
+    "tipsLadderTriggerStockReturnPercent",
     "maxIrmaaTier",
     "taxGainMagiBuffer",
     "rothConversionOptimizeForAca",
@@ -169,8 +172,8 @@ test("module library counts match expanded module cards", async () => {
   assert.match(source, /id: "other-income"[\s\S]*controls: 22/);
   assert.match(html, /data-module="strategy"[\s\S]*<span class="controls-pill">41 controls<\/span>/);
   assert.match(source, /id: "strategy"[\s\S]*controls: 41/);
-  assert.match(html, /data-module="reserve"[\s\S]*<span class="controls-pill">8 controls<\/span>/);
-  assert.match(source, /id: "reserve"[\s\S]*controls: 8/);
+  assert.match(html, /data-module="reserve"[\s\S]*<span class="controls-pill">11 controls<\/span>/);
+  assert.match(source, /id: "reserve"[\s\S]*controls: 11/);
 });
 
 test("module library can scroll to reveal disabled-module knobs", async () => {
@@ -181,7 +184,7 @@ test("module library can scroll to reveal disabled-module knobs", async () => {
 
   assert.match(css, /\.module-library\s*\{[\s\S]*max-height: calc\(100vh - 2rem\)/);
   assert.match(css, /\.module-library\s*\{[\s\S]*overflow-y: auto/);
-  assert.match(html, /src\/redesign\.css\?v=20260611-tips-ladder/);
+  assert.match(html, /src\/redesign\.css\?v=20260612-coverage-report/);
 });
 
 test("rescue comparison table includes per-option confidence labels", async () => {

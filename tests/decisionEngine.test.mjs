@@ -633,6 +633,72 @@ test("TIPS ladder transform enables the ladder with the requested years", () => 
   assert.equal(resized.tipsLadder.years, 20);
   assert.equal(resized.tipsLadder.annualRealAmount, 50000, "explicit rung amount survives a resize");
   assert.equal(resized.tipsLadder.realYieldPercent, 1.5);
+
+  // Maintenance keys ride through the transform untouched — a rescue resize
+  // must not silently reset the household's maintenance policy.
+  const maintained = scenarioWithTipsLadder(
+    {
+      ...DEFAULT_SCENARIO,
+      tipsLadder: {
+        enabled: true,
+        years: 10,
+        annualRealAmount: null,
+        realYieldPercent: 2,
+        maintenanceMode: "spend-on-stress",
+        replenishCatchUp: false,
+        triggerStockReturnPercent: -10
+      }
+    },
+    { years: 15 }
+  );
+  assert.equal(maintained.tipsLadder.maintenanceMode, "spend-on-stress");
+  assert.equal(maintained.tipsLadder.replenishCatchUp, false);
+  assert.equal(maintained.tipsLadder.triggerStockReturnPercent, -10);
+});
+
+test("decision batch produces a TIPS ladder rescue option end-to-end", () => {
+  const scenario = {
+    ...DEFAULT_SCENARIO,
+    planYears: 6,
+    currentAge: 62,
+    spouseAge: null,
+    targetSpend: 70000,
+    targetSpendIncludesTaxes: true,
+    targetSpendIncludesMedical: true,
+    medicalExpensesBase: 0,
+    withdrawalStrategy: { mode: "heuristic" },
+    taxLossHarvesting: { enabled: false },
+    taxGainHarvesting: { enabled: false },
+    rothConversion: { enabled: false },
+    aca: { enabled: false },
+    monteCarlo: { ...DEFAULT_SCENARIO.monteCarlo, samplingMode: "independent" },
+    returnAssumptions: {
+      ...DEFAULT_SCENARIO.returnAssumptions,
+      stock: { mean: 0.03, stdev: 0.18 },
+      inflation: { mean: 0.025, stdev: 0.01 }
+    },
+    spendingStrategy: { ...DEFAULT_SCENARIO.spendingStrategy, mode: "fixed" }
+  };
+  const decision = runDecisionBatch({
+    assets: [
+      { id: "t", name: "IRA", accountType: "traditional", assetClass: "stock", units: 1, price: 350000, costBasisPerUnit: 350000 },
+      { id: "b", name: "Bonds", accountType: "traditional", assetClass: "bond", units: 1, price: 100000, costBasisPerUnit: 100000 }
+    ],
+    scenario,
+    taxProfile: noTaxProfile,
+    runs: 16,
+    seed: 7,
+    sequences: [],
+    decisionProfile: { requiredSpend: 55000, flexibleSpend: 15000, targetSuccessRate: 0.9 }
+  });
+  const ladder = decision.rescueOptions.find((option) => option.kind === "tipsLadder")
+    ?? decision.testedRescueOptions.find((option) => option.kind === "tipsLadder");
+  assert.ok(ladder, "a tipsLadder rescue option must be produced");
+  assert.match(ladder.id, /^tips-ladder-\d+$/);
+  assert.ok(Number.isInteger(ladder.metadata.ladderYears) && ladder.metadata.ladderYears > 0);
+  assert.equal(ladder.metadata.annualRealAmount, null, "auto-sizing reports null, not 0");
+  assert.equal(ladder.scenario.tipsLadder.enabled, true);
+  assert.equal(ladder.scenario.tipsLadder.years, ladder.metadata.ladderYears);
 });
 
 test("allocation transform enables rebalancing toward the target stock percent", () => {

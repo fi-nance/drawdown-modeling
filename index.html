@@ -8,7 +8,7 @@
     <link rel="icon" href="./favicon.svg?v=20260505-favicon" type="image/svg+xml">
     <meta name="theme-color" content="#07111f">
     <link rel="stylesheet" href="./src/styles.css?v=20260530-ws-mobile-fit">
-    <link rel="stylesheet" href="./src/redesign.css?v=20260611-tips-ladder">
+    <link rel="stylesheet" href="./src/redesign.css?v=20260612-coverage-report">
     <script src="https://accounts.google.com/gsi/client" async defer></script>
   </head>
   <body data-screen="persona" data-theme="dark">
@@ -65,6 +65,7 @@
             <button type="button" data-detail="plain" aria-pressed="true">Plain</button>
             <button type="button" data-detail="pro" aria-pressed="false">Pro</button>
           </div>
+          <a class="subtle-button" href="./model-coverage.html" target="_blank" rel="noopener">Model coverage</a>
           <button class="theme-toggle" data-theme-toggle type="button" aria-label="Toggle theme">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
           </button>
@@ -151,6 +152,7 @@
             <button type="button" data-view-mode="real"    aria-pressed="true">Today's $</button>
             <button type="button" data-view-mode="nominal" aria-pressed="false">Future $</button>
           </div>
+          <a class="subtle-button" href="./model-coverage.html" target="_blank" rel="noopener">Model coverage</a>
           <button class="theme-toggle" data-theme-toggle type="button" aria-label="Toggle theme">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
           </button>
@@ -682,7 +684,7 @@
                     <span class="module-sub">Sequence-risk bucket strategy</span>
                   </div>
                 </div>
-                <div class="module-actions"><span class="controls-pill">8 controls</span></div>
+                <div class="module-actions"><span class="controls-pill">11 controls</span></div>
               </div>
               <div class="module-body">
                 <label>
@@ -698,11 +700,22 @@
                   <label><span>Reserve target years</span><input id="sequenceReserveTargetYears" type="number" min="0.5" max="10" step="0.5" value="3"></label>
                   <label><span>Reserve tent years</span>  <input id="sequenceReserveTentYears" type="number" min="1" max="30" step="1" value="10"></label>
                 </div>
-                <label class="check-row"><input id="tipsLadderEnabled" type="checkbox"><span>TIPS bond ladder</span><small>Carves an N-year held-to-maturity TIPS ladder out of the portfolio at the first rebalance (tax-deferred-first placement; pre-59&frac12; rungs taxable-first). Each rung funds one year of spending, inflation-adjusted, and rungs are excluded from rebalancing.</small></label>
+                <label class="check-row"><input id="tipsLadderEnabled" type="checkbox"><span>TIPS bond ladder</span><small>Carves an N-year held-to-maturity TIPS ladder out of the portfolio at the first rebalance (tax-deferred-first placement; pre-59&frac12; rungs taxable-first). Each rung funds one year of spending, inflation-adjusted, and rungs are excluded from rebalancing. A 500-run seeded tournament found spend-on-stress keeps nearly all of always-replenish's success rate at a fraction of its heir-value cost; build-once-deplete maximizes heir value.</small></label>
                 <div class="control-grid">
                   <label><span>Ladder years</span><input id="tipsLadderYears" type="number" min="1" max="40" step="1" value="10"></label>
                   <label><span>Ladder annual amount</span><input id="tipsLadderAnnualAmount" type="number" min="0" step="1000" placeholder="Auto: base spending target"></label>
                   <label><span>Ladder real yield %</span><input id="tipsLadderRealYieldPercent" type="number" min="-2" max="8" step="0.1" value="2"></label>
+                  <label>
+                    <span>Ladder maintenance</span>
+                    <select id="tipsLadderMaintenanceMode">
+                      <option value="none" selected>Build once, deplete (rising equity glidepath)</option>
+                      <option value="spend-on-stress">Spend rungs only in down years, else roll (recommended)</option>
+                      <option value="stocks-up">Replenish after up years</option>
+                      <option value="always">Always replenish</option>
+                    </select>
+                  </label>
+                  <label class="check-row"><input id="tipsLadderReplenishCatchUp" type="checkbox" checked><span>Catch up missed rungs after a recovery (stocks-up mode)</span></label>
+                  <label><span>Down-year trigger (stock return %, at or below = stress)</span><input id="tipsLadderTriggerStockReturnPercent" type="number" step="1" value="0"></label>
                 </div>
               </div>
             </section>
@@ -946,6 +959,7 @@
             <button type="button" data-view-mode="real"    aria-pressed="true">Today's $</button>
             <button type="button" data-view-mode="nominal" aria-pressed="false">Future $</button>
           </div>
+          <a class="subtle-button" href="./model-coverage.html" target="_blank" rel="noopener">Model coverage</a>
           <button class="theme-toggle" data-theme-toggle type="button" aria-label="Toggle theme">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
           </button>
@@ -1219,7 +1233,7 @@
       <select id="viewMode"><option value="real" selected>Today's $</option><option value="nominal">Future $</option></select>
     </div>
 
-    <script type="module" src="./src/app.mjs?v=20260611-tips-ladder"></script>
-    <script type="module" src="./src/redesign.mjs?v=20260611-tips-ladder"></script>
+    <script type="module" src="./src/app.mjs?v=20260612-ladder-maintenance"></script>
+    <script type="module" src="./src/redesign.mjs?v=20260612-ladder-maintenance"></script>
   </body>
 </html>

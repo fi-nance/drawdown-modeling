@@ -2,7 +2,7 @@
 // Single responsibility: heirEstate. No behavior changes — pure code movement.
 
 import { marketValue } from "../portfolio.mjs";
-import { taxFromBrackets } from "../tax.mjs?v=20260611-tips-ladder";
+import { taxFromBrackets } from "../tax.mjs?v=20260612-ladder-maintenance";
 import { FEDERAL_TAX_2026, buildTaxProfile } from "../../data/taxData.mjs";
 import { round } from "../utils.mjs";
 import { DEFAULT_SCENARIO } from "./scenario.mjs";
