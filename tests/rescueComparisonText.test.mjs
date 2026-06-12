@@ -135,6 +135,8 @@ test("rescue scenario workspace knobs are visible and persisted", async () => {
   }
 
   assert.match(html, /id="tipsLadderRealYieldPercent"[^>]*max="8"/);
+  assert.match(html, /Stress trigger % \(0 = any down year, -10 = down 10% or worse\)/);
+  assert.doesNotMatch(html, /Down-year trigger \(stock return %, at or below = stress\)/);
   assert.match(redesignSource, /bindRescueAppliedModuleVisibility/);
   assert.match(redesignSource, /psl:rescue-scenario-applied/);
   assert.match(redesignSource, /modulesForRescueChanges/);
