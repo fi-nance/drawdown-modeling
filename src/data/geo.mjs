@@ -388,7 +388,7 @@ const TERRITORY_ZIP3 = Object.freeze(new Set([
 export function resolveZip(zipInput) {
   const zip3 = zipPrefixOf(zipInput);
   const normalizedZip = typeof zipInput === "string"
-    ? (/^\d{5}$/.test(zipInput) ? zipInput : null)
+    ? zip5Of(zipInput)
     : (Number.isFinite(zipInput) ? String(Math.trunc(zipInput)).padStart(5, "0").slice(0, 5) : null);
 
   if (!zip3) {
@@ -439,6 +439,19 @@ function emptyResolution({ zip = null, zip3 = null, fallback }) {
       zipToState: ZIP_TO_STATE_SOURCE
     })
   });
+}
+
+// Full 5-digit ZIP from a string input, accepting the same forms as
+// zipPrefixOf ("02139", "02139-1234", surrounding whitespace). A bare 3-digit
+// prefix has no ZIP5 and returns null. Keeping the two normalizers aligned
+// matters downstream: ZIP5-keyed lookups (county FIPS, ZIP-level SLCSP
+// overrides) must not silently degrade to the state fallback for a ZIP+4
+// input that zipPrefixOf happily resolved to a state.
+function zip5Of(zipInput) {
+  const trimmed = String(zipInput).trim();
+  if (/^\d{5}$/.test(trimmed)) return trimmed;
+  const plus4 = trimmed.match(/^(\d{5})-\d{4}$/);
+  return plus4 ? plus4[1] : null;
 }
 
 function zipPrefixOf(zipInput) {

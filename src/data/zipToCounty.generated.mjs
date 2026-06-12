@@ -1,7 +1,7 @@
 // AUTO-GENERATED — DO NOT EDIT BY HAND.
 // Regenerate with: node scripts/generateAcaRatingArea.mjs
 // See docs/DATA_SOURCES.md → "Regenerating the rating-area SLCSP tables".
-// Plan year 2026. Data version 2026.2.
+// Plan year 2026. Data version 2026.3.
 // ZIP5 → primary county FIPS (covered rating-area counties only).
 //
 // ZIP5_TO_COUNTY_FIPS[zip5] = primary county FIPS (the county holding the most

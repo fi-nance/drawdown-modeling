@@ -7,6 +7,10 @@
 //   - Military / territory / unknown ZIPs are out-of-model (no marketplace).
 //   - ZIP-based rating-area states (AK) resolve via 3-digit ZIP.
 //   - Household aggregation applies the ACA under-21 child cap.
+//   - ZIP-level partial-county resolution: ZIPs outside a partial-county
+//     service area get their own benchmark (benchmarkLevel "zip"), ZIP
+//     overrides win over county overrides, and ZIP+4 inputs resolve
+//     identically to their ZIP5.
 //   - The computeAca shim swaps in the rating-area benchmark when given a ZIP.
 
 import assert from "node:assert/strict";
@@ -21,9 +25,11 @@ import {
 import {
   ACA_SLCSP_BY_RATING_AREA_2026,
   ACA_SLCSP_COUNTY_OVERRIDES_2026,
+  ACA_SLCSP_ZIP_OVERRIDES_2026,
   ACA_SLCSP_COVERED_STATES
 } from "../src/data/acaRatingArea2026.generated.mjs";
 import { COUNTY_TO_RATING_AREA } from "../src/data/countyToRatingArea.generated.mjs";
+import { ZIP5_TO_COUNTY_FIPS } from "../src/data/zipToCounty.generated.mjs";
 import { computeAca, benchmarkPremiumForZip } from "../src/core/aca.mjs";
 import { buildAcaConfig } from "../src/data/taxData.mjs";
 
@@ -248,8 +254,118 @@ test("county-level SLCSP overrides only tighten the rating-area benchmark", () =
   assert.ok(checked >= 500, `expected a substantial county-override set, saw ${checked}`);
 });
 
+// ─── ZIP-level partial-county resolution ─────────────────────────────────────
+
+test("ZIPs outside a partial-county service area get their own (higher) benchmark", () => {
+  // MI Lapeer County (26087, MI-5): issuer 58594's service area MIS001 covers
+  // only ZIPs 48371/48440/48455/48462 of the county, and its plan is the
+  // rating area's benchmark plan. ZIPs INSIDE the filed list keep the
+  // rating-area benchmark; every other Lapeer ZIP loses that issuer's plans
+  // and is re-ranked over the plans actually offered there.
+  const inside = slcspMonthlyFor({ zip: "48440", age: 40 });
+  assert.equal(inside.fallback, null);
+  assert.equal(inside.countyFips, "26087");
+  assert.equal(inside.benchmarkLevel, "rating-area");
+  assert.equal(inside.monthlyPremium, 388.03);
+  assert.equal(inside.slcspPlanId, "58594MI0030024");
+
+  const outside = slcspMonthlyFor({ zip: "48003", age: 40 });
+  assert.equal(outside.fallback, null);
+  assert.equal(outside.countyFips, "26087", "same county, different benchmark");
+  assert.equal(outside.benchmarkLevel, "zip");
+  assert.equal(outside.monthlyPremium, 604.53);
+  assert.equal(outside.slcspPlanId, "98185MI0180015");
+  assert.ok(outside.monthlyPremium > inside.monthlyPremium,
+    "losing the partial-coverage plan can only raise the benchmark");
+
+  // OR Hood River County (41027, OR-6): partial list is just 97014.
+  const orInside = slcspMonthlyFor({ zip: "97014", age: 40 });
+  assert.equal(orInside.benchmarkLevel, "rating-area");
+  assert.equal(orInside.monthlyPremium, 527);
+  const orOutside = slcspMonthlyFor({ zip: "97031", age: 40 });
+  assert.equal(orOutside.benchmarkLevel, "zip");
+  assert.equal(orOutside.monthlyPremium, 626);
+
+  // TX Hays County (48209, TX-3): partial list is just 78666 (San Marcos).
+  const txInside = slcspMonthlyFor({ zip: "78666", age: 40 });
+  assert.equal(txInside.benchmarkLevel, "rating-area");
+  assert.equal(txInside.monthlyPremium, 609.68);
+  const txOutside = slcspMonthlyFor({ zip: "78610", age: 40 });
+  assert.equal(txOutside.benchmarkLevel, "zip");
+  assert.equal(txOutside.monthlyPremium, 624.97);
+});
+
+test("a ZIP override wins over a county override (Yamhill OR has both)", () => {
+  // Yamhill County (41071, OR-1) is the one 2026 county carrying BOTH a
+  // county-level override and ZIP-level overrides, so it pins the resolver's
+  // precedence: ZIP override → county override → rating-area entry.
+  const zipLevel = slcspMonthlyFor({ zip: "97101", age: 40 });
+  assert.equal(zipLevel.countyFips, "41071");
+  assert.equal(zipLevel.benchmarkLevel, "zip");
+  assert.equal(zipLevel.monthlyPremium, 523);
+  assert.equal(zipLevel.slcspPlanId, "39424OR1660001");
+
+  // 97132 is the only Yamhill ZIP with no ZIP override: the county-level
+  // benchmark must survive inside a partial county.
+  const countyLevel = slcspMonthlyFor({ zip: "97132", age: 40 });
+  assert.equal(countyLevel.countyFips, "41071");
+  assert.equal(countyLevel.benchmarkLevel, "county");
+  assert.equal(countyLevel.monthlyPremium, 518);
+  assert.equal(countyLevel.slcspPlanId, "71287OR0420003");
+});
+
+test("ZIP+4 inputs resolve identically to their ZIP5 (no silent state fallback)", () => {
+  // resolveZip used to derive zip3 from ZIP+4 but leave geo.zip null, so the
+  // ZIP5-keyed county and ZIP-override lookups silently degraded to the
+  // state-level benchmark in county-methodology states.
+  for (const [plus4, zip5] of [["97031-0001", "97031"], ["48003-1234", "48003"], ["33101-4567", "33101"]]) {
+    const a = slcspMonthlyFor({ zip: plus4, age: 40 });
+    const b = slcspMonthlyFor({ zip: zip5, age: 40 });
+    assert.equal(a.fallback, null, `${plus4} must not fall back`);
+    assert.equal(a.monthlyPremium, b.monthlyPremium, `${plus4} must price like ${zip5}`);
+    assert.equal(a.benchmarkLevel, b.benchmarkLevel);
+    assert.equal(a.countyFips, b.countyFips);
+  }
+});
+
+test("a partial-list ZIP whose Census primary county is elsewhere resolves by its own county", () => {
+  // MIS001 files 48371 and 48462 under Lapeer County, but the Census assigns
+  // both primarily to Oakland County (26125, MI-2) — the model resolves every
+  // ZIP through its primary county, mirroring HealthCare.gov's ZIP+county
+  // disambiguation for the county the household actually reports.
+  const r = slcspMonthlyFor({ zip: "48371", age: 40 });
+  assert.equal(r.countyFips, "26125");
+  assert.equal(r.ratingArea.areaCode, 2);
+});
+
+test("ZIP-level SLCSP overrides only tighten the county benchmark", () => {
+  // A ZIP's silver plan set is a SUBSET of its county's (the county set
+  // counts partial-coverage plans), so the ZIP benchmark can only be >= the
+  // county's effective benchmark — unless the ZIP has a single available
+  // plan. Mirrors the county-vs-area invariant above.
+  const fipsToArea = {};
+  for (const [st, m] of Object.entries(COUNTY_TO_RATING_AREA)) {
+    for (const [fips, area] of Object.entries(m)) fipsToArea[fips] = `${st}-${area}`;
+  }
+  let checked = 0;
+  for (const [zip, entry] of Object.entries(ACA_SLCSP_ZIP_OVERRIDES_2026)) {
+    const fips = ZIP5_TO_COUNTY_FIPS[zip];
+    assert.ok(fips, `${zip} override must map to a bundled county`);
+    const effective = ACA_SLCSP_COUNTY_OVERRIDES_2026[fips] ?? ACA_SLCSP_BY_RATING_AREA_2026[fipsToArea[fips] ?? ""];
+    assert.ok(effective, `${zip} override must sit under a covered county/area`);
+    checked++;
+    assert.equal(entry.a.length, 65, `${zip} override should have 65 age points`);
+    assert.notEqual(entry.p, effective.p, `${zip} override must name a different benchmark plan`);
+    assert.ok(
+      entry.a[21] >= effective.a[21] - 0.005 || entry.n === 1,
+      `${zip} benchmark ${entry.a[21]} below county ${effective.a[21]} without being a single-plan ZIP`
+    );
+  }
+  assert.ok(checked >= 50, `expected a meaningful ZIP-override set, saw ${checked}`);
+});
+
 test("data sources are well-formed for the coverage test", () => {
-  assert.equal(ACA_RATING_AREA_DATA_VERSION, "2026.2");
+  assert.equal(ACA_RATING_AREA_DATA_VERSION, "2026.3");
   assert.equal(ACA_RATING_AREA_DATA_SOURCES.length, 4);
   for (const s of ACA_RATING_AREA_DATA_SOURCES) {
     assert.ok(typeof s.name === "string" && s.name.length > 0);
@@ -265,6 +381,15 @@ test("benchmarkPremiumForZip returns the annual household benchmark + metadata",
   assert.equal(b.annualBenchmarkPremium, 684.37 * 12);
   assert.equal(b.ratingArea.areaCode, 43);
   assert.equal(b.fallback, null);
+  assert.equal(b.benchmarkLevel, "rating-area");
+});
+
+test("computeAca surfaces the ZIP-level benchmark for partial-county ZIPs", () => {
+  const config = buildAcaConfig({ taxYear: 2026, state: "Michigan", householdSize: 1, marketplaceMembers: 1 });
+  const r = computeAca({ magi: 40000, config, zip: "48003", householdAges: [40] });
+  assert.equal(r.benchmarkLevel, "zip");
+  assert.equal(r.benchmarkPremium, Math.round(604.53 * 12 * 1e6) / 1e6);
+  assert.equal(r.benchmarkFallback, null);
 });
 
 test("computeAca uses the rating-area SLCSP when given a ZIP", () => {

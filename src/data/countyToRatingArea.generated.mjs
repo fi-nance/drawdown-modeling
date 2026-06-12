@@ -1,7 +1,7 @@
 // AUTO-GENERATED — DO NOT EDIT BY HAND.
 // Regenerate with: node scripts/generateAcaRatingArea.mjs
 // See docs/DATA_SOURCES.md → "Regenerating the rating-area SLCSP tables".
-// Plan year 2026. Data version 2026.2.
+// Plan year 2026. Data version 2026.3.
 // County FIPS → rating area code, per state.
 //
 // COUNTY_TO_RATING_AREA[stateAbbr][countyFips5] = rating area number.
