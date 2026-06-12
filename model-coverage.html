@@ -1,0 +1,390 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Model Coverage Report - Portfolio Success Lab</title>
+    <meta name="description" content="Current coverage, sources, limitations, tests, and review gaps for Portfolio Success Lab.">
+    <link rel="icon" href="./favicon.svg?v=20260505-favicon" type="image/svg+xml">
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #080d14;
+        --panel: #111925;
+        --panel-2: #152132;
+        --text: #edf3fb;
+        --muted: #9fb0c7;
+        --border: rgba(180, 198, 224, 0.18);
+        --teal: #34d1b6;
+        --amber: #f0a848;
+        --blue: #75a7ff;
+        --red: #ff7b7b;
+        --violet: #a99bff;
+        --green: #8be28b;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        line-height: 1.5;
+      }
+      a { color: inherit; }
+      .topbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        padding: 1rem clamp(1rem, 4vw, 2rem);
+        border-bottom: 1px solid var(--border);
+        background: rgba(8, 13, 20, 0.9);
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        backdrop-filter: blur(14px);
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        min-width: 0;
+      }
+      .brand-mark {
+        width: 38px;
+        height: 38px;
+        border-radius: 10px;
+        display: grid;
+        place-items: center;
+        background: var(--teal);
+        color: #04261c;
+        font-weight: 800;
+      }
+      .brand h1 {
+        margin: 0;
+        font-size: clamp(1rem, 2.4vw, 1.35rem);
+      }
+      .brand p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 0.82rem;
+      }
+      .toplink {
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 0.55rem 0.8rem;
+        text-decoration: none;
+        color: var(--text);
+        font-weight: 700;
+        font-size: 0.9rem;
+        white-space: nowrap;
+      }
+      main {
+        width: min(1180px, calc(100% - 2rem));
+        margin: 0 auto;
+        padding: 2rem 0 4rem;
+      }
+      .hero {
+        display: grid;
+        grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.65fr);
+        gap: 1rem;
+        align-items: stretch;
+      }
+      .hero-panel,
+      .summary-panel,
+      .coverage-card,
+      .legend-card {
+        background: linear-gradient(180deg, rgba(21, 33, 50, 0.92), rgba(17, 25, 37, 0.92));
+        border: 1px solid var(--border);
+        border-radius: 8px;
+      }
+      .hero-panel {
+        padding: clamp(1.25rem, 4vw, 2rem);
+      }
+      .eyebrow {
+        margin: 0 0 0.5rem;
+        color: var(--teal);
+        font-size: 0.78rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        font-weight: 800;
+      }
+      .hero h2 {
+        margin: 0;
+        font-size: clamp(2rem, 5vw, 3.3rem);
+        line-height: 1.04;
+        letter-spacing: 0;
+      }
+      .hero-copy {
+        max-width: 68ch;
+        color: var(--muted);
+        font-size: 1rem;
+        margin: 1rem 0 0;
+      }
+      .summary-panel {
+        padding: 1rem;
+        display: grid;
+        gap: 0.75rem;
+      }
+      .summary-item {
+        padding: 0.85rem;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.03);
+      }
+      .summary-item span {
+        display: block;
+        color: var(--muted);
+        font-size: 0.78rem;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        font-weight: 800;
+      }
+      .summary-item strong {
+        display: block;
+        margin-top: 0.2rem;
+        font-size: 1rem;
+      }
+      .toolbar {
+        margin: 1.25rem 0;
+        display: flex;
+        gap: 0.65rem;
+        flex-wrap: wrap;
+        align-items: center;
+      }
+      .chip {
+        display: inline-flex;
+        align-items: center;
+        min-height: 34px;
+        padding: 0.35rem 0.65rem;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        color: var(--muted);
+        font-weight: 700;
+        font-size: 0.82rem;
+      }
+      .legend-grid {
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 0.75rem;
+        margin: 1.25rem 0;
+      }
+      .legend-card {
+        padding: 0.9rem;
+      }
+      .legend-card h3 {
+        margin: 0 0 0.35rem;
+        font-size: 0.95rem;
+      }
+      .legend-card p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 0.84rem;
+      }
+      .coverage-grid {
+        display: grid;
+        gap: 1rem;
+      }
+      .coverage-card {
+        padding: clamp(1rem, 3vw, 1.35rem);
+      }
+      .coverage-head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 1rem;
+        margin-bottom: 0.9rem;
+      }
+      .coverage-head h2 {
+        margin: 0;
+        font-size: 1.25rem;
+      }
+      .coverage-head p {
+        margin: 0.35rem 0 0;
+        color: var(--muted);
+      }
+      .status {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: max-content;
+        border-radius: 999px;
+        padding: 0.35rem 0.65rem;
+        font-size: 0.78rem;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+      }
+      .status.high-confidence { background: rgba(139, 226, 139, 0.13); color: var(--green); }
+      .status.input-limited { background: rgba(117, 167, 255, 0.13); color: var(--blue); }
+      .status.assumption-sensitive { background: rgba(240, 168, 72, 0.13); color: var(--amber); }
+      .status.cpa-review { background: rgba(169, 155, 255, 0.15); color: var(--violet); }
+      .status.out-of-model { background: rgba(255, 123, 123, 0.13); color: var(--red); }
+      .detail-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 1rem;
+      }
+      .detail-block {
+        min-width: 0;
+      }
+      .detail-block.full {
+        grid-column: 1 / -1;
+      }
+      .detail-block h3 {
+        margin: 0 0 0.45rem;
+        color: var(--text);
+        font-size: 0.88rem;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+      }
+      ul {
+        margin: 0;
+        padding-left: 1.1rem;
+        color: var(--muted);
+      }
+      li + li {
+        margin-top: 0.35rem;
+      }
+      .ref-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.45rem;
+        padding: 0;
+        list-style: none;
+      }
+      .ref-list a,
+      .ref-list span {
+        display: inline-flex;
+        padding: 0.35rem 0.55rem;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        color: var(--muted);
+        text-decoration: none;
+        font-size: 0.82rem;
+        font-weight: 700;
+        background: rgba(255, 255, 255, 0.025);
+      }
+      @media (max-width: 860px) {
+        .topbar { align-items: flex-start; }
+        .hero { grid-template-columns: 1fr; }
+        .legend-grid { grid-template-columns: 1fr; }
+        .detail-grid { grid-template-columns: 1fr; }
+        .coverage-head { display: grid; }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark">PSL</div>
+        <div>
+          <h1>Portfolio Success Lab</h1>
+          <p>Model coverage report</p>
+        </div>
+      </div>
+      <a class="toplink" href="./index.html?screen=workspace">Back to app</a>
+    </header>
+    <main>
+      <section class="hero">
+        <div class="hero-panel">
+          <p class="eyebrow" id="reportVersion">Coverage report</p>
+          <h2 id="reportTitle">Model Coverage And Review Report</h2>
+          <p class="hero-copy" id="reportPurpose"></p>
+        </div>
+        <div class="summary-panel" id="summaryPanel"></div>
+      </section>
+
+      <section class="toolbar" id="statusSummary" aria-label="Coverage status summary"></section>
+      <section class="legend-grid" id="legendGrid" aria-label="Status legend"></section>
+      <section class="coverage-grid" id="coverageSections" aria-label="Coverage sections"></section>
+    </main>
+
+    <script type="module">
+      import { modelCoverageReport, coverageSummary } from "./src/data/modelCoverageReport.mjs";
+
+      const statusLabels = {
+        "high-confidence": "High confidence",
+        "input-limited": "Input-limited",
+        "assumption-sensitive": "Assumption-sensitive",
+        "cpa-review": "CPA review",
+        "out-of-model": "Out of model"
+      };
+
+      const escapeHtml = (value) => String(value ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+
+      const listHtml = (items) => `<ul>${items.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`;
+      const sourceHtml = (items) => `
+        <ul class="ref-list">
+          ${items.map((item) => `<li><a href="${escapeHtml(item.href)}">${escapeHtml(item.label)}</a></li>`).join("")}
+        </ul>
+      `;
+      const testsHtml = (items) => `
+        <ul class="ref-list">
+          ${items.map((item) => `<li><span>${escapeHtml(item)}</span></li>`).join("")}
+        </ul>
+      `;
+
+      const summary = coverageSummary(modelCoverageReport);
+      document.getElementById("reportVersion").textContent = `Version ${modelCoverageReport.version} - law year ${modelCoverageReport.lawYear}`;
+      document.getElementById("reportTitle").textContent = modelCoverageReport.title;
+      document.getElementById("reportPurpose").textContent = modelCoverageReport.purpose;
+      document.getElementById("summaryPanel").innerHTML = modelCoverageReport.summary.map((item) => `
+        <div class="summary-item">
+          <span>${escapeHtml(item.label)}</span>
+          <strong>${escapeHtml(item.value)}</strong>
+        </div>
+      `).join("");
+      document.getElementById("statusSummary").innerHTML = [
+        `<span class="chip">${summary.totalSections} coverage areas</span>`,
+        ...Object.entries(summary.counts)
+          .filter(([, count]) => count > 0)
+          .map(([status, count]) => `<span class="chip">${count} ${escapeHtml(statusLabels[status] ?? status)}</span>`)
+      ].join("");
+      document.getElementById("legendGrid").innerHTML = modelCoverageReport.legend.map((entry) => `
+        <article class="legend-card">
+          <h3><span class="status ${escapeHtml(entry.status)}">${escapeHtml(entry.label)}</span></h3>
+          <p>${escapeHtml(entry.description)}</p>
+        </article>
+      `).join("");
+      document.getElementById("coverageSections").innerHTML = modelCoverageReport.sections.map((section) => `
+        <article class="coverage-card" id="${escapeHtml(section.id)}">
+          <div class="coverage-head">
+            <div>
+              <h2>${escapeHtml(section.title)}</h2>
+              <p>${escapeHtml(section.summary)}</p>
+            </div>
+            <span class="status ${escapeHtml(section.status)}">${escapeHtml(statusLabels[section.status] ?? section.status)}</span>
+          </div>
+          <div class="detail-grid">
+            <section class="detail-block">
+              <h3>Covered Today</h3>
+              ${listHtml(section.implemented)}
+            </section>
+            <section class="detail-block">
+              <h3>Limits And Gaps</h3>
+              ${listHtml(section.limitations)}
+            </section>
+            <section class="detail-block">
+              <h3>Sources</h3>
+              ${sourceHtml(section.sources)}
+            </section>
+            <section class="detail-block">
+              <h3>Regression Tests</h3>
+              ${testsHtml(section.tests)}
+            </section>
+            <section class="detail-block full">
+              <h3>Next Review Focus</h3>
+              ${listHtml(section.nextReview)}
+            </section>
+          </div>
+        </article>
+      `).join("");
+    </script>
+  </body>
+</html>

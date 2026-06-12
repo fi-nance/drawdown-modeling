@@ -229,6 +229,10 @@ body[data-screen="persona"]::before {
   font-weight: 600;
   font-size: 0.85rem;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
   transition: background 0.15s, border-color 0.15s;
 }
 .subtle-button:hover { background: var(--bg-glass-2); border-color: var(--border-focus); }
