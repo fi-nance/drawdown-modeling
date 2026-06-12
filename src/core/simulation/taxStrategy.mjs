@@ -2,7 +2,7 @@
 // Single responsibility: taxStrategy. No behavior changes — pure code movement.
 
 import { computeAca } from "../aca.mjs";
-import { computeFederalDeductionChoice, computeIncomeTax } from "../tax.mjs?v=20260612-ladder-maintenance";
+import { computeFederalDeductionChoice, computeIncomeTax } from "../tax.mjs?v=20260612-aca-conversions";
 import { getMedicareIrmaaConfig } from "../../data/taxData.mjs";
 import { round } from "../utils.mjs";
 import { emptyRebalanceResult } from "./allocation.mjs";
@@ -11,7 +11,7 @@ import { emptyEarnedIncome, emptyOneOffCashFlows } from "./cashFlows.mjs";
 import { CASH_RAISED_EPSILON } from "./constants.mjs";
 import { finiteRoom } from "./guards.mjs";
 import { emptyHsaContribution, hsaStrategyConfig } from "./hsa.mjs";
-import { acaMagiForIncome, incomeForYear, irmaaMagiForIncome } from "./income.mjs?v=20260612-ladder-maintenance";
+import { acaMagiForIncome, incomeForYear, irmaaMagiForIncome } from "./income.mjs?v=20260612-aca-conversions";
 import { medicalCostForYear, medicareIrmaaBracketKey } from "./medical.mjs";
 import { embeddedTaxableGains, traditionalAccountValue } from "./portfolioQueries.mjs";
 import { defaultRmdStartAge } from "./rmd.mjs";
@@ -563,7 +563,17 @@ export function rothConversionAmountForYear({
   medicalInflationIndex = null,
   yearIndex = 0,
   magiHistory = [],
-  lossCarryforward = { shortTerm: 0, longTerm: 0 }
+  lossCarryforward = { shortTerm: 0, longTerm: 0 },
+  // Withdrawal income that is already certain (or reliably estimated) for
+  // this year — RMD forced sales, TIPS ladder rung maturities, and the
+  // provisional spending withdrawal — so the conversion stacks on TOP of it
+  // instead of double-claiming the same bracket/ACA/IRMAA headroom.
+  baseWithdrawal = emptyWithdrawal(),
+  strategyShortTermGains = 0,
+  strategyLongTermGains = 0,
+  strategyCapitalLosses = 0,
+  strategyShortTermLosses = 0,
+  strategyLongTermLosses = 0
 }) {
   const requested = scenario.rothConversion?.overrideAmount != null
     && Number.isFinite(Number(scenario.rothConversion.overrideAmount))
@@ -587,7 +597,13 @@ export function rothConversionAmountForYear({
         socialSecurityBenefits,
         age,
         inflationIndex,
-        lossCarryforward
+        lossCarryforward,
+        baseWithdrawal,
+        strategyShortTermGains,
+        strategyLongTermGains,
+        strategyCapitalLosses,
+        strategyShortTermLosses,
+        strategyLongTermLosses
       });
       const directAcaRoom = rothConversionDirectAcaRoom({
         scenario,
@@ -617,7 +633,12 @@ export function rothConversionAmountForYear({
       ordinaryInvestmentIncome,
       qualifiedDividends,
       adjustmentsToIncome,
-      withdrawal: emptyWithdrawal(),
+      strategyShortTermGains,
+      strategyLongTermGains,
+      strategyCapitalLosses,
+      strategyShortTermLosses,
+      strategyLongTermLosses,
+      withdrawal: baseWithdrawal,
       socialSecurityBenefits,
       taxProfile,
       scenario,
@@ -667,7 +688,12 @@ export function rothConversionAmountForYear({
       ordinaryInvestmentIncome,
       qualifiedDividends,
       adjustmentsToIncome,
-      withdrawal: emptyWithdrawal(),
+      strategyShortTermGains,
+      strategyLongTermGains,
+      strategyCapitalLosses,
+      strategyShortTermLosses,
+      strategyLongTermLosses,
+      withdrawal: baseWithdrawal,
       socialSecurityBenefits,
       lossCarryforward,
       age,
@@ -678,7 +704,8 @@ export function rothConversionAmountForYear({
     return round(Math.min(marginalRoom, irmaaRoom, maxTraditional), 6);
   }
   const targetCeiling = bracketCeilingForRate(taxProfile.ordinaryBrackets, targetRate);
-  const federalRoom = Math.max(0, targetCeiling + federalDeductionCandidateRoom(taxProfile, ordinaryIncome) - ordinaryIncome);
+  const withdrawalOrdinaryIncome = Math.max(0, baseWithdrawal?.ordinaryIncome ?? 0);
+  const federalRoom = Math.max(0, targetCeiling + federalDeductionCandidateRoom(taxProfile, ordinaryIncome + withdrawalOrdinaryIncome) - ordinaryIncome - withdrawalOrdinaryIncome);
   const { income: incomeBeforeConversion } = incomeForYear({
     ordinaryIncome,
     earnedIncome,
@@ -686,7 +713,12 @@ export function rothConversionAmountForYear({
     ordinaryInvestmentIncome,
     qualifiedDividends,
     adjustmentsToIncome,
-    withdrawal: emptyWithdrawal(),
+    strategyShortTermGains,
+    strategyLongTermGains,
+    strategyCapitalLosses,
+    strategyShortTermLosses,
+    strategyLongTermLosses,
+    withdrawal: baseWithdrawal,
     socialSecurityBenefits,
     taxProfile,
     scenario,
@@ -737,7 +769,13 @@ function rothConversionMagiGuardrailRoom({
   socialSecurityBenefits = 0,
   age = null,
   inflationIndex = 1,
-  lossCarryforward = { shortTerm: 0, longTerm: 0 }
+  lossCarryforward = { shortTerm: 0, longTerm: 0 },
+  baseWithdrawal = emptyWithdrawal(),
+  strategyShortTermGains = 0,
+  strategyLongTermGains = 0,
+  strategyCapitalLosses = 0,
+  strategyShortTermLosses = 0,
+  strategyLongTermLosses = 0
 }) {
   const targetRate = effectiveRothConversionTargetRate({
     portfolio,
@@ -753,7 +791,12 @@ function rothConversionMagiGuardrailRoom({
     ordinaryInvestmentIncome,
     qualifiedDividends,
     adjustmentsToIncome,
-    withdrawal: emptyWithdrawal(),
+    strategyShortTermGains,
+    strategyLongTermGains,
+    strategyCapitalLosses,
+    strategyShortTermLosses,
+    strategyLongTermLosses,
+    withdrawal: baseWithdrawal,
     socialSecurityBenefits,
     taxProfile,
     scenario,

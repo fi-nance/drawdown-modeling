@@ -216,7 +216,19 @@ export const DEFAULT_SCENARIO = {
     optimizeForAca: true,
     maxAcaFplPercent: 400,
     magiBuffer: 0,
-    applyMagiGuardrails: false
+    applyMagiGuardrails: false,
+    // Size conversions against income that is already certain or reliably
+    // estimated for the year (RMDs, TIPS ladder rung maturities, and a
+    // provisional spending withdrawal) instead of pretending the conversion
+    // is the only income source. Protects ACA premium tax credits in ladder
+    // and RMD years. Disable to reproduce pre-2026.12 sizing.
+    spendingAware: true,
+    // When penalty-free Roth basis can cover the year's spending gap, size
+    // the conversion as if spending were funded from that basis (zero MAGI)
+    // so the conversion can claim the full ACA-safe headroom — the
+    // "spend basis, convert the room" swap. Realized by the withdrawal
+    // planner's MAGI-threshold-targeted Roth substitution candidates.
+    spendFromBasis: true
   },
   aca: DEFAULT_ACA_CONFIG,
   heirOrdinaryTaxRate: 0.24,

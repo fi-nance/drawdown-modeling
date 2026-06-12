@@ -116,6 +116,8 @@ test("rescue scenario workspace knobs are visible and persisted", async () => {
     "taxGainMagiBuffer",
     "rothConversionOptimizeForAca",
     "rothConversionMagiGuardrails",
+    "rothConversionSpendingAware",
+    "rothConversionSpendFromBasis",
     "rothConversionMaxAcaFplPercent",
     "rothConversionMagiBuffer",
     "rothBasisOptimization",
@@ -172,8 +174,8 @@ test("module library counts match expanded module cards", async () => {
   assert.match(source, /id: "medicare"[\s\S]*controls: 12/);
   assert.match(html, /data-module="other-income"[\s\S]*<span class="controls-pill">22\+ controls<\/span>/);
   assert.match(source, /id: "other-income"[\s\S]*controls: 22/);
-  assert.match(html, /data-module="strategy"[\s\S]*<span class="controls-pill">41 controls<\/span>/);
-  assert.match(source, /id: "strategy"[\s\S]*controls: 41/);
+  assert.match(html, /data-module="strategy"[\s\S]*<span class="controls-pill">43 controls<\/span>/);
+  assert.match(source, /id: "strategy"[\s\S]*controls: 43/);
   assert.match(html, /data-module="reserve"[\s\S]*<span class="controls-pill">11 controls<\/span>/);
   assert.match(source, /id: "reserve"[\s\S]*controls: 11/);
 });

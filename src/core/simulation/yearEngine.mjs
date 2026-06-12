@@ -2,8 +2,8 @@
 // Single responsibility: yearEngine. No behavior changes — pure code movement.
 
 import { inflateAcaConfig } from "../aca.mjs";
-import { accountBreakdown, ageHoldingPeriods, applyTotalReturnsWithIncome, harvestTaxGains, harvestTaxLosses, portfolioValue, removeEmptyLots } from "../portfolio.mjs";
-import { computeIncomeTax, inflateTaxProfile } from "../tax.mjs?v=20260612-ladder-maintenance";
+import { accountBreakdown, ageHoldingPeriods, applyTotalReturnsWithIncome, clonePortfolio, harvestTaxGains, harvestTaxLosses, portfolioValue, removeEmptyLots } from "../portfolio.mjs";
+import { computeIncomeTax, inflateTaxProfile } from "../tax.mjs?v=20260612-aca-conversions";
 import { round } from "../utils.mjs";
 import { allocationStrategyStateForYear } from "./allocation.mjs";
 import { assetLocationStateForYear } from "./assetLocation.mjs";
@@ -11,7 +11,7 @@ import { earnedIncomeForYear, emptyEarnedIncome, mergeEarnedIncome, oneOffCashFl
 import { CASH_GAP_TOLERANCE, CASH_RAISED_EPSILON } from "./constants.mjs";
 import { acaConfigForSimulationYear, buildSurvivorTaxProfile, isMarriedFiling, mortalityStatus } from "./household.mjs";
 import { addHsaContributionLot, emptyHsaContribution, hsaContributionForYear, hsaQualifiedExpenseAvailableForWithdrawal, hsaStrategyConfig } from "./hsa.mjs";
-import { acaMagiForIncome, federalAgiForIncome, incomeForYear, irmaaMagiForIncome, lossCarryforwardTotal, normalizeLossCarryforward, taxProfileForSimulationYear } from "./income.mjs?v=20260612-ladder-maintenance";
+import { acaMagiForIncome, federalAgiForIncome, incomeForYear, irmaaMagiForIncome, lossCarryforwardTotal, normalizeLossCarryforward, taxProfileForSimulationYear } from "./income.mjs?v=20260612-aca-conversions";
 import { incomeStreamsForYear } from "./incomeStreams.mjs";
 import { summarizeAssetClassReturns } from "./market.mjs";
 import { computeAcaForYear, emptyMedicareCost, ltcStressCostForYear, medicalCostForYear } from "./medical.mjs";
@@ -19,13 +19,13 @@ import { addTaxableCash, assetOwner, assetSnapshot, traditionalAccountValueByOwn
 import { householdRmdForYear } from "./rmd.mjs";
 import { isLifetimeOptimizerEnabled } from "./scenario.mjs";
 import { sequenceRiskReserveStateForYear } from "./sequenceRiskReserve.mjs";
-import { socialSecurityBenefitsForYear, spouseSocialSecurityBenefitsForYear } from "./socialSecurity.mjs?v=20260612-ladder-maintenance";
+import { socialSecurityBenefitsForYear, spouseSocialSecurityBenefitsForYear } from "./socialSecurity.mjs?v=20260612-aca-conversions";
 import { plannedSpendingDetailForYear } from "./spending.mjs";
 import { buildTipsLadder, maintainTipsLadder, matureTipsLadderRungs, repriceTipsLadderRungs, tipsLadderConfig, tipsLadderValue } from "./tipsLadder.mjs";
-import { acaMagiCeiling, addPenaltyTax, automaticTaxLossHarvestLimit, effectiveRothConversionTargetRate, estimateTaxAttribution, gainHarvestingRoom, rothConversionAmountForYear, rothConversionMagiBuffer, strategyLimit } from "./taxStrategy.mjs?v=20260612-ladder-maintenance";
-import { convertTraditionalToRoth, earlyWithdrawalPenaltyExceptionAmountForYear, emptyWithdrawal, mergeWithdrawals, rothBasisAvailableForWithdrawal, rothBasisSummaryForYear, withdrawForCash } from "./withdrawalExecution.mjs?v=20260612-ladder-maintenance";
-import { forcedWithdrawalOrder } from "./withdrawalOrders.mjs";
-import { chooseWithdrawalPlan, evaluateWithdrawalPlan } from "./withdrawalPlanning.mjs?v=20260612-ladder-maintenance";
+import { acaMagiCeiling, addPenaltyTax, automaticTaxLossHarvestLimit, effectiveRothConversionTargetRate, estimateTaxAttribution, gainHarvestingRoom, rothConversionAmountForYear, rothConversionMagiBuffer, strategyLimit } from "./taxStrategy.mjs?v=20260612-aca-conversions";
+import { convertTraditionalToRoth, earlyWithdrawalPenaltyExceptionAmountForYear, emptyWithdrawal, mergeWithdrawals, rothBasisAvailableForWithdrawal, rothBasisSummaryForYear, withdrawForCash } from "./withdrawalExecution.mjs?v=20260612-aca-conversions";
+import { forcedWithdrawalOrder, isBeforePenaltyAge, normalizedWithdrawalOrder, optimizedRothProceedsLimit, rothFirstWithdrawalOrder } from "./withdrawalOrders.mjs";
+import { chooseWithdrawalPlan, evaluateWithdrawalPlan } from "./withdrawalPlanning.mjs?v=20260612-aca-conversions";
 
 export function simulateYear({
   portfolio,
@@ -177,26 +177,32 @@ export function simulateYear({
   strategyLongTermLosses += assetLocation.longTermCapitalLosses;
   flows.push(...assetLocation.flows);
 
+  // Single source of truth for this year's planned spending (base spend +
+  // one-offs under the active guardrail). Shared by the TIPS ladder blocks,
+  // spending-aware conversion sizing, and the withdrawal loop below — the
+  // inputs are all fixed for the year, so one call serves every consumer.
+  const plannedSpendingDetail = plannedSpendingDetailForYear(
+    scenario,
+    yearIndex + 1,
+    inflationIndex,
+    oneOffCashFlows,
+    spendingGuardrail,
+    passedBaseSpend
+  );
+  const plannedSpending = plannedSpendingDetail.total;
+
   // One-time TIPS ladder carve-out at plan start (the "first rebalance"),
   // BEFORE the allocation rebalance so the remaining portfolio rebalances to
   // its stock target without the rungs. Taxable funding sales feed the same
   // strategy gain accounting as rebalance sales.
   let tipsLadderBuild = null;
   if (yearIndex === 0 && tipsLadderConfig(scenario).enabled) {
-    const baseSpendingDetail = plannedSpendingDetailForYear(
-      scenario,
-      yearIndex + 1,
-      inflationIndex,
-      oneOffCashFlows,
-      spendingGuardrail,
-      passedBaseSpend
-    );
     tipsLadderBuild = buildTipsLadder({
       portfolio,
       scenario,
       age,
       ownerAges,
-      baseAnnualSpending: baseSpendingDetail.baseSpend,
+      baseAnnualSpending: plannedSpendingDetail.baseSpend,
       inflationIndex
     });
     if (tipsLadderBuild) {
@@ -215,14 +221,6 @@ export function simulateYear({
   // strategy gain accounting as rebalance sales.
   let tipsLadderMaintenance = null;
   if (yearIndex > 0 && tipsLadderConfig(scenario).enabled && tipsLadderConfig(scenario).maintenanceMode !== "none") {
-    const maintenanceSpendingDetail = plannedSpendingDetailForYear(
-      scenario,
-      yearIndex + 1,
-      inflationIndex,
-      oneOffCashFlows,
-      spendingGuardrail,
-      passedBaseSpend
-    );
     tipsLadderMaintenance = maintainTipsLadder({
       portfolio,
       scenario,
@@ -232,7 +230,7 @@ export function simulateYear({
       inflationIndex,
       stockReturn: returnByAssetClass?.stock ?? 0,
       // baseSpend is nominal (already inflated); rung faces are REAL dollars.
-      baseAnnualSpending: maintenanceSpendingDetail.baseSpend / Math.max(inflationIndex, 0.000001)
+      baseAnnualSpending: plannedSpendingDetail.baseSpend / Math.max(inflationIndex, 0.000001)
     });
     if (tipsLadderMaintenance) {
       strategyShortTermGains += tipsLadderMaintenance.shortTermCapitalGains;
@@ -349,26 +347,164 @@ export function simulateYear({
     socialSecurityBenefits = primarySS + spouseSS;
   }
 
-  const rothConversionAmount = scenario.rothConversion?.enabled
-    ? convertTraditionalToRoth(portfolio, rothConversionAmountForYear({
-      portfolio,
-      scenario,
-      taxProfile: yearTaxProfile,
-      acaConfig: yearAcaConfig,
-      ordinaryIncome,
-      earnedIncome,
-      ordinaryInvestmentIncome: dividends.ordinaryDividends,
-      qualifiedDividends,
-      adjustmentsToIncome,
-      socialSecurityBenefits,
+  // Spending-aware conversion sizing (rothConversion.spendingAware, default
+  // on): conversions must stack on top of income that is already certain or
+  // reliably estimated for this year — RMD forced sales and TIPS ladder rung
+  // maturities (already executed, in rmdWithdrawal), realized strategy gains
+  // (loss/rebalance/ladder sales above), and the spending withdrawal still to
+  // come. Without this, an ACA-targeted conversion claims headroom the
+  // spending income then blows through, vaporizing the premium tax credit at
+  // the 400% FPL cliff. The spending estimate runs two passes so the cash
+  // needed to pay the conversion's own taxes is part of the income floor too.
+  const conversionConfig = scenario.rothConversion ?? {};
+  const conversionSpendingAware = Boolean(conversionConfig.enabled)
+    && conversionConfig.spendingAware !== false;
+  const sizeConversionAgainst = (baseWithdrawal) => rothConversionAmountForYear({
+    portfolio,
+    scenario,
+    taxProfile: yearTaxProfile,
+    acaConfig: yearAcaConfig,
+    ordinaryIncome,
+    earnedIncome,
+    ordinaryInvestmentIncome: dividends.ordinaryDividends,
+    qualifiedDividends,
+    adjustmentsToIncome,
+    socialSecurityBenefits,
+    age,
+    spouseAge,
+    inflationIndex,
+    medicalInflationIndex: medicalInflationIndex ?? inflationIndex,
+    yearIndex,
+    magiHistory,
+    lossCarryforward,
+    ...(conversionSpendingAware
+      ? {
+        baseWithdrawal,
+        strategyShortTermGains,
+        strategyLongTermGains,
+        strategyCapitalLosses,
+        strategyShortTermLosses,
+        strategyLongTermLosses
+      }
+      : {})
+  });
+  let conversionBaseWithdrawal = emptyWithdrawal(rmdWithdrawal.rothBasisRemaining, rmdWithdrawal.penaltyExceptionRemaining);
+  if (conversionSpendingAware) {
+    const requestedOrder = normalizedWithdrawalOrder(scenario.withdrawalOrder);
+    const provisionalContext = {
       age,
-      spouseAge,
-      inflationIndex,
-      medicalInflationIndex: medicalInflationIndex ?? inflationIndex,
-      yearIndex,
-      magiHistory,
-      lossCarryforward
-    }), calendarYear)
+      ownerAges,
+      calendarYear,
+      penaltyAge: scenario.retirementPenaltyAge ?? 59.5,
+      penaltyRate: scenario.earlyWithdrawalPenaltyRate ?? 0.1,
+      rothBasisRemaining: rmdWithdrawal.rothBasisRemaining,
+      rothBasisAvailable: rothBasisAvailableForWithdrawal(portfolio, {
+        rothBasisRemaining: rmdWithdrawal.rothBasisRemaining,
+        age,
+        calendarYear,
+        penaltyAge: scenario.retirementPenaltyAge ?? 59.5
+      }),
+      rothFiveYearRuleSatisfied: scenario.rothFiveYearRuleSatisfied !== false,
+      penaltyExceptionRemaining: rmdWithdrawal.penaltyExceptionRemaining,
+      returnAssumptions: scenario.returnAssumptions,
+      optimizedLotSelection: isLifetimeOptimizerEnabled(scenario),
+      hsaQualifiedExpenseAvailable: hsaQualifiedExpenseAvailableForWithdrawal({
+        scenario,
+        hsaQualifiedExpenseBalance,
+        medicalEstimate: 0
+      })
+    };
+    // The basis swap (rothConversion.spendFromBasis, default on): when ACA
+    // subsidies are in play and spendable Roth value covers the whole gap,
+    // assume spending is funded from Roth (MAGI-free) so the conversion can
+    // claim the full ACA-safe headroom — "spend basis, convert the room".
+    // The withdrawal planner's MAGI-threshold-targeted Roth substitution
+    // candidates then realize that funding choice at plan time.
+    const basisSwapAllowed = conversionConfig.spendFromBasis !== false
+      && yearAcaConfig?.enabled === true
+      && requestedOrder.includes("roth");
+    const rothSpendableForSwap = basisSwapAllowed
+      ? (isBeforePenaltyAge(provisionalContext)
+        ? provisionalContext.rothBasisAvailable
+        : portfolio.reduce((sum, asset) => asset.accountType === "roth"
+          ? sum + Math.max(0, (asset.units ?? 0) * (asset.price ?? 0))
+          : sum, 0))
+      : 0;
+    const estimateSpendingWithdrawal = (cashNeeded) => {
+      if (!(cashNeeded > CASH_RAISED_EPSILON)) {
+        return emptyWithdrawal(rmdWithdrawal.rothBasisRemaining, rmdWithdrawal.penaltyExceptionRemaining);
+      }
+      const swap = basisSwapAllowed && rothSpendableForSwap >= cashNeeded - CASH_RAISED_EPSILON;
+      const order = swap ? rothFirstWithdrawalOrder(requestedOrder) : requestedOrder;
+      const context = swap
+        ? { ...provisionalContext, maxRothProceeds: optimizedRothProceedsLimit(provisionalContext) }
+        : { ...provisionalContext };
+      return withdrawForCash(clonePortfolio(portfolio), cashNeeded, order, context);
+    };
+    const baseSpendingGap = plannedSpending + hsaContribution.amount
+      - dividends.cash - incomeCashAvailable - rmdWithdrawal.cashRaised - socialSecurityBenefits;
+    const passOneBase = mergeWithdrawals(rmdWithdrawal, estimateSpendingWithdrawal(Math.max(0, baseSpendingGap)));
+    const passOneConversion = sizeConversionAgainst(passOneBase);
+    let provisionalTaxes = 0;
+    let provisionalMedical = 0;
+    {
+      const { income } = incomeForYear({
+        ordinaryIncome: ordinaryIncome + passOneConversion,
+        earnedIncome,
+        retirementOrdinaryIncome: passOneConversion + streamIncome.retirementOrdinaryIncome,
+        ordinaryInvestmentIncome: dividends.ordinaryDividends,
+        qualifiedDividends,
+        adjustmentsToIncome,
+        strategyShortTermGains,
+        strategyLongTermGains,
+        strategyCapitalLosses,
+        strategyShortTermLosses,
+        strategyLongTermLosses,
+        withdrawal: passOneBase,
+        socialSecurityBenefits,
+        taxProfile: yearTaxProfile,
+        scenario,
+        lossCarryforward
+      });
+      if (!scenario.targetSpendIncludesTaxes) {
+        const taxes = computeIncomeTax({
+          ...income,
+          capitalLossCarryforward: lossCarryforward,
+          profile: yearTaxProfile
+        });
+        provisionalTaxes = taxes.totalTax + Math.max(0, passOneBase.penaltyTax ?? 0);
+      }
+      if (!scenario.targetSpendIncludesMedical) {
+        const offsetCap = yearTaxProfile?.capitalLossOrdinaryIncomeOffset ?? 3000;
+        const provisionalAca = computeAcaForYear({
+          age,
+          spouseAge,
+          magi: acaMagiForIncome(income, lossCarryforward, offsetCap, yearTaxProfile),
+          config: yearAcaConfig,
+          filingStatus: yearTaxProfile.filingStatus
+        });
+        provisionalMedical = medicalCostForYear({
+          scenario,
+          aca: provisionalAca,
+          yearAcaConfig,
+          inflationIndex,
+          medicalInflationIndex: medicalInflationIndex ?? inflationIndex,
+          age,
+          spouseAge,
+          yearIndex,
+          filingStatus: yearTaxProfile.filingStatus,
+          irmaaMagi: irmaaMagiForIncome(income, lossCarryforward, offsetCap, yearTaxProfile),
+          magiHistory
+        }).total;
+      }
+    }
+    conversionBaseWithdrawal = mergeWithdrawals(
+      rmdWithdrawal,
+      estimateSpendingWithdrawal(Math.max(0, baseSpendingGap + provisionalTaxes + provisionalMedical))
+    );
+  }
+  const rothConversionAmount = scenario.rothConversion?.enabled
+    ? convertTraditionalToRoth(portfolio, sizeConversionAgainst(conversionBaseWithdrawal), calendarYear)
     : 0;
   ordinaryIncome += rothConversionAmount;
   // Retirement-character ordinary income for state exclusions: conversions
@@ -390,15 +526,6 @@ export function simulateYear({
     });
   }
 
-  const plannedSpendingDetail = plannedSpendingDetailForYear(
-    scenario,
-    yearIndex + 1,
-    inflationIndex,
-    oneOffCashFlows,
-    spendingGuardrail,
-    passedBaseSpend
-  );
-  const plannedSpending = plannedSpendingDetail.total;
   const sequenceRiskReserve = sequenceRiskReserveStateForYear({
     scenario,
     portfolio,

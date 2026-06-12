@@ -163,7 +163,7 @@ const MODULES = [
   { id: "healthcare",    label: "Healthcare",     desc: "Insurance until Medicare",               controls: 22, required: false, enabledByDefault: true  },
   { id: "medicare",      label: "Medicare/IRMAA", desc: "Premiums after 65",                       controls: 12, required: false, enabledByDefault: false },
   { id: "other-income",  label: "Other income",   desc: "Social Security, work, pensions",         controls: 22, required: false, enabledByDefault: false },
-  { id: "strategy",      label: "Strategy toolkit", desc: "Taxes, allocations, withdrawal rules",   controls: 41, required: false, enabledByDefault: true  },
+  { id: "strategy",      label: "Strategy toolkit", desc: "Taxes, allocations, withdrawal rules",   controls: 43, required: false, enabledByDefault: true  },
   { id: "reserve",       label: "Cash reserve",   desc: "Bucket strategy",                          controls: 11, required: false, enabledByDefault: false },
   { id: "monte-carlo",   label: "Monte Carlo",    desc: "Return model and sampling",                controls: 20, required: false, enabledByDefault: true  },
   { id: "history",       label: "History test",   desc: "How would you have done?",                controls: 7,  required: false, enabledByDefault: false },
@@ -2603,6 +2603,8 @@ export function rescueChangeList(option = {}, baseScenario = {}) {
   addBooleanChange(changes, "Roth conversions", baseRoth.enabled, nextRoth.enabled);
   addBooleanChange(changes, "ACA-aware Roth conversions", baseRoth.optimizeForAca, nextRoth.optimizeForAca);
   addBooleanChange(changes, "MAGI conversion guardrails", baseRoth.applyMagiGuardrails, nextRoth.applyMagiGuardrails);
+  addBooleanChange(changes, "Spending-aware conversion sizing", baseRoth.spendingAware, nextRoth.spendingAware);
+  addBooleanChange(changes, "Spend Roth basis to widen conversions", baseRoth.spendFromBasis, nextRoth.spendFromBasis);
   addNumberChange(changes, "Conversion max ACA FPL", baseRoth.maxAcaFplPercent, nextRoth.maxAcaFplPercent, formatWholePercent);
   addNumberChange(changes, "Conversion MAGI buffer", baseRoth.magiBuffer, nextRoth.magiBuffer, formatCurrencyShort);
 

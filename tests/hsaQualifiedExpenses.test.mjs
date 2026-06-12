@@ -16,9 +16,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { withdrawForCash } from "../src/core/simulation/withdrawalExecution.mjs?v=20260612-ladder-maintenance";
+import { withdrawForCash } from "../src/core/simulation/withdrawalExecution.mjs?v=20260612-aca-conversions";
 import { hsaQualifiedExpenseAvailableForWithdrawal, hsaStrategyConfig } from "../src/core/simulation/hsa.mjs";
-import { simulatePlan, DEFAULT_SCENARIO } from "../src/core/simulation.mjs?v=20260612-ladder-maintenance";
+import { simulatePlan, DEFAULT_SCENARIO } from "../src/core/simulation.mjs?v=20260612-aca-conversions";
 import { buildTaxProfile } from "../src/data/taxData.mjs";
 
 const hsaLot = () => [

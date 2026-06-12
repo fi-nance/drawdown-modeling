@@ -22,7 +22,7 @@ import {
   runMonteCarlo,
   simulatePlan,
   generateSingleMonteCarloPath
-} from "./core/simulation.mjs?v=20260612-ladder-maintenance";
+} from "./core/simulation.mjs?v=20260612-aca-conversions";
 import { round } from "./core/utils.mjs";
 import { defaultOneOffExpenses, sampleAssets } from "./data/sample.mjs";
 import {
@@ -33,7 +33,7 @@ import {
   HISTORICAL_RETURN_DATA_VERSION,
   makeHistoricalSequences
 } from "./data/historicalReturns.mjs";
-import { buildAcaConfig, buildTaxProfile, STATE_OPTIONS, TAX_DATA_VERSION, getMonthlyBenchmarkPremium } from "./data/taxData.mjs?v=20260612-ladder-maintenance";
+import { buildAcaConfig, buildTaxProfile, STATE_OPTIONS, TAX_DATA_VERSION, getMonthlyBenchmarkPremium } from "./data/taxData.mjs?v=20260612-aca-conversions";
 import { massachusettsConnectorCareEstimate, massachusettsConnectorCarePlanOptions } from "./data/acaPlanPresets.mjs";
 import {
   buildMarketplacePlanSearchRequest,
@@ -286,6 +286,8 @@ const CONTROL_IDS = [
   "rothConversion",
   "rothConversionOptimizeForAca",
   "rothConversionMagiGuardrails",
+  "rothConversionSpendingAware",
+  "rothConversionSpendFromBasis",
   "rothAmount",
   "rothTargetRate",
   "heirOrdinaryTaxRate",
@@ -529,6 +531,8 @@ const els = {
   rothConversion: document.querySelector("#rothConversion"),
   rothConversionOptimizeForAca: document.querySelector("#rothConversionOptimizeForAca"),
   rothConversionMagiGuardrails: document.querySelector("#rothConversionMagiGuardrails"),
+  rothConversionSpendingAware: document.querySelector("#rothConversionSpendingAware"),
+  rothConversionSpendFromBasis: document.querySelector("#rothConversionSpendFromBasis"),
   rothAmount: document.querySelector("#rothAmount"),
   rothTargetRate: document.querySelector("#rothTargetRate"),
   heirOrdinaryTaxRate: document.querySelector("#heirOrdinaryTaxRate"),
@@ -1833,6 +1837,8 @@ function applyScenarioControls(scenario) {
   setCheckedControl("rothConversion", scenario.rothConversion?.enabled);
   setCheckedControl("rothConversionOptimizeForAca", scenario.rothConversion?.optimizeForAca);
   setCheckedControl("rothConversionMagiGuardrails", scenario.rothConversion?.applyMagiGuardrails);
+  setCheckedControl("rothConversionSpendingAware", scenario.rothConversion?.spendingAware);
+  setCheckedControl("rothConversionSpendFromBasis", scenario.rothConversion?.spendFromBasis);
   setOptionalNumberControl("rothAmount", scenario.rothConversion?.mode === "manual" ? scenario.rothConversion?.overrideAmount : null);
   if (Number.isFinite(Number(scenario.rothConversion?.targetMarginalRate))) {
     setNumberControl("rothTargetRate", Number(scenario.rothConversion.targetMarginalRate) * 100);
@@ -2014,7 +2020,7 @@ function downloadJsonText(text, filename) {
 function getSimulationWorker() {
   if (!simulationWorker) {
     simulationWorker = new Worker(
-      new URL("./core/simulation.worker.mjs?v=20260612-ladder-maintenance", import.meta.url),
+      new URL("./core/simulation.worker.mjs?v=20260612-aca-conversions", import.meta.url),
       { type: "module" }
     );
     simulationWorker.addEventListener("error", (ev) => {
@@ -4826,7 +4832,9 @@ function readScenario() {
       optimizeForAca: els.rothConversionOptimizeForAca?.checked !== false,
       maxAcaFplPercent: Math.max(100, Math.min(600, Number(els.rothConversionMaxAcaFplPercent?.value) || 400)),
       magiBuffer: Math.max(0, Number(els.rothConversionMagiBuffer?.value) || 0),
-      applyMagiGuardrails: els.rothConversionMagiGuardrails?.checked === true
+      applyMagiGuardrails: els.rothConversionMagiGuardrails?.checked === true,
+      spendingAware: els.rothConversionSpendingAware?.checked !== false,
+      spendFromBasis: els.rothConversionSpendFromBasis?.checked !== false
     },
     rothBasisOptimization: {
       enabled: els.rothBasisOptimization?.checked !== false,

@@ -1045,8 +1045,12 @@ test("automatic Roth conversions can use enhanced senior deduction room", () => 
   });
 
   assert.equal(plan.years[0].enhancedSeniorDeduction, 6000);
-  assert.equal(plan.years[0].rothConversionAmount, 16000);
-  assert.equal(plan.years[0].taxes.taxableOrdinaryIncome, 11000);
+  // Spending-aware sizing: the $1,000 spending withdrawal from traditional
+  // consumes bracket room, so the conversion fills the REMAINDER and total
+  // taxable ordinary income lands exactly at the 12%-target ceiling
+  // (10,000 + 6,000 senior deduction − 1,000 withdrawal = 15,000 converted).
+  assert.equal(plan.years[0].rothConversionAmount, 15000);
+  assert.equal(plan.years[0].taxes.taxableOrdinaryIncome, 10000);
 });
 
 test("automatic Roth conversions can use itemized deduction room", () => {
@@ -1093,8 +1097,11 @@ test("automatic Roth conversions can use itemized deduction room", () => {
 
   assert.equal(plan.years[0].taxes.federalDeductionKind, "itemized");
   assert.equal(plan.years[0].taxes.itemizedDeduction, 6000);
-  assert.equal(plan.years[0].rothConversionAmount, 16000);
-  assert.equal(plan.years[0].taxes.taxableOrdinaryIncome, 11000);
+  // Spending-aware sizing: the $1,000 spending withdrawal consumes bracket
+  // room, so the conversion fills the remainder and taxable ordinary income
+  // lands exactly at the 12%-target ceiling instead of $1,000 past it.
+  assert.equal(plan.years[0].rothConversionAmount, 15000);
+  assert.equal(plan.years[0].taxes.taxableOrdinaryIncome, 10000);
 });
 
 test("tax attribution identifies tax created by Roth conversions", () => {
@@ -2167,7 +2174,10 @@ test("lifetime optimizer Roth conversion pressure uses default RMD age", () => {
   });
 
   assert.equal(plan.years[0].rmdStartAge, 75);
-  assert.equal(plan.years[0].rothConversionAmount, 80000);
+  // Spending-aware sizing: the $10,000 spending withdrawal stacks first, so
+  // the RMD-pressure conversion fills to the 22% ceiling minus that income
+  // (70,000 + 10,000 = 80,000 — exactly at the bracket top, not past it).
+  assert.equal(plan.years[0].rothConversionAmount, 70000);
 });
 
 test("sequence-risk cash reserve is preserved in positive early years", () => {

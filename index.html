@@ -528,7 +528,7 @@
                     <span class="module-sub">Taxes, allocations, withdrawal rules</span>
                   </div>
                 </div>
-                <div class="module-actions"><span class="controls-pill">41 controls</span></div>
+                <div class="module-actions"><span class="controls-pill">43 controls</span></div>
               </div>
               <div class="module-body">
                 <label>
@@ -581,6 +581,8 @@
                 <label class="check-row"><input id="rothConversion"    type="checkbox" checked><span>Roth conversions</span></label>
                 <label class="check-row"><input id="rothConversionOptimizeForAca" type="checkbox" checked><span>ACA-aware Roth conversions</span></label>
                 <label class="check-row"><input id="rothConversionMagiGuardrails" type="checkbox"><span>Apply MAGI conversion guardrails</span></label>
+                <label class="check-row"><input id="rothConversionSpendingAware" type="checkbox" checked><span>Spending-aware conversion sizing</span><small>Sizes conversions on top of RMDs, TIPS rung maturities, and the year's spending withdrawals so ACA premium tax credits survive. Unchecking restores the legacy income-blind sizing.</small></label>
+                <label class="check-row"><input id="rothConversionSpendFromBasis" type="checkbox" checked><span>Spend Roth basis to widen conversions</span><small>When spendable Roth value covers the year's cash gap in ACA years, fund spending from Roth (no MAGI) and convert the freed headroom instead.</small></label>
                 <label class="check-row"><input id="rothBasisOptimization" type="checkbox" checked><span>Roth basis optimization</span></label>
                 <label class="check-row"><input id="unifiedMarginalOptimizer" type="checkbox" checked><span>Unified marginal-rate optimizer</span></label>
                 <label class="check-row"><input id="assetLocationOptimization" type="checkbox"><span>Asset-location swaps</span></label>
@@ -1233,7 +1235,7 @@
       <select id="viewMode"><option value="real" selected>Today's $</option><option value="nominal">Future $</option></select>
     </div>
 
-    <script type="module" src="./src/app.mjs?v=20260612-ladder-maintenance"></script>
-    <script type="module" src="./src/redesign.mjs?v=20260612-ladder-maintenance"></script>
+    <script type="module" src="./src/app.mjs?v=20260612-aca-conversions"></script>
+    <script type="module" src="./src/redesign.mjs?v=20260612-aca-conversions"></script>
   </body>
 </html>

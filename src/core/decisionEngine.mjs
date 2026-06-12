@@ -4,7 +4,7 @@ import {
   runHistoricalBacktests,
   runMonteCarlo,
   simulatePlan
-} from "./simulation.mjs?v=20260612-ladder-maintenance";
+} from "./simulation.mjs?v=20260612-aca-conversions";
 import {
   buildRiskBasedGuardrailTable,
   RISK_BASED_GUARDRAILS_MODE,
