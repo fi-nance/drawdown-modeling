@@ -27,8 +27,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { estimateHeirValueBreakdown } from "../src/core/simulation/heirEstate.mjs?v=20260609-deepfix";
-import { simulatePlan } from "../src/core/simulation.mjs?v=20260609-deepfix";
+import { estimateHeirValueBreakdown } from "../src/core/simulation/heirEstate.mjs?v=20260611-tips-ladder";
+import { simulatePlan } from "../src/core/simulation.mjs?v=20260611-tips-ladder";
 import { buildTaxProfile } from "../src/data/taxData.mjs";
 
 const milIra = () => [

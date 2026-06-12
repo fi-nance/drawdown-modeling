@@ -59,7 +59,9 @@ function reserveAssetClassesForMode(mode) {
 
 function reserveAssetValue(portfolio = [], assetClasses = []) {
   const reserveClasses = new Set(assetClasses);
+  // TIPS ladder rungs are already committed to their maturity years — they
+  // are not double-counted as spendable sequence-risk reserve.
   return round(portfolio
-    .filter((asset) => reserveClasses.has(asset.assetClass))
+    .filter((asset) => reserveClasses.has(asset.assetClass) && asset.tipsLadderYear == null)
     .reduce((total, asset) => total + marketValue(asset), 0), 6);
 }

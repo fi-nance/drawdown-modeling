@@ -10,7 +10,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { createRng } from "../src/core/utils.mjs";
-import { runMonteCarlo, generateSingleMonteCarloPath } from "../src/core/simulation.mjs?v=20260609-deepfix";
+import { runMonteCarlo, generateSingleMonteCarloPath } from "../src/core/simulation.mjs?v=20260611-tips-ladder";
 
 test("numeric seeds stay bit-identical to the historical mulberry32 stream", () => {
   // These values pin the exact stream for seed 42 — seeded Monte Carlo

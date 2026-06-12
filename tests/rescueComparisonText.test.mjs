@@ -94,14 +94,21 @@ test("rescue comparison text names added income bridge cash flow", () => {
 });
 
 test("rescue scenario workspace knobs are visible and persisted", async () => {
-  const [html, appSource] = await Promise.all([
+  const [html, appSource, redesignSource] = await Promise.all([
     readFile(new URL("../index.html", import.meta.url), "utf8"),
-    readFile(new URL("../src/app.mjs", import.meta.url), "utf8")
+    readFile(new URL("../src/app.mjs", import.meta.url), "utf8"),
+    readFile(new URL("../src/redesign.mjs", import.meta.url), "utf8")
   ]);
   const rescueControlIds = [
     "withdrawalOrder",
     "guardrailCorrectionDiscretionaryPercent",
     "guardrailBearDiscretionaryPercent",
+    "sequenceReserveMode",
+    "sequenceReserveTargetYears",
+    "tipsLadderEnabled",
+    "tipsLadderYears",
+    "tipsLadderAnnualAmount",
+    "tipsLadderRealYieldPercent",
     "maxIrmaaTier",
     "taxGainMagiBuffer",
     "rothConversionOptimizeForAca",
@@ -124,7 +131,19 @@ test("rescue scenario workspace knobs are visible and persisted", async () => {
     assert.match(appSource, new RegExp(`"${id}"`), `${id} should be part of app control wiring`);
   }
 
+  assert.match(html, /id="tipsLadderRealYieldPercent"[^>]*max="8"/);
+  assert.match(redesignSource, /bindRescueAppliedModuleVisibility/);
+  assert.match(redesignSource, /psl:rescue-scenario-applied/);
+  assert.match(redesignSource, /modulesForRescueChanges/);
+  assert.match(redesignSource, /TIPS ladder\|Ladder /);
+  assert.match(redesignSource, /expandWorkspaceModules/);
+
   assert.match(appSource, /setOptionalNumberControl\("medicareAnnualOopBase", scenario\.medicare\?\.annualOopBase\)/);
+  assert.match(appSource, /setValueControl\("sequenceReserveMode", reserve\.enabled === false \? "none" : reserve\.mode\)/);
+  assert.match(appSource, /setCheckedControl\("tipsLadderEnabled", scenario\.tipsLadder\?\.enabled\)/);
+  assert.match(appSource, /setOptionalNumberControl\("tipsLadderYears", scenario\.tipsLadder\?\.years\)/);
+  assert.match(appSource, /setOptionalNumberControl\("tipsLadderAnnualAmount", scenario\.tipsLadder\?\.annualRealAmount\)/);
+  assert.match(appSource, /setOptionalNumberControl\("tipsLadderRealYieldPercent", scenario\.tipsLadder\?\.realYieldPercent\)/);
   assert.match(appSource, /setNumberControl\("spouseMedicareWages", scenario\.spouseMedicareWages\)/);
   assert.match(appSource, /setOptionalNumberControl\("spouseSocialSecurityWages", scenario\.spouseSocialSecurityWages\)/);
   assert.match(appSource, /setNumberControl\("spouseSelfEmploymentIncome", scenario\.spouseSelfEmploymentIncome\)/);
@@ -144,6 +163,8 @@ test("module library counts match expanded module cards", async () => {
   assert.match(source, /id: "other-income"[\s\S]*controls: 22/);
   assert.match(html, /data-module="strategy"[\s\S]*<span class="controls-pill">41 controls<\/span>/);
   assert.match(source, /id: "strategy"[\s\S]*controls: 41/);
+  assert.match(html, /data-module="reserve"[\s\S]*<span class="controls-pill">8 controls<\/span>/);
+  assert.match(source, /id: "reserve"[\s\S]*controls: 8/);
 });
 
 test("module library can scroll to reveal disabled-module knobs", async () => {
@@ -154,7 +175,7 @@ test("module library can scroll to reveal disabled-module knobs", async () => {
 
   assert.match(css, /\.module-library\s*\{[\s\S]*max-height: calc\(100vh - 2rem\)/);
   assert.match(css, /\.module-library\s*\{[\s\S]*overflow-y: auto/);
-  assert.match(html, /src\/redesign\.css\?v=20260609-deepfix/);
+  assert.match(html, /src\/redesign\.css\?v=20260611-tips-ladder/);
 });
 
 test("rescue comparison table includes per-option confidence labels", async () => {

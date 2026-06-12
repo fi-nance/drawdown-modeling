@@ -4,7 +4,7 @@ import {
   runHistoricalBacktests,
   runMonteCarlo,
   simulatePlan
-} from "./simulation.mjs?v=20260609-deepfix";
+} from "./simulation.mjs?v=20260611-tips-ladder";
 import {
   buildRiskBasedGuardrailTable,
   RISK_BASED_GUARDRAILS_MODE,
@@ -40,6 +40,7 @@ const EPSILON = 0.00001;
 
 const RESERVE_MAX_YEARS = 5;
 const RESERVE_MODES = ["cash", "hybrid"];
+const TIPS_LADDER_RESCUE_YEARS = [5, 10, 15, 20];
 const ALLOCATION_TARGETS = [40, 55, 70, 85];
 const DEFAULT_MAGI_BUFFER = 1000;
 const SENSITIVITY_TOP_COUNT = 3;
@@ -139,6 +140,7 @@ export function runDecisionBatch({
   const vpwRescue = baseUsesGuardrails ? null : findVpwRescue(solverContext);
   const incomeBridge = findIncomeBridge(solverContext);
   const sequenceReserve = findSequenceReserve(solverContext);
+  const tipsLadderRescue = findTipsLadderRescue(solverContext);
   const allocationShift = findAllocationShift(solverContext);
   const withdrawalShift = findWithdrawalShift(solverContext);
   const healthcareRescue = findHealthcareRescue(solverContext);
@@ -175,6 +177,7 @@ export function runDecisionBatch({
     vpwRescue,
     incomeBridge,
     sequenceReserve,
+    tipsLadderRescue,
     allocationShift,
     withdrawalShift,
     healthcareRescue,
@@ -670,6 +673,27 @@ export function scenarioWithSequenceReserve(scenario = {}, { mode = "cash", targ
   };
 }
 
+export function scenarioWithTipsLadder(scenario = {}, { years = 10, annualRealAmount = null, realYieldPercent = null } = {}) {
+  const ladderYears = Math.max(1, Math.min(40, Math.trunc(Number(years) || 0)));
+  const existing = plainObject(scenario.tipsLadder) ? scenario.tipsLadder : {};
+  return {
+    ...scenario,
+    tipsLadder: {
+      ...existing,
+      enabled: true,
+      years: ladderYears,
+      // Omitted knobs (null) keep the scenario's existing values — a resize
+      // must not silently reset an explicit rung amount or filed real yield.
+      annualRealAmount: annualRealAmount != null && Number(annualRealAmount) > 0
+        ? Number(annualRealAmount)
+        : (existing.annualRealAmount ?? null),
+      realYieldPercent: realYieldPercent != null && Number.isFinite(Number(realYieldPercent))
+        ? Number(realYieldPercent)
+        : (existing.realYieldPercent ?? 2)
+    }
+  };
+}
+
 export function scenarioWithAllocationTarget(scenario = {}, targetStockPercent = 70) {
   const pct = clampNumber(Number(targetStockPercent), 0, 100, 70);
   const existing = plainObject(scenario.allocationStrategy) ? scenario.allocationStrategy : {};
@@ -935,6 +959,64 @@ function findSequenceReserve({ assets, scenario, taxProfile, runs, seed, sequenc
         passing = candidate;
         break;
       }
+    }
+  }
+  const winner = passing
+    ?? [...candidates].sort((a, b) => b.monteCarlo.successRate - a.monteCarlo.successRate)[0]
+    ?? null;
+  if (!winner) return null;
+  const finalized = finalizeCandidate({ candidate: winner, assets, taxProfile, runs, seed, sequences, profile });
+  if (!isWorthwhileRescue(finalized, base, profile)) {
+    return optionWithDelta(finalized, base, { status: "discarded" });
+  }
+  return optionWithDelta(finalized, base, { status: meetsTarget(finalized, profile) ? "target-met" : "best-tested" });
+}
+
+// TIPS bond ladder rescue: carve an N-year held-to-maturity TIPS ladder out
+// of the portfolio at plan start. When the base plan has no ladder, the sweep
+// tests the standard lengths; when one is already enabled, it tests the OTHER
+// lengths (a longer floor for sequence/inflation failures, shorter to free
+// growth assets). Mechanical lever — no lifestyle cost.
+function findTipsLadderRescue({ assets, scenario, taxProfile, runs, seed, sequences, profile, base, tracker }) {
+  const searchRuns = solverSearchRuns(runs);
+  const ladderConfig = plainObject(scenario?.tipsLadder) ? scenario.tipsLadder : {};
+  const baseEnabled = ladderConfig.enabled === true;
+  const currentYears = Math.trunc(Number(ladderConfig.years) || 0);
+  const sweep = TIPS_LADDER_RESCUE_YEARS.filter((years) => !baseEnabled || Math.abs(years - currentYears) > 1);
+  if (!sweep.length) return null;
+  const realYieldPercent = Number.isFinite(Number(ladderConfig.realYieldPercent)) ? Number(ladderConfig.realYieldPercent) : 2;
+
+  const candidates = [];
+  let passing = null;
+  for (const years of sweep) {
+    const candidate = runCandidate({
+      id: `tips-ladder-${years}`,
+      kind: "tipsLadder",
+      label: baseEnabled ? "Resize the TIPS ladder" : "Carve out a TIPS bond ladder",
+      scenario: scenarioWithTipsLadder(scenario, { years, realYieldPercent }),
+      assets,
+      taxProfile,
+      runs: searchRuns,
+      seed,
+      sequences,
+      profile,
+      metadata: {
+        ladderYears: years,
+        previousLadderYears: baseEnabled ? currentYears : null,
+        // != null guard: Number(null) is 0, which would misreport auto-sizing
+        // as an explicit $0 rung.
+        annualRealAmount: ladderConfig.annualRealAmount != null && Number.isFinite(Number(ladderConfig.annualRealAmount))
+          ? Number(ladderConfig.annualRealAmount)
+          : null,
+        realYieldPercent
+      },
+      includeHistorical: false,
+      tracker
+    });
+    candidates.push(candidate);
+    if (meetsTarget(candidate, profile)) {
+      passing = candidate;
+      break;
     }
   }
   const winner = passing
@@ -1402,7 +1484,7 @@ function diagnoseFailure({ base, safeSpending, profile }) {
     primary = "earlySequenceRisk";
     label = "Early sequence risk";
     reason = "Failures cluster in the first ten years, so an early bad-market sequence is the likely failure driver.";
-    recommendedKinds = ["sequenceReserve", "allocationShift", "riskBasedGuardrailsRescue", "guytonKlingerRescue", "vpwRescue", "discretionaryCut", "socialSecurityBridge"];
+    recommendedKinds = ["sequenceReserve", "tipsLadder", "allocationShift", "riskBasedGuardrailsRescue", "guytonKlingerRescue", "vpwRescue", "discretionaryCut", "socialSecurityBridge"];
   } else if (failedCount > 0) {
     primary = "longHorizonDepletion";
     label = "Long-horizon depletion";
@@ -1816,12 +1898,12 @@ const FAILURE_STRESSOR_MAP = Object.freeze({
   reserveShortfall: {
     label: "Reserve shortfall",
     description: "Down-market years lack enough defensive assets to avoid selling volatile assets under stress.",
-    recommendedKinds: ["sequenceReserve", "allocationShift", "riskBasedGuardrailsRescue", "guytonKlingerRescue", "vpwRescue", "discretionaryCut"]
+    recommendedKinds: ["sequenceReserve", "tipsLadder", "allocationShift", "riskBasedGuardrailsRescue", "guytonKlingerRescue", "vpwRescue", "discretionaryCut"]
   },
   allocationMismatch: {
     label: "Allocation mismatch",
     description: "The risk-asset mix is poorly matched to the path: too exposed during early stress or too defensive for long-horizon growth.",
-    recommendedKinds: ["allocationShift", "sequenceReserve"]
+    recommendedKinds: ["allocationShift", "sequenceReserve", "tipsLadder"]
   }
 });
 

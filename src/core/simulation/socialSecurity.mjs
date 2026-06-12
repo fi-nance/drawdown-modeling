@@ -1,7 +1,7 @@
 // Extracted from simulation.mjs during the modular refactor.
 // Single responsibility: socialSecurity. No behavior changes — pure code movement.
 
-import { DEFAULT_TAX_PROFILE } from "../tax.mjs?v=20260609-deepfix";
+import { DEFAULT_TAX_PROFILE } from "../tax.mjs?v=20260611-tips-ladder";
 import { round } from "../utils.mjs";
 
 function socialSecurityScalingFactor(startAge) {

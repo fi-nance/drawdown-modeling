@@ -72,11 +72,14 @@ export function allocationStrategyStateForYear({ scenario, portfolio, yearIndex,
 }
 
 function managedStockAllocationSnapshot(portfolio = []) {
+  // TIPS ladder rungs (tipsLadderYear != null) are a carved-out liability
+  // match, not part of the managed allocation: the remaining portfolio
+  // rebalances to its stock target without them.
   const stockValue = round(portfolio
-    .filter((asset) => asset.assetClass === "stock")
+    .filter((asset) => asset.assetClass === "stock" && asset.tipsLadderYear == null)
     .reduce((total, asset) => total + marketValue(asset), 0), 6);
   const defensiveValue = round(portfolio
-    .filter((asset) => DEFENSIVE_ASSET_CLASSES.includes(asset.assetClass))
+    .filter((asset) => DEFENSIVE_ASSET_CLASSES.includes(asset.assetClass) && asset.tipsLadderYear == null)
     .reduce((total, asset) => total + marketValue(asset), 0), 6);
   const managedValue = round(stockValue + defensiveValue, 6);
   return {
@@ -122,9 +125,9 @@ function rebalancePortfolioToStockTarget(portfolio, config, { calendarYear = nul
   result.direction = sellStock ? "sell-stock" : "buy-stock";
   let remaining = requestedAmount;
   const candidates = portfolio
-    .filter((asset) => sellStock
+    .filter((asset) => asset.tipsLadderYear == null && (sellStock
       ? asset.assetClass === "stock" && marketValue(asset) > 0
-      : DEFENSIVE_ASSET_CLASSES.includes(asset.assetClass) && marketValue(asset) > 0)
+      : DEFENSIVE_ASSET_CLASSES.includes(asset.assetClass) && marketValue(asset) > 0))
     .sort(rebalanceSaleSort);
 
   for (const asset of candidates) {

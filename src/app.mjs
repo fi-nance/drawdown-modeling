@@ -22,7 +22,7 @@ import {
   runMonteCarlo,
   simulatePlan,
   generateSingleMonteCarloPath
-} from "./core/simulation.mjs?v=20260609-deepfix";
+} from "./core/simulation.mjs?v=20260611-tips-ladder";
 import { round } from "./core/utils.mjs";
 import { defaultOneOffExpenses, sampleAssets } from "./data/sample.mjs";
 import {
@@ -33,7 +33,7 @@ import {
   HISTORICAL_RETURN_DATA_VERSION,
   makeHistoricalSequences
 } from "./data/historicalReturns.mjs";
-import { buildAcaConfig, buildTaxProfile, STATE_OPTIONS, TAX_DATA_VERSION, getMonthlyBenchmarkPremium } from "./data/taxData.mjs?v=20260609-deepfix";
+import { buildAcaConfig, buildTaxProfile, STATE_OPTIONS, TAX_DATA_VERSION, getMonthlyBenchmarkPremium } from "./data/taxData.mjs?v=20260611-tips-ladder";
 import { massachusettsConnectorCareEstimate, massachusettsConnectorCarePlanOptions } from "./data/acaPlanPresets.mjs";
 import {
   buildMarketplacePlanSearchRequest,
@@ -143,6 +143,10 @@ const CONTROL_IDS = [
   "sequenceReserveMode",
   "sequenceReserveTargetYears",
   "sequenceReserveTentYears",
+  "tipsLadderEnabled",
+  "tipsLadderYears",
+  "tipsLadderAnnualAmount",
+  "tipsLadderRealYieldPercent",
   "unifiedMarginalOptimizer",
   "assetLocationOptimization",
   "hsaContributionStrategy",
@@ -359,6 +363,10 @@ const els = {
   sequenceReserveMode: document.querySelector("#sequenceReserveMode"),
   sequenceReserveTargetYears: document.querySelector("#sequenceReserveTargetYears"),
   sequenceReserveTentYears: document.querySelector("#sequenceReserveTentYears"),
+  tipsLadderEnabled: document.querySelector("#tipsLadderEnabled"),
+  tipsLadderYears: document.querySelector("#tipsLadderYears"),
+  tipsLadderAnnualAmount: document.querySelector("#tipsLadderAnnualAmount"),
+  tipsLadderRealYieldPercent: document.querySelector("#tipsLadderRealYieldPercent"),
   unifiedMarginalOptimizer: document.querySelector("#unifiedMarginalOptimizer"),
   assetLocationOptimization: document.querySelector("#assetLocationOptimization"),
   hsaContributionStrategy: document.querySelector("#hsaContributionStrategy"),
@@ -1791,6 +1799,10 @@ function applyScenarioControls(scenario) {
   setValueControl("sequenceReserveMode", reserve.enabled === false ? "none" : reserve.mode);
   setNumberControl("sequenceReserveTargetYears", reserve.targetYears);
   setNumberControl("sequenceReserveTentYears", reserve.tentYears);
+  setCheckedControl("tipsLadderEnabled", scenario.tipsLadder?.enabled);
+  setOptionalNumberControl("tipsLadderYears", scenario.tipsLadder?.years);
+  setOptionalNumberControl("tipsLadderAnnualAmount", scenario.tipsLadder?.annualRealAmount);
+  setOptionalNumberControl("tipsLadderRealYieldPercent", scenario.tipsLadder?.realYieldPercent);
 
   const allocation = scenario.allocationStrategy ?? {};
   setCheckedControl("allocationAwareWithdrawals", allocation.withdrawalBiasEnabled);
@@ -1892,6 +1904,7 @@ function extractRescueScenarioOverride(scenario = {}) {
     "targetSpend",
     "spendingStrategy",
     "sequenceRiskReserve",
+    "tipsLadder",
     "allocationStrategy",
     "withdrawalStrategy",
     "withdrawalOrder",
@@ -1992,7 +2005,7 @@ function downloadJsonText(text, filename) {
 function getSimulationWorker() {
   if (!simulationWorker) {
     simulationWorker = new Worker(
-      new URL("./core/simulation.worker.mjs?v=20260609-deepfix", import.meta.url),
+      new URL("./core/simulation.worker.mjs?v=20260611-tips-ladder", import.meta.url),
       { type: "module" }
     );
     simulationWorker.addEventListener("error", (ev) => {
@@ -4673,6 +4686,12 @@ function readScenario() {
       targetYears: Math.max(0.5, Number(els.sequenceReserveTargetYears?.value) || 3),
       tentYears: Math.max(1, Number(els.sequenceReserveTentYears?.value) || 10),
       triggerStockReturn: 0
+    },
+    tipsLadder: {
+      enabled: els.tipsLadderEnabled?.checked === true,
+      years: numberOrNull(els.tipsLadderYears?.value) ?? 10,
+      annualRealAmount: numberOrNull(els.tipsLadderAnnualAmount?.value),
+      realYieldPercent: numberOrNull(els.tipsLadderRealYieldPercent?.value) ?? 2
     },
     allocationStrategy: {
       withdrawalBiasEnabled: els.allocationAwareWithdrawals?.checked === true,

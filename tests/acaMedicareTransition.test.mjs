@@ -25,7 +25,7 @@ import { slcspMonthlyFor } from "../src/data/acaRatingArea.mjs";
 import { sbeSlcspMonthlyFor } from "../src/data/sbeRatingArea.mjs";
 import { inflateAcaConfig } from "../src/core/aca.mjs";
 import { computeAcaForYear } from "../src/core/simulation/medical.mjs";
-import { simulatePlan } from "../src/core/simulation.mjs?v=20260609-deepfix";
+import { simulatePlan } from "../src/core/simulation.mjs?v=20260611-tips-ladder";
 import { buildAcaConfig, buildTaxProfile } from "../src/data/taxData.mjs";
 import { buildConfidenceReport } from "../src/core/confidence.mjs";
 

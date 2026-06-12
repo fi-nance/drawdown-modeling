@@ -164,11 +164,22 @@ const MODULES = [
   { id: "medicare",      label: "Medicare/IRMAA", desc: "Premiums after 65",                       controls: 12, required: false, enabledByDefault: false },
   { id: "other-income",  label: "Other income",   desc: "Social Security, work, pensions",         controls: 22, required: false, enabledByDefault: false },
   { id: "strategy",      label: "Strategy toolkit", desc: "Taxes, allocations, withdrawal rules",   controls: 41, required: false, enabledByDefault: true  },
-  { id: "reserve",       label: "Cash reserve",   desc: "Bucket strategy",                          controls: 4,  required: false, enabledByDefault: false },
+  { id: "reserve",       label: "Cash reserve",   desc: "Bucket strategy",                          controls: 8,  required: false, enabledByDefault: false },
   { id: "monte-carlo",   label: "Monte Carlo",    desc: "Return model and sampling",                controls: 20, required: false, enabledByDefault: true  },
   { id: "history",       label: "History test",   desc: "How would you have done?",                controls: 7,  required: false, enabledByDefault: false },
   { id: "what-ifs",      label: "What ifs",       desc: "Future expenses or income",                controls: 8,  required: false, enabledByDefault: true  },
   { id: "tax-overrides", label: "Tax overrides",  desc: "Power-user tax tweaks",                    controls: 23, required: false, enabledByDefault: false }
+];
+
+const RESCUE_CHANGE_MODULES = [
+  { module: "reserve", pattern: /^(Reserve|TIPS ladder|Ladder )/ },
+  { module: "what-ifs", pattern: /^One-off cash flows/ },
+  { module: "medicare", pattern: /^(IRMAA enabled|Max IRMAA tier)/ },
+  { module: "other-income", pattern: /^Social Security/ },
+  {
+    module: "strategy",
+    pattern: /^(Spending mode|Essential spend|Discretionary spend|Correction discretionary|Bear discretionary|Risk guardrail|Tax-aware rebalancing|Equity glidepath|Stock target|Withdrawal strategy|Withdrawal order|Tax-loss harvesting|Tax-gain harvesting|Gain harvest MAGI buffer|Roth conversions|ACA-aware Roth conversions|MAGI conversion guardrails|Conversion max ACA FPL|Conversion MAGI buffer|Roth basis optimization|Roth basis hurdle|Roth basis MAGI buffer)/
+  }
 ];
 
 const TIER_THRESHOLDS = { warn: 0.85, risk: 0.7 };
@@ -208,6 +219,7 @@ function boot() {
   bindTheme();
   bindIntakes();
   bindSetupTransfer();
+  bindRescueAppliedModuleVisibility();
   bindWorkspaceSummary();
   bindWithdrawalMix();
   bindHistoricalPathLinks();
@@ -521,6 +533,47 @@ function syncModuleVisibility() {
     const enabled = state.enabledModules.has(id);
     card.hidden = !enabled;
   });
+}
+
+function bindRescueAppliedModuleVisibility() {
+  window.addEventListener("psl:rescue-scenario-applied", (ev) => {
+    const modules = modulesForRescueChanges(ev.detail?.changes);
+    if (!modules.size) return;
+    let changed = false;
+    for (const id of modules) {
+      if (!state.enabledModules.has(id)) {
+        state.enabledModules.add(id);
+        changed = true;
+      }
+    }
+    if (changed) persistModules();
+    syncModuleLibraryUI();
+    syncModuleVisibility();
+    expandWorkspaceModules(modules);
+  });
+}
+
+function modulesForRescueChanges(changes = []) {
+  const modules = new Set();
+  if (!Array.isArray(changes)) return modules;
+  for (const change of changes) {
+    const text = String(change ?? "");
+    const match = RESCUE_CHANGE_MODULES.find((entry) => entry.pattern.test(text));
+    if (match) modules.add(match.module);
+  }
+  return modules;
+}
+
+function expandWorkspaceModules(moduleIds) {
+  const grid = document.getElementById("moduleGrid");
+  if (!grid) return;
+  for (const id of moduleIds) {
+    const card = grid.querySelector(`.module-card[data-module="${id}"]`);
+    if (!card) continue;
+    card.hidden = false;
+    setCardCollapsed(card, false);
+  }
+  persistCollapsedModules();
 }
 
 // ─── Module collapse / expand ─────────────────────────────────────
@@ -1080,6 +1133,8 @@ function rescueTitle(option) {
       return "cut spending and earn bridge income";
     case "sequenceReserve":
       return `hold a ${meta.reserveYears ?? 0}-year ${meta.reserveMode ?? "cash"} reserve`;
+    case "tipsLadder":
+      return `Carve out a ${meta.ladderYears ?? 0}-year TIPS ladder`;
     case "allocationShift":
       return `shift to ${Math.round(meta.targetStockPercent ?? 0)}% stock`;
     case "withdrawalShift":
@@ -2485,6 +2540,13 @@ export function rescueChangeList(option = {}, baseScenario = {}) {
   addTextChange(changes, "Reserve mode", baseReserve.mode, nextReserve.mode);
   addNumberChange(changes, "Reserve years", baseReserve.targetYears, nextReserve.targetYears, formatPlainNumber);
 
+  const baseLadder = baseScenario.tipsLadder ?? {};
+  const nextLadder = scenario.tipsLadder ?? {};
+  addBooleanChange(changes, "TIPS ladder", baseLadder.enabled, nextLadder.enabled);
+  addNumberChange(changes, "Ladder years", baseLadder.years, nextLadder.years, formatPlainNumber);
+  addNumberChange(changes, "Ladder annual amount", baseLadder.annualRealAmount ?? undefined, nextLadder.annualRealAmount ?? undefined, formatCurrencyShort);
+  addNumberChange(changes, "Ladder real yield %", baseLadder.realYieldPercent, nextLadder.realYieldPercent, formatPlainNumber);
+
   const baseAllocation = baseScenario.allocationStrategy ?? {};
   const nextAllocation = scenario.allocationStrategy ?? {};
   addBooleanChange(changes, "Tax-aware rebalancing", baseAllocation.rebalanceEnabled, nextAllocation.rebalanceEnabled);
@@ -2607,6 +2669,12 @@ export function rescueOptimizationText(option, baseScenario = {}) {
       return `Pair the chosen spending cut with bridge income.${changeSummary}`;
     case "sequenceReserve":
       return `${capitalizeFirst(meta.reserveMode ?? "cash")} reserve size for early sequence risk.${changeSummary}`;
+    case "tipsLadder": {
+      const fundingText = meta.annualRealAmount != null && Number.isFinite(Number(meta.annualRealAmount))
+        ? `${formatCurrencyShort(meta.annualRealAmount)}/year`
+        : "the base spending target";
+      return `${meta.ladderYears ?? 0}-year TIPS ladder at ${meta.realYieldPercent ?? 2}% real yield funding ${fundingText}.${changeSummary}`;
+    }
     case "allocationShift":
       return `Target allocation with the historical worst-path guardrail.${changeSummary}`;
     case "withdrawalShift":

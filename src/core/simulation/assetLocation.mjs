@@ -36,10 +36,13 @@ function applyTaxEfficientAssetLocation(portfolio, { calendarYear = null } = {})
 
   while (guard < 50) {
     guard += 1;
+    // TIPS ladder rungs are excluded on both sides: a taxable rung must not
+    // be swapped into traditional (its maturity placement is deliberate).
     const taxableIncomeAsset = portfolio
       .filter((asset) => (
         asset.accountType === "taxable"
         && ["bond", "tips"].includes(asset.assetClass)
+        && asset.tipsLadderYear == null
         && marketValue(asset) > CASH_RAISED_EPSILON
       ))
       .sort(assetLocationTaxableIncomeSort)[0];
@@ -47,6 +50,7 @@ function applyTaxEfficientAssetLocation(portfolio, { calendarYear = null } = {})
       .filter((asset) => (
         asset.accountType === "traditional"
         && GROWTH_ASSET_CLASSES.includes(asset.assetClass)
+        && asset.tipsLadderYear == null
         && marketValue(asset) > CASH_RAISED_EPSILON
       ))
       .sort((a, b) => expectedReturnForAsset(b) - expectedReturnForAsset(a))[0];

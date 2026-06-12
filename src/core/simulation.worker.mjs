@@ -6,8 +6,8 @@ import {
   runHistoricalBacktests,
   runMonteCarlo,
   simulatePlan
-} from "./simulation.mjs?v=20260609-deepfix";
-import { runDecisionBatch } from "./decisionEngine.mjs?v=20260609-deepfix";
+} from "./simulation.mjs?v=20260611-tips-ladder";
+import { runDecisionBatch } from "./decisionEngine.mjs?v=20260611-tips-ladder";
 
 const UI_MONTE_CARLO_TIMELINE_LIMIT = 5;
 

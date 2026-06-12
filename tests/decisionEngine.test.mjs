@@ -16,7 +16,8 @@ import {
   scenarioWithRothBasisCliffRescue,
   scenarioWithSequenceReserve,
   scenarioWithSocialSecurityBridge,
-  scenarioWithTaxableLotRescue
+  scenarioWithTaxableLotRescue,
+  scenarioWithTipsLadder
 } from "../src/core/decisionEngine.mjs";
 import { DEFAULT_SCENARIO } from "../src/core/simulation.mjs";
 import { buildTaxProfile } from "../src/data/taxData.mjs";
@@ -614,6 +615,26 @@ test("sequence reserve transform enables the reserve with the requested mode", (
   assert.equal(withReserve.sequenceRiskReserve.targetYears, 4);
 });
 
+test("TIPS ladder transform enables the ladder with the requested years", () => {
+  const withLadder = scenarioWithTipsLadder(DEFAULT_SCENARIO, { years: 15 });
+
+  assert.equal(withLadder.tipsLadder.enabled, true);
+  assert.equal(withLadder.tipsLadder.years, 15);
+  // Auto-sizing and the default real yield survive the transform.
+  assert.equal(withLadder.tipsLadder.annualRealAmount, null);
+  assert.equal(withLadder.tipsLadder.realYieldPercent, 2);
+  // The transform does not disturb unrelated scenario keys.
+  assert.deepEqual(withLadder.withdrawalOrder, DEFAULT_SCENARIO.withdrawalOrder);
+
+  const resized = scenarioWithTipsLadder(
+    { ...DEFAULT_SCENARIO, tipsLadder: { enabled: true, years: 10, annualRealAmount: 50000, realYieldPercent: 1.5 } },
+    { years: 20 }
+  );
+  assert.equal(resized.tipsLadder.years, 20);
+  assert.equal(resized.tipsLadder.annualRealAmount, 50000, "explicit rung amount survives a resize");
+  assert.equal(resized.tipsLadder.realYieldPercent, 1.5);
+});
+
 test("allocation transform enables rebalancing toward the target stock percent", () => {
   const shifted = scenarioWithAllocationTarget(DEFAULT_SCENARIO, 55);
 
@@ -947,6 +968,7 @@ test("decision batch runs every rescue solver and only returns known rescue kind
     "incomeBridge",
     "combined",
     "sequenceReserve",
+    "tipsLadder",
     "allocationShift",
     "withdrawalShift",
     "healthcareRescue",

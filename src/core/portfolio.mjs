@@ -32,6 +32,10 @@ export function applyTotalReturnsWithIncome(assets = [], returnsByAssetClass = {
   const result = emptyDividendResult();
 
   for (const asset of assets) {
+    // TIPS ladder rungs are deterministic held-to-maturity instruments: they
+    // are repriced from their locked real yield + the cumulative inflation
+    // index (tipsLadder.mjs), never from sampled market returns.
+    if (asset.tipsLadderYear != null) continue;
     const startingPrice = Math.max(0, asset.price ?? 0);
     const startingUnits = Math.max(0, asset.units ?? 0);
     const totalReturn = totalReturnForAsset(asset, returnsByAssetClass);

@@ -3,7 +3,7 @@
 
 import { inflateAcaConfig } from "../aca.mjs";
 import { accountBreakdown, ageHoldingPeriods, applyTotalReturnsWithIncome, harvestTaxGains, harvestTaxLosses, portfolioValue, removeEmptyLots } from "../portfolio.mjs";
-import { computeIncomeTax, inflateTaxProfile } from "../tax.mjs?v=20260609-deepfix";
+import { computeIncomeTax, inflateTaxProfile } from "../tax.mjs?v=20260611-tips-ladder";
 import { round } from "../utils.mjs";
 import { allocationStrategyStateForYear } from "./allocation.mjs";
 import { assetLocationStateForYear } from "./assetLocation.mjs";
@@ -11,7 +11,7 @@ import { earnedIncomeForYear, emptyEarnedIncome, mergeEarnedIncome, oneOffCashFl
 import { CASH_GAP_TOLERANCE, CASH_RAISED_EPSILON } from "./constants.mjs";
 import { acaConfigForSimulationYear, buildSurvivorTaxProfile, isMarriedFiling, mortalityStatus } from "./household.mjs";
 import { addHsaContributionLot, emptyHsaContribution, hsaContributionForYear, hsaQualifiedExpenseAvailableForWithdrawal, hsaStrategyConfig } from "./hsa.mjs";
-import { acaMagiForIncome, federalAgiForIncome, incomeForYear, irmaaMagiForIncome, lossCarryforwardTotal, normalizeLossCarryforward, taxProfileForSimulationYear } from "./income.mjs?v=20260609-deepfix";
+import { acaMagiForIncome, federalAgiForIncome, incomeForYear, irmaaMagiForIncome, lossCarryforwardTotal, normalizeLossCarryforward, taxProfileForSimulationYear } from "./income.mjs?v=20260611-tips-ladder";
 import { incomeStreamsForYear } from "./incomeStreams.mjs";
 import { summarizeAssetClassReturns } from "./market.mjs";
 import { computeAcaForYear, emptyMedicareCost, ltcStressCostForYear, medicalCostForYear } from "./medical.mjs";
@@ -19,12 +19,13 @@ import { addTaxableCash, assetOwner, assetSnapshot, traditionalAccountValueByOwn
 import { householdRmdForYear } from "./rmd.mjs";
 import { isLifetimeOptimizerEnabled } from "./scenario.mjs";
 import { sequenceRiskReserveStateForYear } from "./sequenceRiskReserve.mjs";
-import { socialSecurityBenefitsForYear, spouseSocialSecurityBenefitsForYear } from "./socialSecurity.mjs?v=20260609-deepfix";
+import { socialSecurityBenefitsForYear, spouseSocialSecurityBenefitsForYear } from "./socialSecurity.mjs?v=20260611-tips-ladder";
 import { plannedSpendingDetailForYear } from "./spending.mjs";
-import { acaMagiCeiling, addPenaltyTax, automaticTaxLossHarvestLimit, effectiveRothConversionTargetRate, estimateTaxAttribution, gainHarvestingRoom, rothConversionAmountForYear, rothConversionMagiBuffer, strategyLimit } from "./taxStrategy.mjs?v=20260609-deepfix";
-import { convertTraditionalToRoth, earlyWithdrawalPenaltyExceptionAmountForYear, emptyWithdrawal, mergeWithdrawals, rothBasisAvailableForWithdrawal, rothBasisSummaryForYear, withdrawForCash } from "./withdrawalExecution.mjs?v=20260609-deepfix";
+import { buildTipsLadder, matureTipsLadderRungs, repriceTipsLadderRungs, tipsLadderConfig, tipsLadderValue } from "./tipsLadder.mjs";
+import { acaMagiCeiling, addPenaltyTax, automaticTaxLossHarvestLimit, effectiveRothConversionTargetRate, estimateTaxAttribution, gainHarvestingRoom, rothConversionAmountForYear, rothConversionMagiBuffer, strategyLimit } from "./taxStrategy.mjs?v=20260611-tips-ladder";
+import { convertTraditionalToRoth, earlyWithdrawalPenaltyExceptionAmountForYear, emptyWithdrawal, mergeWithdrawals, rothBasisAvailableForWithdrawal, rothBasisSummaryForYear, withdrawForCash } from "./withdrawalExecution.mjs?v=20260611-tips-ladder";
 import { forcedWithdrawalOrder } from "./withdrawalOrders.mjs";
-import { chooseWithdrawalPlan, evaluateWithdrawalPlan } from "./withdrawalPlanning.mjs?v=20260609-deepfix";
+import { chooseWithdrawalPlan, evaluateWithdrawalPlan } from "./withdrawalPlanning.mjs?v=20260611-tips-ladder";
 
 export function simulateYear({
   portfolio,
@@ -117,6 +118,10 @@ export function simulateYear({
   const ownerAges = { primary: age, spouse: Number.isFinite(spouseAge) ? spouseAge : age };
   const beginningAssets = assetSnapshot(portfolio);
   const dividends = applyTotalReturnsWithIncome(portfolio, returnByAssetClass);
+  // Deterministic repricing for TIPS ladder rungs (skipped by the sampled
+  // growth pass above): locked real yield compounding against the cumulative
+  // inflation index, so each rung is worth face × inflationIndex at maturity.
+  repriceTipsLadderRungs(portfolio, { scenario, yearIndex, inflationIndex });
   const afterReturnPortfolioValue = portfolioValue(portfolio);
 
   const flows = [...dividends.flows];
@@ -172,6 +177,37 @@ export function simulateYear({
   strategyLongTermLosses += assetLocation.longTermCapitalLosses;
   flows.push(...assetLocation.flows);
 
+  // One-time TIPS ladder carve-out at plan start (the "first rebalance"),
+  // BEFORE the allocation rebalance so the remaining portfolio rebalances to
+  // its stock target without the rungs. Taxable funding sales feed the same
+  // strategy gain accounting as rebalance sales.
+  let tipsLadderBuild = null;
+  if (yearIndex === 0 && tipsLadderConfig(scenario).enabled) {
+    const baseSpendingDetail = plannedSpendingDetailForYear(
+      scenario,
+      yearIndex + 1,
+      inflationIndex,
+      oneOffCashFlows,
+      spendingGuardrail,
+      passedBaseSpend
+    );
+    tipsLadderBuild = buildTipsLadder({
+      portfolio,
+      scenario,
+      age,
+      baseAnnualSpending: baseSpendingDetail.baseSpend,
+      inflationIndex
+    });
+    if (tipsLadderBuild) {
+      strategyShortTermGains += tipsLadderBuild.shortTermCapitalGains;
+      strategyLongTermGains += tipsLadderBuild.longTermCapitalGains;
+      strategyCapitalLosses += tipsLadderBuild.capitalLosses;
+      strategyShortTermLosses += tipsLadderBuild.shortTermCapitalLosses;
+      strategyLongTermLosses += tipsLadderBuild.longTermCapitalLosses;
+      flows.push(...tipsLadderBuild.flows);
+    }
+  }
+
   const allocationStrategy = allocationStrategyStateForYear({
     scenario,
     portfolio,
@@ -197,12 +233,42 @@ export function simulateYear({
     survivorOwner
   });
   let rmdWithdrawal = emptyWithdrawal(rothBasisRemaining, annualPenaltyExceptionAmount);
+  // TIPS ladder rungs maturing this year are distributed BEFORE the forced
+  // RMD sales, through the same withdrawal machinery (ordinary income, MAGI,
+  // penalties, Roth basis all flow normally). Traditional maturities then
+  // credit against that owner's RMD so the ladder does not stack a second
+  // forced distribution on top.
+  const tipsLadderMaturity = matureTipsLadderRungs({
+    portfolio,
+    yearIndex,
+    context: {
+      age,
+      ownerAges,
+      calendarYear,
+      penaltyAge: scenario.retirementPenaltyAge ?? 59.5,
+      penaltyRate: scenario.earlyWithdrawalPenaltyRate ?? 0.1,
+      rothBasisRemaining: rmdWithdrawal.rothBasisRemaining,
+      rothFiveYearRuleSatisfied: scenario.rothFiveYearRuleSatisfied !== false,
+      penaltyExceptionRemaining: rmdWithdrawal.penaltyExceptionRemaining,
+      returnAssumptions: scenario.returnAssumptions
+    }
+  });
+  if (tipsLadderMaturity) {
+    rmdWithdrawal = mergeWithdrawals(rmdWithdrawal, tipsLadderMaturity.withdrawal);
+  }
+  const ladderRmdCredit = tipsLadderMaturity?.traditionalByOwner ?? { primary: 0, spouse: 0 };
   const rmdBuckets = rmd.byOwner.spouse
     ? [
-      { amount: rmd.byOwner.primary?.amount ?? 0, assets: portfolio.filter((asset) => asset.accountType === "traditional" && assetOwner(asset) !== "spouse") },
-      { amount: rmd.byOwner.spouse?.amount ?? 0, assets: portfolio.filter((asset) => asset.accountType === "traditional" && assetOwner(asset) === "spouse") }
+      {
+        amount: Math.max(0, (rmd.byOwner.primary?.amount ?? 0) - ladderRmdCredit.primary),
+        assets: portfolio.filter((asset) => asset.accountType === "traditional" && assetOwner(asset) !== "spouse")
+      },
+      {
+        amount: Math.max(0, (rmd.byOwner.spouse?.amount ?? 0) - ladderRmdCredit.spouse),
+        assets: portfolio.filter((asset) => asset.accountType === "traditional" && assetOwner(asset) === "spouse")
+      }
     ]
-    : [{ amount: rmd.amount, assets: portfolio }];
+    : [{ amount: Math.max(0, rmd.amount - ladderRmdCredit.primary - ladderRmdCredit.spouse), assets: portfolio }];
   for (const bucket of rmdBuckets) {
     if (!(bucket.amount > 0)) continue;
     const bucketWithdrawal = withdrawForCash(bucket.assets, bucket.amount, ["traditional"], {
@@ -797,7 +863,9 @@ export function simulateYear({
     rrtaCompensation: round(earnedIncome.rrtaCompensation, 6),
     socialSecurityBenefits: round(socialSecurityBenefits, 6),
     taxableSocialSecurity: round(finalTaxableSocialSecurity, 6),
-    rmdAmount: round(rmdWithdrawal.cashRaised, 6),
+    // Forced RMD sales only — TIPS ladder maturities (which credit against
+    // the RMD) are reported separately under tipsLadder.maturedCash.
+    rmdAmount: round(Math.max(0, rmdWithdrawal.cashRaised - (tipsLadderMaturity?.maturedCash ?? 0)), 6),
     rmdRequired: round(rmd.amount, 6),
     rmdStartAge: rmd.startAge,
     rmdFactor: rmd.factor,
@@ -861,6 +929,18 @@ export function simulateYear({
     hsaWithdrawals: round(finalWithdrawal.hsaProceeds ?? 0, 6),
     hsaQualifiedExpenseBalance: finalHsaQualifiedExpenseBalance,
     sequenceRiskReserve,
+    tipsLadder: tipsLadderConfig(scenario).enabled ? {
+      value: tipsLadderValue(portfolio),
+      maturedCash: round(tipsLadderMaturity?.maturedCash ?? 0, 6),
+      build: tipsLadderBuild ? {
+        requestedYears: tipsLadderBuild.requestedYears,
+        fundedYears: tipsLadderBuild.fundedYears,
+        annualRealAmount: round(tipsLadderBuild.annualRealAmount ?? 0, 6),
+        realYield: tipsLadderBuild.realYield,
+        totalCost: round(tipsLadderBuild.totalCost, 6),
+        shortfall: round(tipsLadderBuild.shortfall, 6)
+      } : null
+    } : null,
     allocationStrategy,
     assetLocation,
     unfunded: round(unfunded, 6),
@@ -1030,6 +1110,9 @@ function reconcileCashRequirement({
         penaltyExceptionRemaining: currentWithdrawal.penaltyExceptionRemaining,
         returnAssumptions: scenario.returnAssumptions,
         optimizedLotSelection: false,
+        // Last resort: the forced top-up may break future TIPS ladder rungs
+        // (they sort last) rather than leave the year unfunded.
+        includeTipsLadderRungs: true,
         maxRothProceeds: Infinity,
         hsaQualifiedExpenseAvailable: hsaQualifiedExpenseAvailableForWithdrawal({
           scenario,
@@ -1198,6 +1281,7 @@ export function buildPostMortalityYearResult({ scenario, yearIndex, portfolio, i
     hsaWithdrawals: 0,
     hsaQualifiedExpenseBalance: 0,
     sequenceRiskReserve: null,
+    tipsLadder: null,
     allocationStrategy: null,
     assetLocation: null,
     unfunded: 0,

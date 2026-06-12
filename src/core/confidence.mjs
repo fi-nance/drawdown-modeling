@@ -135,6 +135,15 @@ export function rescueConfidenceFor(option = {}, confidenceReport = {}) {
     };
   }
 
+  if (kind === "tipsLadder") {
+    return {
+      level: CONFIDENCE_LEVELS.ASSUMPTION_SENSITIVE,
+      label: "Sensitive",
+      title: "Locked real-yield assumption drives this rescue",
+      detail: "The ladder is modeled as held-to-maturity TIPS at the configured real yield, purchased at plan start. Verify the entered real yield against the current Treasury TIPS yield curve before acting — a materially lower available yield raises the ladder's cost and shrinks its benefit."
+    };
+  }
+
   return {
     level: CONFIDENCE_LEVELS.HIGH,
     label: "High",

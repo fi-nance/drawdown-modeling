@@ -123,9 +123,21 @@ export function withdrawForCash(portfolio, amount, withdrawalOrder = [], context
   };
 
   for (const accountType of withdrawalOrder) {
-    const saleSort = saleSortForWithdrawalContext({ accountType, isEarly, maxRothProceeds, context: saleContext });
+    const baseSaleSort = saleSortForWithdrawalContext({ accountType, isEarly, maxRothProceeds, context: saleContext });
+    // TIPS ladder rungs are reserved for their maturity year: ordinary
+    // withdrawals skip them entirely. The forced last-resort funding path
+    // passes includeTipsLadderRungs so a plan can break the ladder rather
+    // than fail — rungs then sort LAST within their account bucket.
+    const saleSort = (a, b) => {
+      const aRung = a.tipsLadderYear != null;
+      const bRung = b.tipsLadderYear != null;
+      if (aRung !== bRung) return aRung ? 1 : -1;
+      return baseSaleSort(a, b);
+    };
     const candidates = portfolio
-      .filter((asset) => asset.accountType === accountType && marketValue(asset) > 0)
+      .filter((asset) => asset.accountType === accountType
+        && marketValue(asset) > 0
+        && (context.includeTipsLadderRungs === true || asset.tipsLadderYear == null))
       .sort(saleSort);
 
     for (const asset of candidates) {
@@ -348,6 +360,9 @@ export function convertTraditionalToRoth(portfolio, requestedAmount, calendarYea
   for (const asset of [...portfolio]) {
     if (remaining <= 0) break;
     if (asset.accountType !== "traditional" || marketValue(asset) <= 0) continue;
+    // TIPS ladder rungs stay on their maturity schedule — converting one to
+    // Roth would silently dismantle the ladder (and clone its maturity tag).
+    if (asset.tipsLadderYear != null) continue;
 
     const amount = Math.min(remaining, marketValue(asset));
     const units = amount / asset.price;

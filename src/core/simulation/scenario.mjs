@@ -81,6 +81,22 @@ export const DEFAULT_SCENARIO = {
     tentYears: 10,
     triggerStockReturn: 0
   },
+  // Opt-in TIPS bond ladder: at plan start (the "first rebalance"), carve out
+  // `years` rungs of inflation-indexed, held-to-maturity TIPS — one rung per
+  // year — each paying `annualRealAmount` (today's dollars; null = the plan's
+  // base annual spending target) at a locked `realYield`. Rungs maturing
+  // before age 59.5 are placed taxable-first (no early-withdrawal penalty);
+  // later rungs traditional-first (maturities then count toward RMDs). Rungs
+  // are deterministic (no market sampling), excluded from rebalancing /
+  // asset-location / reserve counting / ordinary withdrawals, and matured
+  // rungs fund spending before any other withdrawal. Disabled by default —
+  // no effect on existing plans.
+  tipsLadder: {
+    enabled: false,
+    years: 10,
+    annualRealAmount: null,
+    realYieldPercent: 2
+  },
   allocationStrategy: {
     rebalanceEnabled: false,
     withdrawalBiasEnabled: false,
@@ -289,6 +305,10 @@ export function mergeScenario(scenario) {
     sequenceRiskReserve: {
       ...DEFAULT_SCENARIO.sequenceRiskReserve,
       ...(scenario.sequenceRiskReserve ?? {})
+    },
+    tipsLadder: {
+      ...DEFAULT_SCENARIO.tipsLadder,
+      ...(scenario.tipsLadder ?? {})
     },
     agePhasedSpending: {
       ...DEFAULT_SCENARIO.agePhasedSpending,

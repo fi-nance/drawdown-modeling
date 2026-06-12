@@ -6,12 +6,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { simulatePlan, runMonteCarlo, generateSingleMonteCarloPath } from "../src/core/simulation.mjs?v=20260609-deepfix";
-import { withdrawForCash } from "../src/core/simulation/withdrawalExecution.mjs?v=20260609-deepfix";
-import { applySurvivorBasisStepUp } from "../src/core/portfolio.mjs";
+import { simulatePlan, runMonteCarlo, generateSingleMonteCarloPath } from "../src/core/simulation.mjs?v=20260611-tips-ladder";
+import { withdrawForCash } from "../src/core/simulation/withdrawalExecution.mjs?v=20260611-tips-ladder";
 import { incomeStreamsForYear } from "../src/core/simulation/incomeStreams.mjs";
 import { householdRmdForYear } from "../src/core/simulation/rmd.mjs";
-import { computeIncomeTax } from "../src/core/tax.mjs?v=20260609-deepfix";
+import { mergeScenario } from "../src/core/simulation/scenario.mjs";
+import { applySurvivorBasisStepUp } from "../src/core/portfolio.mjs";
+import { computeIncomeTax } from "../src/core/tax.mjs?v=20260611-tips-ladder";
 import { buildTaxProfile } from "../src/data/taxData.mjs";
 import { parsePortfolioCsv } from "../src/core/importers.mjs";
 import { createSetupBackup, parseSetupBackup } from "../src/core/setupBackup.mjs";
@@ -580,4 +581,108 @@ test("setup backups round-trip income streams", () => {
   const restored = parseSetupBackup(JSON.stringify(backup));
   assert.equal(restored.incomeStreams.length, 1);
   assert.equal(restored.incomeStreams[0].annualAmount, 24000);
+});
+
+// ─── TIPS bond ladder ────────────────────────────────────────────────────────
+
+test("tipsLadder absent (or explicitly disabled with defaults) is bit-identical to the historical path", () => {
+  const assets = [
+    cashAsset({ id: "tx-cash", units: 800000 }),
+    { id: "trad-bond", accountType: "traditional", assetClass: "bond", units: 400000, price: 1, costBasisPerUnit: 1 }
+  ];
+  const run = (scenario) => simulatePlan({
+    assets,
+    scenario,
+    taxProfile: flatZeroProfile("single"),
+    returnSequence: Array.from({ length: 3 }, () => ({ cash: 0, bond: 0 })),
+    inflationSequence: [0, 0, 0]
+  });
+  const base = quietScenario({ planYears: 3, currentAge: 62, targetSpend: 20000 });
+  const absent = run(base);
+  const explicitOff = run({
+    ...base,
+    tipsLadder: { enabled: false, years: 10, annualRealAmount: null, realYieldPercent: 2 }
+  });
+  assert.deepEqual(explicitOff, absent);
+  for (const year of absent.years) assert.equal(year.tipsLadder, null);
+  for (const year of explicitOff.years) assert.equal(year.tipsLadder, null);
+});
+
+test("enabled tipsLadder builds the full ladder at year 0 and matures face × inflation index", () => {
+  // Verified reference: single 62-year-old, 8 × $60k real at a 2% locked real
+  // yield under deterministic 2.5% inflation.
+  const plan = simulatePlan({
+    assets: [
+      { id: "trad-stock", accountType: "traditional", assetClass: "stock", units: 900000, price: 1, costBasisPerUnit: 1 },
+      { id: "trad-bond", accountType: "traditional", assetClass: "bond", units: 400000, price: 1, costBasisPerUnit: 1 },
+      { id: "tx-stock", accountType: "taxable", assetClass: "stock", units: 500000, price: 1, costBasisPerUnit: 0.6 }
+    ],
+    scenario: quietScenario({
+      planYears: 15,
+      currentAge: 62,
+      targetSpend: 80000,
+      targetSpendIncludesTaxes: false,
+      targetSpendIncludesMedical: false,
+      returnAssumptions: {
+        stock: { mean: 0.05, stdev: 0 },
+        bond: { mean: 0.03, stdev: 0 },
+        cash: { mean: 0.02, stdev: 0 },
+        tips: { mean: 0.02, stdev: 0 },
+        inflation: { mean: 0.025, stdev: 0 }
+      },
+      tipsLadder: { enabled: true, years: 8, annualRealAmount: 60000, realYieldPercent: 2 }
+    }),
+    taxProfile: {
+      filingStatus: "single",
+      standardDeduction: 15000,
+      capitalLossOrdinaryIncomeOffset: 3000,
+      ordinaryBrackets: [{ upTo: Infinity, rate: 0.1 }],
+      capitalGainsBrackets: [{ upTo: 50000, rate: 0 }, { upTo: Infinity, rate: 0.15 }],
+      state: { standardDeduction: 0, brackets: [{ upTo: Infinity, rate: 0 }], treatCapitalGainsAsOrdinary: true }
+    }
+  });
+
+  const build = plan.years[0].tipsLadder.build;
+  assert.equal(build.requestedYears, 8);
+  assert.equal(build.fundedYears, 8);
+  assert.equal(build.shortfall, 0);
+  // Annuity closed form: 60000 × (1 − 1.02^−8) / 0.02 ≈ 439528.88643.
+  const expectedCost = 60000 * (1 - Math.pow(1.02, -8)) / 0.02;
+  assert.ok(Math.abs(build.totalCost - expectedCost) <= 0.001);
+  assert.ok(plan.years[0].tipsLadder.value > 0);
+  assert.ok(Math.abs(plan.years[0].tipsLadder.value - expectedCost) <= 0.001);
+
+  // Maturities equal annualRealAmount × inflationIndex (60000 × 1.025^k).
+  assert.ok(Math.abs(plan.years[1].tipsLadder.maturedCash - 61500) <= 0.01);
+  assert.ok(Math.abs(plan.years[2].tipsLadder.maturedCash - 63037.5) <= 0.01);
+  assert.ok(Math.abs(plan.years[3].tipsLadder.maturedCash - 64613.4378) <= 0.01);
+  // Exhausted by yearIndex 8; quiet afterwards.
+  assert.equal(plan.years[8].tipsLadder.value, 0);
+  assert.equal(plan.years[9].tipsLadder.maturedCash, 0);
+});
+
+test("tipsLadder annualRealAmount null auto-sizes to the base annual spending target", () => {
+  const plan = simulatePlan({
+    assets: [cashAsset()],
+    scenario: quietScenario({
+      planYears: 2,
+      currentAge: 50,
+      targetSpend: 25000,
+      tipsLadder: { enabled: true, years: 3, annualRealAmount: null, realYieldPercent: 2 }
+    }),
+    taxProfile: flatZeroProfile("single"),
+    ...zeroSequences(2)
+  });
+  const build = plan.years[0].tipsLadder.build;
+  assert.equal(build.annualRealAmount, 25000);
+  assert.equal(build.fundedYears, 3);
+});
+
+test("mergeScenario fills tipsLadder defaults for partial and absent configs", () => {
+  const defaults = { enabled: false, years: 10, annualRealAmount: null, realYieldPercent: 2 };
+  assert.deepEqual(mergeScenario({}).tipsLadder, defaults);
+  assert.deepEqual(
+    mergeScenario({ tipsLadder: { enabled: true, years: 5 } }).tipsLadder,
+    { ...defaults, enabled: true, years: 5 }
+  );
 });
