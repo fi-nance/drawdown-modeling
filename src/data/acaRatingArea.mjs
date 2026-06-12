@@ -8,11 +8,13 @@
 // `taxData.mjs::ACA_BENCHMARK_PREMIUMS_2026_MONTHLY` are a single number per
 // state; two households in the same state but different rating areas — or even
 // different counties of one rating area, when plan service areas cover only
-// part of it — can face materially different benchmark premiums, which changes
-// the modeled premium tax credit. This module resolves a ZIP to its county and
-// rating area and returns the second-lowest-cost silver plan premium for the
-// COUNTY when its own silver plan set differs from the rating area's
-// (Service Area PUF filtering), otherwise the rating-area benchmark — with no
+// part of it, or even different ZIPs of one county, when a service area covers
+// only PART of the county — can face materially different benchmark premiums,
+// which changes the modeled premium tax credit. This module resolves a ZIP to
+// its county and rating area and returns the second-lowest-cost silver plan
+// premium at the finest level the filed service areas distinguish: the ZIP
+// itself (partial-county service areas), else the COUNTY (when its own silver
+// plan set differs from the rating area's), else the rating area — with no
 // network call. It is the offline equivalent of the online CMS Marketplace API
 // helper in `marketplaceApi.mjs`.
 //
@@ -25,6 +27,10 @@
 //   (state, rating area)  ──CMS Rate + Plan Attributes PUFs──▶  area SLCSP per age
 //   county FIPS  ──CMS Service Area PUF──▶  county SLCSP override where the
 //                                 county's available silver plan set differs
+//   ZIP5  ──Service Area PUF partial-county ZIP lists──▶  ZIP SLCSP override
+//                                 where a plan covers only part of the county
+//                                 and the ZIP's own plan set yields a
+//                                 different benchmark
 //
 // The three `*.generated.mjs` files are produced by
 // `scripts/generateAcaRatingArea.mjs`; see docs/DATA_SOURCES.md for the runbook.
@@ -37,8 +43,8 @@
 // hand-maintained estimates). SBM states WITHOUT a published PUF (2026: CO, MD)
 // fall back to the reference estimates in `sbeRatingArea.mjs`. The returned
 // `fallback` field always tells the caller what happened:
-//   - null          → bundled county/rating-area SLCSP was used (the accurate
-//                     path; see `benchmarkLevel` for which).
+//   - null          → bundled ZIP/county/rating-area SLCSP was used (the
+//                     accurate path; see `benchmarkLevel` for which).
 //   - "state"       → fell back to the state-level benchmark (SBM state not yet
 //                     ingested, or the ZIP's county/rating area could not be
 //                     derived). The premium is still age-rated to the household.
@@ -62,6 +68,7 @@ import {
   ACA_SBM_PUF_SOURCE,
   ACA_SLCSP_BY_RATING_AREA_2026,
   ACA_SLCSP_COUNTY_OVERRIDES_2026,
+  ACA_SLCSP_ZIP_OVERRIDES_2026,
   ACA_SLCSP_COVERED_STATES,
   ACA_SLCSP_STATE_PROVENANCE
 } from "./acaRatingArea2026.generated.mjs";
@@ -157,11 +164,19 @@ export function slcspMonthlyFor({ zip, planYear = 2026, age, householdAges, hous
   }
 
   const { areaCode, countyFips, resolvedBy } = ratingAreaForZip(state, geo);
-  // County-level benchmark when this county's own silver plan set (Service
-  // Area PUF filtering) yields a different SLCSP than its rating area;
-  // otherwise the rating-area entry is already county-exact.
+  // Benchmark precedence, finest filed granularity first:
+  //   1. ZIP-level override — a PARTIAL-county service area splits this ZIP's
+  //      county, and the ZIP's own silver plan set yields a different
+  //      benchmark. Derived from the ZIP → primary-county → rating-area path,
+  //      so it only applies when THIS lookup resolved the same way.
+  //   2. County-level override — the county's own silver plan set (Service
+  //      Area PUF filtering) yields a different SLCSP than its rating area.
+  //   3. Rating-area entry — already county-exact everywhere else.
+  const zipOverride = resolvedBy === "county" && geo.zip
+    ? ACA_SLCSP_ZIP_OVERRIDES_2026[geo.zip] ?? null
+    : null;
   const countyOverride = countyFips ? ACA_SLCSP_COUNTY_OVERRIDES_2026[countyFips] ?? null : null;
-  const slcsp = countyOverride ?? (areaCode == null ? null : ACA_SLCSP_BY_RATING_AREA_2026[`${state}-${areaCode}`]);
+  const slcsp = zipOverride ?? countyOverride ?? (areaCode == null ? null : ACA_SLCSP_BY_RATING_AREA_2026[`${state}-${areaCode}`]);
   if (!slcsp) {
     // Covered state but the ZIP's county / rating area could not be resolved.
     return stateFallback({ geo, state: geo.state, counted, medicareExcludedMemberCount, planYear, reason: "rating-area-underived" });
@@ -193,7 +208,7 @@ export function slcspMonthlyFor({ zip, planYear = 2026, age, householdAges, hous
     ageRatingFactorTotal: round6(factorTotal),
     medicareExcludedMemberCount,
     fallback: null,
-    benchmarkLevel: countyOverride ? "county" : "rating-area",
+    benchmarkLevel: zipOverride ? "zip" : countyOverride ? "county" : "rating-area",
     planYear,
     slcspPlanId: slcsp.p,
     referenceMonthlyPremium: base21,

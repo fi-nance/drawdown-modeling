@@ -9,7 +9,9 @@
 //                                       by single-member age, COUNTY-LEVEL
 //                                       overrides where a county's own silver
 //                                       plan set (via the Service Area PUF)
-//                                       yields a different benchmark, and
+//                                       yields a different benchmark, ZIP-LEVEL
+//                                       overrides where a PARTIAL-county
+//                                       service area splits the county, and
 //                                       per-state provenance (FFM vs SBM PUF).
 //   countyToRatingArea.generated.mjs  — county FIPS → rating area code per
 //                                       state, plus 3-digit-ZIP rating areas
@@ -27,9 +29,20 @@
 // County-level SLCSP methodology: within each rating area, a county's silver
 // plan set is the plans whose Service Area covers the county (CoverEntireState,
 // or the county FIPS listed; PARTIAL-county service areas count as covering the
-// county — correct for the covered ZIPs and conservative for the rest). The
-// 2nd-lowest age-21 rate among those plans is the county SLCSP; only counties
-// whose benchmark differs from their rating area's are emitted as overrides.
+// county at this level). The 2nd-lowest age-21 rate among those plans is the
+// county SLCSP; only counties whose benchmark differs from their rating area's
+// are emitted as overrides.
+//
+// ZIP-level SLCSP methodology (partial-county resolution): where a silver
+// plan's service area covers a county only PARTIALLY (PartialCounty = Yes, with
+// an explicit ZIP list), the county's benchmark is ambiguous — ZIPs inside the
+// list see the plan, ZIPs outside do not. For every ZIP whose primary county
+// has at least one partially-covering ranked silver plan, the ZIP's own plan
+// set is ranked (a plan covers the ZIP iff it covers the entire state, covers
+// the ZIP's county fully, or lists the ZIP in any partial-county ZIP list) and
+// a ZIP-level override is emitted when its benchmark plan differs from the
+// county's effective benchmark. This matches HealthCare.gov's ZIP+county
+// resolution exactly for ZIPs the Census assigns to that county.
 //
 // Usage:
 //   RAW_DIR=/tmp/puf2026 SBE_RAW_DIR=/tmp/sbe2026 node scripts/generateAcaRatingArea.mjs
@@ -63,7 +76,7 @@ const CENSUS_ZCTA = process.env.CENSUS_ZCTA || path.join(STAGE, "zcta_county.txt
 const GRA_DIR = process.env.GRA_DIR || path.join(STAGE, "gra");
 
 const PLAN_YEAR = 2026;
-const DATA_VERSION = "2026.2";
+const DATA_VERSION = "2026.3";
 
 // Federal-platform states (ingested from the FFM PUFs).
 const FFM_STATES = [
@@ -262,9 +275,14 @@ function loadSbmSilverPlans(csvPath) {
 
 // ─── 2. service areas → county coverage ─────────────────────────────────────────
 
-// serviceAreas: Map("ST|issuer|serviceAreaId" -> { entireState, counties:Set(fips) })
-// Partial-county rows are treated as covering the county (correct for the
-// covered ZIPs; conservative — possibly-too-low benchmark — for the rest).
+// serviceAreas: Map("ST|issuer|serviceAreaId" -> {
+//   entireState,
+//   counties:     Set(fips)  — covered counties, fully OR partially (the
+//                              county-level plan set uses this),
+//   fullCounties: Set(fips)  — counties covered by at least one NON-partial row,
+//   partial:      Map(fips -> Set(zip5)) — counties covered ONLY partially,
+//                              with the filed ZIP list
+// })
 function loadFfmServiceAreas(serviceAreas) {
   const lines = readFileSync(SERVICE_PUF, "utf8").split(/\r?\n/);
   const header = parseCsvLine(lines[0]);
@@ -275,6 +293,9 @@ function loadFfmServiceAreas(serviceAreas) {
   const cEntire = col("CoverEntireState");
   const cCounty = col("County");
   const cMarket = col("MarketCoverage");
+  const cPartial = col("PartialCounty");
+  const cZips = col("ZipCodes");
+  const cDental = col("DentalOnlyPlan");
   if ([cState, cIssuer, cSvc, cEntire, cCounty].some((c) => c < 0)) {
     throw new Error("FFM Service Area PUF is missing an expected column header");
   }
@@ -283,7 +304,13 @@ function loadFfmServiceAreas(serviceAreas) {
     const f = parseCsvLine(lines[i]);
     if (f.length < header.length) continue;
     if (cMarket >= 0 && f[cMarket] && f[cMarket] !== "Individual") continue;
-    addServiceAreaRow(serviceAreas, f[cState], f[cIssuer], f[cSvc], f[cEntire], f[cCounty]);
+    // Only medical service areas feed the silver-plan join. No 2026 file
+    // shares a (state, issuer, serviceAreaId) key between dental and medical
+    // rows, but skip dental rows so a future filing never widens a medical
+    // plan's coverage through a shared key.
+    if (cDental >= 0 && String(f[cDental] ?? "").trim() === "Yes") continue;
+    addServiceAreaRow(serviceAreas, f[cState], f[cIssuer], f[cSvc], f[cEntire], f[cCounty],
+      cPartial >= 0 ? f[cPartial] : "", cZips >= 0 ? f[cZips] : "");
   }
 }
 
@@ -297,6 +324,9 @@ function loadSbmServiceAreas(serviceAreas, csvPath) {
   const cEntire = col("COVER ENTIRE STATE", "CoverEntireState");
   const cCounty = col("COUNTY");
   const cMarket = col("MARKET COVERAGE", "MarketCoverage");
+  const cPartial = col("PARTIAL COUNTY", "PartialCounty");
+  const cZips = col("ZIP CODE", "ZIP CODES", "ZipCodes");
+  const cDental = col("DENTAL ONLY PLAN", "DENTAL PLAN ONLY", "DentalOnlyPlan");
   if ([cState, cIssuer, cSvc, cEntire, cCounty].some((c) => c < 0)) {
     throw new Error(`SBM service-area file ${path.basename(csvPath)} is missing an expected column header`);
   }
@@ -305,20 +335,42 @@ function loadSbmServiceAreas(serviceAreas, csvPath) {
     const f = parseCsvLine(lines[i]);
     if (f.length <= Math.max(cState, cIssuer, cSvc, cEntire, cCounty)) continue;
     if (cMarket >= 0 && f[cMarket] && f[cMarket].trim() && f[cMarket].trim() !== "Individual") continue;
+    // Same dental guard as the FFM loader (see loadFfmServiceAreas).
+    if (cDental >= 0 && String(f[cDental] ?? "").trim() === "Yes") continue;
     // SBM county cells embed the FIPS: "Los Angeles - 06037".
     const m = String(f[cCounty]).match(/(\d{5})\s*$/);
-    addServiceAreaRow(serviceAreas, f[cState].trim(), f[cIssuer].trim(), f[cSvc].trim(), f[cEntire], m ? m[1] : "");
+    addServiceAreaRow(serviceAreas, f[cState].trim(), f[cIssuer].trim(), f[cSvc].trim(), f[cEntire], m ? m[1] : "",
+      cPartial >= 0 ? f[cPartial] : "", cZips >= 0 ? f[cZips] : "");
   }
 }
 
-function addServiceAreaRow(serviceAreas, state, issuer, svcId, entireRaw, countyRaw) {
+function addServiceAreaRow(serviceAreas, state, issuer, svcId, entireRaw, countyRaw, partialRaw = "", zipsRaw = "") {
   const key = `${state}|${issuer}|${svcId}`;
   let entry = serviceAreas.get(key);
-  if (!entry) { entry = { entireState: false, counties: new Set() }; serviceAreas.set(key, entry); }
+  if (!entry) {
+    entry = { entireState: false, counties: new Set(), fullCounties: new Set(), partial: new Map() };
+    serviceAreas.set(key, entry);
+  }
   const entire = String(entireRaw).trim().toLowerCase();
   if (entire === "yes" || entire === "true") entry.entireState = true;
   const fips = String(countyRaw).trim();
-  if (/^\d{5}$/.test(fips)) entry.counties.add(fips);
+  if (!/^\d{5}$/.test(fips)) return;
+  entry.counties.add(fips);
+  const zips = String(zipsRaw).split(/[^0-9]+/).filter((z) => /^\d{5}$/.test(z));
+  if (String(partialRaw).trim().toLowerCase() === "yes" && zips.length) {
+    // A county is "partial" only when NO row covers it fully; a full row
+    // (now or later) wins over the partial designation. A partial row WITHOUT
+    // a usable ZIP list degrades to full coverage (same as the pre-ZIP-level
+    // behavior: we cannot know which ZIPs, so count the plan for all of them).
+    if (!entry.fullCounties.has(fips)) {
+      let set = entry.partial.get(fips);
+      if (!set) { set = new Set(); entry.partial.set(fips, set); }
+      for (const z of zips) set.add(z);
+    }
+  } else {
+    entry.fullCounties.add(fips);
+    entry.partial.delete(fips);
+  }
 }
 
 // ─── 3. rates → per-plan age schedules per (state, rating area) ────────────────
@@ -466,8 +518,11 @@ function deriveAreaSlcsp(byArea) {
 // County-level SLCSP: filter each rating area's plans to those whose service
 // area covers the county; emit overrides only where the benchmark differs from
 // the rating-area benchmark (same plan → rating-area entry already exact).
+// Also returns the counties where at least one ranked silver plan covers the
+// county only PARTIALLY (ZIP-listed) — those need ZIP-level resolution.
 function deriveCountyOverrides({ byArea, areaSlcsp, planService, serviceAreas, stateCountyAreas }) {
   const overrides = {}; // fips -> entry
+  const partialCounties = []; // [{ state, fips, areaCode }]
   let countiesChecked = 0;
   let countiesNoServiceData = 0;
   for (const [state, fipsToArea] of Object.entries(stateCountyAreas)) {
@@ -478,16 +533,19 @@ function deriveCountyOverrides({ byArea, areaSlcsp, planService, serviceAreas, s
       if (!plans) continue;
       countiesChecked++;
       let sawServiceData = false;
+      let sawPartial = false;
       const covers = (plan) => {
         const svcKey = planService.get(plan);
         if (!svcKey) return true; // no service-area info → assume area-wide
         const svc = serviceAreas.get(svcKey);
         if (!svc) return true;
         sawServiceData = true;
+        if (!svc.entireState && svc.partial.has(fips)) sawPartial = true;
         return svc.entireState || svc.counties.has(fips);
       };
       const ranked = rankPlans(plans, covers);
       if (!sawServiceData) { countiesNoServiceData++; continue; }
+      if (sawPartial) partialCounties.push({ state, fips, areaCode });
       const entry = slcspFromRanked(ranked);
       if (!entry) continue;
       const areaEntry = areaSlcsp[`${state}-${areaCode}`];
@@ -498,7 +556,56 @@ function deriveCountyOverrides({ byArea, areaSlcsp, planService, serviceAreas, s
       overrides[fips] = { state, ...entry };
     }
   }
-  return { overrides, countiesChecked, countiesNoServiceData };
+  return { overrides, partialCounties, countiesChecked, countiesNoServiceData };
+}
+
+// ZIP-level SLCSP: for every ZIP whose primary county has a partially-covering
+// ranked silver plan, rank the ZIP's own plan set — a plan covers the ZIP iff
+// it covers the entire state, covers the ZIP's county FULLY, or lists the ZIP
+// in any of its partial-county ZIP lists. Emit an override only where the
+// ZIP's benchmark plan differs from the county's effective benchmark (county
+// override if present, else the rating-area entry).
+function deriveZipOverrides({ byArea, areaSlcsp, countyOverrides, planService, serviceAreas, partialCounties, zipToCounty }) {
+  const overrides = {}; // zip5 -> entry
+  const partialFips = new Map(partialCounties.map((c) => [c.fips, c]));
+  const zipsByFips = new Map(); // fips -> [zip5]
+  for (const [zip, fips] of Object.entries(zipToCounty)) {
+    if (!partialFips.has(fips)) continue;
+    let arr = zipsByFips.get(fips);
+    if (!arr) { arr = []; zipsByFips.set(fips, arr); }
+    arr.push(zip);
+  }
+  let zipsChecked = 0;
+  let zipsUncovered = 0;
+  for (const { state, fips, areaCode } of partialCounties) {
+    const plans = byArea.get(state)?.get(areaCode);
+    const effective = countyOverrides[fips] ?? areaSlcsp[`${state}-${areaCode}`];
+    const zips = zipsByFips.get(fips);
+    if (!plans || !effective || !zips) continue;
+    for (const zip of zips) {
+      zipsChecked++;
+      const coversZip = (plan) => {
+        const svcKey = planService.get(plan);
+        if (!svcKey) return true;
+        const svc = serviceAreas.get(svcKey);
+        if (!svc) return true;
+        // County-consistent test: the ZIP belongs to its primary county, so a
+        // partial listing only counts when filed under THIS county. (A ZIP
+        // listed under a neighboring county's partial row is not offered to
+        // this county's addresses — matching HealthCare.gov's ZIP+county
+        // resolution.) This keeps the ZIP plan set a subset of the county's.
+        return svc.entireState || svc.fullCounties.has(fips) || (svc.partial.get(fips)?.has(zip) ?? false);
+      };
+      const entry = slcspFromRanked(rankPlans(plans, coversZip));
+      // A ZIP outside every plan's filed coverage keeps the county benchmark
+      // (no marketplace plan would actually be offered there; the county
+      // entry is the best available estimate).
+      if (!entry) { zipsUncovered++; continue; }
+      if (entry.slcspPlanId === effective.slcspPlanId) continue;
+      overrides[zip] = { state, ...entry };
+    }
+  }
+  return { overrides, zipsChecked, zipsUncovered };
 }
 
 // Expand the SLCSP plan's age rows into a dense [age0 … age64] schedule. Ages
@@ -627,19 +734,19 @@ function slcspEntryLiteral(v) {
   return `{ p: ${JSON.stringify(v.slcspPlanId)}, lo: ${JSON.stringify(v.lowestPlanId)}, n: ${v.silverPlanCount}, a: [${ages}] }`;
 }
 
-function writeSlcspFile(slcsp, countyOverrides, coveredStates, provenance) {
+function writeSlcspFile(slcsp, countyOverrides, zipOverrides, coveredStates, provenance) {
   const entries = Object.keys(slcsp).sort().map((k) => `  ${JSON.stringify(k)}: ${slcspEntryLiteral(slcsp[k])}`);
 
-  // Dedupe county-override schedules: counties sharing an IDENTICAL benchmark
+  // Dedupe override schedules: counties/ZIPs sharing an IDENTICAL benchmark
   // entry reference one shared const. The key must include the full per-age
   // schedule — the same plan id carries different filed rates in different
   // rating areas, so keying on plan id alone would alias counties across
-  // areas to the wrong schedule.
+  // areas to the wrong schedule. The const pool is shared across the county
+  // and ZIP override tables (a ZIP override often equals a neighboring
+  // county's entry).
   const shared = new Map(); // serialized entry -> constName
   const sharedDefs = [];
-  const overrideEntries = [];
-  for (const fips of Object.keys(countyOverrides).sort()) {
-    const v = countyOverrides[fips];
+  const overrideEntry = (v) => {
     const key = JSON.stringify([v.slcspPlanId, v.lowestPlanId, v.silverPlanCount, v.monthlyByAge]);
     let constName = shared.get(key);
     if (!constName) {
@@ -647,10 +754,14 @@ function writeSlcspFile(slcsp, countyOverrides, coveredStates, provenance) {
       shared.set(key, constName);
       sharedDefs.push(`const ${constName} = ${slcspEntryLiteral(v)};`);
     }
-    overrideEntries.push(`  ${JSON.stringify(fips)}: ${constName}`);
-  }
+    return constName;
+  };
+  const countyEntries = Object.keys(countyOverrides).sort()
+    .map((fips) => `  ${JSON.stringify(fips)}: ${overrideEntry(countyOverrides[fips])}`);
+  const zipEntries = Object.keys(zipOverrides).sort()
+    .map((zip) => `  ${JSON.stringify(zip)}: ${overrideEntry(zipOverrides[zip])}`);
 
-  const body = `${banner("SLCSP monthly premium per rating area + county-level overrides, by single-member age.")}
+  const body = `${banner("SLCSP monthly premium per rating area + county- and ZIP-level overrides, by single-member age.")}
 //
 // Each value: { p: SLCSP plan id, lo: lowest-cost silver plan id,
 //               n: silver plan count, a: monthly premium for ONE member at
@@ -661,8 +772,11 @@ function writeSlcspFile(slcsp, countyOverrides, coveredStates, provenance) {
 // ACA_SLCSP_COUNTY_OVERRIDES_${PLAN_YEAR} holds the counties whose own silver plan
 // set (Service Area PUF filtering) yields a DIFFERENT benchmark than their
 // rating area; all other counties use the rating-area entry exactly.
-// ACA_SLCSP_STATE_PROVENANCE: "ffm-puf" (federal platform) | "sbm-puf"
-// (State-Based Marketplace QHP PUF).
+// ACA_SLCSP_ZIP_OVERRIDES_${PLAN_YEAR} holds the ZIPs (within counties that have a
+// PARTIAL-county silver plan service area) whose own plan set yields a
+// DIFFERENT benchmark than their county; it is consulted before the county
+// table. ACA_SLCSP_STATE_PROVENANCE: "ffm-puf" (federal platform) |
+// "sbm-puf" (State-Based Marketplace QHP PUF).
 
 export const ACA_RATING_AREA_DATA_VERSION = ${JSON.stringify(DATA_VERSION)};
 
@@ -681,7 +795,11 @@ ${entries.join(",\n")}
 ${sharedDefs.join("\n")}
 
 export const ACA_SLCSP_COUNTY_OVERRIDES_${PLAN_YEAR} = Object.freeze({
-${overrideEntries.join(",\n")}
+${countyEntries.join(",\n")}
+});
+
+export const ACA_SLCSP_ZIP_OVERRIDES_${PLAN_YEAR} = Object.freeze({
+${zipEntries.join(",\n")}
 });
 `;
   writeFileSync(path.join(OUT_DIR, `acaRatingArea${PLAN_YEAR}.generated.mjs`), body);
@@ -840,7 +958,7 @@ async function main() {
   }
 
   console.log("· deriving county-level SLCSP overrides (Service Area PUF) …");
-  const { overrides, countiesChecked, countiesNoServiceData } = deriveCountyOverrides({
+  const { overrides, partialCounties, countiesChecked, countiesNoServiceData } = deriveCountyOverrides({
     byArea,
     areaSlcsp: slcsp,
     planService,
@@ -853,6 +971,20 @@ async function main() {
   const zipToCounty = loadZipToCounty(coveredFips);
   console.log(`  ${Object.keys(zipToCounty).length} ZIPs`);
 
+  console.log("· deriving ZIP-level SLCSP overrides (partial-county service areas) …");
+  const zipResult = deriveZipOverrides({
+    byArea,
+    areaSlcsp: slcsp,
+    countyOverrides: overrides,
+    planService,
+    serviceAreas,
+    partialCounties,
+    zipToCounty
+  });
+  const partialStates = [...new Set(partialCounties.map((c) => c.state))].sort();
+  console.log(`  ${partialCounties.length} counties with partial-county silver plans (${partialStates.join(", ") || "none"})`);
+  console.log(`  ${Object.keys(zipResult.overrides).length} ZIP overrides out of ${zipResult.zipsChecked} ZIPs checked (${zipResult.zipsUncovered} ZIPs outside every plan's filed coverage)`);
+
   const coveredStates = [...new Set([...states.map((s) => s.stateAbbr)])]
     .filter((st) => statesSeen.has(st))
     .sort();
@@ -864,7 +996,7 @@ async function main() {
     if (!coveredStates.includes(st)) delete provenance[st];
   }
 
-  const s1 = writeSlcspFile(slcsp, overrides, coveredStates, provenance);
+  const s1 = writeSlcspFile(slcsp, overrides, zipResult.overrides, coveredStates, provenance);
   const s2 = writeCountyToRatingAreaFile(states);
   const s3 = writeZipToCountyFile(zipToCounty);
 

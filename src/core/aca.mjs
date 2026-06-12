@@ -160,6 +160,9 @@ export function computeAca({
     // `benchmarkFallback` describes why when no rating-area data applied.
     ratingArea: zipBenchmark?.ratingArea ?? null,
     benchmarkFallback: zipBenchmark?.fallback ?? null,
+    // "zip" | "county" | "rating-area" | "state" | null — the finest filed
+    // granularity the benchmark resolved at.
+    benchmarkLevel: zipBenchmark?.benchmarkLevel ?? null,
     benchmarkMedicareExcludedMembers: zipBenchmark?.medicareExcludedMemberCount ?? null
   };
 }
@@ -181,6 +184,7 @@ export function benchmarkPremiumForZip({ zip, planYear = 2026, age = null, house
     ageRatingFactorTotal: slcsp.ageRatingFactorTotal,
     medicareExcludedMemberCount: slcsp.medicareExcludedMemberCount ?? 0,
     fallback: slcsp.fallback,
+    benchmarkLevel: slcsp.benchmarkLevel ?? null,
     sources: slcsp.sources
   };
 }

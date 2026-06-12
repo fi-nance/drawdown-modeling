@@ -259,9 +259,13 @@ Goal-level gaps:
 - ✅ **[Shipped] County-level SLCSP** via the CMS Service Area PUFs: each
   county's available silver plan set drives a county override wherever it
   yields a different benchmark than the rating area (`benchmarkLevel:
-  "county"` in results). Remaining refinement: service areas covering only
-  PART of a county count as covering it (conservative for uncovered ZIPs);
-  ZIP-level partial-county resolution is open.
+  "county"` in results).
+- ✅ **[Shipped] ZIP-level partial-county resolution** (data version 2026.3):
+  where a silver plan's service area covers only PART of a county
+  (`PartialCounty = Yes` with a filed ZIP list — 2026: 18 counties in MI, OR,
+  TX), each ZIP is re-ranked over the plans actually offered there and ZIPs
+  whose benchmark differs carry bundled overrides (`benchmarkLevel: "zip"`),
+  matching HealthCare.gov's ZIP+county resolution.
 - ✅ **[Shipped] State-based exchange (SBE) coverage** via the CMS SBM QHP
   PUFs: 18 SBM states (CA, CT, DC, GA, ID, KY, ME, MA, MN, NV, NJ, NM, NY,
   PA, RI, VT, VA, WA) are rate-sheet-derived through the same county/
@@ -394,8 +398,10 @@ risk first, then breadth.
   PUFs (2026), with CO/MD on the hand-maintained fallback until they publish.
 - ✅ **[Shipped]** Move from rating-area-level to county-level SLCSP: county
   overrides derived from the CMS Service Area PUFs apply wherever a county's
-  own silver plan set yields a different benchmark. Remaining: ZIP-level
-  partial-county service areas.
+  own silver plan set yields a different benchmark.
+- ✅ **[Shipped]** ZIP-level partial-county resolution: partial-county service
+  areas re-rank each affected ZIP's own plan set from the filed ZIP lists
+  (`benchmarkLevel: "zip"`; data version 2026.3).
 - Upgrade the shipped modeled-year coverage-gap/Medicaid flags into an
   eligibility engine that uses household composition and state-specific
   Medicaid/CHIP rules.
