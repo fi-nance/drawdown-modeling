@@ -68,3 +68,16 @@ test("structured model coverage report keeps every section auditable", async () 
     assert.ok(ids.has(required), `report should include ${required}`);
   }
 });
+
+test("model coverage report documents capital-loss carryover scope and state caveat", () => {
+  const federal = modelCoverageReport.sections.find((section) => section.id === "federal-tax");
+  const state = modelCoverageReport.sections.find((section) => section.id === "state-tax");
+
+  assert.ok(federal, "federal-tax section should exist");
+  assert.ok(state, "state-tax section should exist");
+  assert.match(federal.implemented.join("\n"), /Schedule D-style capital-loss netting/);
+  assert.match(federal.implemented.join("\n"), /carryover worksheet logic/);
+  assert.match(state.implemented.join("\n"), /state capital-loss conformity review/);
+  assert.match(state.limitations.join("\n"), /State-specific capital-loss additions/);
+  assert.ok(state.tests.includes("tests/resultAuditBundle.test.mjs"));
+});

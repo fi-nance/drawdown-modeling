@@ -4313,6 +4313,67 @@ test("capital loss netting on AGI in simulation", () => {
   assert.equal(plan.years[1].taxes.lossCarryforward, 3900);
 });
 
+test("capital loss carryforward in simulation preserves loss unused after deductions", () => {
+  const plan = simulatePlan({
+    assets: [
+      {
+        id: "taxable-loss",
+        accountType: "taxable",
+        assetClass: "stock",
+        holdingPeriod: "long",
+        units: 100,
+        price: 1,
+        costBasisPerUnit: 101
+      }
+    ],
+    scenario: {
+      planYears: 1,
+      targetSpend: 60,
+      targetSpendIncludesTaxes: false,
+      targetSpendIncludesMedical: false,
+      withdrawalOrder: ["taxable"],
+      currentAge: 60,
+      oneOffExpenses: [
+        {
+          name: "Consulting",
+          cashFlowType: "taxableOrdinaryIncome",
+          startYear: 1,
+          endYear: 1,
+          amount: 6500,
+          inflationAdjusted: false
+        },
+        {
+          name: "Living expense bridge",
+          cashFlowType: "expense",
+          startYear: 1,
+          endYear: 1,
+          amount: 6500,
+          inflationAdjusted: false
+        }
+      ],
+      returnAssumptions: { stock: { mean: 0, stdev: 0 } },
+      rothConversion: { enabled: false },
+      aca: { enabled: false },
+      taxLossHarvesting: { enabled: false }
+    },
+    taxProfile: {
+      ...noTaxProfile,
+      standardDeduction: 4000,
+      capitalLossOrdinaryIncomeOffset: 3000,
+      ordinaryBrackets: [{ upTo: Infinity, rate: 0 }]
+    },
+    returnSequence: [{ stock: 0 }],
+    inflationSequence: [0]
+  });
+
+  // The $60 sale realizes a $6,000 LT loss. Schedule D line 21 deducts $3,000,
+  // but the $4,000 standard deduction means only $2,500 of that loss is
+  // absorbed on the carryover worksheet; $3,500 remains long-term carryforward.
+  assert.equal(plan.years[0].magi, 3500);
+  assert.equal(plan.years[0].taxes.lossCarryforward, 3500);
+  assert.deepEqual(plan.years[0].lossCarryforwardDetail, { shortTerm: 0, longTerm: 3500 });
+});
+
 test("Medicare split-eligibility premium computation (65+ spouse when primary is under 65)", () => {
   // Primary (62) is not eligible, spouse (65) is eligible.
   const plan = simulatePlan({

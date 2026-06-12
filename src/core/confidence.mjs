@@ -33,7 +33,7 @@ export function actionConfidenceFor(actionKind, confidenceReport = {}) {
   const find = (ids) => findFlagByPriority(flags, ids);
 
   if (["taxReserve", "traditionalWithdrawal", "rothConversion", "taxGainHarvesting", "taxLossHarvesting"].includes(actionKind)) {
-    const flag = find(["amt-exposure-review", "qbi-deduction-review", "additional-child-tax-credit-review", "manual-federal-tax-overrides-review", "itemized-deduction-inputs-review", "enhanced-senior-deduction-eligibility"]);
+    const flag = find(["amt-exposure-review", "qbi-deduction-review", "additional-child-tax-credit-review", "state-capital-loss-conformity-review", "manual-federal-tax-overrides-review", "itemized-deduction-inputs-review", "enhanced-senior-deduction-eligibility"]);
     if (flag) return actionConfidenceFromFlag(flag);
   }
 
@@ -47,8 +47,9 @@ export function actionConfidenceFor(actionKind, confidenceReport = {}) {
     if (flag) return actionConfidenceFromFlag(flag);
   }
 
-  if (["taxReserve", "traditionalWithdrawal", "stateTax"].includes(actionKind) && has("state-retirement-tax-review")) {
-    return actionConfidenceFromFlag(flags.find((flag) => flag.id === "state-retirement-tax-review"));
+  if (["taxReserve", "traditionalWithdrawal", "stateTax"].includes(actionKind)) {
+    const flag = find(["state-capital-loss-conformity-review", "state-retirement-tax-review"]);
+    if (flag) return actionConfidenceFromFlag(flag);
   }
 
   if (actionKind === "earnedIncome") {
@@ -164,7 +165,7 @@ export function buildConfidenceReport({
   addHealthcareFlags(flags, scenario, decision);
   addMedicareOopFlags(flags, scenario);
   addCoverageGapFlags(flags, scenario, plan);
-  addStateTaxFlags(flags, taxProfile);
+  addStateTaxFlags(flags, taxProfile, plan);
   addFederalTaxScopeFlags(flags, scenario, taxProfile, plan);
   addEvidenceFlags(flags, decision, historicalCoverage, historicalAssetClasses);
   addSocialSecurityFlags(flags, scenario);
@@ -416,11 +417,11 @@ function modeledMarketplaceYearsBelowFpl(plan, thresholdPercent) {
   });
 }
 
-function addStateTaxFlags(flags, taxProfile) {
+function addStateTaxFlags(flags, taxProfile, plan) {
   const state = taxProfile?.state;
-  if (!state || state.source === "Manual override") return;
+  if (!state) return;
   const source = String(state.retirementRulesSource ?? "");
-  if (source.includes("Best-effort") || source.includes("verify")) {
+  if (state.source !== "Manual override" && (source.includes("Best-effort") || source.includes("verify"))) {
     flags.push({
       id: "state-retirement-tax-review",
       level: CONFIDENCE_LEVELS.CPA_REVIEW,
@@ -430,6 +431,33 @@ function addStateTaxFlags(flags, taxProfile) {
       action: "Use state overrides or CPA review before treating state-tax outputs as filing-grade."
     });
   }
+  if (stateCapitalLossConformityNeedsReview(state, plan)) {
+    flags.push({
+      id: "state-capital-loss-conformity-review",
+      level: CONFIDENCE_LEVELS.CPA_REVIEW,
+      lens: "cpa",
+      title: "State capital-loss treatment needs state-form review",
+      detail: "This run uses federal capital-loss netting or carryforward in a state-taxed year. The state module applies it as a federal-AGI conformity approximation, but state-specific additions, subtractions, carryforward worksheets, and nonconformity rules are not modeled.",
+      action: "Review the resident-state return instructions or use state overrides before relying on tax-loss-harvesting, withdrawal, or state-tax projections."
+    });
+  }
+}
+
+function stateCapitalLossConformityNeedsReview(state, plan) {
+  if (!hasStateIncomeTaxRate(state)) return false;
+  if (state.capitalLossConformity !== "federal-agi-approximation") return false;
+  return (Array.isArray(plan?.years) ? plan.years : []).some((year) => {
+    const treatment = year?.taxes?.stateTaxBreakdown?.capitalLossTreatment;
+    if (treatment?.reviewRequired === true) return true;
+    const taxes = year?.taxes ?? {};
+    return Math.max(0, Number(taxes.ordinaryLossOffset) || 0) > 0
+      || Math.max(0, Number(taxes.lossCarryforward) || 0) > 0;
+  });
+}
+
+function hasStateIncomeTaxRate(state = {}) {
+  return (Array.isArray(state.brackets) ? state.brackets : []).some((bracket) => Number(bracket.rate) > 0)
+    || Number(state.capitalGainsRate) > 0;
 }
 
 function addFederalTaxScopeFlags(flags, scenario = {}, taxProfile = {}, plan = null) {
@@ -897,11 +925,11 @@ function rescueFlagIds(kind) {
     case "magiSpendTrim":
       return ["amt-exposure-review", "qbi-deduction-review", "additional-child-tax-credit-review", "aca-coverage-gap-modeled", "aca-medicaid-handoff-modeled", "aca-coverage-gap-risk", "manual-federal-tax-overrides-review", "itemized-deduction-inputs-review", "enhanced-senior-deduction-eligibility", "aca-magi-threshold", "aca-plan-inputs", "aca-benchmark-state-fallback", "aca-benchmark-out-of-model", "aca-oop-inputs", "aca-net-premium-quote"];
     case "taxableLotRescue":
-      return ["amt-exposure-review", "qbi-deduction-review", "additional-child-tax-credit-review", "manual-federal-tax-overrides-review", "itemized-deduction-inputs-review", "enhanced-senior-deduction-eligibility", "aca-magi-threshold"];
+      return ["amt-exposure-review", "qbi-deduction-review", "additional-child-tax-credit-review", "state-capital-loss-conformity-review", "manual-federal-tax-overrides-review", "itemized-deduction-inputs-review", "enhanced-senior-deduction-eligibility", "aca-magi-threshold"];
     case "withdrawalShift":
     case "safeSpending":
     case "riskBasedGuardrailsRescue":
-      return ["amt-exposure-review", "qbi-deduction-review", "additional-child-tax-credit-review", "manual-federal-tax-overrides-review", "itemized-deduction-inputs-review", "enhanced-senior-deduction-eligibility", "state-retirement-tax-review"];
+      return ["amt-exposure-review", "qbi-deduction-review", "additional-child-tax-credit-review", "state-capital-loss-conformity-review", "manual-federal-tax-overrides-review", "itemized-deduction-inputs-review", "enhanced-senior-deduction-eligibility", "state-retirement-tax-review"];
     case "incomeBridge":
     case "combined":
       return ["amt-exposure-review", "qbi-deduction-review", "additional-child-tax-credit-review", "business-income-tax-review"];

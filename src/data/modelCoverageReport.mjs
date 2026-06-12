@@ -1,4 +1,4 @@
-export const MODEL_COVERAGE_REPORT_VERSION = "2026.06.12";
+export const MODEL_COVERAGE_REPORT_VERSION = "2026.06.12-loss-carryovers";
 
 export const COVERAGE_STATUSES = [
   "high-confidence",
@@ -35,7 +35,8 @@ export const modelCoverageReport = {
       lens: "CPA",
       summary: "Strong 2026 planning engine for ordinary income, LTCG/QDI stacking, credits, payroll taxes, QBI, itemized deductions, AMT tripwires, and senior deduction, with filing-grade gaps clearly flagged.",
       implemented: [
-        "2026 federal brackets, standard deduction, age-65 bump, 2025-2028 enhanced senior deduction, LTCG/QDI stacking, NIIT, Additional Medicare Tax, W-2 FICA, self-employment tax, CTC, common ACTC formula, capital loss offsets and carryforwards.",
+        "2026 federal brackets, standard deduction, age-65 bump, 2025-2028 enhanced senior deduction, LTCG/QDI stacking, NIIT, Additional Medicare Tax, W-2 FICA, self-employment tax, CTC, and common ACTC formula.",
+        "Schedule D-style capital-loss netting preserves short-term and long-term character, applies the $3,000 ordinary-loss cap ($1,500 MFS), and uses carryover worksheet logic when deductions leave part of the line 21 loss unused.",
         "Itemized deduction controls for standard/itemized choice, SALT cap/phaseout, mortgage interest, charitable gifts, and medical expense AGI floor.",
         "QBI planning from manual QBI or self-employment income, including W-2 wage, UBIA, SSTB, thresholds, and active-QBI minimum.",
         "AMT exposure tripwire and manual federal deduction/credit overrides with confidence flags."
@@ -71,10 +72,12 @@ export const modelCoverageReport = {
       summary: "All 50 states and DC have 2026 ordinary/capital-gains defaults plus retirement-income and Social Security overlays, but state-form nuance is still the highest-risk correctness frontier.",
       implemented: [
         "2026 state ordinary tax defaults, capital-gains treatment, no-tax states, and broad retirement-income/Social Security handling.",
+        "Capital-loss effects flow through the federal-AGI approximation and surface state capital-loss conformity review details when a state-taxed year uses loss offsets or carryforwards.",
         "Manual state ordinary tax, state capital-gains tax, retirement-income exclusion, and Social Security taxable percentage overrides."
       ],
       limitations: [
         "Public pension, military, railroad, disability, municipal, county, school-district, credit-only, and nonresident/part-year rules are not filing-grade.",
+        "State-specific capital-loss additions, subtractions, carryforward worksheets, and nonconformity rules are not modeled.",
         "Cross-state moves are not modeled; one residency state applies for every year."
       ],
       sources: [
@@ -85,10 +88,12 @@ export const modelCoverageReport = {
       tests: [
         "tests/tax.test.mjs",
         "tests/simulation.test.mjs",
+        "tests/confidence.test.mjs",
+        "tests/resultAuditBundle.test.mjs",
         "tests/dataSourcesCoverage.test.mjs"
       ],
       nextReview: [
-        "Create a state-by-state CPA audit matrix for retirement income, Social Security, local taxes, credits, and pension categories.",
+        "Create a state-by-state CPA audit matrix for retirement income, Social Security, capital-loss conformity, local taxes, credits, and pension categories.",
         "Add relocation year support before making cross-state optimization recommendations."
       ]
     },

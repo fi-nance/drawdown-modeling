@@ -318,9 +318,15 @@ test("itemized deduction controls are visible, persisted, and disclosed in resul
   assert.match(appSource, /"Deduction", "Itemized ded"/);
   assert.match(appSource, /"Senior bonus", "QBI ded"/);
   assert.match(appSource, /"Credits", "Refundable credits", "State tax"/);
+  assert.match(appSource, /"CL offset", "ST loss carry", "LT loss carry", "Loss carry", "State loss review"/);
   assert.match(appSource, /federalDeductionKind/);
+  assert.match(appSource, /Capital-loss ordinary offset/);
+  assert.match(appSource, /Capital-loss carryforward/);
+  assert.match(appSource, /verify resident-state loss carryforward rules/);
   assert.match(redesignSource, /Itemized deductions/);
   assert.match(redesignSource, /Refundable additional child tax credit/);
+  assert.match(redesignSource, /Capital-loss carryforward after this year/);
+  assert.match(redesignSource, /short-term ·/);
   assert.match(redesignSource, /federalDeductionKind/);
   assert.match(redesignSource, /id: "tax-overrides"[\s\S]*controls: 23/);
 });

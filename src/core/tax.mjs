@@ -45,9 +45,9 @@ export function taxPreferentialIncome({ ordinaryTaxableIncome, preferentialIncom
 // Schedule D / IRC §1212(b) netting: short-term and long-term losses retain
 // their character when carried forward. Within-character losses offset
 // within-character gains first; any remaining loss may then offset gains of
-// the other character; any remaining loss offsets up to $3,000 of ordinary
-// income (ST first, then LT per the Capital Loss Carryover Worksheet);
-// the rest carries forward by character.
+// the other character. A net capital loss then creates the Schedule D line 21
+// capital-loss deduction, but next-year carryover must be computed later
+// against taxable income under the Capital Loss Carryover Worksheet.
 export function netCapitalGainsAndLosses({
   shortTermCapitalGains = 0,
   longTermCapitalGains = 0,
@@ -72,6 +72,9 @@ export function netCapitalGainsAndLosses({
   let longGains = Math.max(0, longTermCapitalGains);
   let shortLossPool = currentShortLosses + Math.max(0, carryforwardShort);
   let longLossPool = currentLongLosses + Math.max(0, carryforwardLong);
+  const scheduleDShortTermNet = shortGains - shortLossPool;
+  const scheduleDLongTermNet = longGains - longLossPool;
+  const scheduleDNet = scheduleDShortTermNet + scheduleDLongTermNet;
 
   // Step 1: same-character netting.
   const shortGainOffset = Math.min(shortGains, shortLossPool);
@@ -91,11 +94,11 @@ export function netCapitalGainsAndLosses({
   longLossPool -= ltLossVsStGain;
   netShortGains -= ltLossVsStGain;
 
-  // Step 3: offset against ordinary income (ST loss first, then LT, capped at
-  // §1211(b) threshold — $3,000 for MFJ/Single, $1,500 for MFS).
+  // Step 3: Schedule D line 21 capital-loss deduction, capped at the
+  // §1211(b) threshold — $3,000 for most filers, $1,500 for MFS.
   const adjustmentsAmount = Math.max(0, adjustments);
   const ordinaryBeforeLossOffset = Math.max(0, ordinaryIncome + netShortGains - adjustmentsAmount);
-  const cap = Math.min(Math.max(0, ordinaryOffsetCap), ordinaryBeforeLossOffset);
+  const cap = Math.min(Math.max(0, ordinaryOffsetCap), Math.max(0, -scheduleDNet));
   const shortOrdOffset = Math.min(shortLossPool, cap);
   shortLossPool -= shortOrdOffset;
   const longOrdOffset = Math.min(longLossPool, cap - shortOrdOffset);
@@ -107,7 +110,42 @@ export function netCapitalGainsAndLosses({
     ordinaryLossOffset: shortOrdOffset + longOrdOffset,
     ordinaryBeforeLossOffset,
     lossCarryforwardShort: shortLossPool,
-    lossCarryforwardLong: longLossPool
+    lossCarryforwardLong: longLossPool,
+    scheduleDShortTermNet,
+    scheduleDLongTermNet,
+    scheduleDNet,
+    scheduleDLine21Loss: shortOrdOffset + longOrdOffset
+  };
+}
+
+function capitalLossCarryforwardForNextYear({
+  scheduleDShortTermNet = 0,
+  scheduleDLongTermNet = 0,
+  scheduleDLine21Loss = 0,
+  taxableIncomeBeforeZeroFloor = 0
+} = {}) {
+  const line2 = Math.max(0, scheduleDLine21Loss);
+  if (!(line2 > 0)) return { shortTerm: 0, longTerm: 0, absorbedLoss: 0 };
+
+  // Capital Loss Carryover Worksheet line 4: the part of line 21 actually
+  // absorbed after deductions. If taxable income would be negative, unused
+  // line-21 loss carries forward instead of vanishing.
+  const line3 = Math.max(0, taxableIncomeBeforeZeroFloor + line2);
+  const line4 = Math.min(line2, line3);
+
+  const shortLoss = scheduleDShortTermNet < 0 ? -scheduleDShortTermNet : 0;
+  const longLoss = scheduleDLongTermNet < 0 ? -scheduleDLongTermNet : 0;
+  const shortGain = scheduleDShortTermNet > 0 ? scheduleDShortTermNet : 0;
+  const longGain = scheduleDLongTermNet > 0 ? scheduleDLongTermNet : 0;
+
+  const shortTerm = shortLoss > 0 ? Math.max(0, shortLoss - (line4 + longGain)) : 0;
+  const line11 = Math.max(0, line4 - shortLoss);
+  const longTerm = longLoss > 0 ? Math.max(0, longLoss - (shortGain + line11)) : 0;
+
+  return {
+    shortTerm: round(shortTerm, 6),
+    longTerm: round(longTerm, 6),
+    absorbedLoss: round(line4, 6)
   };
 }
 
@@ -187,9 +225,6 @@ export function computeIncomeTax({
   const dividendPreferentialIncome = Math.max(0, qualifiedDividends);
   const ordinaryBeforeLossOffset = netting.ordinaryBeforeLossOffset;
   const ordinaryLossOffset = netting.ordinaryLossOffset;
-  const shortLossPool = netting.lossCarryforwardShort;
-  const longLossPool = netting.lossCarryforwardLong;
-  const lossPool = shortLossPool + longLossPool;
 
   const ordinaryAfterLossOffset = Math.max(0, ordinaryBeforeLossOffset - ordinaryLossOffset);
   const preferentialIncome = longGains + dividendPreferentialIncome;
@@ -207,6 +242,19 @@ export function computeIncomeTax({
     selfEmploymentTaxDeduction: selfEmployment.deduction,
     profile
   });
+  const taxableIncomeBeforeZeroFloor = round(
+    ordinaryBeforeLossOffset + preferentialIncome - ordinaryLossOffset - federalDeduction - qbi.deduction,
+    6
+  );
+  const carryforward = capitalLossCarryforwardForNextYear({
+    scheduleDShortTermNet: netting.scheduleDShortTermNet,
+    scheduleDLongTermNet: netting.scheduleDLongTermNet,
+    scheduleDLine21Loss: netting.scheduleDLine21Loss,
+    taxableIncomeBeforeZeroFloor
+  });
+  const shortLossPool = carryforward.shortTerm;
+  const longLossPool = carryforward.longTerm;
+  const lossPool = shortLossPool + longLossPool;
   const taxableOrdinaryIncome = Math.max(0, taxableOrdinaryIncomeBeforeQbi - qbi.deduction);
   const taxableLongTermCapitalGains = Math.max(0, longGains - remainingDeduction);
   const taxableQualifiedDividends = Math.max(0, taxablePreferentialIncome - taxableLongTermCapitalGains);
@@ -258,14 +306,19 @@ export function computeIncomeTax({
   // state retirement-income exclusions and taxable-SS adjustments operate on
   // the raw retirement components, not on a federal-loss-offset prorated
   // amount. The state computation will apply its own deductions/exclusions.
-  const stateTax = computeStateTax({
+  const stateTaxBreakdown = computeStateTax({
     ordinaryIncome: ordinaryAfterLossOffset,
     retirementOrdinaryIncome: Math.max(0, retirementOrdinaryIncome),
     taxableSocialSecurity: Math.max(0, taxableSocialSecurity),
     longTermCapitalGains: longGains,
     qualifiedDividends: dividendPreferentialIncome,
+    federalCapitalLossDeduction: ordinaryLossOffset,
+    federalCapitalLossCarryforward: lossPool,
+    federalCapitalLossCarryforwardShort: shortLossPool,
+    federalCapitalLossCarryforwardLong: longLossPool,
     profile: profile.state
   });
+  const stateTax = stateTaxBreakdown.tax;
 
   return {
     ordinaryIncome: round(ordinaryIncome, 6),
@@ -345,6 +398,7 @@ export function computeIncomeTax({
     additionalMedicareRrtaBase: additionalMedicare.rrtaBase,
     additionalMedicareThreshold: additionalMedicare.threshold,
     stateTax,
+    stateTaxBreakdown,
     totalTax: round(netFederalIncomeTaxAfterRefundableCredits + niitTax + employeePayroll.tax + spouseEmployeePayroll.tax + selfEmployment.tax + spouseSelfEmployment.tax + additionalMedicare.tax + stateTax, 6),
     lossCarryforward: round(lossPool, 6),
     lossCarryforwardShort: round(shortLossPool, 6),
@@ -876,9 +930,13 @@ function computeStateTax({
   taxableSocialSecurity = 0,
   longTermCapitalGains,
   qualifiedDividends,
+  federalCapitalLossDeduction = 0,
+  federalCapitalLossCarryforward = 0,
+  federalCapitalLossCarryforwardShort = 0,
+  federalCapitalLossCarryforwardLong = 0,
   profile
 }) {
-  if (!profile) return 0;
+  if (!profile) return emptyStateTaxBreakdown();
 
   const deduction = (profile.standardDeduction ?? 0) + (profile.personalExemption ?? 0);
   const capitalGains = Math.max(0, longTermCapitalGains);
@@ -905,25 +963,105 @@ function computeStateTax({
     manualExclusion: profile.retirementIncomeExclusion
   });
   const stateOrdinaryIncome = Math.max(0, ordinaryIncome - retirementExclusion - socialSecurityExclusion);
+  const capitalLossTreatment = stateCapitalLossTreatmentBreakdown({
+    profile,
+    federalCapitalLossDeduction,
+    federalCapitalLossCarryforward,
+    federalCapitalLossCarryforwardShort,
+    federalCapitalLossCarryforwardLong
+  });
+
+  const base = {
+    state: profile.state ?? null,
+    source: profile.source ?? null,
+    capitalGainsTreatment: profile.capitalGainsTreatment ?? (profile.treatCapitalGainsAsOrdinary === false ? "separate" : "ordinary"),
+    deduction: round(deduction, 6),
+    ordinaryIncome: round(Math.max(0, ordinaryIncome), 6),
+    retirementOrdinaryIncome: round(Math.max(0, retirementOrdinaryIncome), 6),
+    taxableSocialSecurity: round(Math.max(0, taxableSocialSecurity), 6),
+    capitalGains: round(capitalGains, 6),
+    qualifiedDividends: round(qualified, 6),
+    stateIncomeBeforeDeduction: round(stateIncomeBeforeDeduction, 6),
+    socialSecurityExclusion: round(socialSecurityExclusion, 6),
+    retirementExclusion: round(retirementExclusion, 6),
+    stateOrdinaryIncome: round(stateOrdinaryIncome, 6),
+    capitalLossTreatment
+  };
+
+  let tax = 0;
+  let ordinaryTaxableBase = 0;
+  let capitalGainsTaxableBase = 0;
 
   if (profile.capitalGainsTreatment === "only") {
-    return taxFromBrackets(Math.max(0, capitalGains - deduction), profile.brackets);
+    capitalGainsTaxableBase = Math.max(0, capitalGains - deduction);
+    tax = taxFromBrackets(capitalGainsTaxableBase, profile.brackets);
+  } else if (profile.capitalGainsTreatment === "excluded") {
+    ordinaryTaxableBase = Math.max(0, stateOrdinaryIncome + qualified - deduction);
+    tax = taxFromBrackets(ordinaryTaxableBase, profile.brackets);
+  } else if (profile.treatCapitalGainsAsOrdinary !== false || profile.capitalGainsTreatment === "ordinary") {
+    ordinaryTaxableBase = Math.max(0, stateOrdinaryIncome + capitalGains + qualified - deduction);
+    tax = taxFromBrackets(ordinaryTaxableBase, profile.brackets);
+  } else {
+    ordinaryTaxableBase = Math.max(0, stateOrdinaryIncome - deduction);
+    capitalGainsTaxableBase = Math.max(0, capitalGains + qualified);
+    const stateOrdinaryTax = taxFromBrackets(ordinaryTaxableBase, profile.brackets);
+    const stateCapitalGainsTax = capitalGainsTaxableBase * (profile.capitalGainsRate ?? 0);
+    tax = round(stateOrdinaryTax + stateCapitalGainsTax, 6);
   }
 
-  if (profile.capitalGainsTreatment === "excluded") {
-    return taxFromBrackets(Math.max(0, stateOrdinaryIncome + qualified - deduction), profile.brackets);
-  }
+  return {
+    ...base,
+    ordinaryTaxableBase: round(ordinaryTaxableBase, 6),
+    capitalGainsTaxableBase: round(capitalGainsTaxableBase, 6),
+    tax: round(tax, 6)
+  };
+}
 
-  if (profile.treatCapitalGainsAsOrdinary !== false || profile.capitalGainsTreatment === "ordinary") {
-    return taxFromBrackets(
-      Math.max(0, stateOrdinaryIncome + capitalGains + qualified - deduction),
-      profile.brackets
-    );
-  }
+function stateCapitalLossTreatmentBreakdown({
+  profile,
+  federalCapitalLossDeduction = 0,
+  federalCapitalLossCarryforward = 0,
+  federalCapitalLossCarryforwardShort = 0,
+  federalCapitalLossCarryforwardLong = 0
+} = {}) {
+  const ordinaryLossOffsetIncluded = Math.max(0, Number(federalCapitalLossDeduction) || 0);
+  const carryforward = Math.max(0, Number(federalCapitalLossCarryforward) || 0);
+  const shortTermCarryforward = Math.max(0, Number(federalCapitalLossCarryforwardShort) || 0);
+  const longTermCarryforward = Math.max(0, Number(federalCapitalLossCarryforwardLong) || 0);
+  const hasCapitalLossEffect = ordinaryLossOffsetIncluded > EPSILON || carryforward > EPSILON;
+  const assumption = profile?.capitalLossConformity ?? "federal-agi-approximation";
 
-  const stateOrdinaryTax = taxFromBrackets(Math.max(0, stateOrdinaryIncome - deduction), profile.brackets);
-  const stateCapitalGainsTax = Math.max(0, capitalGains + qualified) * (profile.capitalGainsRate ?? 0);
-  return round(stateOrdinaryTax + stateCapitalGainsTax, 6);
+  return {
+    assumption,
+    ordinaryLossOffsetIncluded: round(ordinaryLossOffsetIncluded, 6),
+    carryforwardForFederalNextYear: round(carryforward, 6),
+    carryforwardShortTerm: round(shortTermCarryforward, 6),
+    carryforwardLongTerm: round(longTermCarryforward, 6),
+    reviewRequired: Boolean(hasCapitalLossEffect && assumption === "federal-agi-approximation"),
+    note: "State tax uses the modeled federal capital-loss netting and carryforward as a broad federal-AGI conformity approximation; state-specific additions, subtractions, and carryforward forms are not modeled."
+  };
+}
+
+function emptyStateTaxBreakdown() {
+  return {
+    state: null,
+    source: null,
+    capitalGainsTreatment: null,
+    deduction: 0,
+    ordinaryIncome: 0,
+    retirementOrdinaryIncome: 0,
+    taxableSocialSecurity: 0,
+    capitalGains: 0,
+    qualifiedDividends: 0,
+    stateIncomeBeforeDeduction: 0,
+    socialSecurityExclusion: 0,
+    retirementExclusion: 0,
+    stateOrdinaryIncome: 0,
+    ordinaryTaxableBase: 0,
+    capitalGainsTaxableBase: 0,
+    capitalLossTreatment: stateCapitalLossTreatmentBreakdown(),
+    tax: 0
+  };
 }
 
 export function inflateTaxProfile(profile = DEFAULT_TAX_PROFILE, inflationIndex = 1) {

@@ -1,7 +1,8 @@
 import { compactLatestForCache } from "./resultsCache.mjs";
 import { normalizeSetupState } from "./setupBackup.mjs";
 
-export const RESULT_AUDIT_BUNDLE_SCHEMA_VERSION = 2;
+export const RESULT_AUDIT_BUNDLE_SCHEMA_VERSION = 3;
+export const RESULT_AUDIT_SUMMARY_SCHEMA_VERSION = 2;
 export const RESULT_AUDIT_BUNDLE_TYPE = "portfolio-success-lab-result-audit-bundle";
 export const RESULT_AUDIT_BUNDLE_PRIVACY_NOTICE = "This bundle can include household ages, account balances, tax assumptions, healthcare inputs, heirs/goals, and modeled results. Keep it local unless you intentionally share it with a CPA or trusted reviewer.";
 
@@ -50,7 +51,7 @@ export function createResultAuditSummary({
   const topSensitivity = Array.isArray(decision.sensitivity?.top) ? decision.sensitivity.top : [];
 
   return {
-    schemaVersion: 1,
+    schemaVersion: RESULT_AUDIT_SUMMARY_SCHEMA_VERSION,
     exportedAt,
     scenario: summarizeScenarioForReview(scenario),
     verdict: {
@@ -71,6 +72,7 @@ export function createResultAuditSummary({
       historicalDataSource: sourceVersions.historicalDataSource ?? latest.historicalDataSource ?? null,
       historicalRange: sourceVersions.historicalRange ?? latest.historicalRange ?? null
     },
+    tax: summarizeTaxForReview(latest),
     sourceVersions: copyJsonObject(sourceVersions),
     confidence: {
       headline: confidence.headline ?? null,
@@ -88,6 +90,71 @@ export function createResultAuditSummary({
       impact: finiteOrNull(item.impact)
     })),
     audit: normalizeAuditRows(auditRows)
+  };
+}
+
+function summarizeTaxForReview(latest = {}) {
+  const scenario = latest.scenario ?? {};
+  const profile = latest.taxProfile ?? {};
+  const stateProfile = profile.state ?? {};
+  const years = Array.isArray(latest.plan?.years) ? latest.plan.years : [];
+  const capitalLossYears = years
+    .map(summarizeCapitalLossYearForReview)
+    .filter(Boolean);
+  const finalYearTaxes = years.length ? years[years.length - 1]?.taxes ?? {} : {};
+  const stateReviewYears = capitalLossYears.filter((year) => year.stateReviewRequired);
+
+  return {
+    taxYear: profile.year ?? scenario.taxYear ?? null,
+    filingStatus: profile.filingStatus ?? scenario.filingStatus ?? null,
+    federal: {
+      standardDeduction: finiteOrNull(profile.standardDeduction),
+      capitalLossOrdinaryIncomeOffset: finiteOrNull(profile.capitalLossOrdinaryIncomeOffset)
+    },
+    state: {
+      state: stateProfile.state ?? scenario.state ?? null,
+      source: stateProfile.source ?? null,
+      capitalGainsTreatment: stateProfile.capitalGainsTreatment ?? null,
+      capitalLossConformity: stateProfile.capitalLossConformity ?? null
+    },
+    capitalLosses: {
+      hasActivity: capitalLossYears.length > 0,
+      yearCount: capitalLossYears.length,
+      stateReviewRequired: stateReviewYears.length > 0,
+      stateReviewYearCount: stateReviewYears.length,
+      finalCarryforward: finiteOrNull(finalYearTaxes.lossCarryforward),
+      finalCarryforwardShortTerm: finiteOrNull(finalYearTaxes.lossCarryforwardShort ?? latest.plan?.years?.at?.(-1)?.lossCarryforwardDetail?.shortTerm),
+      finalCarryforwardLongTerm: finiteOrNull(finalYearTaxes.lossCarryforwardLong ?? latest.plan?.years?.at?.(-1)?.lossCarryforwardDetail?.longTerm),
+      years: capitalLossYears
+    }
+  };
+}
+
+function summarizeCapitalLossYearForReview(year = {}) {
+  const taxes = year?.taxes ?? {};
+  const stateTreatment = taxes.stateTaxBreakdown?.capitalLossTreatment ?? null;
+  const ordinaryLossOffset = finiteOrNull(taxes.ordinaryLossOffset);
+  const lossCarryforward = finiteOrNull(taxes.lossCarryforward);
+  const lossCarryforwardShort = finiteOrNull(taxes.lossCarryforwardShort ?? year?.lossCarryforwardDetail?.shortTerm);
+  const lossCarryforwardLong = finiteOrNull(taxes.lossCarryforwardLong ?? year?.lossCarryforwardDetail?.longTerm);
+  const hasActivity = [ordinaryLossOffset, lossCarryforward, lossCarryforwardShort, lossCarryforwardLong]
+    .some((value) => Number(value) > 0)
+    || stateTreatment?.reviewRequired === true;
+  if (!hasActivity) return null;
+
+  return {
+    year: year.year ?? null,
+    yearIndex: finiteOrNull(year.yearIndex),
+    ordinaryLossOffset,
+    lossCarryforward,
+    lossCarryforwardShortTerm: lossCarryforwardShort,
+    lossCarryforwardLongTerm: lossCarryforwardLong,
+    federalAgi: finiteOrNull(taxes.federalAgi ?? taxes.magi),
+    taxableOrdinaryIncome: finiteOrNull(taxes.taxableOrdinaryIncome),
+    stateTax: finiteOrNull(taxes.stateTax),
+    stateReviewRequired: stateTreatment?.reviewRequired === true,
+    stateCapitalLossAssumption: stateTreatment?.assumption ?? null,
+    stateOrdinaryTaxableBase: finiteOrNull(taxes.stateTaxBreakdown?.ordinaryTaxableBase)
   };
 }
 

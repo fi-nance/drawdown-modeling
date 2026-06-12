@@ -1692,10 +1692,12 @@ function renderDeductionsSection(year, profile, bracketScale, incomeScale) {
   const ctcUsed = (year?.taxes?.nonrefundableChildTaxCredit ?? year?.taxes?.childTaxCredit ?? 0) * incomeScale;
   const actcRefund = (year?.taxes?.additionalChildTaxCredit ?? 0) * incomeScale;
   const otherCredits = (year?.taxes?.additionalCreditsUsed ?? year?.taxes?.additionalCredits ?? 0) * incomeScale;
-  const creditsHtml = (ctcUsed > 0 || actcRefund > 0 || otherCredits > 0) ? `
+  const lossCarry = capitalLossCarryforwardForDisplay(year, incomeScale);
+  const creditsHtml = (ctcUsed > 0 || actcRefund > 0 || otherCredits > 0 || lossCarry.total > 0) ? `
     ${ctcUsed > 0 ? creditRow("CTC", "Child tax credit used", ctcUsed) : ""}
     ${actcRefund > 0 ? creditRow("ACTC", "Refundable additional child tax credit", actcRefund) : ""}
     ${otherCredits > 0 ? creditRow("Credits", "Other credits used", otherCredits) : ""}
+    ${lossCarry.total > 0 ? carryforwardRow("Carry", "Capital-loss carryforward after this year", lossCarry) : ""}
   ` : "";
 
   if (!rows.length && !creditsHtml) return "";
@@ -1738,6 +1740,35 @@ function creditRow(label, fullLabel, amount) {
       <span class="bracket-rate deduction-label" title="${fullLabel}">${label}</span>
       <div class="credit-pill" title="${fullLabel} applied">applied</div>
       <span class="bracket-amt">−${formatCurrencyShort(amount)}</span>
+    </li>`;
+}
+
+function capitalLossCarryforwardForDisplay(year, incomeScale = 1) {
+  const taxes = year?.taxes ?? {};
+  const detail = year?.lossCarryforwardDetail ?? {};
+  const shortTerm = Number.isFinite(Number(taxes.lossCarryforwardShort))
+    ? Number(taxes.lossCarryforwardShort)
+    : Math.max(0, Number(detail.shortTerm) || 0);
+  const longTerm = Number.isFinite(Number(taxes.lossCarryforwardLong))
+    ? Number(taxes.lossCarryforwardLong)
+    : Math.max(0, Number(detail.longTerm) || 0);
+  const total = Number.isFinite(Number(taxes.lossCarryforward))
+    ? Number(taxes.lossCarryforward)
+    : Math.max(0, Number(year?.lossCarryforward) || shortTerm + longTerm);
+  return {
+    shortTerm: shortTerm * incomeScale,
+    longTerm: longTerm * incomeScale,
+    total: total * incomeScale
+  };
+}
+
+function carryforwardRow(label, fullLabel, carry) {
+  const title = `${fullLabel}: ${formatCurrencyShort(carry.total)} (${formatCurrencyShort(carry.shortTerm)} short-term · ${formatCurrencyShort(carry.longTerm)} long-term)`;
+  return `
+    <li class="bracket-row credit-row">
+      <span class="bracket-rate deduction-label" title="${fullLabel}">${label}</span>
+      <div class="credit-pill" title="${title}">ST/LT</div>
+      <span class="bracket-amt">${formatCurrencyShort(carry.total)}</span>
     </li>`;
 }
 

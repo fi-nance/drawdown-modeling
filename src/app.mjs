@@ -2793,7 +2793,7 @@ function acaPlanLabel(year) {
 function renderYearTable() {
   const years = activeVisibleYears();
   const magiColumn = selectedMagiColumn();
-  const headers = ["Year", "Age", "Stock", "Bond", "Real estate", "TIPS", "Crypto", "Inflation", "Start value", "End value", "Sales / withdrawals", "Dividends", "Social Security", "Earned income", "One-off income", "RMD", "Total cash", "Total need", "Tax", "Fed income tax", "CG/QD tax", "NIIT", "W-2 FICA", "SE tax", "Addl Medicare", "Credits", "Refundable credits", "State tax", magiColumn.header, "Taxable SS", "Deduction", "Itemized ded", "65+ deduction", "Senior bonus", "QBI ded", "CTC children", "ACA plan", "ACA SLCSP", "ACA gross", "ACA subsidy", "ACA net", "Medicare", "Spend", "Essential", "Discretionary", "Disc. %", "Market DD", "Medical", "Tax gain harvest", "Roth conv.", "Roth basis available", "Penalty", "Loss carry"];
+  const headers = ["Year", "Age", "Stock", "Bond", "Real estate", "TIPS", "Crypto", "Inflation", "Start value", "End value", "Sales / withdrawals", "Dividends", "Social Security", "Earned income", "One-off income", "RMD", "Total cash", "Total need", "Tax", "Fed income tax", "CG/QD tax", "NIIT", "W-2 FICA", "SE tax", "Addl Medicare", "Credits", "Refundable credits", "State tax", magiColumn.header, "Taxable SS", "Deduction", "Itemized ded", "65+ deduction", "Senior bonus", "QBI ded", "CTC children", "ACA plan", "ACA SLCSP", "ACA gross", "ACA subsidy", "ACA net", "Medicare", "Spend", "Essential", "Discretionary", "Disc. %", "Market DD", "Medical", "Tax gain harvest", "Roth conv.", "Roth basis available", "Penalty", "CL offset", "ST loss carry", "LT loss carry", "Loss carry", "State loss review"];
   const rows = years.map((year) => [
     yearDisplayLabel(year),
     ageLabel(year.age),
@@ -2847,7 +2847,11 @@ function renderYearTable() {
     money(year.rothConversionAmount, year),
     money(year.rothBasisAvailable ?? year.rothBasisRemaining ?? 0, year),
     money(year.penaltyTax, year),
-    money(year.lossCarryforward, year)
+    money(year.taxes?.ordinaryLossOffset ?? 0, year),
+    money(capitalLossCarryforwardDetail(year).shortTerm, year),
+    money(capitalLossCarryforwardDetail(year).longTerm, year),
+    money(year.lossCarryforward ?? year.taxes?.lossCarryforward ?? 0, year),
+    stateCapitalLossReviewRequired(year) ? "Review" : ""
   ]);
 
   els.yearTable.className = "pinnable-table-wrap";
@@ -3223,7 +3227,7 @@ function renderActionPlan() {
       "Harvest taxable losses",
       money(year.realizedCapitalLosses, year),
       "Taxable lots",
-      `${money(year.lossCarryforward, year)} loss carryforward after this year`,
+      `${money(year.taxes?.ordinaryLossOffset ?? 0, year)} ordinary offset; ${capitalLossCarryforwardText(year)} after this year${stateCapitalLossReviewSuffix(year)}`,
       "Offsets gains first, then up to the allowed ordinary-income offset."
     ]);
   }
@@ -4426,6 +4430,15 @@ function taxPaymentNodeDetails(year) {
     `Self-employment tax: ${money(taxes.selfEmploymentTax ?? 0, year)}`,
     `Additional Medicare Tax: ${money(taxes.additionalMedicareTax ?? 0, year)}`
   ];
+  if ((taxes.ordinaryLossOffset ?? 0) > 0) {
+    lines.push(`Capital-loss ordinary offset: -${money(taxes.ordinaryLossOffset, year)}`);
+  }
+  if ((taxes.lossCarryforward ?? year?.lossCarryforward ?? 0) > 0) {
+    lines.push(`Capital-loss carryforward: ${capitalLossCarryforwardText(year)}`);
+  }
+  if (stateCapitalLossReviewRequired(year)) {
+    lines.push(`State capital-loss review: ${stateCapitalLossReviewNote(year)}`);
+  }
   if ((taxes.federalCreditsUsed ?? 0) > 0) {
     lines.push(`Federal credits used: -${money(taxes.federalCreditsUsed, year)}`);
   }
@@ -4436,6 +4449,40 @@ function taxPaymentNodeDetails(year) {
     lines.push(`Early withdrawal penalties are shown separately: ${money(penalty, year)}`);
   }
   return lines.join("\n");
+}
+
+function capitalLossCarryforwardDetail(year) {
+  const detail = year?.lossCarryforwardDetail ?? {};
+  const taxes = year?.taxes ?? {};
+  const shortTerm = Number.isFinite(Number(taxes.lossCarryforwardShort))
+    ? Number(taxes.lossCarryforwardShort)
+    : Math.max(0, Number(detail.shortTerm) || 0);
+  const longTerm = Number.isFinite(Number(taxes.lossCarryforwardLong))
+    ? Number(taxes.lossCarryforwardLong)
+    : Math.max(0, Number(detail.longTerm) || 0);
+  const total = Number.isFinite(Number(taxes.lossCarryforward))
+    ? Number(taxes.lossCarryforward)
+    : Math.max(0, Number(year?.lossCarryforward) || shortTerm + longTerm);
+  return { shortTerm, longTerm, total };
+}
+
+function capitalLossCarryforwardText(year) {
+  const { shortTerm, longTerm, total } = capitalLossCarryforwardDetail(year);
+  if (!(total > 0)) return money(0, year);
+  return `${money(total, year)} loss carryforward (${money(shortTerm, year)} short-term; ${money(longTerm, year)} long-term)`;
+}
+
+function stateCapitalLossReviewRequired(year) {
+  return year?.taxes?.stateTaxBreakdown?.capitalLossTreatment?.reviewRequired === true;
+}
+
+function stateCapitalLossReviewNote(year) {
+  const assumption = year?.taxes?.stateTaxBreakdown?.capitalLossTreatment?.assumption ?? "federal-AGI conformity approximation";
+  return `state tax uses ${assumption}; verify resident-state loss carryforward rules.`;
+}
+
+function stateCapitalLossReviewSuffix(year) {
+  return stateCapitalLossReviewRequired(year) ? `; ${stateCapitalLossReviewNote(year)}` : "";
 }
 
 function taxRefundNodeDetails(year) {

@@ -76,6 +76,39 @@ test("capital losses offset gains, then ordinary income, then carry forward", ()
   assert.equal(tax.federalOrdinaryTax, 700);
 });
 
+test("capital loss carryforward preserves loss unused after deductions", () => {
+  const deductionProfile = {
+    ...profile,
+    standardDeduction: 4000,
+    state: { ...profile.state, brackets: [{ upTo: Infinity, rate: 0 }] }
+  };
+
+  const partiallyAbsorbed = computeIncomeTax({
+    ordinaryIncome: 6500,
+    longTermCapitalLosses: 6000,
+    profile: deductionProfile
+  });
+  assert.equal(partiallyAbsorbed.ordinaryLossOffset, 3000);
+  assert.equal(partiallyAbsorbed.taxableOrdinaryIncome, 0);
+  assert.equal(partiallyAbsorbed.lossCarryforwardShort, 0);
+  assert.equal(partiallyAbsorbed.lossCarryforwardLong, 3500);
+  assert.equal(partiallyAbsorbed.lossCarryforward, 3500);
+
+  const fullyUnabsorbed = computeIncomeTax({
+    ordinaryIncome: 1000,
+    longTermCapitalLosses: 6000,
+    profile: deductionProfile
+  });
+  assert.equal(fullyUnabsorbed.ordinaryLossOffset, 3000);
+  assert.equal(fullyUnabsorbed.taxableOrdinaryIncome, 0);
+  assert.equal(fullyUnabsorbed.lossCarryforwardLong, 6000);
+});
+
+test("married filing separately uses the Schedule D $1,500 capital loss limit", () => {
+  assert.equal(buildTaxProfile({ filingStatus: "marriedFilingSeparately" }).capitalLossOrdinaryIncomeOffset, 1500);
+  assert.equal(buildTaxProfile({ filingStatus: "single" }).capitalLossOrdinaryIncomeOffset, 3000);
+});
+
 test("short-term loss carryforward retains character (Schedule D / IRC §1212(b))", () => {
   // Year 1: $5000 ST loss with no gains → $3000 ordinary offset, $2000 ST
   // carryforward. Year 2: only a $1500 LT gain, no ST gains. The ST
@@ -175,6 +208,12 @@ test("state retirement exclusion uses full retirement income, not federal-loss-p
   // ordinary loss offset = $150.
   const stateTaxDelta = Math.round((withoutLoss.stateTax - withLoss.stateTax) * 100) / 100;
   assert.equal(stateTaxDelta, 150);
+  assert.equal(withLoss.stateTaxBreakdown.capitalLossTreatment.assumption, "federal-agi-approximation");
+  assert.equal(withLoss.stateTaxBreakdown.capitalLossTreatment.ordinaryLossOffsetIncluded, 3000);
+  assert.equal(withLoss.stateTaxBreakdown.capitalLossTreatment.carryforwardForFederalNextYear, 1000);
+  assert.equal(withLoss.stateTaxBreakdown.capitalLossTreatment.reviewRequired, true);
+  assert.equal(withLoss.stateTaxBreakdown.retirementExclusion, 20000);
+  assert.equal(withLoss.stateTaxBreakdown.ordinaryTaxableBase, 27000);
 });
 
 test("state tax can apply a separate capital gains rate", () => {
@@ -451,7 +490,7 @@ test("2026 AMT tripwire data and preference addbacks are source-versioned", () =
     amtPreferenceItems: 20_000
   });
 
-  assert.equal(TAX_DATA_VERSION, "2026.9");
+  assert.equal(TAX_DATA_VERSION, "2026.11");
   assert.equal(taxProfile.amtPreferenceItems, 20_000);
   assert.equal(taxProfile.buildOptions.amtPreferenceItems, 20_000);
   assert.deepEqual(taxProfile.alternativeMinimumTax.exemption, {

@@ -4,7 +4,7 @@ import {
   stateRetirementRulesFor
 } from "./stateRetirementTax2026.mjs";
 
-export const TAX_DATA_VERSION = "2026.9";
+export const TAX_DATA_VERSION = "2026.11";
 export const DEFAULT_TAX_YEAR = 2026;
 
 export const FILING_STATUSES = {
@@ -387,7 +387,9 @@ export function buildFederalTaxProfile({
     year: data.year,
     filingStatus: status,
     standardDeduction: data.standardDeduction[status],
-    capitalLossOrdinaryIncomeOffset: data.capitalLossOrdinaryIncomeOffset,
+    capitalLossOrdinaryIncomeOffset: status === "marriedFilingSeparately"
+      ? data.capitalLossOrdinaryIncomeOffset / 2
+      : data.capitalLossOrdinaryIncomeOffset,
     ordinaryBrackets: data.ordinaryBrackets[status],
     capitalGainsBrackets: data.capitalGainsBrackets[status],
     niit: data.niit,
@@ -468,6 +470,7 @@ export function buildStateTaxProfile({
         ? Math.max(0, overrideCapitalGainsRate)
         : Math.max(0, overrideRate),
       capitalGainsTreatment: separateCapitalGains ? "separate" : "ordinary",
+      capitalLossConformity: "federal-agi-approximation",
       retirementRules,
       retirementRulesVersion: STATE_RETIREMENT_TAX_RULES_VERSION,
       retirementRulesSource: retirementRules.source,
@@ -490,6 +493,7 @@ export function buildStateTaxProfile({
     brackets: thresholdPairsToBrackets(stateData[stateStatus] ?? [[0, 0]]),
     treatCapitalGainsAsOrdinary: stateData.capitalGainsTreatment === "ordinary",
     capitalGainsTreatment: stateData.capitalGainsTreatment ?? "ordinary",
+    capitalLossConformity: "federal-agi-approximation",
     retirementRules,
     retirementRulesVersion: STATE_RETIREMENT_TAX_RULES_VERSION,
     retirementRulesSource: retirementRules.source,

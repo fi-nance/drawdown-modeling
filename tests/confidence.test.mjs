@@ -33,6 +33,67 @@ test("confidence report flags input-limited ACA estimates and legacy gaps", () =
   assert.ok(report.flags.some((flag) => flag.id === "legacy-tax-out-of-model" && flag.level === CONFIDENCE_LEVELS.CPA_REVIEW));
 });
 
+test("confidence report flags state capital-loss conformity when losses affect a state-taxed run", () => {
+  const report = buildConfidenceReport({
+    scenario: { aca: { enabled: false } },
+    taxProfile: {
+      state: {
+        source: "Tax Foundation 2026 state income tax compilation",
+        brackets: [{ upTo: Infinity, rate: 0.05 }],
+        capitalLossConformity: "federal-agi-approximation",
+        retirementRulesSource: "State instructions verified for this test fixture."
+      }
+    },
+    plan: {
+      years: [{
+        taxes: {
+          ordinaryLossOffset: 3000,
+          lossCarryforward: 3500,
+          stateTaxBreakdown: {
+            capitalLossTreatment: {
+              reviewRequired: true
+            }
+          }
+        }
+      }]
+    }
+  });
+
+  const flag = report.flags.find((item) => item.id === "state-capital-loss-conformity-review");
+  assert.ok(flag);
+  assert.equal(flag.level, CONFIDENCE_LEVELS.CPA_REVIEW);
+  assert.match(flag.detail, /federal-AGI conformity approximation/);
+  assert.equal(actionConfidenceFor("stateTax", report).level, CONFIDENCE_LEVELS.CPA_REVIEW);
+  assert.equal(actionConfidenceFor("taxLossHarvesting", report).level, CONFIDENCE_LEVELS.CPA_REVIEW);
+  assert.equal(
+    rescueConfidenceFor({ kind: "taxableLotRescue", historical: { count: 10 } }, report).level,
+    CONFIDENCE_LEVELS.CPA_REVIEW
+  );
+});
+
+test("manual state-rate overrides still flag capital-loss conformity review", () => {
+  const report = buildConfidenceReport({
+    scenario: { aca: { enabled: false } },
+    taxProfile: {
+      state: {
+        source: "Manual override",
+        brackets: [{ upTo: Infinity, rate: 0.05 }],
+        capitalLossConformity: "federal-agi-approximation"
+      }
+    },
+    plan: {
+      years: [{
+        taxes: {
+          ordinaryLossOffset: 3000
+        }
+      }]
+    }
+  });
+
+  assert.ok(report.flags.some((item) => item.id === "state-capital-loss-conformity-review"));
+  assert.ok(!report.flags.some((item) => item.id === "state-retirement-tax-review"));
+});
+
 test("confidence report labels opt-in Social Security PIA estimator as input-limited", () => {
   const report = buildConfidenceReport({
     scenario: {

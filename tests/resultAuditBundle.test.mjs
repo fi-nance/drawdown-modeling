@@ -5,6 +5,7 @@ import test from "node:test";
 import {
   RESULT_AUDIT_BUNDLE_PRIVACY_NOTICE,
   RESULT_AUDIT_BUNDLE_SCHEMA_VERSION,
+  RESULT_AUDIT_SUMMARY_SCHEMA_VERSION,
   RESULT_AUDIT_BUNDLE_TYPE,
   createResultAuditBundle,
   createResultAuditSummary
@@ -147,7 +148,7 @@ test("result audit summary is a compact CPA and engineering review surface", () 
     exportedAt: "2026-05-30T00:00:00.000Z"
   });
 
-  assert.equal(summary.schemaVersion, 1);
+  assert.equal(summary.schemaVersion, RESULT_AUDIT_SUMMARY_SCHEMA_VERSION);
   assert.equal(summary.exportedAt, "2026-05-30T00:00:00.000Z");
   assert.equal(summary.scenario.state, "Florida");
   assert.equal(summary.scenario.legacy.heirState, "PA");
@@ -155,10 +156,95 @@ test("result audit summary is a compact CPA and engineering review surface", () 
   assert.equal(summary.scenario.healthcare.householdSize, 2);
   assert.equal(summary.verdict.historicalBacktestCount, 1);
   assert.equal(summary.reproducibility.seed, 42);
+  assert.equal(summary.tax.taxYear, 2026);
+  assert.equal(summary.tax.state.state, "Florida");
+  assert.equal(summary.tax.capitalLosses.hasActivity, false);
   assert.equal(summary.sourceVersions.taxDataVersion, "2026.1");
   assert.deepEqual(summary.audit, [{ label: "Tax assumptions", value: "2026 federal and Florida state" }]);
   assert.equal(summary.setup, undefined);
   assert.equal(summary.result, undefined);
+});
+
+test("result audit summary includes capital-loss carryforward and state-review years", () => {
+  const summary = createResultAuditSummary({
+    latest: {
+      ...latest,
+      taxProfile: {
+        year: 2026,
+        filingStatus: "marriedFilingJointly",
+        standardDeduction: 32200,
+        capitalLossOrdinaryIncomeOffset: 3000,
+        state: {
+          state: "California",
+          source: "Tax Foundation 2026 state income tax compilation",
+          capitalGainsTreatment: "ordinary",
+          capitalLossConformity: "federal-agi-approximation"
+        }
+      },
+      plan: {
+        success: true,
+        years: [{
+          year: 2026,
+          yearIndex: 0,
+          taxes: {
+            ordinaryLossOffset: 3000,
+            lossCarryforward: 3500,
+            lossCarryforwardShort: 0,
+            lossCarryforwardLong: 3500,
+            federalAgi: 3500,
+            taxableOrdinaryIncome: 0,
+            stateTax: 135,
+            stateTaxBreakdown: {
+              ordinaryTaxableBase: 2700,
+              capitalLossTreatment: {
+                assumption: "federal-agi-approximation",
+                reviewRequired: true
+              }
+            }
+          }
+        }, {
+          year: 2027,
+          yearIndex: 1,
+          lossCarryforwardDetail: { shortTerm: 500, longTerm: 1000 },
+          taxes: {
+            ordinaryLossOffset: 1500,
+            lossCarryforward: 1500,
+            federalAgi: 42000,
+            taxableOrdinaryIncome: 6000,
+            stateTax: 900
+          }
+        }]
+      }
+    },
+    sourceVersions: { taxDataVersion: "2026.11", seed: 42 },
+    exportedAt: "2026-05-30T00:00:00.000Z"
+  });
+
+  assert.equal(summary.tax.federal.standardDeduction, 32200);
+  assert.equal(summary.tax.federal.capitalLossOrdinaryIncomeOffset, 3000);
+  assert.equal(summary.tax.state.state, "California");
+  assert.equal(summary.tax.state.capitalLossConformity, "federal-agi-approximation");
+  assert.equal(summary.tax.capitalLosses.hasActivity, true);
+  assert.equal(summary.tax.capitalLosses.yearCount, 2);
+  assert.equal(summary.tax.capitalLosses.stateReviewRequired, true);
+  assert.equal(summary.tax.capitalLosses.stateReviewYearCount, 1);
+  assert.equal(summary.tax.capitalLosses.finalCarryforward, 1500);
+  assert.equal(summary.tax.capitalLosses.finalCarryforwardShortTerm, 500);
+  assert.equal(summary.tax.capitalLosses.finalCarryforwardLongTerm, 1000);
+  assert.deepEqual(summary.tax.capitalLosses.years[0], {
+    year: 2026,
+    yearIndex: 0,
+    ordinaryLossOffset: 3000,
+    lossCarryforward: 3500,
+    lossCarryforwardShortTerm: 0,
+    lossCarryforwardLongTerm: 3500,
+    federalAgi: 3500,
+    taxableOrdinaryIncome: 0,
+    stateTax: 135,
+    stateReviewRequired: true,
+    stateCapitalLossAssumption: "federal-agi-approximation",
+    stateOrdinaryTaxableBase: 2700
+  });
 });
 
 test("result audit summary includes compact risk-based guardrail assumptions", () => {
