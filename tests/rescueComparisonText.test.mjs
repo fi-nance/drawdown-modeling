@@ -324,6 +324,24 @@ test("workspace planning runs validate realistic spend before launching workers"
   assert.match(appSource, /runSimulationsInWorker/);
 });
 
+test("sticky table scrollbar cleanup detaches persistent scroll listeners", async () => {
+  const appSource = await readFile(new URL("../src/app.mjs", import.meta.url), "utf8");
+  const start = appSource.indexOf("function addStickyHorizontalScrollbar");
+  const end = appSource.indexOf("// Expose for redesign.mjs", start);
+
+  assert.notEqual(start, -1);
+  assert.notEqual(end, -1);
+
+  const stickySource = appSource.slice(start, end);
+
+  assert.match(stickySource, /const onContainerScroll = \(\) =>/);
+  assert.match(stickySource, /const onTrackScroll = \(\) =>/);
+  assert.match(stickySource, /container\.addEventListener\("scroll", onContainerScroll\)/);
+  assert.match(stickySource, /track\.addEventListener\("scroll", onTrackScroll\)/);
+  assert.match(stickySource, /container\.removeEventListener\("scroll", onContainerScroll\)/);
+  assert.match(stickySource, /track\.removeEventListener\("scroll", onTrackScroll\)/);
+});
+
 test("itemized deduction controls are visible, persisted, and disclosed in results", async () => {
   const [html, appSource, redesignSource] = await Promise.all([
     readFile(new URL("../index.html", import.meta.url), "utf8"),

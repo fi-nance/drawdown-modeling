@@ -132,19 +132,26 @@ export function parsePortfolioJson(text) {
     throw new Error("Portfolio JSON must be an array or an object with an assets array.");
   }
 
-  return dedupeAssetIds(assets.map((asset, index) => normalizeImportedAsset(asset, index)));
+  return ensureUniqueAssetIds(assets.map((asset, index) => normalizeImportedAsset(asset, index)));
 }
 
 // Asset ids key per-row UI state (e.g. the price-refresh highlight map), so two
 // holdings must never share one. Imports derive ids from the name slug, which
-// collides for same-named rows ("Cash", "Cash"); suffix the duplicates.
-function dedupeAssetIds(assets = []) {
-  const seen = new Map();
+// collides for same-named rows ("Cash", "Cash"); saved setups can also predate
+// this rule. Suffix until the final id is globally unused, so a real `cash-2`
+// row does not collide with the second `cash` row.
+export function ensureUniqueAssetIds(assets = []) {
+  const used = new Set();
   for (const asset of assets) {
-    const baseId = asset.id;
-    const count = seen.get(baseId) ?? 0;
-    seen.set(baseId, count + 1);
-    if (count > 0) asset.id = `${baseId}-${count + 1}`;
+    const baseId = String(asset?.id ?? "").trim() || slugify(asset?.name);
+    let candidate = baseId;
+    let suffix = 2;
+    while (used.has(candidate)) {
+      candidate = `${baseId}-${suffix}`;
+      suffix += 1;
+    }
+    asset.id = candidate;
+    used.add(candidate);
   }
   return assets;
 }
@@ -171,7 +178,7 @@ function normalizeImportedAssets(assets) {
     const found = [...headers].filter(Boolean).join(", ") || "none";
     throw new Error(`Portfolio CSV headers must include accountType, units, and price. Found: ${found}. Headers like Account Type, Shares, and Price are accepted.`);
   }
-  return dedupeAssetIds(assets.map((asset, index) => normalizeImportedAsset(asset, index)));
+  return ensureUniqueAssetIds(assets.map((asset, index) => normalizeImportedAsset(asset, index)));
 }
 
 export function googleSpreadsheetIdFromInput(rawInput = "") {

@@ -1,4 +1,5 @@
 import {
+  ensureUniqueAssetIds,
   googleSpreadsheetIdFromInput,
   parsePortfolioCsv,
   parsePortfolioJson,
@@ -1752,7 +1753,7 @@ function readControlState() {
 }
 
 function applySetupState(stored) {
-  if (Array.isArray(stored.assets)) assets = stored.assets.map((asset) => ({ ...asset }));
+  if (Array.isArray(stored.assets)) assets = ensureUniqueAssetIds(stored.assets.map((asset) => ({ ...asset })));
   if (Array.isArray(stored.oneOffExpenses)) {
     oneOffExpenses = stored.oneOffExpenses.map((expense) => ({ ...expense }));
   }
@@ -3648,20 +3649,22 @@ function addStickyHorizontalScrollbar(container) {
   };
 
   let syncing = false;
-  container.addEventListener("scroll", () => {
+  const onContainerScroll = () => {
     if (!syncing) {
       syncing = true;
       track.scrollLeft = container.scrollLeft;
       syncing = false;
     }
     updateArrows();
-  });
-  track.addEventListener("scroll", () => {
+  };
+  const onTrackScroll = () => {
     if (syncing) return;
     syncing = true;
     container.scrollLeft = track.scrollLeft;
     syncing = false;
-  });
+  };
+  container.addEventListener("scroll", onContainerScroll);
+  track.addEventListener("scroll", onTrackScroll);
 
   const scrollByStep = (direction) => {
     // Instant, not smooth: a smooth animation gets cancelled by the
@@ -3669,8 +3672,10 @@ function addStickyHorizontalScrollbar(container) {
     const step = Math.max(120, container.clientWidth * 0.6);
     container.scrollLeft += direction * step;
   };
-  leftArrow.addEventListener("click", () => scrollByStep(-1));
-  rightArrow.addEventListener("click", () => scrollByStep(1));
+  const onLeftArrowClick = () => scrollByStep(-1);
+  const onRightArrowClick = () => scrollByStep(1);
+  leftArrow.addEventListener("click", onLeftArrowClick);
+  rightArrow.addEventListener("click", onRightArrowClick);
 
   const updateFixedState = () => {
     const rect = container.getBoundingClientRect();
@@ -3713,6 +3718,10 @@ function addStickyHorizontalScrollbar(container) {
   document.fonts?.ready?.then(scheduleUpdate).catch(() => {});
 
   container._stickyCleanup = () => {
+    container.removeEventListener("scroll", onContainerScroll);
+    track.removeEventListener("scroll", onTrackScroll);
+    leftArrow.removeEventListener("click", onLeftArrowClick);
+    rightArrow.removeEventListener("click", onRightArrowClick);
     window.removeEventListener("scroll", onViewportChange);
     window.removeEventListener("resize", onViewportChange);
     if (resizeFrame !== null) cancelAnimationFrame(resizeFrame);

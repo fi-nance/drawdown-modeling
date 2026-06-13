@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  ensureUniqueAssetIds,
   googleSpreadsheetIdFromInput,
   parsePortfolioCsv,
   parsePortfolioJson,
@@ -149,6 +150,28 @@ test("importer gives same-named holdings distinct ids", () => {
   const ids = result.map((asset) => asset.id);
   assert.equal(new Set(ids).size, ids.length, "all asset ids are unique");
   assert.deepEqual(ids, ["cash", "cash-2", "cash-3"]);
+});
+
+test("importer avoids suffix collisions with existing suffixed ids", () => {
+  const result = parsePortfolioCsv([
+    "name,accountType,assetClass,units,price",
+    "Cash,taxable,cash,1000,1",
+    "Cash 2,traditional,cash,2000,1",
+    "Cash,roth,cash,3000,1"
+  ].join("\n"));
+  const ids = result.map((asset) => asset.id);
+  assert.equal(new Set(ids).size, ids.length, "suffix repair must not create a new collision");
+  assert.deepEqual(ids, ["cash", "cash-2", "cash-3"]);
+});
+
+test("asset id repair handles restored setup duplicates", () => {
+  const assets = ensureUniqueAssetIds([
+    { id: "dup", name: "First" },
+    { id: "dup-2", name: "Existing suffix" },
+    { id: "dup", name: "Duplicate" },
+    { id: "", name: "Unnamed restored row" }
+  ]);
+  assert.deepEqual(assets.map((asset) => asset.id), ["dup", "dup-2", "dup-3", "unnamed-restored-row"]);
 });
 
 test("CSV importer defaults blank optional numeric fields safely", () => {

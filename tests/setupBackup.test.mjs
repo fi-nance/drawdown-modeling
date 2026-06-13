@@ -103,4 +103,5 @@ test("setup backup export is privacy-gated and wired", async () => {
   assert.match(appSource, /body: SETUP_BACKUP_PRIVACY_NOTICE/);
   assert.match(appSource, /confirmLabel: "Export setup"/);
   assert.match(appSource, /createSetupBackup/);
+  assert.match(appSource, /ensureUniqueAssetIds\(stored\.assets\.map\(\(asset\) => \(\{ \.\.\.asset \}\)\)\)/);
 });
