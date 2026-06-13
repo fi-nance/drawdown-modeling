@@ -611,7 +611,10 @@ let rememberSetupEnabled = loadRememberSetupPreference();
 
 const PINNED_YEAR_STORAGE_KEY = "portfolio-success-lab:pinned-year-columns";
 const PINNED_ASSET_STORAGE_KEY = "portfolio-success-lab:pinned-asset-columns";
-const TABLE_HEIGHT_STORAGE_KEY = "portfolio-success-lab:table-heights";
+// v2: the stored number changed meaning — it used to be a max-height CAP, now
+// it's an explicit resizable height (see restoreTableHeight). Bumping the key
+// discards pre-v2 cap values once so they aren't reinterpreted as fixed heights.
+const TABLE_HEIGHT_STORAGE_KEY = "portfolio-success-lab:table-heights-v2";
 const ASSET_SORT_STORAGE_KEY = "portfolio-success-lab:asset-sort";
 const ALWAYS_PINNED_YEAR = ["Year", "Age"];
 const ALWAYS_PINNED_ASSET = ["Asset", "Account"];
@@ -680,8 +683,16 @@ function saveTableHeight(tableId, height) {
 
 function restoreTableHeight(container, tableId) {
   const heights = loadTableHeights();
-  if (heights[tableId]) {
-    container.style.maxHeight = `${heights[tableId]}px`;
+  const saved = heights[tableId];
+  if (saved && saved > 50) {
+    // Apply the user's chosen size as an explicit HEIGHT (not max-height) and
+    // drop the CSS 80vh cap so a height taller than the viewport is honored —
+    // otherwise the resize handle could only ever shrink the table. The pixel
+    // value persists across re-renders on the same element; runs before the
+    // rows are in the DOM, which is fine since it needs no content measurement.
+    container.style.maxHeight = "none";
+    container.style.height = `${saved}px`;
+    container._expectedTableHeight = saved;
   }
 }
 
@@ -5256,12 +5267,36 @@ function bindPinToggles(container, pinnedSet, alwaysPinned, storageKey, rerender
 
 function bindResizeObserver(container, tableId) {
   if (container._resizeCleanup) container._resizeCleanup();
+
+  // Once the rows are in the DOM, freeze the current auto height (which CSS has
+  // capped at 80vh) into an explicit, resizable height and lift the cap — so the
+  // drag handle can grow the table past 80vh, not only shrink it. Skipped when a
+  // saved/explicit height is already applied (restoreTableHeight) so we never
+  // stomp the user's choice. The pinned value equals the size already on screen,
+  // so the initial appearance is unchanged.
+  if (!container.style.height) {
+    const current = container.offsetHeight;
+    if (current > 50) {
+      container.style.maxHeight = "none";
+      container.style.height = `${current}px`;
+      container._expectedTableHeight = current;
+    }
+  }
+
   let debounce = null;
   const observer = new ResizeObserver(() => {
     clearTimeout(debounce);
     debounce = setTimeout(() => {
       const height = container.offsetHeight;
-      if (height > 50) saveTableHeight(tableId, height);
+      if (height <= 50) return;
+      // Only a user drag of the resize handle should persist. Ignore reflows we
+      // caused ourselves (the pin above, restoreTableHeight, or content changing
+      // height) by comparing against the last height we set programmatically.
+      if (container._expectedTableHeight != null && Math.abs(height - container._expectedTableHeight) < 4) {
+        return;
+      }
+      container._expectedTableHeight = height;
+      saveTableHeight(tableId, height);
     }, 300);
   });
   observer.observe(container);
