@@ -7,7 +7,7 @@ import {
   toGoogleCsvUrl
 } from "./core/importers.mjs";
 import { portfolioValue } from "./core/portfolio.mjs";
-import { refreshAssetPrices, refreshSummaryText } from "./core/priceRefresh.mjs?v=20260613-portfolio-prices";
+import { refreshAssetPrices, refreshSummaryText } from "./core/priceRefresh.mjs?v=20260613-deployed-price-proxy";
 import { actionConfidenceFor, buildConfidenceReport } from "./core/confidence.mjs";
 import { createSetupBackup, parseSetupBackup, SETUP_BACKUP_PRIVACY_NOTICE } from "./core/setupBackup.mjs";
 import { cacheLatestResults, clearCachedLatest, restoreCachedLatest } from "./core/resultsCache.mjs";

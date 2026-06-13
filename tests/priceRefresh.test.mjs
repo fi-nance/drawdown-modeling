@@ -1,6 +1,7 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
 import { createRequestListener, PRICE_REFRESH_PROXY_PATH } from "../scripts/devServer.mjs";
+import { NETLIFY_PRICE_REFRESH_PROXY_PATH, yahooQuoteProxyResponse } from "../scripts/yahooQuoteProxy.mjs";
 import {
   classifyPriceIdentifier,
   fiscalDataTipsUrl,
@@ -9,6 +10,7 @@ import {
   iBondUnitValue,
   isValidCusip,
   localTickerProxyUrl,
+  localTickerProxyUrls,
   parseTipsIndexRatio,
   parseYahooChart,
   refreshAssetPrices,
@@ -158,6 +160,16 @@ test("quote URLs hit the documented endpoints", () => {
     localTickerProxyUrl("BRK-B", "http://127.0.0.1:4173/api/price-refresh/yahoo-chart"),
     "http://127.0.0.1:4173/api/price-refresh/yahoo-chart?symbol=BRK-B"
   );
+  assert.deepEqual(
+    localTickerProxyUrls("VTI", [
+      "https://example.com/api/price-refresh/yahoo-chart",
+      "https://example.com/.netlify/functions/price-refresh-yahoo-chart"
+    ]),
+    [
+      "https://example.com/api/price-refresh/yahoo-chart?symbol=VTI",
+      "https://example.com/.netlify/functions/price-refresh-yahoo-chart?symbol=VTI"
+    ]
+  );
   const url = fiscalDataTipsUrl("912810FD5", "2026-06-12");
   assert.match(url, /^https:\/\/api\.fiscaldata\.treasury\.gov\/services\/api\/fiscal_service\/v1\/accounting\/od\/tips_cpi_data_detail\?filter=/);
   assert.ok(url.includes(encodeURIComponent("cusip:eq:912810FD5,index_date:lte:2026-06-12")));
@@ -279,6 +291,57 @@ test("ticker refresh uses the local quote proxy before direct Yahoo fetches", as
   assert.equal(fetchImpl.calls.length, 1);
   assert.match(fetchImpl.calls[0], /\/api\/price-refresh\/yahoo-chart\?symbol=VTI$/);
   assert.deepEqual(summary, { updated: 1, failed: 0, skipped: 0, noIdentifier: 0 });
+});
+
+test("ticker refresh can fall through to a deployed function proxy path", async () => {
+  const assets = [{ id: "a-vti", symbol: "VTI", price: 100 }];
+  const fetchImpl = stubFetch([
+    ["example.com/api/price-refresh/yahoo-chart?symbol=VTI", () => jsonResponse({ error: "Not found" }, 404)],
+    ["example.com/.netlify/functions/price-refresh-yahoo-chart?symbol=VTI", () =>
+      jsonResponse({ chart: { result: [{ meta: { regularMarketPrice: 289.44, currency: "USD" } }] } })],
+    ["query1.finance.yahoo.com", () => {
+      throw new Error("direct Yahoo fetch should not be needed after function proxy succeeds");
+    }]
+  ]);
+
+  const { results, summary } = await refreshAssetPrices(assets, {
+    fetchImpl,
+    now: NOW,
+    tickerProxyBaseUrl: [
+      "https://example.com/api/price-refresh/yahoo-chart",
+      `https://example.com${NETLIFY_PRICE_REFRESH_PROXY_PATH}`
+    ]
+  });
+
+  assert.equal(results.get("a-vti").status, "updated");
+  assert.equal(assets[0].price, 289.44);
+  assert.equal(fetchImpl.calls.length, 2);
+  assert.match(fetchImpl.calls[0], /\/api\/price-refresh\/yahoo-chart\?symbol=VTI$/);
+  assert.match(fetchImpl.calls[1], /\/\.netlify\/functions\/price-refresh-yahoo-chart\?symbol=VTI$/);
+  assert.deepEqual(summary, { updated: 1, failed: 0, skipped: 0, noIdentifier: 0 });
+});
+
+test("shared quote proxy response returns browser-readable JSON", async () => {
+  const upstreamCalls = [];
+  const fetchImpl = async (url, options) => {
+    upstreamCalls.push({ url, headers: options.headers });
+    return {
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({
+        chart: { result: [{ meta: { regularMarketPrice: 288.12, currency: "USD" } }] }
+      })
+    };
+  };
+
+  const result = await yahooQuoteProxyResponse({ symbol: "vti", method: "GET", fetchImpl });
+  const payload = JSON.parse(result.body);
+
+  assert.equal(result.status, 200);
+  assert.equal(result.headers["access-control-allow-origin"], "*");
+  assert.equal(result.headers["content-type"], "application/json; charset=utf-8");
+  assert.equal(payload.chart.result[0].meta.regularMarketPrice, 288.12);
+  assert.match(upstreamCalls[0].url, /query1\.finance\.yahoo\.com\/v8\/finance\/chart\/VTI\?/);
 });
 
 test("local dev server proxies ticker quotes as same-origin JSON", async () => {

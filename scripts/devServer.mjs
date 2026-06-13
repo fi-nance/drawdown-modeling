@@ -3,13 +3,15 @@ import { stat } from "node:fs/promises";
 import { createServer } from "node:http";
 import { extname, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import {
+  PRICE_REFRESH_PROXY_PATH,
+  yahooQuoteProxyResponse
+} from "./yahooQuoteProxy.mjs";
 
 export const DEFAULT_PORT = 4173;
-export const PRICE_REFRESH_PROXY_PATH = "/api/price-refresh/yahoo-chart";
+export { PRICE_REFRESH_PROXY_PATH };
 
 const DEFAULT_ROOT = fileURLToPath(new URL("../", import.meta.url));
-const YAHOO_CHART_HOSTS = ["https://query1.finance.yahoo.com", "https://query2.finance.yahoo.com"];
-const TICKER_PATTERN = /^[A-Z0-9.^=-]{1,12}$/i;
 const MIME_TYPES = new Map([
   [".css", "text/css; charset=utf-8"],
   [".csv", "text/csv; charset=utf-8"],
@@ -25,7 +27,7 @@ const MIME_TYPES = new Map([
 export function createDevServer({
   rootDir = DEFAULT_ROOT,
   fetchImpl = globalThis.fetch,
-  yahooHosts = YAHOO_CHART_HOSTS
+  yahooHosts
 } = {}) {
   return createServer(createRequestListener({ rootDir, fetchImpl, yahooHosts }));
 }
@@ -33,7 +35,7 @@ export function createDevServer({
 export function createRequestListener({
   rootDir = DEFAULT_ROOT,
   fetchImpl = globalThis.fetch,
-  yahooHosts = YAHOO_CHART_HOSTS
+  yahooHosts
 } = {}) {
   const root = resolve(rootDir);
 
@@ -54,61 +56,14 @@ export function createRequestListener({
 }
 
 async function handleYahooProxy(req, res, requestUrl, { fetchImpl, yahooHosts }) {
-  if (req.method === "OPTIONS") {
-    res.writeHead(204, {
-      "access-control-allow-methods": "GET, OPTIONS",
-      "access-control-allow-origin": "*",
-      "access-control-allow-headers": "content-type"
-    });
-    res.end();
-    return;
-  }
-  if (req.method !== "GET" && req.method !== "HEAD") {
-    sendJson(res, 405, { error: "Only GET is supported for quote refresh." });
-    return;
-  }
-  if (typeof fetchImpl !== "function") {
-    sendJson(res, 503, { error: "This Node runtime does not provide fetch()." });
-    return;
-  }
-
-  const symbol = String(requestUrl.searchParams.get("symbol") ?? "").trim().toUpperCase();
-  if (!TICKER_PATTERN.test(symbol)) {
-    sendJson(res, 400, { error: "Enter a ticker symbol such as VTI, BRK-B, or VOD.L." });
-    return;
-  }
-
-  const errors = [];
-  for (const host of yahooHosts) {
-    const upstreamUrl = `${host}/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=5d`;
-    try {
-      const response = await fetchImpl(upstreamUrl, {
-        headers: {
-          accept: "application/json",
-          "user-agent": "Mozilla/5.0 PortfolioSuccessLab/0.1 (+local price refresh)"
-        }
-      });
-      const body = await response.text();
-      if (!response.ok) {
-        errors.push(`${new URL(host).host}: HTTP ${response.status}`);
-        continue;
-      }
-      res.writeHead(200, {
-        "content-type": "application/json; charset=utf-8",
-        "cache-control": "no-store"
-      });
-      if (req.method !== "HEAD") res.end(body);
-      else res.end();
-      return;
-    } catch (error) {
-      errors.push(`${new URL(host).host}: ${error instanceof Error ? error.message : String(error)}`);
-    }
-  }
-
-  sendJson(res, 502, {
-    error: `${symbol}: Yahoo Finance quote request failed through the local proxy.`,
-    details: errors
+  const result = await yahooQuoteProxyResponse({
+    symbol: requestUrl.searchParams.get("symbol"),
+    method: req.method,
+    fetchImpl,
+    yahooHosts
   });
+  res.writeHead(result.status, result.headers);
+  res.end(result.body);
 }
 
 async function serveStatic(req, res, requestUrl, root) {

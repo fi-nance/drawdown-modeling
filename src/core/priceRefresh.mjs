@@ -32,6 +32,7 @@ import { I_BOND_FIXED_RATES, I_BOND_INFLATION_RATES } from "../data/iBondRates.g
 
 const YAHOO_CHART_HOSTS = ["https://query1.finance.yahoo.com", "https://query2.finance.yahoo.com"];
 const LOCAL_TICKER_PROXY_PATH = "/api/price-refresh/yahoo-chart";
+const NETLIFY_TICKER_PROXY_PATH = "/.netlify/functions/price-refresh-yahoo-chart";
 const FISCAL_DATA_TIPS_URL = "https://api.fiscaldata.treasury.gov/services/api/fiscal_service/v1/accounting/od/tips_cpi_data_detail";
 const I_BOND_PENALTY_MONTHS = 3;
 const I_BOND_PENALTY_HORIZON_MONTHS = 60;
@@ -212,10 +213,22 @@ export function localTickerProxyUrl(symbol, baseUrl = defaultTickerProxyBaseUrl(
   return url.toString();
 }
 
+export function localTickerProxyUrls(symbol, baseUrls = defaultTickerProxyBaseUrls()) {
+  const urls = Array.isArray(baseUrls) ? baseUrls : [baseUrls];
+  return urls.map((baseUrl) => localTickerProxyUrl(symbol, baseUrl)).filter(Boolean);
+}
+
 function defaultTickerProxyBaseUrl() {
+  return defaultTickerProxyBaseUrls()[0] ?? null;
+}
+
+function defaultTickerProxyBaseUrls() {
   const location = globalThis.location;
-  if (!location || location.protocol === "file:") return null;
-  return `${location.origin}${LOCAL_TICKER_PROXY_PATH}`;
+  if (!location || location.protocol === "file:") return [];
+  return [
+    `${location.origin}${LOCAL_TICKER_PROXY_PATH}`,
+    `${location.origin}${NETLIFY_TICKER_PROXY_PATH}`
+  ];
 }
 
 // Returns { price, priceHint, asOf } or throws with a human-readable reason.
@@ -255,8 +268,9 @@ export function parseYahooChart(payload, symbol) {
 
 async function fetchTickerQuote(symbol, fetchImpl, tickerProxyBaseUrl) {
   const attempts = [];
-  const proxyUrl = localTickerProxyUrl(symbol, tickerProxyBaseUrl);
-  if (proxyUrl) attempts.push({ label: "local quote proxy", url: proxyUrl });
+  for (const proxyUrl of localTickerProxyUrls(symbol, tickerProxyBaseUrl)) {
+    attempts.push({ label: "same-origin quote proxy", url: proxyUrl });
+  }
   for (const host of YAHOO_CHART_HOSTS) {
     attempts.push({ label: new URL(host).host, url: yahooChartUrl(host, symbol) });
   }
@@ -276,7 +290,7 @@ async function fetchTickerQuote(symbol, fetchImpl, tickerProxyBaseUrl) {
   }
   const suffix = tickerProxyBaseUrl
     ? ""
-    : " Start the app with `npm start` so ticker lookups can use the local quote proxy.";
+    : " This deployment needs a same-domain quote proxy; use `npm start` locally or deploy the included Vercel, Netlify, or Cloudflare Pages function.";
   throw new Error(`${symbol}: quote request failed (${errors.join("; ")}).${suffix}`);
 }
 
