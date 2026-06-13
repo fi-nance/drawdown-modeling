@@ -12,6 +12,8 @@ import { buildTaxProfile } from "../src/data/taxData.mjs";
 
 const sumUnits = (assets) => assets.reduce((acc, a) => acc + a.units * a.price, 0);
 const redesignSource = () => readFile(new URL("../src/redesign.mjs", import.meta.url), "utf8");
+const htmlSource = () => readFile(new URL("../index.html", import.meta.url), "utf8");
+const ONBOARDING_RESULTS_STREAM_ASSET_KEY = "20260613-onboarding-results-stream-a";
 
 function sourceSlice(source, startNeedle, endNeedle) {
   const start = source.indexOf(startNeedle);
@@ -202,4 +204,13 @@ test("wizard results handoff clears pending navigation if the run cannot start o
   assert.match(hookRunCompletion, /window\.addEventListener\("psl:run-progress"/);
   assert.match(hookRunCompletion, /ev\.detail\?\.error\)\s*clearPendingRun\(\)/);
   assert.match(hookRunCompletion, /state\.screen === "workspace" \|\| state\.screen === "persona"/);
+});
+
+test("deployed shell cache-busts the wizard streaming fix modules", async () => {
+  const html = await htmlSource();
+
+  assert.match(html, new RegExp(`src/redesign\\.css\\?v=${ONBOARDING_RESULTS_STREAM_ASSET_KEY}`));
+  assert.match(html, new RegExp(`src/app\\.mjs\\?v=${ONBOARDING_RESULTS_STREAM_ASSET_KEY}`));
+  assert.match(html, new RegExp(`src/redesign\\.mjs\\?v=${ONBOARDING_RESULTS_STREAM_ASSET_KEY}`));
+  assert.doesNotMatch(html, /onboarding-wizard-e/, "deployed HTML must not keep the pre-fix asset key");
 });

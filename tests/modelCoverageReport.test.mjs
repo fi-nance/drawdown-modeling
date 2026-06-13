@@ -14,7 +14,7 @@ test("app topbars link to the model coverage report", async () => {
 
   assert.equal(reportLinks.length, 3, "persona, workspace, and results topbars should expose the report");
   assert.match(html, /Model coverage/);
-  assert.match(html, /src\/redesign\.css\?v=20260613-onboarding-wizard-e/);
+  assert.match(html, /src\/redesign\.css\?v=20260613-onboarding-results-stream-a/);
 });
 
 test("standalone model coverage page renders from structured report data", async () => {
