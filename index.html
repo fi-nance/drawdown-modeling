@@ -8,7 +8,7 @@
     <link rel="icon" href="./favicon.svg?v=20260505-favicon" type="image/svg+xml">
     <meta name="theme-color" content="#07111f">
     <link rel="stylesheet" href="./src/styles.css?v=20260530-ws-mobile-fit">
-    <link rel="stylesheet" href="./src/redesign.css?v=20260613-onboarding-wizard-b">
+    <link rel="stylesheet" href="./src/redesign.css?v=20260613-onboarding-wizard-e">
     <script src="https://accounts.google.com/gsi/client" async defer></script>
   </head>
   <body data-screen="persona" data-theme="dark">
@@ -141,6 +141,7 @@
               <div class="wizard-grid">
                 <label><span>Total investable assets</span><input id="wizTotal" type="number" min="0" step="1000" placeholder="e.g. 1200000"></label>
                 <label><span>Roughly % in stocks (<output id="wizTotalStockOut">60</output>%)</span><input id="wizTotalStock" type="range" min="0" max="100" step="5" value="60"></label>
+                <label><span>Roughly % that's unrealized gains (<output id="wizTotalGainsOut">50</output>%)</span><input id="wizTotalGains" type="range" min="0" max="100" step="5" value="50"><small>Sets the cost basis for capital-gains tax.</small></label>
               </div>
               <p class="wizard-note">We'll treat this as a taxable brokerage account. <button type="button" class="link-button" data-portfolio-mode-jump="split">Split it by account type →</button> for a more accurate tax picture.</p>
             </div>
@@ -152,6 +153,7 @@
                 <label><span>Roth</span><input id="wizRoth" type="number" min="0" step="1000" placeholder="0"></label>
                 <label><span>HSA</span><input id="wizHsa" type="number" min="0" step="1000" placeholder="0"></label>
                 <label><span>Roughly % in stocks (<output id="wizSplitStockOut">60</output>%)</span><input id="wizSplitStock" type="range" min="0" max="100" step="5" value="60"></label>
+                <label><span>% of taxable that's gains (<output id="wizSplitGainsOut">50</output>%)</span><input id="wizSplitGains" type="range" min="0" max="100" step="5" value="50"><small>Sets the cost basis for capital-gains tax.</small></label>
               </div>
             </div>
 
@@ -1308,7 +1310,7 @@
       <select id="viewMode"><option value="real" selected>Today's $</option><option value="nominal">Future $</option></select>
     </div>
 
-    <script type="module" src="./src/app.mjs?v=20260613-onboarding-wizard-b"></script>
-    <script type="module" src="./src/redesign.mjs?v=20260613-onboarding-wizard-b"></script>
+    <script type="module" src="./src/app.mjs?v=20260613-onboarding-wizard-e"></script>
+    <script type="module" src="./src/redesign.mjs?v=20260613-onboarding-wizard-e"></script>
   </body>
 </html>

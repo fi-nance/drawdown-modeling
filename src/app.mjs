@@ -2314,7 +2314,18 @@ async function runModels(opts = {}) {
             // the results screen so the user sees something live.
             window.dispatchEvent(new CustomEvent("psl:first-scenario-ready"));
           }
-          renderLatest({ streaming: true });
+          // Once all Monte Carlo scenarios are in, publish a preliminary summary
+          // and force an immediate (non-coalesced) paint so the results screen
+          // shows the success number right away — the rescue/decision solve that
+          // runs next can take many seconds (or minutes for a fragile plan), and
+          // there's no reason to block the headline result on it. The
+          // authoritative summary overwrites this when the run resolves.
+          if (done >= total && !latest.monteCarlo.summary) {
+            latest.monteCarlo.summary = effectiveMonteCarloSummary();
+            renderLatest();
+          } else {
+            renderLatest({ streaming: true });
+          }
         } else {
           buffered.scenarios.push(...scenarios);
         }

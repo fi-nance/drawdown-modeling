@@ -53,6 +53,26 @@ test("representativeAssets: one stock+bond lot per non-empty bucket, empty bucke
   assert.equal(taxableStock.units, 350_000);
 });
 
+test("taxable cost basis reflects the unrealized-gains assumption; sheltered buckets keep full basis", () => {
+  // Default 50% gains → taxable basis 0.5; sheltered (traditional/Roth/HSA) basis 1.
+  const mixed = representativeAssets({ taxable: 100_000, traditional: 100_000, roth: 100_000, hsa: 100_000, stockPercent: 50 });
+  for (const a of mixed) {
+    if (a.accountType === "taxable") assert.equal(a.costBasisPerUnit, 0.5);
+    else assert.equal(a.costBasisPerUnit, 1);
+  }
+
+  // Explicit gains share maps to basis = 1 − gains.
+  const g30 = representativeAssets({ taxable: 100_000, stockPercent: 100, taxableGainsPercent: 30 });
+  assert.equal(g30[0].costBasisPerUnit, 0.7);
+
+  // 0% gains → basis equals value (no embedded gain); 100% → basis 0.
+  assert.equal(representativeAssets({ taxable: 100_000, stockPercent: 100, taxableGainsPercent: 0 })[0].costBasisPerUnit, 1);
+  assert.equal(representativeAssets({ taxable: 100_000, stockPercent: 100, taxableGainsPercent: 100 })[0].costBasisPerUnit, 0);
+
+  // portfolioFromTotal defaults to 50% gains.
+  assert.equal(portfolioFromTotal({ total: 100_000, stockPercent: 100 })[0].costBasisPerUnit, 0.5);
+});
+
 test("representativeAssets: stockPercent extremes drop the empty class lot", () => {
   const allStock = representativeAssets({ taxable: 100_000, stockPercent: 100 });
   assert.equal(allStock.length, 1);

@@ -48,7 +48,11 @@ function makeDefaultIdFactory() {
   };
 }
 
-function makeLot(accountType, assetClass, units, idFactory) {
+function round8(value) {
+  return Math.round(value * 1e8) / 1e8;
+}
+
+function makeLot(accountType, assetClass, units, costBasisPerUnit, idFactory) {
   const cls = ASSET_CLASS_DEFAULTS[assetClass];
   return {
     id: idFactory(),
@@ -59,10 +63,7 @@ function makeLot(accountType, assetClass, units, idFactory) {
     holdingPeriod: "long",
     units,
     price: 1,
-    // No embedded gain assumed at the summary level — cost basis equals current
-    // value. Irrelevant for sheltered accounts; refinable per-lot in the full
-    // table for taxable holdings with real unrealized gains.
-    costBasisPerUnit: 1,
+    costBasisPerUnit,
     dividendYield: cls.dividendYield,
     qualifiedDividendShare: cls.qualifiedDividendShare,
     owner: "primary",
@@ -74,25 +75,33 @@ function makeLot(accountType, assetClass, units, idFactory) {
 // `stockPercent` (0–100) is applied uniformly across buckets. Empty/zero buckets
 // are skipped. The bond units are computed as (amount − stockUnits) so each
 // bucket's lots sum back to its exact dollar amount with no rounding drift.
+//
+// `taxableGainsPercent` (0–100, default 50) is the share of the *taxable* bucket
+// assumed to be unrealized gains: with price 1, cost basis per unit is
+// (1 − gains%), so selling realizes that gain and is taxed. Basis is irrelevant
+// for sheltered (traditional/Roth/HSA) buckets, which keep basis = value.
 export function representativeAssets({
   taxable = 0,
   traditional = 0,
   roth = 0,
   hsa = 0,
   stockPercent = 60,
+  taxableGainsPercent = 50,
   makeId
 } = {}) {
   const idFactory = typeof makeId === "function" ? makeId : makeDefaultIdFactory();
   const share = clamp01(Number(stockPercent) / 100);
+  const taxableBasis = round8(Math.max(0, 1 - clamp01(Number(taxableGainsPercent) / 100)));
   const amounts = { taxable, traditional, roth, hsa };
   const assets = [];
   for (const accountType of ACCOUNT_ORDER) {
     const amount = roundCents(amounts[accountType]);
     if (!(amount > 0)) continue;
+    const basis = accountType === "taxable" ? taxableBasis : 1;
     const stockUnits = roundCents(amount * share);
     const bondUnits = roundCents(amount - stockUnits);
-    if (stockUnits > 0) assets.push(makeLot(accountType, "stock", stockUnits, idFactory));
-    if (bondUnits > 0) assets.push(makeLot(accountType, "bond", bondUnits, idFactory));
+    if (stockUnits > 0) assets.push(makeLot(accountType, "stock", stockUnits, basis, idFactory));
+    if (bondUnits > 0) assets.push(makeLot(accountType, "bond", bondUnits, basis, idFactory));
   }
   return assets;
 }
@@ -100,8 +109,8 @@ export function representativeAssets({
 // Simplest depth: a single liquid total, modeled as a taxable brokerage account.
 // The wizard nudges the user to split by account type for a more accurate tax
 // picture; this is the deliberate all-taxable fallback when they don't.
-export function portfolioFromTotal({ total = 0, stockPercent = 60, makeId } = {}) {
-  return representativeAssets({ taxable: total, stockPercent, makeId });
+export function portfolioFromTotal({ total = 0, stockPercent = 60, taxableGainsPercent = 50, makeId } = {}) {
+  return representativeAssets({ taxable: total, stockPercent, taxableGainsPercent, makeId });
 }
 
 // Map the wizard's collected essentials onto workspace control ids (the flat

@@ -36,6 +36,13 @@ export const DEFAULT_DECISION_PROFILE = Object.freeze({
 
 const SOLVER_ITERATIONS = 6;
 const SEARCH_RUN_CAP = 50;
+// Cap the Monte Carlo runs used by the rescue/sensitivity solvers. They run
+// dozens of candidate simulations whose results are comparative (directional),
+// so they don't need the caller's full headline run count — at 1000 runs a
+// fragile plan's full rescue sweep takes minutes. The displayed base
+// distribution keeps full precision (it comes in via baseMonteCarlo). Test
+// callers pass runs <= this cap, so this is a no-op for them.
+const DECISION_SOLVER_RUN_CAP = 250;
 const EPSILON = 0.00001;
 
 const RESERVE_MAX_YEARS = 5;
@@ -107,6 +114,10 @@ export function runDecisionBatch({
   onProgress = null
 } = {}) {
   const profile = normalizeDecisionProfile(decisionProfile, scenario);
+  // Rescue/sensitivity candidates run at a capped resolution (see the constant)
+  // so a fragile plan's sweep finishes in seconds; the base/headline below keeps
+  // the caller's full `runs`.
+  const solverRuns = Math.min(Math.max(1, Math.trunc(Number(runs) || DEFAULT_MONTE_CARLO_RUNS)), DECISION_SOLVER_RUN_CAP);
   const base = summarizeCandidate({
     id: "base",
     kind: "base",
@@ -127,7 +138,7 @@ export function runDecisionBatch({
   const testedRescueOptions = [];
   const tracker = progressTracker({ onProgress, base, candidates: testedRescueOptions });
 
-  const solverContext = { assets, scenario, taxProfile, runs, seed, sequences, profile, base, tracker };
+  const solverContext = { assets, scenario, taxProfile, runs: solverRuns, seed, sequences, profile, base, tracker };
 
   const safeSpending = findSafeSpendingBoundary(solverContext);
   // The applyable boundary option rides in the rescue list; the summary tile
@@ -167,7 +178,7 @@ export function runDecisionBatch({
     assets,
     scenario,
     taxProfile,
-    runs,
+    runs: solverRuns,
     seed,
     sequences,
     profile,

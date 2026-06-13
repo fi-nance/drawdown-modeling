@@ -241,6 +241,8 @@ function bindWizard() {
     });
     bindRangeOutput("wizTotalStock", "wizTotalStockOut");
     bindRangeOutput("wizSplitStock", "wizSplitStockOut");
+    bindRangeOutput("wizTotalGains", "wizTotalGainsOut");
+    bindRangeOutput("wizSplitGains", "wizSplitGainsOut");
 
     document.getElementById("wizImportCsv")?.addEventListener("click", () => wizardHandoffToWorkspace("csv"));
     document.getElementById("wizImportSheets")?.addEventListener("click", () => wizardHandoffToWorkspace("sheets"));
@@ -395,10 +397,12 @@ function applyWizardEssentials() {
 
 function applyWizardPortfolio() {
   if (wizard.externalPortfolio) return; // sample/import already set the assets
-  const stockPercent = wizard.portfolioMode === "split" ? wizardNum("wizSplitStock") : wizardNum("wizTotalStock");
+  const split = wizard.portfolioMode === "split";
+  const stockPercent = split ? wizardNum("wizSplitStock") : wizardNum("wizTotalStock");
+  const taxableGainsPercent = split ? wizardNum("wizSplitGains") : wizardNum("wizTotalGains");
   let assets = [];
   if (wizard.portfolioMode === "total") {
-    assets = portfolioFromTotal({ total: wizardNum("wizTotal"), stockPercent, makeId: wizardMakeId });
+    assets = portfolioFromTotal({ total: wizardNum("wizTotal"), stockPercent, taxableGainsPercent, makeId: wizardMakeId });
   } else if (wizard.portfolioMode === "split") {
     assets = representativeAssets({
       taxable: wizardNum("wizTaxable"),
@@ -406,6 +410,7 @@ function applyWizardPortfolio() {
       roth: wizardNum("wizRoth"),
       hsa: wizardNum("wizHsa"),
       stockPercent,
+      taxableGainsPercent,
       makeId: wizardMakeId
     });
   }
