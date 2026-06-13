@@ -3,7 +3,7 @@
 
 import { inflateAcaConfig } from "../aca.mjs";
 import { accountBreakdown, ageHoldingPeriods, applyTotalReturnsWithIncome, clonePortfolio, harvestTaxGains, harvestTaxLosses, portfolioValue, removeEmptyLots } from "../portfolio.mjs";
-import { computeIncomeTax, inflateTaxProfile } from "../tax.mjs?v=20260613-portfolio-prices";
+import { computeIncomeTax, inflateTaxProfile } from "../tax.mjs?v=20260613-tips-coupon";
 import { round } from "../utils.mjs";
 import { allocationStrategyStateForYear } from "./allocation.mjs";
 import { assetLocationStateForYear } from "./assetLocation.mjs";
@@ -11,7 +11,7 @@ import { earnedIncomeForYear, emptyEarnedIncome, mergeEarnedIncome, oneOffCashFl
 import { CASH_GAP_TOLERANCE, CASH_RAISED_EPSILON } from "./constants.mjs";
 import { acaConfigForSimulationYear, buildSurvivorTaxProfile, isMarriedFiling, mortalityStatus } from "./household.mjs";
 import { addHsaContributionLot, emptyHsaContribution, hsaContributionForYear, hsaQualifiedExpenseAvailableForWithdrawal, hsaStrategyConfig } from "./hsa.mjs";
-import { acaMagiForIncome, federalAgiForIncome, incomeForYear, irmaaMagiForIncome, lossCarryforwardTotal, normalizeLossCarryforward, taxProfileForSimulationYear } from "./income.mjs?v=20260613-portfolio-prices";
+import { acaMagiForIncome, federalAgiForIncome, incomeForYear, irmaaMagiForIncome, lossCarryforwardTotal, normalizeLossCarryforward, taxProfileForSimulationYear } from "./income.mjs?v=20260613-tips-coupon";
 import { incomeStreamsForYear } from "./incomeStreams.mjs";
 import { summarizeAssetClassReturns } from "./market.mjs";
 import { computeAcaForYear, emptyMedicareCost, ltcStressCostForYear, medicalCostForYear } from "./medical.mjs";
@@ -19,13 +19,13 @@ import { addTaxableCash, assetOwner, assetSnapshot, traditionalAccountValueByOwn
 import { householdRmdForYear } from "./rmd.mjs";
 import { isLifetimeOptimizerEnabled } from "./scenario.mjs";
 import { sequenceRiskReserveStateForYear } from "./sequenceRiskReserve.mjs";
-import { socialSecurityBenefitsForYear, spouseSocialSecurityBenefitsForYear } from "./socialSecurity.mjs?v=20260613-portfolio-prices";
+import { socialSecurityBenefitsForYear, spouseSocialSecurityBenefitsForYear } from "./socialSecurity.mjs?v=20260613-tips-coupon";
 import { plannedSpendingDetailForYear } from "./spending.mjs";
-import { buildTipsLadder, maintainTipsLadder, matureTipsLadderRungs, repriceTipsLadderRungs, tipsLadderConfig, tipsLadderValue } from "./tipsLadder.mjs";
-import { acaMagiCeiling, addPenaltyTax, automaticTaxLossHarvestLimit, effectiveRothConversionTargetRate, estimateTaxAttribution, gainHarvestingRoom, rothConversionAmountForYear, rothConversionMagiBuffer, strategyLimit } from "./taxStrategy.mjs?v=20260613-portfolio-prices";
-import { convertTraditionalToRoth, earlyWithdrawalPenaltyExceptionAmountForYear, emptyWithdrawal, mergeWithdrawals, rothBasisAvailableForWithdrawal, rothBasisSummaryForYear, withdrawForCash } from "./withdrawalExecution.mjs?v=20260613-portfolio-prices";
+import { buildTipsLadder, maintainTipsLadder, matureTipsLadderRungs, payTipsLadderCoupons, repriceTipsLadderRungs, tipsLadderConfig, tipsLadderValue } from "./tipsLadder.mjs";
+import { acaMagiCeiling, addPenaltyTax, automaticTaxLossHarvestLimit, effectiveRothConversionTargetRate, estimateTaxAttribution, gainHarvestingRoom, rothConversionAmountForYear, rothConversionMagiBuffer, strategyLimit } from "./taxStrategy.mjs?v=20260613-tips-coupon";
+import { convertTraditionalToRoth, earlyWithdrawalPenaltyExceptionAmountForYear, emptyWithdrawal, mergeWithdrawals, rothBasisAvailableForWithdrawal, rothBasisSummaryForYear, withdrawForCash } from "./withdrawalExecution.mjs?v=20260613-tips-coupon";
 import { forcedWithdrawalOrder, isBeforePenaltyAge, normalizedWithdrawalOrder, optimizedRothProceedsLimit, rothFirstWithdrawalOrder } from "./withdrawalOrders.mjs";
-import { chooseWithdrawalPlan, evaluateWithdrawalPlan } from "./withdrawalPlanning.mjs?v=20260613-portfolio-prices";
+import { chooseWithdrawalPlan, evaluateWithdrawalPlan } from "./withdrawalPlanning.mjs?v=20260613-tips-coupon";
 
 export function simulateYear({
   portfolio,
@@ -118,13 +118,19 @@ export function simulateYear({
   const ownerAges = { primary: age, spouse: Number.isFinite(spouseAge) ? spouseAge : age };
   const beginningAssets = assetSnapshot(portfolio);
   const dividends = applyTotalReturnsWithIncome(portfolio, returnByAssetClass);
-  // Deterministic repricing for TIPS ladder rungs (skipped by the sampled
-  // growth pass above): locked real yield compounding against the cumulative
-  // inflation index, so each rung is worth face × inflationIndex at maturity.
-  repriceTipsLadderRungs(portfolio, { scenario, yearIndex, inflationIndex });
+  // Deterministic repricing for TIPS ladder rungs (skipped by the sampled growth
+  // pass above): rungs are PAR coupon bonds tracking the inflation-adjusted
+  // principal. The taxable inflation adjustment is ordinary phantom income this
+  // year even without a sale; sheltered rungs accrue nothing here.
+  const tipsLadderPhantomIncome = repriceTipsLadderRungs(portfolio, { yearIndex, inflationIndex });
+  // Pay this year's real-yield COUPON on every rung. Taxable-rung coupons are
+  // spendable household cash taxed as ordinary interest; sheltered-rung coupons
+  // are deposited as cash inside their own account (tax-deferred, usable there).
+  const tipsLadderCoupons = payTipsLadderCoupons(portfolio, { scenario, inflationIndex });
+  const tipsLadderCouponCash = round(tipsLadderCoupons?.taxableCouponCash ?? 0, 6);
   const afterReturnPortfolioValue = portfolioValue(portfolio);
 
-  const flows = [...dividends.flows];
+  const flows = [...dividends.flows, ...(tipsLadderCoupons?.flows ?? [])];
   const oneOffCashFlows = oneOffCashFlowsForYear(scenario, yearIndex + 1, inflationIndex);
   const recurringEarnedIncome = earnedIncomeForYear(scenario, inflationIndex, { primaryDeceased, spouseDeceased });
   const earnedIncome = mergeEarnedIncome(recurringEarnedIncome, oneOffCashFlows.earnedIncome);
@@ -134,9 +140,17 @@ export function simulateYear({
   // eligible amounts also count as retirement ordinary income so state
   // pension/IRA exclusions apply.
   const streamIncome = incomeStreamsForYear({ scenario, yearIndex, inflationIndex });
-  const incomeCashAvailable = round(recurringEarnedIncome.cash + oneOffCashFlows.income + streamIncome.cash, 6);
-  let ordinaryIncome = dividends.ordinaryDividends + earnedIncome.ordinaryIncome + oneOffCashFlows.taxableOrdinaryIncome + streamIncome.ordinaryIncome;
+  // Taxable-rung coupon cash joins the year's available income cash so it offsets
+  // withdrawals (free for spending or rebalancing); sheltered coupons stayed in
+  // their account above and are NOT household cash.
+  const incomeCashAvailable = round(recurringEarnedIncome.cash + oneOffCashFlows.income + streamIncome.cash + tipsLadderCouponCash, 6);
+  let ordinaryIncome = dividends.ordinaryDividends + earnedIncome.ordinaryIncome + oneOffCashFlows.taxableOrdinaryIncome + streamIncome.ordinaryIncome + tipsLadderPhantomIncome + tipsLadderCouponCash;
   let qualifiedDividends = dividends.qualifiedDividends;
+  // Non-qualified dividends, taxable TIPS phantom income, AND taxable TIPS coupon
+  // interest are ordinary income that is ALSO net investment income for NIIT —
+  // the same channel threaded wherever `ordinaryInvestmentIncome` is used. (Both
+  // TIPS amounts are clamped at the source so they never go negative.)
+  const ordinaryInvestmentIncome = round(dividends.ordinaryDividends + tipsLadderPhantomIncome + tipsLadderCouponCash, 6);
   const hsaContribution = hsaContributionForYear({
     scenario,
     age,
@@ -366,7 +380,7 @@ export function simulateYear({
     acaConfig: yearAcaConfig,
     ordinaryIncome,
     earnedIncome,
-    ordinaryInvestmentIncome: dividends.ordinaryDividends,
+    ordinaryInvestmentIncome,
     qualifiedDividends,
     adjustmentsToIncome,
     socialSecurityBenefits,
@@ -452,7 +466,7 @@ export function simulateYear({
         ordinaryIncome: ordinaryIncome + passOneConversion,
         earnedIncome,
         retirementOrdinaryIncome: passOneConversion + streamIncome.retirementOrdinaryIncome,
-        ordinaryInvestmentIncome: dividends.ordinaryDividends,
+        ordinaryInvestmentIncome,
         qualifiedDividends,
         adjustmentsToIncome,
         strategyShortTermGains,
@@ -599,7 +613,7 @@ export function simulateYear({
         ordinaryIncome,
         earnedIncome,
         retirementOrdinaryIncome: retirementOrdinaryIncomeBase,
-        ordinaryInvestmentIncome: dividends.ordinaryDividends,
+        ordinaryInvestmentIncome,
         qualifiedDividends,
         adjustmentsToIncome,
         strategyShortTermGains,
@@ -665,7 +679,7 @@ export function simulateYear({
         ordinaryIncome,
         earnedIncome,
         retirementOrdinaryIncome: retirementOrdinaryIncomeBase,
-        ordinaryInvestmentIncome: dividends.ordinaryDividends,
+        ordinaryInvestmentIncome,
         qualifiedDividends,
         strategyShortTermGains,
         strategyLongTermGains,
@@ -692,7 +706,7 @@ export function simulateYear({
       ordinaryIncome,
       earnedIncome,
       retirementOrdinaryIncome: retirementOrdinaryIncomeBase,
-      ordinaryInvestmentIncome: dividends.ordinaryDividends,
+      ordinaryInvestmentIncome,
       qualifiedDividends,
       adjustmentsToIncome,
       strategyShortTermGains,
@@ -717,7 +731,7 @@ export function simulateYear({
         ordinaryIncome,
         earnedIncome,
         retirementOrdinaryIncome: retirementOrdinaryIncomeBase,
-        ordinaryInvestmentIncome: dividends.ordinaryDividends,
+        ordinaryInvestmentIncome,
         qualifiedDividends,
         adjustmentsToIncome,
         strategyShortTermGains,
@@ -781,7 +795,7 @@ export function simulateYear({
     ordinaryIncome,
     earnedIncome,
     retirementOrdinaryIncome: retirementOrdinaryIncomeBase,
-    ordinaryInvestmentIncome: dividends.ordinaryDividends,
+    ordinaryInvestmentIncome,
     qualifiedDividends,
     adjustmentsToIncome,
     strategyShortTermGains,
@@ -817,7 +831,7 @@ export function simulateYear({
     ordinaryIncome,
     earnedIncome,
     retirementOrdinaryIncome: retirementOrdinaryIncomeBase,
-    ordinaryInvestmentIncome: dividends.ordinaryDividends,
+    ordinaryInvestmentIncome,
     qualifiedDividends,
     adjustmentsToIncome,
     strategyShortTermGains,
@@ -1114,6 +1128,13 @@ export function simulateYear({
     tipsLadder: tipsLadderConfig(scenario).enabled ? {
       value: tipsLadderValue(portfolio),
       maturedCash: round(tipsLadderMaturity?.maturedCash ?? 0, 6),
+      // Ordinary "phantom" income recognized on taxable rungs this year (the
+      // inflation adjustment to principal), owed without any cash changing hands.
+      phantomIncome: round(tipsLadderPhantomIncome, 6),
+      // Real-yield coupon paid in cash this year: taxable-rung coupons are
+      // spendable household income; sheltered-rung coupons stay in their account.
+      couponIncome: round((tipsLadderCoupons?.taxableCouponCash ?? 0) + (tipsLadderCoupons?.shelteredCouponCash ?? 0), 6),
+      taxableCouponCash: round(tipsLadderCoupons?.taxableCouponCash ?? 0, 6),
       build: tipsLadderBuild ? {
         requestedYears: tipsLadderBuild.requestedYears,
         fundedYears: tipsLadderBuild.fundedYears,

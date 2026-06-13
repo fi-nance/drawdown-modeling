@@ -76,21 +76,115 @@ export function isTipsLadderRung(asset) {
   return asset?.tipsLadderYear != null;
 }
 
+// The value of the ladder's BONDS (the rungs). Coupon cash a rung has thrown
+// off is deliberately NOT counted here — once paid, it is ordinary account cash
+// (reported separately as couponIncome, and included in portfolioValue / heir /
+// RMD math like any other cash), not part of the held-to-maturity ladder.
 export function tipsLadderValue(portfolio = []) {
   return round(portfolio
     .filter((asset) => isTipsLadderRung(asset))
     .reduce((total, asset) => total + marketValue(asset), 0), 6);
 }
 
-// Deterministic annual repricing from the closed form. Called once per
-// simulated year right after market returns are applied (which skip rungs).
-export function repriceTipsLadderRungs(portfolio, { scenario, yearIndex, inflationIndex }) {
-  const { realYield } = tipsLadderConfig(scenario);
+// Deterministic annual repricing. Called once per simulated year right after
+// market returns are applied (which skip rungs). Rungs are PAR coupon bonds:
+// the price tracks the inflation-adjusted principal (real face × cumulative
+// inflation index) and the locked real yield is paid out as a cash coupon (see
+// payTipsLadderCoupons), NOT baked into price accretion.
+//
+// Returns the year's TAXABLE-rung phantom income: the annual inflation
+// adjustment to a taxable rung's principal is ORDINARY income (OID) every year,
+// owed even though no cash is received until maturity. We recognize it annually
+// and step the rung's basis up to match, so the eventual sale/maturity realizes
+// ~0 capital gain. The accretion is floored at zero so a deflation year never
+// steps basis backward (which would manufacture a spurious gain on the later
+// recovery); a net-negative inflation adjustment reduces the year's interest in
+// reality, never an unrelated deduction. Sheltered rungs accrue no annual tax.
+export function repriceTipsLadderRungs(portfolio, { yearIndex, inflationIndex }) {
+  let taxablePhantomIncome = 0;
   for (const asset of portfolio) {
     if (!isTipsLadderRung(asset)) continue;
-    const yearsToMaturity = Math.max(0, Number(asset.tipsLadderYear) - yearIndex);
-    asset.price = round(Math.max(0, inflationIndex) / Math.pow(1 + realYield, yearsToMaturity), 8);
+    // Par value = inflation-adjusted principal per unit of real face.
+    const newPrice = round(Math.max(0, inflationIndex), 8);
+    if (asset.accountType === "taxable") {
+      const accretion = Math.max(0, (newPrice - Math.max(0, asset.price ?? 0)) * Math.max(0, asset.units ?? 0));
+      if (accretion > 0) {
+        taxablePhantomIncome = round(taxablePhantomIncome + accretion, 6);
+        // Basis tracks the taxed accretion (monotonic) so a later sale has ~0 gain.
+        asset.costBasisPerUnit = newPrice;
+      }
+    }
+    asset.price = newPrice;
   }
+  return round(taxablePhantomIncome, 6);
+}
+
+// Annual coupon = locked real yield × inflation-adjusted principal, paid in cash
+// on every rung. Mutates the portfolio for SHELTERED rungs (the coupon is
+// deposited as cash inside the same account+owner) and RETURNS the taxable-rung
+// coupon total for the caller to add to household spendable cash and ordinary
+// (interest) income.
+//
+// By design the coupon cash is ORDINARY account cash from this point on: only
+// the rungs themselves are carved out of rebalancing / asset-location / Roth
+// conversions, NOT the cash they throw off. So a sheltered coupon-cash lot is
+// a normal defensive-cash holding — free to be rebalanced (per the allocation
+// strategy), counted in the sequence-risk reserve and RMD base, withdrawn, or
+// bequeathed — exactly the "usable for rebalancing or other purposes" behavior
+// the coupon model is meant to provide.
+export function payTipsLadderCoupons(portfolio, { scenario, inflationIndex }) {
+  const { realYield } = tipsLadderConfig(scenario);
+  const couponRate = Math.max(0, realYield); // a negative real yield pays no coupon
+  if (!(couponRate > 0)) return { taxableCouponCash: 0, shelteredCouponCash: 0, flows: [] };
+
+  let taxableCouponCash = 0;
+  let shelteredCouponCash = 0;
+  const shelteredByAccount = new Map();
+  for (const asset of portfolio) {
+    if (!isTipsLadderRung(asset)) continue;
+    const coupon = round(couponRate * marketValue(asset), 6);
+    if (!(coupon > 0)) continue;
+    if (asset.accountType === "taxable") {
+      taxableCouponCash = round(taxableCouponCash + coupon, 6);
+    } else {
+      const owner = assetOwner(asset) === "spouse" ? "spouse" : "primary";
+      const key = `${asset.accountType}|${owner}`;
+      shelteredByAccount.set(key, round((shelteredByAccount.get(key) ?? 0) + coupon, 6));
+      shelteredCouponCash = round(shelteredCouponCash + coupon, 6);
+    }
+  }
+
+  const flows = [];
+  // Deposit each sheltered account's coupon into a reusable cash lot in that
+  // same account+owner so it compounds and stays available there.
+  for (const [key, amount] of shelteredByAccount) {
+    if (!(amount > 0)) continue;
+    const [accountType, owner] = key.split("|");
+    const lotId = `tips-coupon-cash-${accountType}${owner === "spouse" ? "-spouse" : ""}`;
+    let lot = portfolio.find((asset) => asset.id === lotId);
+    if (!lot) {
+      lot = {
+        id: lotId,
+        name: `TIPS coupon cash (${accountLabelFor(accountType)})`,
+        accountType,
+        assetClass: "cash",
+        beneficiaryType: "default",
+        units: 0,
+        price: 1,
+        costBasisPerUnit: 1,
+        holdingPeriod: "long",
+        dividendYield: 0
+      };
+      if (owner === "spouse") lot.owner = "spouse";
+      portfolio.push(lot);
+    }
+    lot.units = round(Math.max(0, lot.units ?? 0) + amount, 8);
+    flows.push({ from: "TIPS ladder coupons", to: `${accountLabelFor(accountType)} cash`, amount, type: "income" });
+  }
+  if (taxableCouponCash > 0) {
+    flows.push({ from: "TIPS ladder coupons", to: "Spending reserve", amount: taxableCouponCash, type: "income" });
+  }
+  return { taxableCouponCash, shelteredCouponCash, flows };
 }
 
 // One-time carve-out at plan start. Mutates the portfolio: shaves value off
@@ -115,7 +209,9 @@ export function buildTipsLadder({ portfolio, scenario, age, ownerAges = null, ba
   // Nearest rungs first: when the portfolio cannot fund the full ladder, the
   // early years — the ones that defuse sequence risk — win.
   for (let maturityYear = 1; maturityYear <= config.years; maturityYear += 1) {
-    const rungCost = round(annualRealAmount * inflationIndex / Math.pow(1 + config.realYield, maturityYear), 6);
+    // Par coupon bond: pay the inflation-adjusted principal up front (no
+    // zero-coupon discount), since the real yield is returned as a cash coupon.
+    const rungCost = round(annualRealAmount * inflationIndex, 6);
     const ageAtMaturity = (Number.isFinite(age) ? age : 0) + maturityYear;
     const accountOrder = ageAtMaturity < penaltyAge
       ? ["taxable", "roth", "traditional"]
@@ -322,7 +418,10 @@ export function maintainTipsLadder({ portfolio, scenario, age, ownerAges = null,
       const value = marketValue(asset);
       if (!(value > 0.000001)) continue;
       const newMaturity = yearIndex + config.years;
-      const growth = Math.pow(1 + config.realYield, config.years);
+      // Par coupon bonds: the matured principal rolls forward at par (real face
+      // preserved); the real yield is harvested as cash coupons each year, not
+      // accreted into the face — so no (1+y)^years growth.
+      const growth = 1;
       if (asset.accountType === "taxable") {
         // A taxable roll is a sale + repurchase: the accrued gain is realized
         // now and the new rung starts at a fresh basis.
@@ -381,7 +480,8 @@ export function maintainTipsLadder({ portfolio, scenario, age, ownerAges = null,
     ? REPLENISH_UP_CLASS_PRIORITY
     : FUNDING_CLASS_PRIORITY;
   for (const k of targets) {
-    const rungCost = round(face * inflationIndex / Math.pow(1 + config.realYield, k - yearIndex), 6);
+    // Par coupon bond: pay the inflation-adjusted principal up front (no discount).
+    const rungCost = round(face * inflationIndex, 6);
     const ageAtMaturity = (Number.isFinite(age) ? age : 0) + (k - yearIndex);
     const accountOrder = ageAtMaturity < penaltyAge
       ? ["taxable", "roth", "traditional"]

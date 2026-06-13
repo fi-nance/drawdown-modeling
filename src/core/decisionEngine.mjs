@@ -4,7 +4,7 @@ import {
   runHistoricalBacktests,
   runMonteCarlo,
   simulatePlan
-} from "./simulation.mjs?v=20260613-portfolio-prices";
+} from "./simulation.mjs?v=20260613-tips-coupon";
 import {
   buildRiskBasedGuardrailTable,
   RISK_BASED_GUARDRAILS_MODE,

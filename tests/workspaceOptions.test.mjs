@@ -6,13 +6,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { simulatePlan, runMonteCarlo, generateSingleMonteCarloPath } from "../src/core/simulation.mjs?v=20260613-portfolio-prices";
-import { withdrawForCash } from "../src/core/simulation/withdrawalExecution.mjs?v=20260613-portfolio-prices";
+import { simulatePlan, runMonteCarlo, generateSingleMonteCarloPath } from "../src/core/simulation.mjs?v=20260613-tips-coupon";
+import { withdrawForCash } from "../src/core/simulation/withdrawalExecution.mjs?v=20260613-tips-coupon";
 import { incomeStreamsForYear } from "../src/core/simulation/incomeStreams.mjs";
 import { householdRmdForYear } from "../src/core/simulation/rmd.mjs";
 import { mergeScenario } from "../src/core/simulation/scenario.mjs";
 import { applySurvivorBasisStepUp } from "../src/core/portfolio.mjs";
-import { computeIncomeTax } from "../src/core/tax.mjs?v=20260613-portfolio-prices";
+import { computeIncomeTax } from "../src/core/tax.mjs?v=20260613-tips-coupon";
 import { buildTaxProfile } from "../src/data/taxData.mjs";
 import { parsePortfolioCsv } from "../src/core/importers.mjs";
 import { createSetupBackup, parseSetupBackup } from "../src/core/setupBackup.mjs";
@@ -661,8 +661,10 @@ test("enabled tipsLadder builds the full ladder at year 0 and matures face × in
   assert.equal(build.requestedYears, 8);
   assert.equal(build.fundedYears, 8);
   assert.equal(build.shortfall, 0);
-  // Annuity closed form: 60000 × (1 − 1.02^−8) / 0.02 ≈ 439528.88643.
-  const expectedCost = 60000 * (1 - Math.pow(1.02, -8)) / 0.02;
+  // Par coupon bonds: total cost is 8 years of inflation-adjusted principal at
+  // the year-0 index (1.0) — 8 × 60000 — since the real yield is paid out as
+  // cash coupons rather than discounting the purchase price.
+  const expectedCost = 8 * 60000; // 480000
   assert.ok(Math.abs(build.totalCost - expectedCost) <= 0.001);
   assert.ok(plan.years[0].tipsLadder.value > 0);
   assert.ok(Math.abs(plan.years[0].tipsLadder.value - expectedCost) <= 0.001);

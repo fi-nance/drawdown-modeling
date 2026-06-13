@@ -30,6 +30,7 @@ import { mergeScenario } from "../src/core/simulation/scenario.mjs";
 import {
   buildTipsLadder,
   isTipsLadderRung,
+  payTipsLadderCoupons,
   repriceTipsLadderRungs,
   tipsLadderConfig,
   tipsLadderValue
@@ -149,8 +150,10 @@ test("buildTipsLadder creates tagged rung lots and reprices on the closed form",
   assert.equal(build.requestedYears, 2);
   assert.equal(build.fundedYears, 2);
   assert.equal(build.shortfall, 0);
-  // Rung cost = face / (1+realYield)^k.
-  assertClose(build.totalCost, 10000 / 1.02 + 10000 / (1.02 ** 2), 0.001);
+  // Par coupon bonds: each rung costs its inflation-adjusted principal (face ×
+  // inflationIndex), no zero-coupon discount, since the real yield is paid as a
+  // cash coupon rather than baked into the purchase price.
+  assertClose(build.totalCost, 10000 + 10000, 0.001);
 
   const rungs = portfolio.filter((asset) => isTipsLadderRung(asset));
   assert.equal(rungs.length, 2);
@@ -163,13 +166,18 @@ test("buildTipsLadder creates tagged rung lots and reprices on the closed form",
   assert.equal(isTipsLadderRung(portfolio[0]), false);
   assertClose(tipsLadderValue(portfolio), build.totalCost, 0.001);
 
-  // Deterministic repricing: at yearIndex 1 with cumulative inflation 1.03,
-  // the maturing rung is worth exactly face × inflationIndex; the year-2 rung
-  // is discounted one year at the locked real yield.
-  repriceTipsLadderRungs(portfolio, { scenario, yearIndex: 1, inflationIndex: 1.03 });
+  // Deterministic repricing: at cumulative inflation 1.03 every rung is worth
+  // exactly its inflation-adjusted principal (face × inflationIndex) — par,
+  // with no real-yield discounting (the yield comes out as coupons).
+  repriceTipsLadderRungs(portfolio, { yearIndex: 1, inflationIndex: 1.03 });
   const [rung1, rung2] = rungs;
   assertClose(rung1.price * rung1.units, 10300, 0.001);
-  assertClose(rung2.price * rung2.units, 10000 * 1.03 / 1.02, 0.001);
+  assertClose(rung2.price * rung2.units, 10300, 0.001);
+
+  // The locked 2% real yield is paid as a cash coupon on the inflation-adjusted
+  // principal — usable, taxable income, not trapped in the bond.
+  const coupons = payTipsLadderCoupons(portfolio, { scenario, inflationIndex: 1.03 });
+  assertClose(coupons.taxableCouponCash, 0.02 * (10300 + 10300), 0.001);
 });
 
 // ─── Golden ladder math (verified reference numbers) ─────────────────────────
@@ -178,8 +186,10 @@ test("golden: 8-year $60k ladder build cost, value path, and maturities", () => 
   const plan = simulatePlan({ assets: goldenAssets(), scenario: goldenScenario(), taxProfile: goldenProfile() });
   const year0 = plan.years[0];
 
-  // Build: annuity-style total cost 60000 × (1 − 1.02^−8) / 0.02.
-  const expectedTotalCost = 60000 * (1 - Math.pow(1.02, -8)) / 0.02; // ≈ 439528.88643
+  // Build: par coupon bonds — total cost is 8 years of inflation-adjusted
+  // principal at the year-0 index (1.0), i.e. 8 × 60000. The real yield is paid
+  // out as cash coupons over the life rather than discounting the purchase.
+  const expectedTotalCost = 8 * 60000; // 480000
   assert.equal(year0.tipsLadder.build.requestedYears, 8);
   assert.equal(year0.tipsLadder.build.fundedYears, 8);
   assert.equal(year0.tipsLadder.build.annualRealAmount, 60000);
@@ -277,15 +287,19 @@ test("rungs maturing before 59.5 fund taxable-first and mature penalty-free", ()
     assert.equal(rung.accountType, "taxable", `${rung.id} placed taxable to avoid the early-withdrawal penalty`);
   }
 
-  // Maturity at age 51: a taxable capital-gains sale, no penalty.
+  // Maturity at age 51: penalty-free, and a ~0-gain sale. The rung is a par
+  // coupon bond, so with zero inflation its principal doesn't change (no phantom
+  // income) and the maturity returns par at ~0 capital gain — the locked 2% real
+  // yield was paid out as a usable cash coupon along the way instead.
   const year1 = plan.years[1];
   assert.equal(year1.tipsLadder.maturedCash, 40000);
   assert.equal(year1.penaltyTax, 0);
   assert.equal(year1.penaltyBase, 0);
+  assert.ok(year1.tipsLadder.taxableCouponCash > 0, "the real yield is paid as a usable, taxable cash coupon");
   const rungSale = year1.sales.find((sale) => String(sale.assetId).startsWith("tips-ladder-"));
   assert.ok(rungSale, "maturity sells through the withdrawal machinery");
   assert.equal(rungSale.accountType, "taxable");
-  assert.equal(rungSale.taxType, "capital-gains");
+  assert.equal(rungSale.taxType, "none");
 });
 
 test("taxable ladder funding is attributed to the ladder, not gain harvesting", () => {
@@ -349,46 +363,109 @@ test("rungs maturing after 59.5 fund traditional-first and mature as ordinary in
   assertClose(year1.federalAgi, 40000, 0.01);
 });
 
+test("the real-yield coupon is taxed on taxable rungs every year, but not on sheltered rungs", () => {
+  const base = {
+    currentAge: 62,
+    planYears: 4,
+    targetSpend: 0,
+    returnAssumptions: deterministicAssumptions({ inflationMean: 0 }),
+    tipsLadder: { enabled: true, years: 3, annualRealAmount: 40000, realYieldPercent: 2 }
+  };
+
+  // Sheltered (Roth) rungs: the coupon is reinvested as cash INSIDE the Roth, so
+  // it is never taxable income (and, with zero inflation, there is no phantom
+  // income either).
+  const roth = simulatePlan({
+    assets: [{ id: "roth-cash", accountType: "roth", assetClass: "cash", units: 1500000, price: 1, costBasisPerUnit: 1 }],
+    scenario: quietScenario(base),
+    taxProfile: flatZeroSingleProfile()
+  });
+  assert.ok(rungLots(roth.years[0].assets).every((rung) => rung.accountType === "roth"));
+  for (let k = 1; k <= 3; k += 1) {
+    assert.equal(roth.years[k].tipsLadder.phantomIncome, 0, `Roth rung accrues no phantom income (year ${k})`);
+    assert.equal(roth.years[k].federalAgi, 0, `Roth ladder produces no taxable income (year ${k})`);
+  }
+
+  // Taxable rungs: the locked 2% real yield is paid as a cash coupon and taxed as
+  // ordinary interest every year. With zero inflation (no phantom income), zero
+  // spending and 0-gain maturities, that coupon is the ONLY thing in AGI —
+  // proving the real yield is realized as usable, taxed cash, not trapped.
+  const taxable = simulatePlan({
+    assets: [{ id: "tx-cash", accountType: "taxable", assetClass: "cash", units: 1500000, price: 1, costBasisPerUnit: 1 }],
+    scenario: quietScenario(base),
+    taxProfile: flatZeroSingleProfile()
+  });
+  assert.ok(rungLots(taxable.years[0].assets).every((rung) => rung.accountType === "taxable"));
+  for (let k = 1; k <= 3; k += 1) {
+    const y = taxable.years[k];
+    assert.equal(y.tipsLadder.phantomIncome, 0, `no phantom income with zero inflation (year ${k})`);
+    assert.ok(y.tipsLadder.taxableCouponCash > 0, `the real yield is paid as a taxable cash coupon (year ${k})`);
+    assertClose(y.federalAgi, y.tipsLadder.taxableCouponCash, 0.01, `the coupon is the only taxed income (year ${k})`);
+  }
+});
+
+test("sheltered rungs pay their coupon into in-account cash, and the build year pays none", () => {
+  const plan = simulatePlan({
+    assets: [{ id: "trad-cash", accountType: "traditional", assetClass: "cash", units: 2000000, price: 1, costBasisPerUnit: 1 }],
+    scenario: quietScenario({
+      currentAge: 65,
+      planYears: 5,
+      targetSpend: 20000,
+      returnAssumptions: deterministicAssumptions({ inflationMean: 0 }),
+      tipsLadder: { enabled: true, years: 3, annualRealAmount: 30000, realYieldPercent: 2 }
+    }),
+    taxProfile: flatZeroSingleProfile()
+  });
+
+  // Year 0 is the build year — rungs are created AFTER the coupon step, so no
+  // coupon is paid (and none would be on bonds bought that instant anyway).
+  assert.equal(plan.years[0].tipsLadder.couponIncome, 0);
+
+  // Year 1: 3 par rungs of 30000 each → a 2% coupon on 90000 = 1800, entirely
+  // sheltered (a traditional rung's coupon is not household cash).
+  assertClose(plan.years[1].tipsLadder.couponIncome, 1800, 0.5);
+  assert.equal(plan.years[1].tipsLadder.taxableCouponCash, 0);
+
+  // The coupon is deposited as ordinary cash inside the traditional account —
+  // a growing, rebalanceable/withdrawable lot, not trapped in the bond.
+  const couponLot = plan.years[2].assets.find((asset) => String(asset.id).startsWith("tips-coupon-cash-traditional"));
+  assert.ok(couponLot && couponLot.units > 0, "sheltered coupon accrues to an in-account cash lot");
+  assert.equal(couponLot.accountType, "traditional");
+  assert.equal(couponLot.assetClass, "cash");
+});
+
 // ─── RMD credit ──────────────────────────────────────────────────────────────
 
 test("traditional maturities credit against the forced RMD instead of stacking on it", () => {
-  // Age 74, RMD already active. Inflation 0 + cash mean 2% + real yield 2%
-  // keep the traditional balance path identical with and without the ladder,
-  // so per-year RMD requirements line up exactly.
-  const assets = () => [
-    { id: "trad-cash", accountType: "traditional", assetClass: "cash", units: 2000000, price: 1, costBasisPerUnit: 1 },
-    { id: "tx-cash", accountType: "taxable", assetClass: "cash", units: 500000, price: 1, costBasisPerUnit: 1 }
-  ];
-  const base = quietScenario({
-    currentAge: 74,
-    planYears: 6,
-    targetSpend: 20000,
-    returnAssumptions: deterministicAssumptions({ inflationMean: 0 })
-  });
-  const taxProfile = flatZeroSingleProfile();
-  const without = simulatePlan({ assets: assets(), scenario: base, taxProfile });
+  // Age 74, RMD already active. A traditional rung's maturity is itself a
+  // distribution, so it COUNTS toward the year's RMD: the forced (non-rung) sale
+  // shrinks by exactly the maturity, and the household is never forced to
+  // distribute requirement + maturity.
   const withLadder = simulatePlan({
-    assets: assets(),
-    scenario: { ...base, tipsLadder: { enabled: true, years: 4, annualRealAmount: 20000, realYieldPercent: 2 } },
-    taxProfile
+    assets: [
+      { id: "trad-cash", accountType: "traditional", assetClass: "cash", units: 2000000, price: 1, costBasisPerUnit: 1 },
+      { id: "tx-cash", accountType: "taxable", assetClass: "cash", units: 500000, price: 1, costBasisPerUnit: 1 }
+    ],
+    scenario: quietScenario({
+      currentAge: 74,
+      planYears: 6,
+      targetSpend: 20000,
+      returnAssumptions: deterministicAssumptions({ inflationMean: 0 }),
+      tipsLadder: { enabled: true, years: 4, annualRealAmount: 20000, realYieldPercent: 2 }
+    }),
+    taxProfile: flatZeroSingleProfile()
   });
 
   for (let k = 1; k <= 4; k += 1) {
     const on = withLadder.years[k];
-    const off = without.years[k];
-    assertClose(on.rmdRequired, off.rmdRequired, 0.001, `same RMD requirement (year ${k})`);
     assert.equal(on.tipsLadder.maturedCash, 20000);
-    // RMD > maturity: forced sale shrinks by exactly the maturity, so the
-    // total traditional distribution equals the requirement — not required +
-    // maturity.
+    // The maturity covers part of the RMD, so the forced sale is positive but
+    // strictly below the requirement.
+    assert.ok(on.rmdAmount > 0 && on.rmdAmount < on.rmdRequired, `maturity covers part of the RMD (year ${k})`);
+    // No double-forcing: forced sale + maturity equals the requirement exactly,
+    // not requirement + maturity.
     assertClose(on.rmdAmount + on.tipsLadder.maturedCash, on.rmdRequired, 0.001, `no double-forcing (year ${k})`);
-    assert.ok(on.rmdAmount <= off.rmdAmount + 0.001, `ladder never increases the forced RMD sale (year ${k})`);
-    // Ordinary-income consistency: total traditional distributions match, so
-    // AGI matches the no-ladder plan.
-    assertClose(on.federalAgi, off.federalAgi, 0.001, `AGI consistency (year ${k})`);
   }
-  // rmdAmount excludes the ladder cash; the year result carries it separately.
-  assert.ok(withLadder.years[1].rmdAmount < withLadder.years[1].rmdRequired);
 });
 
 test("spouse-owned traditional maturities credit against the spouse RMD bucket", () => {
@@ -608,7 +685,7 @@ test("maintenance defaults: no mode → maintenance null everywhere, ladder depl
   }
   // …and the ladder builds once and depletes (the pre-maintenance behavior).
   assert.deepEqual(ladderTrace(plan), {
-    value: [236, 194, 150, 103, 53, 0, 0, 0, 0],
+    value: [250, 204, 156, 106, 54, 0, 0, 0, 0],
     maturedCash: [0, 51, 52, 53, 54, 55, 0, 0, 0]
   });
 
@@ -634,7 +711,7 @@ test("maintenance defaults: no mode → maintenance null everywhere, ladder depl
 test("always: one new far rung per year — coverage and maturities never lapse", () => {
   const plan = runMaintenance({ ladder: { maintenanceMode: "always" } });
   assert.deepEqual(ladderTrace(plan), {
-    value: [236, 240, 245, 250, 255, 260, 265, 271, 276],
+    value: [250, 255, 260, 265, 271, 276, 282, 287, 293],
     maturedCash: [0, 51, 52, 53, 54, 55, 56, 57, 59]
   });
   // Maintenance never runs on year 0, even with a mode set.
@@ -661,7 +738,7 @@ test("always: one new far rung per year — coverage and maturities never lapse"
 test("stocks-up without catch-up: stress years skip purchases and leave permanent gaps", () => {
   const plan = runMaintenance({ ladder: { maintenanceMode: "stocks-up", replenishCatchUp: false } });
   assert.deepEqual(ladderTrace(plan), {
-    value: [236, 194, 150, 103, 102, 101, 156, 214, 276],
+    value: [250, 204, 156, 106, 108, 110, 169, 230, 293],
     maturedCash: [0, 51, 52, 53, 54, 55, 0, 0, 0]
   });
   // Stress years 1-3 (-15% <= trigger 0): no purchase at all.
@@ -688,7 +765,7 @@ test("stocks-up without catch-up: stress years skip purchases and leave permanen
 test("stocks-up with catch-up (the merged default): the first up year buys back every missed rung", () => {
   const explicit = runMaintenance({ ladder: { maintenanceMode: "stocks-up", replenishCatchUp: true } });
   assert.deepEqual(ladderTrace(explicit), {
-    value: [236, 194, 150, 103, 255, 260, 265, 271, 276],
+    value: [250, 204, 156, 106, 271, 276, 282, 287, 293],
     maturedCash: [0, 51, 52, 53, 54, 55, 56, 57, 59]
   });
   // Year 4 — the first recovery year — catches up all three missed rungs
@@ -711,7 +788,7 @@ test("stocks-up with catch-up (the merged default): the first up year buys back 
 test("spend-on-stress: maturing rungs are spent in stress years and rolled forward otherwise", () => {
   const plan = runMaintenance({ ladder: { maintenanceMode: "spend-on-stress" } });
   assert.deepEqual(ladderTrace(plan), {
-    value: [236, 194, 150, 103, 107, 112, 116, 121, 126],
+    value: [250, 204, 156, 106, 108, 110, 113, 115, 117],
     maturedCash: [0, 51, 52, 53, 0, 0, 0, 0, 0]
   });
   // Stress years 1-3: the maturing rung is consumed normally — and the mode
@@ -746,10 +823,13 @@ test("spend-on-stress: maturing rungs are spent in stress years and rolled forwa
   assert.ok(ratio > 1 && ratio < 1.06, `value continuity across the roll (ratio ${ratio})`);
 });
 
-test("taxable rolls realize the rung's accrued gain and reset its basis", () => {
+test("taxable rolls realize ~0 capital gain because accretion is taxed annually as phantom income", () => {
   // Taxable-only portfolio (age 65 prefers traditional space, but none
   // exists, so rungs land taxable), zero spending, all up years: every
-  // maturing rung rolls, and the rolls are the year's ONLY realized gains.
+  // maturing rung rolls. Because a taxable rung accretes ordinary phantom
+  // income each year (basis stepped up to match), the roll SALE realizes ~0
+  // capital gain — the appreciation was already taxed, year by year, not
+  // deferred to the roll.
   const plan = runMaintenance({
     assets: [{ id: "tx-stock", accountType: "taxable", assetClass: "stock", units: 1500000, price: 1, costBasisPerUnit: 1 }],
     ladder: { maintenanceMode: "spend-on-stress" },
@@ -760,32 +840,32 @@ test("taxable rolls realize the rung's accrued gain and reset its basis", () => 
     assert.equal(rung.accountType, "taxable", `${rung.id} lands taxable`);
   }
 
-  // Year 1: rung 1 (cost 50000 / 1.02, matured value 50000 × 1.02) rolls —
-  // the sale realizes its accrued long-term gain.
+  // Year 1: rung 1 (par cost 50000, matured value 50000 × 1.02) rolls. Its basis
+  // tracks the inflation accretion (taxed as phantom income), so the roll's
+  // realized capital gain is ~0 rather than the old deferred ≈1980 LTCG.
   const year1 = plan.years[1];
   assert.equal(year1.tipsLadder.maintenance.rolledCount, 1);
   assertClose(year1.tipsLadder.maintenance.rolledValue, 51000, 0.01);
-  const accruedGain = 50000 * 1.02 - 50000 / 1.02; // ≈ 1980.39
-  assertClose(year1.realizedLongTermGains, accruedGain, 0.01, "roll gain hits realized LTCG");
+  assertClose(year1.realizedLongTermGains, 0, 0.5, "roll realizes ~0 LTCG (accretion already taxed annually)");
+  // Taxable rungs recognize their inflation adjustment as phantom income AND pay
+  // the real yield as a cash coupon — both taxable, neither trapped in the bond.
+  assert.ok(year1.tipsLadder.phantomIncome > 0, "taxable rungs recognize the inflation accretion as phantom income");
+  assert.ok(year1.tipsLadder.taxableCouponCash > 0, "the real yield is paid as a cash coupon");
 
-  // The repurchase is a NEW lot at a fresh basis: face grows by (1+y)^years,
-  // value is preserved, embedded gain is zero.
+  // The repurchase is a NEW par lot at a fresh basis: the real face is PRESERVED
+  // (the yield is harvested as coupons, not accreted into face), value preserved,
+  // embedded gain zero.
   const rolled = year1.assets.find((asset) => asset.id === "tips-ladder-1-taxable-roll-1");
   assert.ok(rolled, "rolled rung repurchased as a new lot");
-  assertClose(rolled.units, 50000 * Math.pow(1.02, 5), 0.01, "real face grows by (1+y)^years");
+  assertClose(rolled.units, 50000, 0.01, "real face preserved at par (no (1+y)^years accretion)");
   assertClose(rolled.value, 51000, 0.01, "roll preserves the matured value");
   assertClose(rolled.unrealizedGain, 0, 0.01, "fresh basis after the roll");
 
-  // Year 6: that rolled rung matures again and re-rolls. Its realized gain is
-  // only the appreciation since the year-1 reset — NOT the cumulative gain
-  // since the original purchase.
+  // Year 6: that rolled rung matures again and re-rolls — again ~0 realized
+  // gain, because its interim (years 1→6) accretion was taxed annually.
   const year6 = plan.years[6];
   assert.equal(year6.tipsLadder.maintenance.rolledCount, 1);
-  const units = 50000 * Math.pow(1.02, 5);
-  const freshBasisGain = units * Math.pow(1.02, 6) - 51000; // ≈ 11168.72
-  const noResetGain = units * Math.pow(1.02, 6) - 50000 / 1.02; // ≈ 13149.11
-  assertClose(year6.realizedLongTermGains, freshBasisGain, 0.01, "second roll gains only post-reset appreciation");
-  assert.ok(year6.realizedLongTermGains < noResetGain - 1000, "basis reset: well below the no-reset gain");
+  assertClose(year6.realizedLongTermGains, 0, 0.5, "second roll also realizes ~0 LTCG");
 });
 
 test("trigger semantics: stress means stock return <= triggerStockReturnPercent", () => {
@@ -833,8 +913,8 @@ test("trigger semantics: stress means stock return <= triggerStockReturnPercent"
 
 test("replenishment after an up year harvests stock first", () => {
   // All up years, zero spending: year 1's only portfolio activity is the
-  // maintenance purchase of the new far rung (maturity year 6, cost
-  // 50000 × 1.02 / 1.02^5 ≈ 46192.27).
+  // maintenance purchase of the new far rung (maturity year 6) at par —
+  // its inflation-adjusted principal 50000 × 1.02 = 51000 (no discount).
   const plan = runMaintenance({
     ladder: { maintenanceMode: "always" },
     overrides: { targetSpend: 0 },
@@ -845,7 +925,7 @@ test("replenishment after an up year harvests stock first", () => {
   const year1 = plan.years[1];
   const maintenance = year1.tipsLadder.maintenance;
   assert.equal(maintenance.replenishedCount, 1);
-  assertClose(maintenance.replenishedCost, 50000 * 1.02 / Math.pow(1.02, 5), 0.01);
+  assertClose(maintenance.replenishedCost, 50000 * 1.02, 0.01);
 
   const stock0 = year0.assets.find((asset) => asset.id === "trad-stock");
   const bond0 = year0.assets.find((asset) => asset.id === "trad-bond");

@@ -2,13 +2,13 @@
 // Single responsibility: plan. No behavior changes — pure code movement.
 
 import { accountBreakdown, applySurvivorBasisStepUp, clonePortfolio, portfolioValue } from "../portfolio.mjs";
-import { DEFAULT_TAX_PROFILE } from "../tax.mjs?v=20260613-portfolio-prices";
+import { DEFAULT_TAX_PROFILE } from "../tax.mjs?v=20260613-tips-coupon";
 import { createRng, normalRandom, percentile, round } from "../utils.mjs";
 import { DEFAULT_MONTE_CARLO_RUNS, MONTE_CARLO_ASSUMPTION_PRESETS } from "./constants.mjs";
-import { estimateHeirValueBreakdown, inheritanceTaxStateForScenario } from "./heirEstate.mjs?v=20260613-portfolio-prices";
+import { estimateHeirValueBreakdown, inheritanceTaxStateForScenario } from "./heirEstate.mjs?v=20260613-tips-coupon";
 import { buildSurvivorTaxProfile, isMarriedFiling, mortalityStatus } from "./household.mjs";
 import { hsaStrategyConfig } from "./hsa.mjs";
-import { normalizeLossCarryforward } from "./income.mjs?v=20260613-portfolio-prices";
+import { normalizeLossCarryforward } from "./income.mjs?v=20260613-tips-coupon";
 import {
   annualInflation,
   annualMedicalInflation,
@@ -21,7 +21,7 @@ import { assetClassValue } from "./portfolioQueries.mjs";
 import { RISK_BASED_GUARDRAILS_MODE, riskBasedGuardrailSpendForYear } from "./riskBasedGuardrails.mjs";
 import { ensureReturnAssumptionsForAssets, mergeScenario } from "./scenario.mjs";
 import { advanceSpendingGuardrailMarketState, initialSpendingGuardrailMarketState, spendingGuardrailStateForYear, spendingStrategyConfig } from "./spending.mjs";
-import { buildPostMortalityYearResult, simulateYear } from "./yearEngine.mjs?v=20260613-portfolio-prices";
+import { buildPostMortalityYearResult, simulateYear } from "./yearEngine.mjs?v=20260613-tips-coupon";
 
 export function simulatePlan({
   assets,

@@ -6,8 +6,8 @@ import {
   runHistoricalBacktests,
   runMonteCarlo,
   simulatePlan
-} from "./simulation.mjs?v=20260613-portfolio-prices";
-import { runDecisionBatch } from "./decisionEngine.mjs?v=20260613-portfolio-prices";
+} from "./simulation.mjs?v=20260613-tips-coupon";
+import { runDecisionBatch } from "./decisionEngine.mjs?v=20260613-tips-coupon";
 
 const UI_MONTE_CARLO_TIMELINE_LIMIT = 5;
 
