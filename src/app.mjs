@@ -612,7 +612,7 @@ let rememberSetupEnabled = loadRememberSetupPreference();
 const PINNED_YEAR_STORAGE_KEY = "portfolio-success-lab:pinned-year-columns";
 const PINNED_ASSET_STORAGE_KEY = "portfolio-success-lab:pinned-asset-columns";
 // v2: the stored number changed meaning — it used to be a max-height CAP, now
-// it's an explicit resizable height (see restoreTableHeight). Bumping the key
+// it's an explicit resizable height (see capTableToContent). Bumping the key
 // discards pre-v2 cap values once so they aren't reinterpreted as fixed heights.
 const TABLE_HEIGHT_STORAGE_KEY = "portfolio-success-lab:table-heights-v2";
 const ASSET_SORT_STORAGE_KEY = "portfolio-success-lab:asset-sort";
@@ -681,19 +681,34 @@ function saveTableHeight(tableId, height) {
   } catch { /* ignore */ }
 }
 
-function restoreTableHeight(container, tableId) {
-  const heights = loadTableHeights();
-  const saved = heights[tableId];
-  if (saved && saved > 50) {
-    // Apply the user's chosen size as an explicit HEIGHT (not max-height) and
-    // drop the CSS 80vh cap so a height taller than the viewport is honored —
-    // otherwise the resize handle could only ever shrink the table. The pixel
-    // value persists across re-renders on the same element; runs before the
-    // rows are in the DOM, which is fine since it needs no content measurement.
-    container.style.maxHeight = "none";
-    container.style.height = `${saved}px`;
-    container._expectedTableHeight = saved;
-  }
+// Size a resizable pinnable table so the drag handle reveals rows — up to ALL
+// of them, even past the 80vh default — but can never open blank space below
+// the last row. Called AFTER the rows, pinned-column offsets, and the x-scroll
+// proxy are in the DOM, so the measured content height is complete.
+function capTableToContent(container, tableId) {
+  if (!container.querySelector("table")) return;
+  // Natural content height (rows + sticky resize hint + x-scroll proxy) with the
+  // caps lifted, measured synchronously between style writes so nothing flashes.
+  const prevHeight = container.style.height;
+  const prevMaxHeight = container.style.maxHeight;
+  container.style.height = "auto";
+  container.style.maxHeight = "none";
+  const content = Math.max(120, Math.ceil(container.scrollHeight));
+  container.style.maxHeight = prevMaxHeight;
+  container.style.height = prevHeight;
+
+  // Cap the resize at the content height: dragging taller now stops at "all rows
+  // visible" instead of growing blank space, and the cap can exceed 80vh so a
+  // long ledger is still freely expandable.
+  container.style.maxHeight = `${content}px`;
+  // Open at the user's saved size (clamped to content by max-height above), else
+  // fit content up to ~80vh so a 35-row ledger doesn't fill the screen on load.
+  const saved = loadTableHeights()[tableId];
+  const viewportCap = Math.round((window.innerHeight || 800) * 0.8);
+  container.style.height = `${saved && saved > 50 ? saved : Math.min(content, viewportCap)}px`;
+  // Record what we set so the resize observer below can tell our programmatic
+  // sizing apart from a genuine user drag.
+  container._expectedTableHeight = container.offsetHeight;
 }
 
 function loadRememberSetupPreference() {
@@ -2949,7 +2964,6 @@ function renderYearTable() {
   ]);
 
   els.yearTable.className = "pinnable-table-wrap";
-  restoreTableHeight(els.yearTable, "yearTable");
   els.yearTable.innerHTML = pinnableTableHtml(
     headers, rows, pinnedYearColumns, ALWAYS_PINNED_YEAR,
     (index) => `data-year-index="${index}" class="${index === selectedYearIndex ? "selected-row" : ""}"`
@@ -2968,6 +2982,7 @@ function renderYearTable() {
   bindResizeObserver(els.yearTable, "yearTable");
   bindPinnedOffsetRefresh(els.yearTable);
   addStickyHorizontalScrollbar(els.yearTable);
+  capTableToContent(els.yearTable, "yearTable");
 }
 
 function selectedMagiColumn() {
@@ -3037,7 +3052,6 @@ function renderAssetBreakdown() {
   ]);
 
   els.assetBreakdownTable.className = "pinnable-table-wrap";
-  restoreTableHeight(els.assetBreakdownTable, "assetBreakdown");
   els.assetBreakdownTable.innerHTML = pinnableTableHtml(
     assetHeaders, rows, pinnedAssetColumns, ALWAYS_PINNED_ASSET
   );
@@ -3047,6 +3061,7 @@ function renderAssetBreakdown() {
   bindResizeObserver(els.assetBreakdownTable, "assetBreakdown");
   bindPinnedOffsetRefresh(els.assetBreakdownTable);
   addStickyHorizontalScrollbar(els.assetBreakdownTable);
+  capTableToContent(els.assetBreakdownTable, "assetBreakdown");
 }
 
 function compareSortValues(a, b, numeric) {
@@ -5267,31 +5282,17 @@ function bindPinToggles(container, pinnedSet, alwaysPinned, storageKey, rerender
 
 function bindResizeObserver(container, tableId) {
   if (container._resizeCleanup) container._resizeCleanup();
-
-  // Once the rows are in the DOM, freeze the current auto height (which CSS has
-  // capped at 80vh) into an explicit, resizable height and lift the cap — so the
-  // drag handle can grow the table past 80vh, not only shrink it. Skipped when a
-  // saved/explicit height is already applied (restoreTableHeight) so we never
-  // stomp the user's choice. The pinned value equals the size already on screen,
-  // so the initial appearance is unchanged.
-  if (!container.style.height) {
-    const current = container.offsetHeight;
-    if (current > 50) {
-      container.style.maxHeight = "none";
-      container.style.height = `${current}px`;
-      container._expectedTableHeight = current;
-    }
-  }
-
+  // The explicit height + content-capped max-height are applied by
+  // capTableToContent() after the rows render; this observer only persists a
+  // genuine user drag of the resize handle.
   let debounce = null;
   const observer = new ResizeObserver(() => {
     clearTimeout(debounce);
     debounce = setTimeout(() => {
       const height = container.offsetHeight;
       if (height <= 50) return;
-      // Only a user drag of the resize handle should persist. Ignore reflows we
-      // caused ourselves (the pin above, restoreTableHeight, or content changing
-      // height) by comparing against the last height we set programmatically.
+      // Ignore reflows we caused ourselves (capTableToContent's sizing, or the
+      // content changing height) by comparing against the last height we set.
       if (container._expectedTableHeight != null && Math.abs(height - container._expectedTableHeight) < 4) {
         return;
       }
