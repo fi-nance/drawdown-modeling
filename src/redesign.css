@@ -543,10 +543,12 @@ body[data-screen="persona"]::before {
   background: transparent;
   accent-color: var(--teal);
 }
-/* The global `label { display: grid }` rule outranks the [hidden] UA default,
-   so labels we hide via the hidden attribute (e.g. spouse age for single
-   filers) need an explicit attribute-specificity override. */
-.wizard-screen label[hidden] { display: none; }
+/* Several wizard elements are toggled via the hidden attribute (the spouse-age
+   label, the Back/Continue nav buttons on the first/last steps), but their base
+   rules set an explicit `display` (label → grid, .cta-button/.subtle-button →
+   inline-flex) which outranks the [hidden] UA default. Enforce it here so a
+   hidden element actually disappears. */
+.wizard-screen [hidden] { display: none !important; }
 
 .wizard-step .check-row {
   font-size: 0.85rem;
