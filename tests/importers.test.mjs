@@ -116,6 +116,41 @@ test("row importer accepts traditional and roth 401k account labels", () => {
   assert.equal(result[1].accountType, "roth");
 });
 
+test("CSV importer carries the optional Symbol / ID column through", () => {
+  const result = parsePortfolioCsv([
+    "name,Ticker Symbol,accountType,assetClass,units,price",
+    "US Total Market,VTI,taxable,stock,100,287",
+    "I Bonds,2021-11,taxable,tips,10000,1.22",
+    "No identifier,,taxable,cash,1000,1"
+  ].join("\n"));
+
+  assert.equal(result[0].symbol, "VTI");
+  assert.equal(result[1].symbol, "2021-11");
+  // Blank symbols stay absent so saved JSON doesn't grow empty fields.
+  assert.equal("symbol" in result[2], false);
+  // "ticker" alone still maps to the NAME column (backwards compatibility).
+  const legacy = parsePortfolioCsv([
+    "ticker,accountType,assetClass,units,price",
+    "VTI,taxable,stock,100,287"
+  ].join("\n"));
+  assert.equal(legacy[0].name, "VTI");
+  assert.equal("symbol" in legacy[0], false);
+});
+
+test("importer gives same-named holdings distinct ids", () => {
+  // Asset ids key per-row UI state (price-refresh highlights), so duplicates
+  // from same-named rows must be disambiguated, not collapsed.
+  const result = parsePortfolioCsv([
+    "name,accountType,assetClass,units,price",
+    "Cash,taxable,cash,1000,1",
+    "Cash,traditional,cash,2000,1",
+    "Cash,roth,cash,3000,1"
+  ].join("\n"));
+  const ids = result.map((asset) => asset.id);
+  assert.equal(new Set(ids).size, ids.length, "all asset ids are unique");
+  assert.deepEqual(ids, ["cash", "cash-2", "cash-3"]);
+});
+
 test("CSV importer defaults blank optional numeric fields safely", () => {
   const result = parsePortfolioCsv([
     "name,accountType,assetClass,units,price,costBasisPerUnit,dividendYield,qualifiedDividendShare",

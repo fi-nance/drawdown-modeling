@@ -264,14 +264,16 @@
               </div>
               <div class="module-body">
                 <div id="assetTable" class="asset-table"></div>
-                <div class="button-row" style="display:flex;flex-wrap:wrap;gap:.5rem;margin-bottom:1rem;">
+                <div class="button-row" style="display:flex;flex-wrap:wrap;gap:.5rem;margin-bottom:.5rem;">
                   <button id="addAsset" class="ghost-button" type="button">+ Add account</button>
+                  <button id="refreshPrices" class="ghost-button" type="button" title="Fetch current prices for rows with a Symbol / ID. Rows that cannot update are highlighted with the reason.">↻ Refresh prices</button>
                   <label class="file-control" style="margin:0;">
                     <span>Import CSV</span>
                     <input id="csvFile" type="file" accept="text/csv,.csv">
                   </label>
                   <a class="button-link" href="./sample-portfolio-import.csv" download>Sample CSV</a>
                 </div>
+                <p class="assumption-note" style="margin-bottom:1rem;">Symbol / ID accepts a ticker (live quote or previous close), a Treasury TIPS CUSIP (inflation-adjusted principal at par; units = face ÷ $100), or an I-bond purchase month like 2021-11 (official redemption value computed locally; units = face value in dollars). Prices update only when you click refresh — never on their own — and rows that could not update are highlighted with the reason on hover.</p>
                 <div class="control-grid" style="border-top: 1px solid var(--border); padding-top: 1rem; margin-bottom: 1rem;">
                   <label><span>Roth contribution basis</span><input id="rothBasis" type="number" min="0" step="1000" value="60000"></label>
                 </div>
@@ -1235,7 +1237,7 @@
       <select id="viewMode"><option value="real" selected>Today's $</option><option value="nominal">Future $</option></select>
     </div>
 
-    <script type="module" src="./src/app.mjs?v=20260612-aca-conversions"></script>
-    <script type="module" src="./src/redesign.mjs?v=20260612-aca-conversions"></script>
+    <script type="module" src="./src/app.mjs?v=20260613-portfolio-prices"></script>
+    <script type="module" src="./src/redesign.mjs?v=20260613-portfolio-prices"></script>
   </body>
 </html>

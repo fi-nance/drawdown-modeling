@@ -4,7 +4,7 @@ import {
   runHistoricalBacktests,
   runMonteCarlo,
   simulatePlan
-} from "./simulation.mjs?v=20260612-aca-conversions";
+} from "./simulation.mjs?v=20260613-portfolio-prices";
 import {
   buildRiskBasedGuardrailTable,
   RISK_BASED_GUARDRAILS_MODE,
@@ -130,6 +130,10 @@ export function runDecisionBatch({
   const solverContext = { assets, scenario, taxProfile, runs, seed, sequences, profile, base, tracker };
 
   const safeSpending = findSafeSpendingBoundary(solverContext);
+  // The applyable boundary option rides in the rescue list; the summary tile
+  // keeps the numbers without duplicating a full candidate payload.
+  const safeSpendingOption = safeSpending?.option ?? null;
+  if (safeSpending) delete safeSpending.option;
 
   // The discretionary cut is the same lever a guardrails plan already owns,
   // so skip it as a distinct rescue when the base plan already guards spending.
@@ -171,6 +175,7 @@ export function runDecisionBatch({
   });
 
   const rescueOptions = [
+    safeSpendingOption,
     discretionaryCut,
     riskBasedGuardrails,
     guytonKlingerRescue,
@@ -843,7 +848,7 @@ export function scenarioWithSocialSecurityBridge(scenario = {}, claimAge = 70) {
   };
 }
 
-function findSafeSpendingBoundary({ assets, scenario, taxProfile, runs, seed, sequences, profile, tracker }) {
+function findSafeSpendingBoundary({ assets, scenario, taxProfile, runs, seed, sequences, profile, base, tracker }) {
   const requiredSpend = Math.max(0, Number(profile.requiredSpend) || 0);
   const flexibleSpend = Math.max(0, Number(profile.flexibleSpend) || 0);
   const currentTargetSpend = round(requiredSpend + flexibleSpend, 2);
@@ -915,8 +920,20 @@ function findSafeSpendingBoundary({ assets, scenario, taxProfile, runs, seed, se
   if (gap <= EPSILON) status = "headroom";
   else if (requiredUnsustainable) status = "required-unsustainable";
 
+  // The bisection probes above are solver internals; the user-facing rescue
+  // list gets exactly ONE spend-level option — the boundary itself — and only
+  // when it actually asks for a trim (with headroom there is nothing to apply).
+  const option = status === "headroom" || !base
+    ? null
+    : optionWithDelta(finalized, base, {
+      id: "safe-spend-boundary",
+      label: "Spend at the safe boundary",
+      status: meetsTarget(finalized, profile) ? "target-met" : "best-tested"
+    });
+
   return {
     available: true,
+    option,
     status,
     requiredSpend: round(requiredSpend, 2),
     flexibleSpend: round(flexibleSpend, 2),
@@ -1716,6 +1733,7 @@ function lifestyleCost(candidate) {
       return 2;
     case "discretionaryCut":
     case "magiSpendTrim":
+    case "safeSpending":
       return 1;
     default:
       return 0;

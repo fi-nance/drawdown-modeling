@@ -10,7 +10,51 @@ globalThis.document = {
   }
 };
 
-const { rescueChangeList, rescueOptimizationText } = await import("../src/redesign.mjs?rescue-comparison-text-test");
+const { rescueChangeList, rescueOptimizationText, rescueComparisonRows } = await import("../src/redesign.mjs?rescue-comparison-text-test");
+
+test("rescueComparisonRows hides solver probes and shows only finalized options", () => {
+  const decision = {
+    status: "ready",
+    // The engine still records every probe it tried for transparency...
+    testedRescueOptions: [
+      { id: "safe-spend-12000", kind: "safeSpending", sequence: 1 },
+      { id: "safe-spend-3000", kind: "safeSpending", sequence: 2 },
+      { id: "safe-spend-final", kind: "safeSpending", sequence: 3 },
+      { id: "income-bridge", kind: "incomeBridge", sequence: 4 }
+    ],
+    // ...but only the finalized, engine-sorted options are user-facing.
+    rescueOptions: [
+      { id: "safe-spend-boundary", kind: "safeSpending" },
+      { id: "income-bridge", kind: "incomeBridge" }
+    ]
+  };
+  const rows = rescueComparisonRows(decision);
+  assert.deepEqual(rows.map((row) => row.id), ["safe-spend-boundary", "income-bridge"]);
+  // Exactly one spend-level row — never the extreme bisection probes.
+  assert.equal(rows.filter((row) => row.kind === "safeSpending").length, 1);
+});
+
+test("rescueComparisonRows collapses streaming probes to one row per strategy", () => {
+  const decision = {
+    status: "running",
+    progress: {
+      candidates: [
+        // Safe-spending bisection probes are dropped entirely mid-solve.
+        { id: "safe-spend-90000", kind: "safeSpending" },
+        { id: "safe-spend-3000", kind: "safeSpending" },
+        // Discretionary-cut bisection: only the latest probe (the search's
+        // current frontier) survives, not every extreme intermediate value.
+        { id: "discretionary-max", kind: "discretionaryCut" },
+        { id: "discretionary-1", kind: "discretionaryCut" },
+        { id: "discretionary-2", kind: "discretionaryCut" },
+        { id: "income-bridge", kind: "incomeBridge" }
+      ]
+    }
+  };
+  const rows = rescueComparisonRows(decision);
+  // One row per kind: latest discretionaryCut + the income bridge; no safeSpending.
+  assert.deepEqual(rows.map((row) => row.id), ["discretionary-2", "income-bridge"]);
+});
 
 test("rescue comparison text names changed workspace knobs", () => {
   const baseScenario = {

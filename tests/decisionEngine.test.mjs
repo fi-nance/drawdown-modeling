@@ -924,6 +924,63 @@ test("decision batch surfaces a safe spending boundary and a failure diagnosis",
   assert.ok(["headroom", "trim-flexible", "required-unsustainable"].includes(decision.safeSpending.status));
   assert.equal(typeof decision.diagnosis.primary, "string");
   assert.ok(Array.isArray(decision.diagnosis.recommendedKinds));
+
+  // $1M cash funding 3 years of $600k spend cannot clear the target, so the
+  // boundary is a real trim recommendation. It must surface as EXACTLY ONE
+  // applyable rescue row — not the dozen bisection probes behind it — and the
+  // summary tile must not also carry the heavy candidate payload.
+  const boundaryOptions = decision.rescueOptions.filter((option) => option.kind === "safeSpending");
+  assert.equal(boundaryOptions.length, 1, "exactly one safe-spending boundary row");
+  assert.equal(boundaryOptions[0].id, "safe-spend-boundary");
+  assert.equal(boundaryOptions[0].scenario.spendingStrategy.mode, "fixed");
+  assert.ok(boundaryOptions[0].scenario.targetSpend <= scenario.targetSpend);
+  assert.equal(typeof boundaryOptions[0].delta.monteCarloSuccessRate, "number");
+  assert.equal(decision.safeSpending.option, undefined, "boundary payload is not duplicated on the tile");
+});
+
+test("safe spending boundary stays out of the rescue list when the plan already has headroom", () => {
+  const scenario = {
+    ...DEFAULT_SCENARIO,
+    planYears: 3,
+    currentAge: 44,
+    spouseAge: 44,
+    targetSpend: 30000,
+    targetSpendIncludesTaxes: true,
+    targetSpendIncludesMedical: true,
+    medicalExpensesBase: 0,
+    aca: { enabled: false },
+    spendingStrategy: {
+      ...DEFAULT_SCENARIO.spendingStrategy,
+      mode: "fixed",
+      essentialSpend: 20000,
+      discretionarySpend: 10000
+    },
+    returnAssumptions: {
+      ...DEFAULT_SCENARIO.returnAssumptions,
+      cash: { mean: 0, stdev: 0 },
+      inflation: { mean: 0, stdev: 0 }
+    }
+  };
+  const taxProfile = buildTaxProfile({
+    taxYear: 2026,
+    filingStatus: "marriedFilingJointly",
+    state: "Florida",
+    dependentCount: 0
+  });
+
+  const decision = runDecisionBatch({
+    assets: cashAssets, // $1M cash easily funds 3 years of $30k spend
+    scenario,
+    taxProfile,
+    runs: 10,
+    seed: 7,
+    sequences: [],
+    decisionProfile: { requiredSpend: 20000, flexibleSpend: 10000, targetSuccessRate: 0.9 }
+  });
+
+  assert.equal(decision.safeSpending.status, "headroom");
+  // With headroom there is nothing to apply, so no spend-cut row is offered.
+  assert.ok(decision.rescueOptions.every((option) => option.kind !== "safeSpending"));
 });
 
 test("discretionary cut is skipped when the base plan already uses guardrails", () => {
@@ -1043,7 +1100,8 @@ test("decision batch runs every rescue solver and only returns known rescue kind
     "conversionGuardrail",
     "magiSpendTrim",
     "irmaaLookbackRescue",
-    "socialSecurityBridge"
+    "socialSecurityBridge",
+    "safeSpending"
   ]);
   for (const option of decision.rescueOptions) {
     assert.ok(validKinds.has(option.kind), `unexpected rescue kind: ${option.kind}`);

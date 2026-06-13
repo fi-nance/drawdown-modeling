@@ -6,8 +6,8 @@ import {
   runHistoricalBacktests,
   runMonteCarlo,
   simulatePlan
-} from "./simulation.mjs?v=20260612-aca-conversions";
-import { runDecisionBatch } from "./decisionEngine.mjs?v=20260612-aca-conversions";
+} from "./simulation.mjs?v=20260613-portfolio-prices";
+import { runDecisionBatch } from "./decisionEngine.mjs?v=20260613-portfolio-prices";
 
 const UI_MONTE_CARLO_TIMELINE_LIMIT = 5;
 

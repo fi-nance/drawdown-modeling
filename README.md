@@ -35,6 +35,7 @@ A browser-based, tax-aware retirement decumulation planner with Monte Carlo simu
 - Workspace planning runs require at least $1,000/year of target spending (or combined essential/discretionary spending) so engine edge-test values like $0 do not look like normal household plans
 - One-off cash flows by year or year range, fixed or inflation adjusted, as expenses, taxable ordinary income, tax-free income, Medicare wages, self-employment income, or RRTA compensation
 - CSV and JSON imports, a sample CSV template, public Google Sheets CSV import, private Google Sheets OAuth import, privacy mode for disabling external lookup helpers, and full setup backup/restore, including the decision profile
+- Optional per-holding **Symbol / ID** (ticker, Treasury TIPS CUSIP, or I-bond purchase month) with a user-triggered **Refresh prices** action that updates live/previous-close quotes (and computes I-bond redemption values offline), highlighting any row that could not update with the reason
 - Sankey-style yearly cash-flow and portfolio-flow visualizations
 - Year-by-year, scenario-by-scenario, backtest, and current-year sale breakdowns
 
@@ -71,10 +72,14 @@ CSV upload is the primary file-import path in the UI. JSON accepts either an arr
 Google Sheets import expects a published CSV, or private Sheets values through OAuth, with these columns:
 
 ```text
-name,accountType,assetClass,units,price,costBasisPerUnit,dividendYield,qualifiedDividendShare,holdingPeriod,beneficiaryType
+name,symbol,accountType,assetClass,units,price,costBasisPerUnit,dividendYield,qualifiedDividendShare,holdingPeriod,beneficiaryType
 ```
 
 CSV uploads and Google Sheets imports also accept common spreadsheet headers such as `Account Type`, `Asset Class`, `Shares`, `Current Price`, and `Cost Basis / Share`. Only account type, units/shares, and price are required. Missing or non-numeric cost basis defaults to the current price, which keeps retirement accounts easy to import.
+
+The optional `symbol` column (aliases: `Ticker Symbol`, `CUSIP`, `Identifier`, `Purchase Month`) is the **Symbol / ID** used by the **↻ Refresh prices** action. It accepts a stock/ETF/fund ticker (live quote or previous close), a Treasury TIPS CUSIP (inflation-adjusted principal per $100 face at par; set units to face ÷ 100), or an I-bond purchase month like `2021-11` (official redemption value per $1 face computed locally; set units to the face value in dollars). Leave it blank to keep a holding's price manual. Note: `ticker` on its own still maps to the holding **name** for backward compatibility — use `symbol` for the price identifier.
+
+Price refresh is user-triggered only — prices never change on their own, so trying different scenarios won't shift outcomes underneath you. Rows that cannot update (an unknown ticker, a non-TIPS CUSIP, a quote-service failure, or privacy mode blocking an external lookup) are highlighted with the reason on hover; refreshed prices fill the editable field but do not rerun the model. I-bond values are computed offline and work in privacy mode; ticker and CUSIP lookups are external and are blocked by privacy mode.
 
 Supported `accountType` values are `taxable`, `traditional`, `roth`, and `hsa`.
 CSV and Google Sheets imports also normalize common retirement account labels: `traditional`, `pre-tax`, and `pre-tax 401k` import as `traditional`; `roth`, `after-tax`, and `after-tax 401k` import as `roth`.
@@ -85,7 +90,7 @@ Private Google Sheets can be imported with Google OAuth by entering a Google OAu
 
 Private data can also be imported without OAuth by downloading the sheet as CSV and selecting it with the CSV file input.
 
-Privacy mode disables public Google Sheets import, private Google Sheets OAuth import, and the live CMS Marketplace plan search. It does not disable local CSV, JSON, setup backup/restore, offline ZIP-based ACA estimates, or manual ACA plan fields. The modeled scenario and audit bundle record whether privacy mode was enabled.
+Privacy mode disables public Google Sheets import, private Google Sheets OAuth import, the live CMS Marketplace plan search, and the external (ticker/CUSIP) price-refresh lookups. It does not disable local CSV, JSON, setup backup/restore, offline ZIP-based ACA estimates, manual ACA plan fields, or the local I-bond price computation. The modeled scenario and audit bundle record whether privacy mode was enabled.
 
 Use the Save setup / Load setup controls in the persona, workspace, or results flow to export or restore the full setup, including assets, scenario controls, decision profile, and one-off cash flows. The results screen can also export a result audit bundle: setup, compacted modeled results, confidence flags, sensitivity output, source-version metadata, the plain-language model-audit rows, and a compact CPA/engineering review summary in one JSON file. Setup backups and result audit bundles both include sensitive household data; the app asks for confirmation before exporting either, and they should be shared only intentionally.
 

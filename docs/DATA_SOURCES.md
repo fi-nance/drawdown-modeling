@@ -13,6 +13,7 @@ This file documents where the app's versioned tax, ACA, and historical return da
 | Offline ZIP → state, exchange type, Medicaid expansion | `src/data/geo.mjs` | `GEO_DATA_VERSION = "2026.1"` | 50 states + DC; U.S. territories and APO/FPO ZIPs return out-of-model fallbacks |
 | Offline ZIP → county/rating-area SLCSP (second-lowest-cost silver plan) | `src/data/acaRatingArea.mjs` + `acaRatingArea2026.generated.mjs`, `countyToRatingArea.generated.mjs`, `zipToCounty.generated.mjs` | `ACA_RATING_AREA_DATA_VERSION = "2026.3"` | **48 states**: 30 federal-platform states (CMS FFM PUFs) + 18 State-Based Marketplaces with published 2026 CMS SBM QHP PUFs (CA, CT, DC, GA, ID, KY, ME, MA, MN, NV, NJ, NM, NY, PA, RI, VT, VA, WA); 478 rating areas plus ~1,100 county-level overrides where the county's own silver plan set (CMS Service Area PUF) yields a different benchmark, plus ZIP-level overrides where a PARTIAL-county service area splits a county's plan set (2026: 96 ZIP overrides in 12 of the 18 partial-coverage counties, all in MI, OR, TX — the other 6 counties' ZIPs all keep their county benchmark). SBM states without a 2026 PUF (CO, MD) and IL fall back below. |
 | Offline State-Based Exchange SLCSP fallback (hand-maintained estimates, **not PUF-derived**) | `src/data/sbeRatingArea.mjs` | `SBE_DATA_VERSION = "2026.1"` | Fallback only for SBM states without a published 2026 SBM QHP PUF: **CO** (ZIP3-mapped) and **MD** (state default, `fallback:"state"`). All other SBE states are ingested from the SBM PUFs above and never reach this module. |
+| Series I savings bond rate history (for the offline I-bond price refresh) | `src/data/iBondRates.generated.mjs` | latest setting `2026-05-01` | Complete TreasuryDirect fixed-rate and semiannual-inflation-rate history since the program's first setting (1998-09-01); the two May/Nov settings per year drive the local I-bond redemption-value calculation. |
 
 ## Source Inventory
 
@@ -64,6 +65,9 @@ This file documents where the app's versioned tax, ACA, and historical return da
 | Offline ZIP → state mapping | USPS Publication L007 (State Abbreviations, Military Codes, and ZIP Code Prefixes), accessed via the USPS Postal Explorer: https://pe.usps.com/text/pub28/welcome.htm. Cross-check edge cases against IRS Pub 17 state filing-address tables. | `ZIP3_RANGES`, `MILITARY_ZIP3`, `TERRITORY_ZIP3` in `src/data/geo.mjs`; `resolveZip()` results | Verify annually if USPS publishes a new L007 edition or a state's ZIP3 assignment changes (rare). |
 | State ACA exchange type (2026) | CMS State Marketplace Profiles for plan year 2026: https://www.cms.gov/marketplace/about/state-marketplace-profiles | `STATE_EXCHANGE_TYPE_2026.states` in `src/data/geo.mjs` | Update each plan year if a state transitions FFE↔SBM-FP↔SBM. Recent transitions: Virginia (FFE→SBM 2024), Georgia (FFE→SBM 2024), Illinois and Oregon (SBM-FP). |
 | State Medicaid expansion status | KFF Status of State Medicaid Expansion Decisions: https://www.kff.org/medicaid/issue-brief/status-of-state-medicaid-expansion-decisions-interactive-map/ | `STATE_MEDICAID_EXPANSION_2026.states` in `src/data/geo.mjs` | Update when a state adopts or modifies expansion. Recent adoptions: South Dakota (effective July 2023), North Carolina (effective December 2023). Wisconsin remains a §1115-waiver edge case rather than a full expansion state. |
+| Live equity/ETF/fund quotes (price refresh) | Yahoo Finance chart API: `https://query1.finance.yahoo.com/v8/finance/chart/<symbol>` (and the `query2` mirror) | `src/core/priceRefresh.mjs` ticker path; `asset.symbol`; the ↻ Refresh prices action | On-demand, user-triggered only. Returns the regular-market price, falling back to the most recent close. Undocumented/unofficial endpoint with no SLA — failures are surfaced per-row, never silently. Blocked by privacy mode. |
+| TIPS inflation index ratios (price refresh, CUSIP path) | U.S. Treasury FiscalData "TIPS and CPI Data Detail": https://fiscaldata.treasury.gov/datasets/tips-cpi-data/tips-and-cpi-data — API `https://api.fiscaldata.treasury.gov/services/api/fiscal_service/v1/accounting/od/tips_cpi_data_detail` | `src/core/priceRefresh.mjs` CUSIP path | On-demand. Prices a TIPS CUSIP at the inflation-adjusted principal per $100 face **at par** (index ratio × 100); the market premium/discount is NOT included (no CORS-accessible end-of-day Treasury quote source exists). Non-TIPS Treasury CUSIPs report a failure. CORS-enabled, works in privacy mode? No — still an external call, so privacy mode blocks it. |
+| Series I savings bond rate history (price refresh, I-bond path) | TreasuryDirect I bonds interest rates: https://www.treasurydirect.gov/savings-bonds/i-bonds/i-bonds-interest-rates/ | `src/data/iBondRates.generated.mjs`, `scripts/generateIBondRates.mjs`, `src/core/priceRefresh.mjs` I-bond path | Baked into the bundle at build time and computed **locally** (no network, works in privacy mode), so it cannot drift under a saved scenario. Composite-rate and accrual math follow 31 CFR 359 / the TreasuryDirect calculator (3-month penalty under 5 years; deflation floor at 0%). Regenerate after each May 1 / Nov 1 rate announcement. |
 
 ## Current Modeling Notes
 
@@ -127,6 +131,8 @@ This file documents where the app's versioned tax, ACA, and historical return da
    - Pull final iShares TIP calendar-year or year-end NAV return data.
    - Pull final Coin Metrics BTC daily prices through December 31 and compute year-over-year return from prior December 31 to current December 31.
    - Append the new row in `HISTORICAL_RETURNS`.
+
+   Twice a year (May 1 / Nov 1), independent of the annual cycle: regenerate the I-bond rate table with `node scripts/generateIBondRates.mjs` so newly-announced Series I rates are available to the price-refresh I-bond path (see "Regenerating the I-bond rate table").
 
 6. Add tests before trusting the new data.
    - Add tax-year tests for the new standard deduction, ordinary brackets, long-term capital gains thresholds, ACA applicable percentages, FPL values, and representative state tax cases.
@@ -194,6 +200,19 @@ Notes for the next refresh:
 - **County-name typos**: CMS's own GRA pages contain a handful of county misspellings (e.g. "Kosclusko", "Vermillion", "Galia"). The generator carries a documented `GRA_COUNTY_FIXES` correction map so the FIPS join stays complete; extend it if a new typo appears (the script warns on any unmatched county).
 - **HUD substitution**: the task's nominal ZIP→county source is the HUD USPS crosswalk, which now requires a (free) HUD API token. The Census ZCTA↔county relationship file is used instead — authoritative and freely downloadable — with the primary county chosen by largest land-area overlap rather than HUD's residential-address ratio. Differences are confined to ZIPs that straddle a county line near a rating-area boundary.
 - Bundle size for the three files is ~1.1 MB raw JS / ~232 KB gzipped (data version 2026.3: 48 states, county overrides, and ZIP-level partial-county overrides), comfortably inside the 2 MB budget.
+
+## Regenerating the I-bond rate table
+
+`src/data/iBondRates.generated.mjs` holds the full TreasuryDirect Series I fixed-rate and semiannual-inflation-rate history (since 1998-09-01). The price-refresh I-bond path computes redemption values from it **locally** — no network — so values can't drift under a saved scenario, and privacy mode still gets exact I-bond pricing. TreasuryDirect publishes new rates every **May 1** and **November 1**; rerun after each announcement so bonds whose new accrual period has started can be valued:
+
+```bash
+node scripts/generateIBondRates.mjs                 # fetches treasurydirect.gov
+# or parse a saved copy:
+IBOND_RATES_HTML=/tmp/ibond-rates.html node scripts/generateIBondRates.mjs
+npm test
+```
+
+The generator scrapes the two history tables on https://www.treasurydirect.gov/savings-bonds/i-bonds/i-bonds-interest-rates/, validates the cadence (six-month steps from the 1998 origin), and asserts the fixed and inflation histories stay the same length. The valuation math (`iBondUnitValue` in `src/core/priceRefresh.mjs`) follows 31 CFR 359 / the TreasuryDirect savings-bond calculator: composite rate `[fixed + 2·inflation + fixed·inflation]` rounded to four decimals and floored at zero, accrued per six-month period off the rounded prior-period value, with the latest three months of interest forfeited while the bond is under five years old. Golden values in `tests/priceRefresh.test.mjs` are cross-checked against the official redemption tables (including the 2009 deflation floor). If a valuation needs a period the table doesn't cover yet, the refresh reports a per-row failure telling the user to regenerate — it never extrapolates.
 
 ## State-Based Exchange (SBE) Ingestion Plan
 

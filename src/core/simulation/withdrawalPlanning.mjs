@@ -2,16 +2,16 @@
 // Single responsibility: withdrawalPlanning. No behavior changes — pure code movement.
 
 import { clonePortfolio } from "../portfolio.mjs";
-import { computeIncomeTax } from "../tax.mjs?v=20260612-aca-conversions";
+import { computeIncomeTax } from "../tax.mjs?v=20260613-portfolio-prices";
 import { round } from "../utils.mjs";
 import { emptyEarnedIncome } from "./cashFlows.mjs";
 import { clampFiniteNumber } from "./guards.mjs";
 import { hsaStrategyConfig } from "./hsa.mjs";
-import { estimateHeirValueBreakdown, inheritanceTaxStateForScenario } from "./heirEstate.mjs?v=20260612-aca-conversions";
-import { acaMagiForIncome, federalAgiForIncome, incomeForYear, irmaaMagiForIncome } from "./income.mjs?v=20260612-aca-conversions";
+import { estimateHeirValueBreakdown, inheritanceTaxStateForScenario } from "./heirEstate.mjs?v=20260613-portfolio-prices";
+import { acaMagiForIncome, federalAgiForIncome, incomeForYear, irmaaMagiForIncome } from "./income.mjs?v=20260613-portfolio-prices";
 import { computeAcaForYear, medicalCostForYear } from "./medical.mjs";
 import { expectedReturnForAsset, isLifetimeOptimizerEnabled, withdrawalStrategyConfig } from "./scenario.mjs";
-import { addPenaltyTax, estimatedFutureCapitalGainRate, estimatedFutureOrdinaryIncomeRate } from "./taxStrategy.mjs?v=20260612-aca-conversions";
+import { addPenaltyTax, estimatedFutureCapitalGainRate, estimatedFutureOrdinaryIncomeRate } from "./taxStrategy.mjs?v=20260613-portfolio-prices";
 import { mergeWithdrawals, withdrawForCash } from "./withdrawalExecution.mjs";
 import { betterPenaltyAvoidancePlan, earlyPenaltyAvoidanceWithdrawalOrder, hasLowerPenaltyBurden, isBeforePenaltyAge, normalizedWithdrawalOrder, optimizedRothProceedsLimit, rothFirstWithdrawalOrder, rothPreservingWithdrawalOrder, rothWithdrawalProceeds, sameWithdrawalOrder, withdrawalPenaltyBurden } from "./withdrawalOrders.mjs";
 

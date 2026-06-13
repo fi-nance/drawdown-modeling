@@ -8,6 +8,19 @@ const REQUIRED_PORTFOLIO_HEADERS = ["accountType", "units", "price"];
 const HEADER_ALIASES = buildAliasMap({
   id: ["id", "asset id", "lot id"],
   name: ["name", "asset name", "holding", "holding name", "ticker"],
+  symbol: [
+    "symbol",
+    "ticker symbol",
+    "stock symbol",
+    "quote symbol",
+    "cusip",
+    "identifier",
+    "price id",
+    "price identifier",
+    "ibond purchase date",
+    "i-bond purchase date",
+    "purchase month"
+  ],
   accountType: ["accountType", "account type", "account", "tax account", "tax treatment"],
   assetClass: ["assetClass", "asset class", "class", "asset type", "investment type"],
   units: ["units", "unit", "shares", "share count", "quantity", "qty"],
@@ -119,7 +132,21 @@ export function parsePortfolioJson(text) {
     throw new Error("Portfolio JSON must be an array or an object with an assets array.");
   }
 
-  return assets.map((asset, index) => normalizeImportedAsset(asset, index));
+  return dedupeAssetIds(assets.map((asset, index) => normalizeImportedAsset(asset, index)));
+}
+
+// Asset ids key per-row UI state (e.g. the price-refresh highlight map), so two
+// holdings must never share one. Imports derive ids from the name slug, which
+// collides for same-named rows ("Cash", "Cash"); suffix the duplicates.
+function dedupeAssetIds(assets = []) {
+  const seen = new Map();
+  for (const asset of assets) {
+    const baseId = asset.id;
+    const count = seen.get(baseId) ?? 0;
+    seen.set(baseId, count + 1);
+    if (count > 0) asset.id = `${baseId}-${count + 1}`;
+  }
+  return assets;
 }
 
 export function parsePortfolioCsv(text) {
@@ -144,7 +171,7 @@ function normalizeImportedAssets(assets) {
     const found = [...headers].filter(Boolean).join(", ") || "none";
     throw new Error(`Portfolio CSV headers must include accountType, units, and price. Found: ${found}. Headers like Account Type, Shares, and Price are accepted.`);
   }
-  return assets.map((asset, index) => normalizeImportedAsset(asset, index));
+  return dedupeAssetIds(assets.map((asset, index) => normalizeImportedAsset(asset, index)));
 }
 
 export function googleSpreadsheetIdFromInput(rawInput = "") {
@@ -221,9 +248,11 @@ export function normalizeImportedAsset(asset, index = 0) {
   }
 
   const name = asset.name ?? `${accountType} ${assetClass} ${index + 1}`;
+  const symbol = String(asset.symbol ?? "").trim();
   return {
     id: asset.id ?? slugify(name),
     name,
+    ...(symbol ? { symbol } : {}),
     accountType,
     assetClass,
     units: numberOrNull(asset.units),

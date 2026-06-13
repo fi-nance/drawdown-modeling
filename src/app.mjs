@@ -6,6 +6,7 @@ import {
   toGoogleCsvUrl
 } from "./core/importers.mjs";
 import { portfolioValue } from "./core/portfolio.mjs";
+import { refreshAssetPrices, refreshSummaryText } from "./core/priceRefresh.mjs?v=20260613-portfolio-prices";
 import { actionConfidenceFor, buildConfidenceReport } from "./core/confidence.mjs";
 import { createSetupBackup, parseSetupBackup, SETUP_BACKUP_PRIVACY_NOTICE } from "./core/setupBackup.mjs";
 import { cacheLatestResults, clearCachedLatest, restoreCachedLatest } from "./core/resultsCache.mjs";
@@ -22,7 +23,7 @@ import {
   runMonteCarlo,
   simulatePlan,
   generateSingleMonteCarloPath
-} from "./core/simulation.mjs?v=20260612-aca-conversions";
+} from "./core/simulation.mjs?v=20260613-portfolio-prices";
 import { round } from "./core/utils.mjs";
 import { defaultOneOffExpenses, sampleAssets } from "./data/sample.mjs";
 import {
@@ -33,7 +34,7 @@ import {
   HISTORICAL_RETURN_DATA_VERSION,
   makeHistoricalSequences
 } from "./data/historicalReturns.mjs";
-import { buildAcaConfig, buildTaxProfile, STATE_OPTIONS, TAX_DATA_VERSION, getMonthlyBenchmarkPremium } from "./data/taxData.mjs?v=20260612-aca-conversions";
+import { buildAcaConfig, buildTaxProfile, STATE_OPTIONS, TAX_DATA_VERSION, getMonthlyBenchmarkPremium } from "./data/taxData.mjs?v=20260613-portfolio-prices";
 import { massachusettsConnectorCareEstimate, massachusettsConnectorCarePlanOptions } from "./data/acaPlanPresets.mjs";
 import {
   buildMarketplacePlanSearchRequest,
@@ -332,6 +333,7 @@ const els = {
   restoreSetupFile: document.querySelector("#restoreSetupFile"),
   restoreSetupFiles: [...document.querySelectorAll("[data-setup-restore-file]")],
   addAsset: document.querySelector("#addAsset"),
+  refreshPrices: document.querySelector("#refreshPrices"),
   planYears: document.querySelector("#planYears"),
   runs: document.querySelector("#runs"),
   seed: document.querySelector("#seed"),
@@ -567,6 +569,17 @@ const els = {
 };
 
 let assets = sampleAssets.map((asset) => ({ ...asset }));
+// Outcome of the latest "Refresh prices" click, keyed by asset id; drives the
+// per-row highlight in renderAssetTable. In-memory only — a reload clears it.
+let priceRefreshState = new Map();
+let refreshPricesRunning = false;
+// Monotonic so a remove-then-add never reuses a prior id (which would alias
+// another row's price-refresh highlight). `assets.length`-derived ids collide.
+let assetIdCounter = 0;
+function newAssetId() {
+  assetIdCounter += 1;
+  return `asset-new-${assetIdCounter}-${Date.now()}`;
+}
 let oneOffExpenses = defaultOneOffExpenses.map((expense) => ({ ...expense }));
 let incomeStreams = [];
 let selectedYearIndex = 0;
@@ -873,8 +886,9 @@ function bindEvents() {
 
   els.addAsset.addEventListener("click", () => {
     assets.push({
-      id: `asset-${assets.length + 1}`,
+      id: newAssetId(),
       name: "New Asset",
+      symbol: "",
       accountType: "taxable",
       assetClass: "stock",
       holdingPeriod: "long",
@@ -888,6 +902,29 @@ function bindEvents() {
     renderAssetTable();
     syncJsonFromAssets();
     saveStoredState();
+  });
+
+  els.refreshPrices?.addEventListener("click", async () => {
+    if (refreshPricesRunning) return;
+    refreshPricesRunning = true;
+    els.refreshPrices.disabled = true;
+    const originalLabel = els.refreshPrices.textContent;
+    els.refreshPrices.textContent = "Refreshing…";
+    setImportStatus("Refreshing prices…");
+    try {
+      const outcome = await refreshAssetPrices(assets, { privacyMode: privacyModeEnabled() });
+      priceRefreshState = new Map(outcome.results);
+      renderAssetTable();
+      syncJsonFromAssets();
+      saveStoredState();
+      setImportStatus(`Prices: ${refreshSummaryText(outcome)} Hover a highlighted price for the reason. Rerun the model to apply.`);
+    } catch (error) {
+      reportImportError(error);
+    } finally {
+      refreshPricesRunning = false;
+      els.refreshPrices.disabled = false;
+      els.refreshPrices.textContent = originalLabel;
+    }
   });
 
   els.loadJson.addEventListener("click", () => {
@@ -2020,7 +2057,7 @@ function downloadJsonText(text, filename) {
 function getSimulationWorker() {
   if (!simulationWorker) {
     simulationWorker = new Worker(
-      new URL("./core/simulation.worker.mjs?v=20260612-aca-conversions", import.meta.url),
+      new URL("./core/simulation.worker.mjs?v=20260613-portfolio-prices", import.meta.url),
       { type: "module" }
     );
     simulationWorker.addEventListener("error", (ev) => {
@@ -2879,6 +2916,7 @@ function renderYearTable() {
   });
   bindPinToggles(els.yearTable, pinnedYearColumns, ALWAYS_PINNED_YEAR, PINNED_YEAR_STORAGE_KEY, () => renderYearTable());
   bindResizeObserver(els.yearTable, "yearTable");
+  bindPinnedOffsetRefresh(els.yearTable);
   addStickyHorizontalScrollbar(els.yearTable);
 }
 
@@ -2904,6 +2942,8 @@ function renderAssetBreakdown() {
   const years = activeVisibleYears();
   const year = years[selectedYearIndex] ?? years[0];
   if (!year) {
+    els.assetBreakdownTable._stickyCleanup?.();
+    els.assetBreakdownTable._pinnedOffsetCleanup?.();
     els.assetBreakdownTable.innerHTML = `<p class="empty-state">No asset snapshot available.</p>`;
     return;
   }
@@ -2955,6 +2995,7 @@ function renderAssetBreakdown() {
   bindPinToggles(els.assetBreakdownTable, pinnedAssetColumns, ALWAYS_PINNED_ASSET, PINNED_ASSET_STORAGE_KEY, () => renderAssetBreakdown());
   bindAssetSortHandlers(els.assetBreakdownTable);
   bindResizeObserver(els.assetBreakdownTable, "assetBreakdown");
+  bindPinnedOffsetRefresh(els.assetBreakdownTable);
   addStickyHorizontalScrollbar(els.assetBreakdownTable);
 }
 
@@ -3053,10 +3094,12 @@ function renderScenarioTable() {
       renderAssetBreakdown();
     });
   });
+  addStickyHorizontalScrollbar(els.scenarioTable);
 }
 
 function renderBacktests() {
   if (!latest.backtests.length) {
+    els.backtestTable._stickyCleanup?.();
     els.backtestTable.innerHTML = `<p class="empty-state">No historical backtests are available for the selected assets and date range.</p>`;
     return;
   }
@@ -3106,6 +3149,7 @@ function renderBacktests() {
       selectHistoricalBacktest(Number(row.dataset.backtestIndex));
     });
   });
+  addStickyHorizontalScrollbar(els.backtestTable);
 }
 
 function selectHistoricalBacktest(index) {
@@ -3136,6 +3180,7 @@ function selectHistoricalBacktest(index) {
 function renderActionPlan() {
   const year = activeVisibleYears()[selectedYearIndex];
   if (!year) {
+    els.actionPlan._stickyCleanup?.();
     els.actionPlan.innerHTML = `<p class="empty-state">Run a model to generate an action plan.</p>`;
     els.actionPlanNote.textContent = "";
     return;
@@ -3550,6 +3595,20 @@ function addStickyHorizontalScrollbar(container) {
   container._stickyCleanup?.();
   const table = container.querySelector("table");
   if (!table) return;
+  // The proxy must live in the nearest VERTICAL scroller so `position:
+  // sticky; bottom: 0` can pin it to the visible bottom. Pinnable tables are
+  // their own vertical scroller; plain `.table-wrap` ledgers scroll inside
+  // the surrounding `.ledger-wrap-dash`, where a proxy appended to the
+  // horizontal scroller itself would only show after scrolling to the very
+  // bottom of the table.
+  const proxyHost = container.classList.contains("pinnable-table-wrap")
+    ? container
+    : (container.closest(".ledger-wrap-dash") ?? container);
+  proxyHost.querySelectorAll(":scope > .sticky-x-scroll").forEach((stale) => stale.remove());
+  // This container now has a proxy scrollbar; suppress its OWN native
+  // horizontal bar (CSS .has-sticky-x) so the two don't stack into a double
+  // scrollbar. The vertical bar (pinnable tables) is left intact.
+  container.classList.add("has-sticky-x");
   const scrollbar = document.createElement("div");
   scrollbar.className = "sticky-x-scroll";
 
@@ -3572,7 +3631,7 @@ function addStickyHorizontalScrollbar(container) {
   rightArrow.textContent = "›";
 
   scrollbar.append(leftArrow, track, rightArrow);
-  container.append(scrollbar);
+  proxyHost.append(scrollbar);
 
   const maxScrollLeft = () => Math.max(0, table.scrollWidth - container.clientWidth);
   const updateArrows = () => {
@@ -3634,13 +3693,68 @@ function addStickyHorizontalScrollbar(container) {
 
   window.addEventListener("scroll", onViewportChange, { passive: true });
   window.addEventListener("resize", onViewportChange);
+
+  // Layout shifts that don't touch the window — the web-font swap, the
+  // vertical resize handle, panel/grid reflows, streamed rows — change the
+  // table's overflow without firing a window resize. Re-measure on any size
+  // change of the table or its scroller so the proxy never goes stale
+  // (`is-needed` off while the table overflows, or a too-short track).
+  let resizeFrame = null;
+  const scheduleUpdate = () => {
+    if (resizeFrame !== null) return;
+    resizeFrame = requestAnimationFrame(() => {
+      resizeFrame = null;
+      updateWidth();
+    });
+  };
+  const resizeObserver = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(scheduleUpdate);
+  resizeObserver?.observe(table);
+  resizeObserver?.observe(container);
+  document.fonts?.ready?.then(scheduleUpdate).catch(() => {});
+
   container._stickyCleanup = () => {
     window.removeEventListener("scroll", onViewportChange);
     window.removeEventListener("resize", onViewportChange);
+    if (resizeFrame !== null) cancelAnimationFrame(resizeFrame);
+    resizeObserver?.disconnect();
+    scrollbar.remove();
+    container.classList.remove("has-sticky-x");
   };
 
   updateWidth();
   requestAnimationFrame(updateWidth);
+}
+
+// Expose for redesign.mjs (separate module) so its tables — rescue
+// comparison, tradeoff frontier — get the same always-visible scrollbar.
+if (typeof window !== "undefined") {
+  window.__pslAddStickyHorizontalScrollbar = addStickyHorizontalScrollbar;
+}
+
+// Sticky pinned-column offsets are measured pixel widths; any later layout
+// shift (the Google-Fonts swap, window or panel resizes, the vertical resize
+// handle revealing a scrollbar) invalidates them, which visibly slides the
+// second pinned column over its neighbor. Re-apply on every size change.
+function bindPinnedOffsetRefresh(container) {
+  container._pinnedOffsetCleanup?.();
+  const table = container.querySelector("table");
+  if (!table) return;
+  let frame = null;
+  const refresh = () => {
+    if (frame !== null) return;
+    frame = requestAnimationFrame(() => {
+      frame = null;
+      applyPinnedColumnOffsets(container);
+    });
+  };
+  const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(refresh);
+  observer?.observe(table);
+  observer?.observe(container);
+  document.fonts?.ready?.then(refresh).catch(() => {});
+  container._pinnedOffsetCleanup = () => {
+    if (frame !== null) cancelAnimationFrame(frame);
+    observer?.disconnect();
+  };
 }
 
 function renderAssetTable() {
@@ -3661,13 +3775,20 @@ function renderAssetTable() {
   // data-label on each <td> lets the narrow-viewport CSS reflow this editable
   // table into stacked cards (see .asset-table reflow in styles.css), so every
   // holding field is visible without horizontal scrolling on a phone.
-  const rows = assets.map((asset, index) => `
+  const rows = assets.map((asset, index) => {
+    const refresh = priceRefreshState.get(asset.id);
+    const refreshClass = refresh?.status === "updated"
+      ? " price-refresh-updated"
+      : (refresh?.status === "failed" || refresh?.status === "skipped-privacy") ? " price-refresh-failed" : "";
+    const refreshTitle = refresh?.message ? ` title="${escapeAttr(refresh.message)}"` : "";
+    return `
     <tr>
       <td data-label="Name"><input data-index="${index}" data-field="name" value="${escapeAttr(asset.name)}"></td>
+      <td data-label="Symbol / ID"><input data-index="${index}" data-field="symbol" placeholder="VTI / CUSIP / 2021-11" value="${escapeAttr(asset.symbol ?? "")}"></td>
       <td data-label="Account">${selectHtml(index, "accountType", accountOptions, asset.accountType)}</td>
       <td data-label="Class">${selectHtml(index, "assetClass", assetClassOptions, asset.assetClass)}</td>
       <td data-label="Units"><input data-index="${index}" data-field="units" type="number" step="0.0001" value="${asset.units}"></td>
-      <td data-label="Price"><input data-index="${index}" data-field="price" type="number" step="0.01" value="${asset.price}"></td>
+      <td data-label="Price" class="price-cell${refreshClass}"${refreshTitle}><input data-index="${index}" data-field="price" type="number" step="0.01" value="${asset.price}"></td>
       <td data-label="Basis"><input data-index="${index}" data-field="costBasisPerUnit" type="number" step="0.01" value="${asset.costBasisPerUnit}"></td>
       <td data-label="Yield"><input data-index="${index}" data-field="dividendYield" type="number" step="0.001" value="${asset.dividendYield ?? 0}"></td>
       <td data-label="Qualified"><input data-index="${index}" data-field="qualifiedDividendShare" type="number" step="0.05" min="0" max="1" value="${asset.qualifiedDividendShare ?? 0}"></td>
@@ -3676,13 +3797,14 @@ function renderAssetTable() {
       <td data-label="Beneficiary">${selectHtml(index, "beneficiaryType", beneficiaryOptions, asset.beneficiaryType ?? "default")}</td>
       <td data-label="">${`<button type="button" data-remove="${index}">Remove</button>`}</td>
     </tr>
-  `).join("");
+  `;
+  }).join("");
 
   els.assetTable.innerHTML = `
     <table>
       <thead>
         <tr>
-          <th>Name</th><th>Account</th><th>Class</th><th>Units</th><th>Price</th><th>Basis</th><th>Yield</th><th>Qualified</th><th>Term</th><th>Owner</th><th>Beneficiary</th><th></th>
+          <th>Name</th><th title="Ticker symbol, Treasury CUSIP, or I-bond purchase month (YYYY-MM) for one-click price refresh">Symbol / ID</th><th>Account</th><th>Class</th><th>Units</th><th>Price</th><th>Basis</th><th>Yield</th><th>Qualified</th><th>Term</th><th>Owner</th><th>Beneficiary</th><th></th>
         </tr>
       </thead>
       <tbody>${rows}</tbody>
@@ -3695,6 +3817,14 @@ function renderAssetTable() {
       const index = Number(input.dataset.index);
       const field = input.dataset.field;
       assets[index][field] = numericAssetFields.has(field) ? Number(input.value) : input.value;
+      // A manual price/symbol edit makes the last refresh outcome stale for
+      // this row — drop its highlight rather than mislabel the new value.
+      // (No re-render: that would steal focus mid-edit.)
+      if ((field === "price" || field === "symbol") && priceRefreshState.delete(assets[index].id)) {
+        const cell = input.closest("tr")?.querySelector(".price-cell");
+        cell?.classList.remove("price-refresh-updated", "price-refresh-failed");
+        cell?.removeAttribute("title");
+      }
       syncJsonFromAssets();
       saveStoredState();
     });

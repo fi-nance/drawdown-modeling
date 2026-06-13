@@ -16,9 +16,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { withdrawForCash } from "../src/core/simulation/withdrawalExecution.mjs?v=20260612-aca-conversions";
+import { withdrawForCash } from "../src/core/simulation/withdrawalExecution.mjs?v=20260613-portfolio-prices";
 import { hsaQualifiedExpenseAvailableForWithdrawal, hsaStrategyConfig } from "../src/core/simulation/hsa.mjs";
-import { simulatePlan, DEFAULT_SCENARIO } from "../src/core/simulation.mjs?v=20260612-aca-conversions";
+import { simulatePlan, DEFAULT_SCENARIO } from "../src/core/simulation.mjs?v=20260613-portfolio-prices";
 import { buildTaxProfile } from "../src/data/taxData.mjs";
 
 const hsaLot = () => [

@@ -1,7 +1,9 @@
-name,accountType,assetClass,units,price,costBasisPerUnit,dividendYield,qualifiedDividendShare,holdingPeriod,beneficiaryType
-Taxable US Total Market,taxable,stock,6300,100,62,0.018,0.95,long,default
-Taxable International,taxable,stock,3150,80,92,0.032,0.75,long,default
-Taxable Cash Reserve,taxable,cash,245000,1,1,0.02,0,long,default
-Traditional Balanced Fund,traditional,bond,9100,100,100,0.025,0,long,default
-Roth Growth Fund,roth,stock,3850,120,120,0.005,1,long,default
-HSA Index Fund,hsa,stock,630,100,100,0.01,1,long,default
+name,symbol,accountType,assetClass,units,price,costBasisPerUnit,dividendYield,qualifiedDividendShare,holdingPeriod,beneficiaryType
+Taxable US Total Market,VTI,taxable,stock,6300,100,62,0.018,0.95,long,default
+Taxable International,VXUS,taxable,stock,3150,80,92,0.032,0.75,long,default
+Taxable Cash Reserve,,taxable,cash,245000,1,1,0.02,0,long,default
+Taxable TIPS 2/2051,912810SV1,taxable,tips,200,118,105,0.001,0,long,default
+Taxable I Bonds,2021-11,taxable,tips,10000,1.22,1,0,0,long,default
+Traditional Balanced Fund,,traditional,bond,9100,100,100,0.025,0,long,default
+Roth Growth Fund,,roth,stock,3850,120,120,0.005,1,long,default
+HSA Index Fund,,hsa,stock,630,100,100,0.01,1,long,default

@@ -1119,6 +1119,10 @@ function decisionHeadline(decision) {
 function rescueTitle(option) {
   const meta = option?.metadata ?? {};
   switch (option?.kind) {
+    case "safeSpending":
+      return meta.totalSpend != null
+        ? `set spending to the safe boundary (${formatCurrencyShort(meta.totalSpend)}/yr)`
+        : "set spending to the safe boundary";
     case "guytonKlingerRescue":
       return "switch to Guyton-Klinger spending guardrails";
     case "riskBasedGuardrailsRescue":
@@ -1164,7 +1168,7 @@ function rescueTitle(option) {
 
 function rescueTierLabel(kind) {
   if (kind === "incomeBridge" || kind === "combined") return "Income change";
-  if (kind === "discretionaryCut" || kind === "magiSpendTrim" || kind === "guytonKlingerRescue" || kind === "vpwRescue" || kind === "riskBasedGuardrailsRescue") return "Spending change";
+  if (kind === "discretionaryCut" || kind === "magiSpendTrim" || kind === "safeSpending" || kind === "guytonKlingerRescue" || kind === "vpwRescue" || kind === "riskBasedGuardrailsRescue") return "Spending change";
   return "No lifestyle change";
 }
 
@@ -2339,6 +2343,7 @@ function escapeHtml(value) {
 function renderRescueComparisonTable() {
   const root = document.getElementById("rescueComparisonTable");
   if (!root) return;
+  root._stickyCleanup?.(); // covers empty-state paths that never re-attach
   const latest = window.__pslLatest;
   const decision = latest?.decision;
   const running = decision?.status === "running";
@@ -2451,11 +2456,13 @@ function renderRescueComparisonTable() {
       runModelFromRedesign({ cancelActive: true, stream: true });
     });
   });
+  window.__pslAddStickyHorizontalScrollbar?.(root);
 }
 
 function renderTradeoffFrontierTable() {
   const root = document.getElementById("tradeoffFrontierTable");
   if (!root) return;
+  root._stickyCleanup?.(); // covers empty-state paths that never re-attach
   const latest = window.__pslLatest;
   const decision = latest?.decision;
   const running = decision?.status === "running";
@@ -2516,33 +2523,32 @@ function renderTradeoffFrontierTable() {
       runModelFromRedesign({ cancelActive: true, stream: true });
     });
   });
+  window.__pslAddStickyHorizontalScrollbar?.(root);
 }
 
-function rescueComparisonRows(decision) {
+export function rescueComparisonRows(decision) {
   if (!decision) return [];
   if (decision.status === "running") {
-    return Array.isArray(decision.progress?.candidates) ? decision.progress.candidates : [];
+    // Several solvers (the discretionary-cut and safe-spending bisections, the
+    // sequence-reserve year×mode grid, the multi-length TIPS ladder) emit many
+    // intermediate probes — extreme spend cuts and sweeps — that stream in as
+    // separate rows-with-Apply-buttons and read as a wall of recommendations.
+    // Collapse the live view to ONE row per strategy (the most recent probe,
+    // i.e. the search's current frontier) and keep the safe-spending probes out
+    // entirely (they only become meaningful as the finalized boundary). This
+    // mirrors the settled view: one row per strategy, never the search trail.
+    const streaming = Array.isArray(decision.progress?.candidates) ? decision.progress.candidates : [];
+    const latestByKind = new Map();
+    for (const candidate of streaming) {
+      if (candidate.kind === "safeSpending") continue;
+      latestByKind.set(candidate.kind, candidate); // later probes overwrite earlier
+    }
+    return [...latestByKind.values()];
   }
-  const attempts = Array.isArray(decision.testedRescueOptions) ? decision.testedRescueOptions : [];
-  const finalOptions = Array.isArray(decision.rescueOptions) ? decision.rescueOptions : [];
-  if (!attempts.length) return finalOptions;
-
-  const finalById = new Map(finalOptions.map((option) => [option.id, option]));
-  const usedFinalIds = new Set();
-  const merged = attempts.map((attempt) => {
-    const final = finalById.get(attempt.id);
-    if (!final) return attempt;
-    usedFinalIds.add(final.id);
-    return {
-      ...attempt,
-      ...final,
-      sequence: attempt.sequence
-    };
-  });
-  finalOptions.forEach((option) => {
-    if (!usedFinalIds.has(option.id)) merged.push(option);
-  });
-  return merged;
+  // Once the solver settles, show only the finalized rescue options (engine-
+  // sorted, one row per strategy) — not every search probe it tried along the
+  // way. The headline keeps the tested-candidate count for transparency.
+  return Array.isArray(decision.rescueOptions) ? decision.rescueOptions : [];
 }
 
 export function rescueChangeList(option = {}, baseScenario = {}) {

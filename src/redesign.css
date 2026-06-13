@@ -2039,7 +2039,11 @@ body[data-screen="persona"]::before {
    by tableHtml() in app.mjs. */
 @media (max-width: 640px) {
   #actionPlan { overflow-x: visible; }
-  #actionPlan .sticky-x-scroll { display: none; }
+  /* The proxy scrollbar lives in the surrounding ledger wrap (it must sit in
+     the vertical scroller to stay pinned); hide it wherever the action plan
+     reflows to stacked cards and nothing overflows horizontally. */
+  #actionPlan .sticky-x-scroll,
+  .ledger-wrap-dash:has(#actionPlan) > .sticky-x-scroll { display: none; }
   #actionPlan table,
   #actionPlan thead,
   #actionPlan tbody,

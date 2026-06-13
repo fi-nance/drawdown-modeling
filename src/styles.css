@@ -607,9 +607,56 @@ textarea {
   overflow-y: visible;
 }
 
+/* Never let the native horizontal scrollbar disappear while content
+   overflows: styling ::-webkit-scrollbar opts Chrome/Safari/Edge out of the
+   macOS auto-hiding overlay scrollbars, and scrollbar-color keeps Firefox's
+   thumb visible against the dark background. */
+.asset-table,
+.table-wrap,
+.pinnable-table-wrap {
+  scrollbar-width: thin;
+  scrollbar-color: var(--text-secondary) var(--bg-elevated);
+}
+.asset-table::-webkit-scrollbar,
+.table-wrap::-webkit-scrollbar,
+.pinnable-table-wrap::-webkit-scrollbar {
+  height: 11px;
+  width: 11px;
+}
+.asset-table::-webkit-scrollbar-track,
+.table-wrap::-webkit-scrollbar-track,
+.pinnable-table-wrap::-webkit-scrollbar-track {
+  background: var(--bg-elevated);
+  border-radius: 6px;
+}
+.asset-table::-webkit-scrollbar-thumb,
+.table-wrap::-webkit-scrollbar-thumb,
+.pinnable-table-wrap::-webkit-scrollbar-thumb {
+  background: var(--text-secondary);
+  border-radius: 6px;
+  border: 2px solid var(--bg-elevated);
+}
+.asset-table::-webkit-scrollbar-thumb:hover,
+.table-wrap::-webkit-scrollbar-thumb:hover,
+.pinnable-table-wrap::-webkit-scrollbar-thumb:hover {
+  background: var(--text-primary);
+}
+
+/* Containers that carry the sticky proxy scrollbar (.has-sticky-x, set by
+   addStickyHorizontalScrollbar) hide their OWN native horizontal bar so the
+   proxy is the single horizontal scrollbar — no double bar. The `:horizontal`
+   pseudo keeps the vertical bar (pinnable ledgers) intact. The selector
+   outranks the always-visible rule above (extra class + pseudo-class). */
+.has-sticky-x::-webkit-scrollbar:horizontal {
+  height: 0;
+}
+
 .sticky-x-scroll {
   position: sticky;
   bottom: 0;
+  /* left pins the proxy inside horizontally-scrolled containers, so it can't
+     slide out of view when the user scrolls the table sideways. */
+  left: 0;
   z-index: 3;
   display: none;
   align-items: center;
@@ -784,6 +831,28 @@ tbody tr:hover {
 
 .asset-table input[data-field="name"] {
   min-width: 180px;
+}
+
+.asset-table input[data-field="symbol"] {
+  min-width: 128px;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* Price-refresh outcome highlights (set by the ↻ Refresh prices action).
+   Failed/blocked rows get the warning ring the user hovers for the reason;
+   updated rows get a quiet confirmation tint. */
+.asset-table td.price-refresh-failed input[data-field="price"] {
+  border-color: var(--coral, #f06060);
+  box-shadow: 0 0 0 2px rgba(240, 96, 96, 0.25);
+  background: rgba(240, 96, 96, 0.08);
+}
+.asset-table td.price-refresh-updated input[data-field="price"] {
+  border-color: var(--emerald, #34d399);
+  box-shadow: 0 0 0 1px rgba(52, 211, 153, 0.28);
+}
+.asset-table td.price-refresh-failed,
+.asset-table td.price-refresh-updated {
+  cursor: help;
 }
 
 .asset-table button,
