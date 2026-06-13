@@ -8,7 +8,7 @@
     <link rel="icon" href="./favicon.svg?v=20260505-favicon" type="image/svg+xml">
     <meta name="theme-color" content="#07111f">
     <link rel="stylesheet" href="./src/styles.css?v=20260530-ws-mobile-fit">
-    <link rel="stylesheet" href="./src/redesign.css?v=20260612-coverage-report">
+    <link rel="stylesheet" href="./src/redesign.css?v=20260613-year-scrubber">
     <script src="https://accounts.google.com/gsi/client" async defer></script>
   </head>
   <body data-screen="persona" data-theme="dark">
@@ -982,6 +982,23 @@
         <!-- Existing KPI tiles (kept for backward compat with code that paints into #kpis) -->
         <div id="kpis" hidden></div>
 
+        <!-- Page-level year scrubber. Sticks to the top of the results view so a
+             single, always-reachable control drives every year-scoped panel
+             below — cash flow, action plan, bracket fill, withdrawal mix, the
+             ledger row, and the asset snapshot — no matter how far you scroll. -->
+        <section class="year-scrubber" id="yearScrubber" aria-label="Plan year selector">
+          <div class="year-scrubber-lead">
+            <span class="year-scrubber-eyebrow">Viewing year</span>
+            <strong id="yearLabel" class="year-scrubber-label">Year 1</strong>
+          </div>
+          <div class="year-scrubber-controls">
+            <button type="button" id="yearScrubPrev" class="year-scrub-step" aria-label="Previous year" disabled>‹</button>
+            <input id="yearRange" type="range" min="1" max="35" value="1" class="year-scrubber-range" aria-label="Plan year" aria-describedby="yearScrubberHint" disabled>
+            <button type="button" id="yearScrubNext" class="year-scrub-step" aria-label="Next year" disabled>›</button>
+          </div>
+          <span class="year-scrubber-hint" id="yearScrubberHint">Slide to update every panel on this page</span>
+        </section>
+
         <!-- Dashboard grid: everything visible, dense, command-center feel -->
         <section class="dash-grid">
 
@@ -1000,11 +1017,6 @@
                     <option value="total">Yearly portfolio flow</option>
                   </select>
                 </label>
-                <label>
-                  <span>Year</span>
-                  <input id="yearRange" type="range" min="1" max="35" value="1">
-                </label>
-                <strong id="yearLabel">Year 1</strong>
               </div>
             </div>
             <svg id="sankeySvg" class="sankey" role="img" aria-label="Portfolio cash flow diagram"></svg>
@@ -1237,7 +1249,7 @@
       <select id="viewMode"><option value="real" selected>Today's $</option><option value="nominal">Future $</option></select>
     </div>
 
-    <script type="module" src="./src/app.mjs?v=20260613-portfolio-prices"></script>
-    <script type="module" src="./src/redesign.mjs?v=20260613-portfolio-prices"></script>
+    <script type="module" src="./src/app.mjs?v=20260613-year-scrubber"></script>
+    <script type="module" src="./src/redesign.mjs?v=20260613-year-scrubber"></script>
   </body>
 </html>

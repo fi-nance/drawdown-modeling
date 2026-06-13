@@ -557,6 +557,9 @@ const els = {
   magiDisplayMode: document.querySelector("#magiDisplayMode"),
   yearRange: document.querySelector("#yearRange"),
   yearLabel: document.querySelector("#yearLabel"),
+  yearScrubPrev: document.querySelector("#yearScrubPrev"),
+  yearScrubNext: document.querySelector("#yearScrubNext"),
+  cashFlowYearTitle: document.querySelector("#cashFlowYearTitle"),
   sankeySvg: document.querySelector("#sankeySvg"),
   timelineSvg: document.querySelector("#timelineSvg"),
   distributionSvg: document.querySelector("#distributionSvg"),
@@ -875,15 +878,9 @@ function bindEvents() {
   });
   bindMonteCarloControls();
   els.historicalDataSource?.addEventListener("change", resetHistoricalRangeControlsForCurrentSource);
-  els.yearRange.addEventListener("input", () => {
-    selectedYearIndex = Number(els.yearRange.value) - 1;
-    clampSelectedYearToVisible();
-    renderFlowAndSales();
-    renderYearLabel();
-    renderKpis();
-    renderYearTable();
-    renderAssetBreakdown();
-  });
+  els.yearRange.addEventListener("input", applySelectedYearFromControl);
+  els.yearScrubPrev?.addEventListener("click", () => stepSelectedYear(-1));
+  els.yearScrubNext?.addEventListener("click", () => stepSelectedYear(1));
 
   els.addAsset.addEventListener("click", () => {
     assets.push({
@@ -2417,6 +2414,9 @@ function paintLatest(streaming) {
   if (!latest) return;
   clampSelectedYearToVisible();
   if (latest.plan) {
+    // The scrubber ships disabled so a drag before the first run can't desync
+    // selectedYearIndex from the slider; results exist now, so enable it.
+    if (els.yearRange) els.yearRange.disabled = false;
     renderKpis();
     renderAuditPanel();
     renderFlowAndSales();
@@ -2824,7 +2824,46 @@ function renderFlowAndSales() {
 
 function renderYearLabel() {
   const year = activeVisibleYears()[selectedYearIndex];
-  els.yearLabel.textContent = year ? yearDisplayLabel(year) : `Year ${selectedYearIndex + 1}`;
+  const label = year ? yearDisplayLabel(year) : `Year ${selectedYearIndex + 1}`;
+  if (els.yearLabel) els.yearLabel.textContent = label;
+  // The cash-flow (Sankey) card carries its own year title; keep it in step
+  // with the scrubber instead of the static "Year 1" it ships with.
+  if (els.cashFlowYearTitle) {
+    els.cashFlowYearTitle.textContent = year
+      ? (Number.isFinite(year.age) ? `${label} · age ${ageLabel(year.age)}` : label)
+      : label;
+  }
+  // Prev/Next are disabled at the ends of the visible plan.
+  const lastIndex = Math.max(0, activeVisibleYears().length - 1);
+  if (els.yearScrubPrev) els.yearScrubPrev.disabled = selectedYearIndex <= 0;
+  if (els.yearScrubNext) els.yearScrubNext.disabled = selectedYearIndex >= lastIndex;
+}
+
+// Single entry point for a year change driven by the page-level scrubber
+// (slider drag, prev/next, or a programmatic dispatch). Re-renders every
+// year-scoped panel app.mjs owns; redesign.mjs subscribes to the same
+// `#yearRange` input event for its own cards (bracket fill, withdrawal mix,
+// the "this year" action list).
+function applySelectedYearFromControl() {
+  if (!latest) return;
+  selectedYearIndex = Number(els.yearRange.value) - 1;
+  clampSelectedYearToVisible();
+  renderFlowAndSales();
+  renderYearLabel();
+  renderKpis();
+  renderYearTable();
+  renderAssetBreakdown();
+}
+
+function stepSelectedYear(delta) {
+  if (!els.yearRange) return;
+  const max = Math.max(1, Number(els.yearRange.max) || 1);
+  const next = Math.min(max, Math.max(1, (Number(els.yearRange.value) || 1) + delta));
+  if (next === Number(els.yearRange.value)) return;
+  els.yearRange.value = String(next);
+  // Dispatch the same input event the slider fires so both modules react
+  // through one code path.
+  els.yearRange.dispatchEvent(new Event("input", { bubbles: true }));
 }
 
 function acaPlanLabel(year) {
@@ -2907,12 +2946,11 @@ function renderYearTable() {
   applyPinnedColumnOffsets(els.yearTable);
   els.yearTable.querySelectorAll("[data-year-index]").forEach((row) => {
     row.addEventListener("click", () => {
-      selectedYearIndex = Number(row.dataset.yearIndex);
-      els.yearRange.value = String(selectedYearIndex + 1);
-      renderKpis();
-      renderFlowAndSales();
-      renderYearTable();
-      renderAssetBreakdown();
+      // Route through the shared scrubber event so every year-scoped panel —
+      // app's (KPIs, cash flow, ledger, asset snapshot) and redesign's
+      // (bracket fill, withdrawal mix, "this year" action list) — re-renders.
+      els.yearRange.value = String(Number(row.dataset.yearIndex) + 1);
+      els.yearRange.dispatchEvent(new Event("input", { bubbles: true }));
     });
   });
   bindPinToggles(els.yearTable, pinnedYearColumns, ALWAYS_PINNED_YEAR, PINNED_YEAR_STORAGE_KEY, () => renderYearTable());
@@ -3093,6 +3131,13 @@ function renderScenarioTable() {
       renderFlowAndSales();
       renderYearTable();
       renderAssetBreakdown();
+      // Selecting a path can clamp the year; notify redesign's year-scoped
+      // cards through the same event the backtest path uses so they re-render.
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("psl:path-selected", {
+          detail: { type: "monteCarlo", id }
+        }));
+      }
     });
   });
   addStickyHorizontalScrollbar(els.scenarioTable);
@@ -4051,13 +4096,11 @@ function drawTimeline() {
     const svgX = (e.clientX - rect.left) * (width / rect.width);
     const nearestIdx = Math.round(((svgX - margin.left) / plotW) * Math.max(1, years.length - 1));
     const idx = Math.max(0, Math.min(years.length - 1, nearestIdx));
-    selectedYearIndex = idx;
+    // Route through the shared scrubber event so redesign's year-scoped cards
+    // (bracket fill, withdrawal mix, "this year" action list) follow the click
+    // too — not just app.mjs's panels.
     els.yearRange.value = String(idx + 1);
-    renderKpis();
-    renderFlowAndSales();
-    renderYearTable();
-    renderAssetBreakdown();
-    renderYearLabel();
+    els.yearRange.dispatchEvent(new Event("input", { bubbles: true }));
   });
 }
 

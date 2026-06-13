@@ -14,7 +14,7 @@ test("app topbars link to the model coverage report", async () => {
 
   assert.equal(reportLinks.length, 3, "persona, workspace, and results topbars should expose the report");
   assert.match(html, /Model coverage/);
-  assert.match(html, /src\/redesign\.css\?v=20260612-coverage-report/);
+  assert.match(html, /src\/redesign\.css\?v=20260613-year-scrubber/);
 });
 
 test("standalone model coverage page renders from structured report data", async () => {

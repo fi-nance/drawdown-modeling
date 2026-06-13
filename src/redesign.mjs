@@ -1477,8 +1477,13 @@ function renderActionList() {
   const root = document.getElementById("actionList");
   if (!root) return;
   const latest = window.__pslLatest;
-  const year = planYears(latest)[0];
+  const years = planYears(latest);
+  // Track the page-level year scrubber instead of always pinning year 1, so the
+  // "This year" card matches the cash-flow, ledger, and asset panels.
+  const yearIndex = Math.max(0, Math.min(years.length - 1, currentSelectedYearIndex()));
+  const year = years[yearIndex];
   if (!year) { root.innerHTML = ""; return; }
+  const yearOrdinal = yearIndex + 1;
 
   const items = [];
   // Withdrawal source
@@ -1507,7 +1512,7 @@ function renderActionList() {
         ${actionListConfidenceHtml(actionConfidenceFor(it.confidenceKind, latest?.confidence))}
       </div>
       <span class="action-amt">${formatYearCurrencyShort(it.amt, year)}</span>
-    </li>`).join("") : `<li><div class="action-text"><span class="action-sub">No actions for year 1.</span></div></li>`;
+    </li>`).join("") : `<li><div class="action-text"><span class="action-sub">No actions for year ${yearOrdinal}.</span></div></li>`;
 }
 
 function actionListConfidenceHtml(confidence = {}) {
@@ -1959,14 +1964,15 @@ function bindWithdrawalMix() {
     if (!col) return;
     selectYearAcrossViews(Number(col.dataset.yearIndex));
   });
-  // Keep the highlight in sync when the year is changed elsewhere (slider,
-  // year-table row click). app.mjs already handles those; we just listen for
-  // the same input event, re-mark the selected column, and re-paint anything
-  // else that's year-scoped (bracket fill).
+  // Keep every redesign-owned year-scoped card in sync when the page-level
+  // scrubber moves (slider drag, prev/next, or year-table row click — all
+  // route through the shared #yearRange input event). app.mjs re-renders its
+  // own panels on the same event.
   document.getElementById("yearRange")?.addEventListener("input", () => {
     renderWithdrawalMix();
     syncMixSelectedHighlight(currentSelectedYearIndex());
     renderBracketFill();
+    renderActionList();
   });
 }
 
