@@ -2156,8 +2156,18 @@ function hookRunCompletion() {
   // final summary. We use it to refresh workspace summary chips and to
   // double-check we've landed on results in case the first-scenario event
   // was missed (unlikely, but defensive).
+  window.addEventListener("psl:run-start", (ev) => {
+    updateResultsMetaForRun({ phase: "preparing", ...(ev.detail ?? {}) });
+  });
   window.addEventListener("psl:run-progress", (ev) => {
     if (ev.detail?.error) clearPendingRun();
+    else updateResultsMetaForRun(ev.detail ?? {});
+  });
+  window.addEventListener("psl:base-results-ready", (ev) => {
+    rerenderResults();
+    syncWorkspaceSummary();
+    updateResultsMetaForRun({ phase: "base-ready", ...(ev.detail ?? {}) });
+    advancePendingRunIfRenderable();
   });
   window.addEventListener("psl:run-complete", () => {
     rerenderResults();
@@ -2181,12 +2191,72 @@ function rerenderResults() {
   // Update results topbar meta
   const meta = document.getElementById("resultsMeta");
   if (meta && window.__pslLatest) {
+    const progress = window.__pslLatest?.monteCarlo?.progress;
+    if (progress && !progress.complete) {
+      updateResultsMetaForRun({
+        phase: "monteCarlo",
+        done: progress.done,
+        total: progress.total,
+        planYears: window.__pslLatest?.scenario?.planYears
+      });
+      return;
+    }
+    const decision = window.__pslLatest?.decision;
+    if (decision?.status === "running") {
+      updateResultsMetaForRun({
+        phase: "decision",
+        done: decision.progress?.done ?? 0,
+        total: decision.progress?.total ?? null,
+        planYears: window.__pslLatest?.scenario?.planYears
+      });
+      return;
+    }
     const runs = window.__pslLatest?.monteCarlo?.summary?.runs ?? "—";
     const years = planYears(window.__pslLatest).length || "—";
     const cacheNote = lastCacheOk === false ? " · not cached for refresh" : "";
     meta.textContent = `Updated just now · ${runs} sims · ${years} years${cacheNote}`;
     meta.dataset.cacheOk = lastCacheOk === false ? "false" : "true";
   }
+}
+
+function updateResultsMetaForRun(detail = {}) {
+  const meta = document.getElementById("resultsMeta");
+  if (!meta) return;
+  if (detail.error) {
+    meta.textContent = "Run needs attention";
+    meta.dataset.cacheOk = "pending";
+    return;
+  }
+  const runs = finiteNumber(detail.total)
+    ?? finiteNumber(detail.runs)
+    ?? finiteNumber(window.__pslLatest?.monteCarlo?.summary?.runs)
+    ?? finiteNumber(window.__pslLatest?.monteCarlo?.progress?.total);
+  const done = finiteNumber(detail.done)
+    ?? finiteNumber(window.__pslLatest?.monteCarlo?.progress?.done)
+    ?? 0;
+  const years = finiteNumber(detail.planYears)
+    ?? (planYears(window.__pslLatest).length || finiteNumber(document.getElementById("planYears")?.value));
+  const runLabel = runs ? `${formatWhole(runs)} sims` : "simulations";
+  const yearLabel = years ? `${formatWhole(years)} years` : "plan";
+  const phase = detail.phase ?? "preparing";
+  let text;
+  if (phase === "plan") {
+    text = `Base plan ready · running historical tests · ${yearLabel}`;
+  } else if (phase === "backtests") {
+    text = `Historical tests ready · running Monte Carlo · ${runLabel}`;
+  } else if (phase === "monteCarlo") {
+    text = `Running Monte Carlo · ${formatWhole(done)} of ${formatWhole(runs ?? 0)} sims · ${yearLabel}`;
+  } else if (phase === "base-ready") {
+    text = `Base results ready · ${runLabel} · ${yearLabel} · rescue options running`;
+  } else if (phase === "decision") {
+    text = done
+      ? `Base results ready · solving rescue options · ${formatWhole(done)} tested`
+      : "Base results ready · solving rescue options";
+  } else {
+    text = `Preparing ${yearLabel} · ${runLabel} queued`;
+  }
+  meta.textContent = text;
+  meta.dataset.cacheOk = "pending";
 }
 
 // ─── Helpers ───────────────────────────────────────────────────────
@@ -2404,6 +2474,14 @@ function formatCurrencyShort(n) {
   if (abs >= 1e6) return `$${(n/1e6).toFixed(1)}M`;
   if (abs >= 1e3) return `$${Math.round(n/1000)}k`;
   return `$${Math.round(n)}`;
+}
+function finiteNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+function formatWhole(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? Math.round(number).toLocaleString() : "—";
 }
 function escapeHtml(value) {
   return String(value ?? "")

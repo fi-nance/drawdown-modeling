@@ -2084,7 +2084,7 @@ function downloadJsonText(text, filename) {
 function getSimulationWorker() {
   if (!simulationWorker) {
     simulationWorker = new Worker(
-      new URL("./core/simulation.worker.mjs?v=20260613-rescue-precision", import.meta.url),
+      new URL("./core/simulation.worker.mjs?v=20260613-long-horizon-progress-b", import.meta.url),
       { type: "module" }
     );
     simulationWorker.addEventListener("error", (ev) => {
@@ -2227,6 +2227,9 @@ async function runModels(opts = {}) {
     });
 
     setStatus("Running projections...");
+    window.dispatchEvent(new CustomEvent("psl:run-progress", {
+      detail: { phase: "preparing", done: 0, total: runs, planYears: scenario.planYears }
+    }));
     workspaceDirty = false;
     let firstScenarioId = null;
     // Buffer used when stream=false so the cached display stays put until
@@ -2272,7 +2275,7 @@ async function runModels(opts = {}) {
       renderLatest({ streaming: true });
     }
     window.dispatchEvent(new CustomEvent("psl:run-progress", {
-      detail: { phase: "monteCarlo", done: 0, total: runs }
+      detail: { phase: "preparing", done: 0, total: runs, planYears: scenario.planYears }
     }));
 
     const result = await runSimulationsInWorker({
@@ -2284,6 +2287,10 @@ async function runModels(opts = {}) {
       sequences: historicalSequences,
       decisionProfile,
       onPlan: (plan) => {
+        setStatus("Base plan ready. Running historical backtests...");
+        window.dispatchEvent(new CustomEvent("psl:run-progress", {
+          detail: { phase: "plan", done: 0, total: runs, planYears: scenario.planYears }
+        }));
         if (stream) {
           if (!latest) return;
           latest.plan = plan;
@@ -2294,6 +2301,10 @@ async function runModels(opts = {}) {
         }
       },
       onBacktests: (backtests) => {
+        setStatus("Historical backtests ready. Running Monte Carlo...");
+        window.dispatchEvent(new CustomEvent("psl:run-progress", {
+          detail: { phase: "backtests", done: 0, total: runs, planYears: scenario.planYears, backtests: backtests.length }
+        }));
         if (stream) {
           if (!latest) return;
           latest.backtests = backtests;
@@ -2322,7 +2333,12 @@ async function runModels(opts = {}) {
           // authoritative summary overwrites this when the run resolves.
           if (done >= total && !latest.monteCarlo.summary) {
             latest.monteCarlo.summary = effectiveMonteCarloSummary();
+            latest.monteCarlo.progress = { done, total, complete: true };
             renderLatest();
+            setStatus(`Base results ready: ${total.toLocaleString()} Monte Carlo runs complete. Solving rescue options...`);
+            window.dispatchEvent(new CustomEvent("psl:base-results-ready", {
+              detail: { runs: total, planYears: scenario.planYears }
+            }));
           } else {
             renderLatest({ streaming: true });
           }
@@ -2340,6 +2356,9 @@ async function runModels(opts = {}) {
           latest.decision = runningDecision;
           latest.confidence = buildConfidenceReport(confidenceContext());
           setStatus(`Solving rescue options... ${progress.done} candidates tested.`);
+          window.dispatchEvent(new CustomEvent("psl:run-progress", {
+            detail: { phase: "decision", done: progress.done, total: progress.total ?? null, planYears: scenario.planYears }
+          }));
           renderLatest({ streaming: true });
         } else {
           buffered.decision = runningDecision;
@@ -2356,8 +2375,11 @@ async function runModels(opts = {}) {
         }
       },
       onProgress: ({ phase, done, total }) => {
+        if (phase === "monteCarlo" && Number.isFinite(done) && Number.isFinite(total)) {
+          setStatus(`Running Monte Carlo... ${done.toLocaleString()} of ${total.toLocaleString()} scenarios.`);
+        }
         window.dispatchEvent(new CustomEvent("psl:run-progress", {
-          detail: { phase, done, total }
+          detail: { phase, done, total, planYears: scenario.planYears }
         }));
       }
     });

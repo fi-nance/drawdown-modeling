@@ -40,9 +40,10 @@ const SEARCH_RUN_CAP = 50;
 // dozens of candidate simulations whose results are comparative (directional),
 // so they don't need the caller's full headline run count — at 1000 runs a
 // fragile plan's full rescue sweep takes minutes. The displayed base
-// distribution keeps full precision (it comes in via baseMonteCarlo). Test
-// callers pass runs <= this cap, so this is a no-op for them.
+// distribution keeps full precision (it comes in via baseMonteCarlo). Long
+// horizons use the cheaper search cap because cost scales with years.
 const DECISION_SOLVER_RUN_CAP = 250;
+const LONG_HORIZON_PLAN_YEARS = 45;
 const EPSILON = 0.00001;
 
 const RESERVE_MAX_YEARS = 5;
@@ -117,7 +118,8 @@ export function runDecisionBatch({
   // Rescue/sensitivity candidates run at a capped resolution (see the constant)
   // so a fragile plan's sweep finishes in seconds; the base/headline below keeps
   // the caller's full `runs`.
-  const solverRuns = Math.min(Math.max(1, Math.trunc(Number(runs) || DEFAULT_MONTE_CARLO_RUNS)), DECISION_SOLVER_RUN_CAP);
+  const requestedRuns = Math.max(1, Math.trunc(Number(runs) || DEFAULT_MONTE_CARLO_RUNS));
+  const solverRuns = decisionSolverRunsForScenario({ scenario, runs: requestedRuns });
   const base = summarizeCandidate({
     id: "base",
     kind: "base",
@@ -211,12 +213,12 @@ export function runDecisionBatch({
   // cheap solver screen stay at solver resolution; they won't be recommended.
   // (Only kicks in when the headline run count exceeds the solver cap, so test
   // callers — which pass small run counts — are unaffected.)
-  if (solverRuns < runs) {
+  if (shouldRefineDecisionPrecision({ scenario, solverRuns, runs: requestedRuns })) {
     const baseRate = base.monteCarlo.successRate;
     for (let i = 0; i < rescueOptions.length; i += 1) {
       const opt = rescueOptions[i];
       if (Number.isFinite(opt?.monteCarlo?.successRate) && opt.monteCarlo.successRate + EPSILON >= baseRate) {
-        rescueOptions[i] = refineOptionPrecision(opt, { assets, taxProfile, runs, seed, profile, base, tracker });
+        rescueOptions[i] = refineOptionPrecision(opt, { assets, taxProfile, runs: requestedRuns, seed, profile, base, tracker });
       }
     }
   }
@@ -242,6 +244,22 @@ export function runDecisionBatch({
     tradeoffFrontier,
     generatedAt: new Date().toISOString()
   };
+}
+
+export function decisionSolverRunsForScenario({ scenario = {}, runs = DEFAULT_MONTE_CARLO_RUNS } = {}) {
+  const requestedRuns = Math.max(1, Math.trunc(Number(runs) || DEFAULT_MONTE_CARLO_RUNS));
+  const planYears = Math.max(1, Math.trunc(Number(scenario?.planYears) || DEFAULT_SCENARIO.planYears));
+  const cap = planYears > LONG_HORIZON_PLAN_YEARS
+    ? SEARCH_RUN_CAP
+    : DECISION_SOLVER_RUN_CAP;
+  return Math.min(requestedRuns, cap);
+}
+
+export function shouldRefineDecisionPrecision({ scenario = {}, solverRuns = 0, runs = DEFAULT_MONTE_CARLO_RUNS } = {}) {
+  const requestedRuns = Math.max(1, Math.trunc(Number(runs) || DEFAULT_MONTE_CARLO_RUNS));
+  const planYears = Math.max(1, Math.trunc(Number(scenario?.planYears) || DEFAULT_SCENARIO.planYears));
+  return planYears <= LONG_HORIZON_PLAN_YEARS
+    && Math.max(1, Math.trunc(Number(solverRuns) || 1)) < requestedRuns;
 }
 
 export function classifyDecisionEvidence({

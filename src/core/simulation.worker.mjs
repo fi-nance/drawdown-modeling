@@ -7,7 +7,7 @@ import {
   runMonteCarlo,
   simulatePlan
 } from "./simulation.mjs?v=20260613-rescue-precision";
-import { runDecisionBatch } from "./decisionEngine.mjs?v=20260613-rescue-precision";
+import { runDecisionBatch } from "./decisionEngine.mjs?v=20260613-long-horizon-progress-b";
 
 const UI_MONTE_CARLO_TIMELINE_LIMIT = 5;
 

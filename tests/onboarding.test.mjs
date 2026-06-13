@@ -13,7 +13,7 @@ import { buildTaxProfile } from "../src/data/taxData.mjs";
 const sumUnits = (assets) => assets.reduce((acc, a) => acc + a.units * a.price, 0);
 const redesignSource = () => readFile(new URL("../src/redesign.mjs", import.meta.url), "utf8");
 const htmlSource = () => readFile(new URL("../index.html", import.meta.url), "utf8");
-const ONBOARDING_RESULTS_STREAM_ASSET_KEY = "20260613-onboarding-results-stream-a";
+const ONBOARDING_RESULTS_STREAM_ASSET_KEY = "20260613-long-horizon-progress-b";
 
 function sourceSlice(source, startNeedle, endNeedle) {
   const start = source.indexOf(startNeedle);
@@ -206,6 +206,29 @@ test("wizard results handoff clears pending navigation if the run cannot start o
   assert.match(hookRunCompletion, /state\.screen === "workspace" \|\| state\.screen === "persona"/);
 });
 
+test("base Monte Carlo results refresh the results chrome before rescue solving completes", async () => {
+  const app = await readFile(new URL("../src/app.mjs", import.meta.url), "utf8");
+  const redesign = await redesignSource();
+  const scenarioBatchHandler = sourceSlice(
+    app,
+    "onScenarios: ({ scenarios, done, total }) => {",
+    "onDecisionProgress: (progress) => {"
+  );
+  const hookRunCompletion = sourceSlice(redesign, "function hookRunCompletion()", "function rerenderResults()");
+  const rerenderResults = sourceSlice(redesign, "function rerenderResults()", "// ─── Helpers");
+
+  assert.match(scenarioBatchHandler, /latest\.monteCarlo\.summary = effectiveMonteCarloSummary\(\)/);
+  assert.match(scenarioBatchHandler, /latest\.monteCarlo\.progress = \{ done, total, complete: true \}/);
+  assert.match(scenarioBatchHandler, /psl:base-results-ready/);
+  assert.match(hookRunCompletion, /window\.addEventListener\("psl:base-results-ready"/);
+  assert.match(hookRunCompletion, /rerenderResults\(\)/);
+  assert.match(hookRunCompletion, /advancePendingRunIfRenderable\(\)/);
+  assert.match(rerenderResults, /progress && !progress\.complete/);
+  assert.match(rerenderResults, /phase: "monteCarlo"/);
+  assert.match(rerenderResults, /decision\?\.status === "running"/);
+  assert.match(rerenderResults, /phase: "decision"/);
+});
+
 test("deployed shell cache-busts the wizard streaming fix modules", async () => {
   const html = await htmlSource();
 
@@ -213,4 +236,7 @@ test("deployed shell cache-busts the wizard streaming fix modules", async () => 
   assert.match(html, new RegExp(`src/app\\.mjs\\?v=${ONBOARDING_RESULTS_STREAM_ASSET_KEY}`));
   assert.match(html, new RegExp(`src/redesign\\.mjs\\?v=${ONBOARDING_RESULTS_STREAM_ASSET_KEY}`));
   assert.doesNotMatch(html, /onboarding-wizard-e/, "deployed HTML must not keep the pre-fix asset key");
+  assert.doesNotMatch(html, /onboarding-results-stream-a/, "deployed HTML must not keep the previous results-stream asset key");
+  assert.doesNotMatch(html, /long-horizon-results-a/, "deployed HTML must not keep the intermediate long-horizon asset key");
+  assert.doesNotMatch(html, /long-horizon-progress-a/, "deployed HTML must not keep the intermediate progress asset key");
 });

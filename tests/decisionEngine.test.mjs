@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   classifyDecisionEvidence,
+  decisionSolverRunsForScenario,
   normalizeDecisionProfile,
   runDecisionBatch,
   scenarioWithAllocationTarget,
@@ -17,6 +18,7 @@ import {
   scenarioWithSequenceReserve,
   scenarioWithSocialSecurityBridge,
   scenarioWithTaxableLotRescue,
+  shouldRefineDecisionPrecision,
   scenarioWithTipsLadder
 } from "../src/core/decisionEngine.mjs";
 import { DEFAULT_SCENARIO } from "../src/core/simulation.mjs";
@@ -118,6 +120,16 @@ test("decision profile treats null spend fields as auto-from-strategy", () => {
 
   assert.equal(profile.requiredSpend, 64000);
   assert.equal(profile.flexibleSpend, 36000);
+});
+
+test("long-horizon decision solver stays at cheap precision", () => {
+  const longScenario = { ...DEFAULT_SCENARIO, planYears: 55 };
+  const ordinaryScenario = { ...DEFAULT_SCENARIO, planYears: 35 };
+
+  assert.equal(decisionSolverRunsForScenario({ scenario: longScenario, runs: 1000 }), 50);
+  assert.equal(decisionSolverRunsForScenario({ scenario: ordinaryScenario, runs: 1000 }), 250);
+  assert.equal(shouldRefineDecisionPrecision({ scenario: longScenario, solverRuns: 50, runs: 1000 }), false);
+  assert.equal(shouldRefineDecisionPrecision({ scenario: ordinaryScenario, solverRuns: 250, runs: 1000 }), true);
 });
 
 test("scenario transforms apply discretionary cuts and income bridges explicitly", () => {
