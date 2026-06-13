@@ -4,7 +4,7 @@ import {
   runHistoricalBacktests,
   runMonteCarlo,
   simulatePlan
-} from "./simulation.mjs?v=20260613-tips-coupon";
+} from "./simulation.mjs?v=20260613-rescue-precision";
 import {
   buildRiskBasedGuardrailTable,
   RISK_BASED_GUARDRAILS_MODE,
@@ -205,6 +205,21 @@ export function runDecisionBatch({
     socialSecurityBridge,
     combined
   ].filter(Boolean);
+  // Adaptive precision: the rescues worth recommending are the ones that meet or
+  // beat the current (base) success rate — re-run those at the caller's full run
+  // count for accurate numbers. Rescues that don't even match the base after the
+  // cheap solver screen stay at solver resolution; they won't be recommended.
+  // (Only kicks in when the headline run count exceeds the solver cap, so test
+  // callers — which pass small run counts — are unaffected.)
+  if (solverRuns < runs) {
+    const baseRate = base.monteCarlo.successRate;
+    for (let i = 0; i < rescueOptions.length; i += 1) {
+      const opt = rescueOptions[i];
+      if (Number.isFinite(opt?.monteCarlo?.successRate) && opt.monteCarlo.successRate + EPSILON >= baseRate) {
+        rescueOptions[i] = refineOptionPrecision(opt, { assets, taxProfile, runs, seed, profile, base, tracker });
+      }
+    }
+  }
   rescueOptions.sort((a, b) => rescueSortScore(b, profile, diagnosis) - rescueSortScore(a, profile, diagnosis));
   const bestOption = rescueOptions[0] ?? null;
 
@@ -1691,6 +1706,49 @@ function optionWithDelta(option, base, extra = {}) {
         : null
     }
   };
+}
+
+// Adaptive precision: re-run a promising rescue's Monte Carlo at the caller's
+// full run count so its displayed numbers are accurate. The plan and historical
+// backtests are deterministic (independent of MC run count), so only the MC
+// summary, verdict, failure anatomy, and delta-vs-base are recomputed. Used to
+// give max precision to rescues that meet or beat the base success rate while
+// leaving the rest at the cheap solver resolution.
+function refineOptionPrecision(option, { assets, taxProfile, runs, seed, profile, base, tracker } = {}) {
+  if (!option?.scenario || !option?.monteCarlo) return option;
+  const monteCarlo = runMonteCarlo({
+    assets,
+    scenario: option.scenario,
+    taxProfile,
+    runs,
+    seed,
+    scenarioTimelineLimit: SUMMARY_ONLY_MONTE_CARLO_TIMELINES
+  });
+  const mcScenarios = monteCarlo?.scenarios ?? [];
+  const refinedRate = Number.isFinite(monteCarlo?.summary?.successRate)
+    ? monteCarlo.summary.successRate
+    : successRate(mcScenarios);
+  const verdict = classifyDecisionEvidence({
+    monteCarloSuccessRate: refinedRate,
+    historicalSuccessRate: option.historical?.successRate,
+    historicalCount: option.historical?.count ?? 0,
+    targetSuccessRate: profile.targetSuccessRate
+  });
+  const refined = optionWithDelta({
+    ...option,
+    verdict,
+    monteCarlo: {
+      successRate: round(refinedRate, 4),
+      runs: monteCarlo?.summary?.runs ?? mcScenarios.length,
+      medianEndingValue: monteCarlo?.summary?.medianEndingValue ?? percentile(mcScenarios.map((s) => s.endingValue), 0.5),
+      p10EndingValue: monteCarlo?.summary?.p10EndingValue ?? percentile(mcScenarios.map((s) => s.endingValue), 0.1),
+      p90EndingValue: monteCarlo?.summary?.p90EndingValue ?? percentile(mcScenarios.map((s) => s.endingValue), 0.9)
+    },
+    failureAnatomy: failureAnatomy(mcScenarios)
+  }, base, {});
+  // Bump the progress count so the (slower) refinement pass shows it's working.
+  tracker?.(refined);
+  return refined;
 }
 
 function comparisonOption(option, base, extra = {}) {

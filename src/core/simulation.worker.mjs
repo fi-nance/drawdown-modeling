@@ -6,8 +6,8 @@ import {
   runHistoricalBacktests,
   runMonteCarlo,
   simulatePlan
-} from "./simulation.mjs?v=20260613-tips-coupon";
-import { runDecisionBatch } from "./decisionEngine.mjs?v=20260613-tips-coupon";
+} from "./simulation.mjs?v=20260613-rescue-precision";
+import { runDecisionBatch } from "./decisionEngine.mjs?v=20260613-rescue-precision";
 
 const UI_MONTE_CARLO_TIMELINE_LIMIT = 5;
 

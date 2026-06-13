@@ -10,11 +10,11 @@ export {
   runMonteCarlo,
   runHistoricalBacktests,
   generateSingleMonteCarloPath
-} from "./simulation/plan.mjs?v=20260613-tips-coupon";
-export { DEFAULT_SCENARIO } from "./simulation/scenario.mjs?v=20260613-tips-coupon";
+} from "./simulation/plan.mjs?v=20260613-rescue-precision";
+export { DEFAULT_SCENARIO } from "./simulation/scenario.mjs?v=20260613-rescue-precision";
 export {
   MONTE_CARLO_ASSUMPTION_PRESETS,
   DEFAULT_MONTE_CARLO_MEAN_REVERSION,
   DEFAULT_MONTE_CARLO_RUNS,
   MEDICAL_INFLATION_PREMIUM
-} from "./simulation/constants.mjs?v=20260613-tips-coupon";
+} from "./simulation/constants.mjs?v=20260613-rescue-precision";

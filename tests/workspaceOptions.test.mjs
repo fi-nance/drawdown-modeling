@@ -6,13 +6,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { simulatePlan, runMonteCarlo, generateSingleMonteCarloPath } from "../src/core/simulation.mjs?v=20260613-tips-coupon";
-import { withdrawForCash } from "../src/core/simulation/withdrawalExecution.mjs?v=20260613-tips-coupon";
+import { simulatePlan, runMonteCarlo, generateSingleMonteCarloPath } from "../src/core/simulation.mjs?v=20260613-rescue-precision";
+import { withdrawForCash } from "../src/core/simulation/withdrawalExecution.mjs?v=20260613-rescue-precision";
 import { incomeStreamsForYear } from "../src/core/simulation/incomeStreams.mjs";
 import { householdRmdForYear } from "../src/core/simulation/rmd.mjs";
 import { mergeScenario } from "../src/core/simulation/scenario.mjs";
 import { applySurvivorBasisStepUp } from "../src/core/portfolio.mjs";
-import { computeIncomeTax } from "../src/core/tax.mjs?v=20260613-tips-coupon";
+import { computeIncomeTax } from "../src/core/tax.mjs?v=20260613-rescue-precision";
 import { buildTaxProfile } from "../src/data/taxData.mjs";
 import { parsePortfolioCsv } from "../src/core/importers.mjs";
 import { createSetupBackup, parseSetupBackup } from "../src/core/setupBackup.mjs";
