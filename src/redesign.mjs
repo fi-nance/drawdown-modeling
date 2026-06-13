@@ -111,6 +111,7 @@ function boot() {
   window.addEventListener("psl:render-latest", () => {
     rerenderResults();
     syncWorkspaceSummary();
+    advancePendingRunIfRenderable();
   });
   window.addEventListener("psl:path-selected", () => {
     rerenderResults();
@@ -445,8 +446,11 @@ function finishWizard({ run }) {
       showWizardError(4, "Add at least one holding before viewing results.");
       return;
     }
-    setScreen("results");
-    runModelFromRedesign({ cancelActive: true, stream: true });
+    flagPendingRun();
+    if (!runModelFromRedesign({ cancelActive: true, stream: true })) {
+      clearPendingRun();
+      showWizardError(4, "The model is still loading. Try again in a moment.");
+    }
   } else {
     setScreen("workspace");
   }
@@ -2135,17 +2139,32 @@ function flagPendingRun() {
   pendingRunAdvance = true;
 }
 
+function clearPendingRun() {
+  pendingRunAdvance = false;
+}
+
+function advancePendingRunIfRenderable() {
+  if (!pendingRunAdvance || !window.__pslLatest) return;
+  clearPendingRun();
+  if (state.screen === "workspace" || state.screen === "persona") {
+    setScreen("results");
+  }
+}
+
 function hookRunCompletion() {
   // Run-complete is dispatched by app.mjs when the worker hands back the
   // final summary. We use it to refresh workspace summary chips and to
   // double-check we've landed on results in case the first-scenario event
   // was missed (unlikely, but defensive).
+  window.addEventListener("psl:run-progress", (ev) => {
+    if (ev.detail?.error) clearPendingRun();
+  });
   window.addEventListener("psl:run-complete", () => {
     rerenderResults();
     syncWorkspaceSummary();
     if (pendingRunAdvance) {
-      pendingRunAdvance = false;
-      if (state.screen === "workspace") setScreen("results");
+      clearPendingRun();
+      if (state.screen === "workspace" || state.screen === "persona") setScreen("results");
     }
   });
 }

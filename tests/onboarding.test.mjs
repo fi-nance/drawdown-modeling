@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import {
@@ -10,6 +11,15 @@ import { simulatePlan } from "../src/core/simulation.mjs";
 import { buildTaxProfile } from "../src/data/taxData.mjs";
 
 const sumUnits = (assets) => assets.reduce((acc, a) => acc + a.units * a.price, 0);
+const redesignSource = () => readFile(new URL("../src/redesign.mjs", import.meta.url), "utf8");
+
+function sourceSlice(source, startNeedle, endNeedle) {
+  const start = source.indexOf(startNeedle);
+  assert.notEqual(start, -1, `Could not find ${startNeedle}`);
+  const end = source.indexOf(endNeedle, start + startNeedle.length);
+  assert.notEqual(end, -1, `Could not find ${endNeedle}`);
+  return source.slice(start, end);
+}
 
 test("portfolioFromTotal: single number is modeled as a taxable stock/bond split summing to the total", () => {
   const assets = portfolioFromTotal({ total: 1_000_000, stockPercent: 60 });
@@ -159,4 +169,37 @@ test("synthesized portfolios run cleanly through the engine (no per-holding deta
   const ending = plan.years.at(-1);
   assert.ok(Number.isFinite(ending.endingPortfolioValue ?? ending.portfolioValue ?? ending.endingValue),
     "final year reports a finite portfolio value");
+});
+
+test("wizard results handoff waits until the streaming run has renderable output", async () => {
+  const source = await redesignSource();
+  const finishWizard = sourceSlice(source, "function finishWizard({ run })", "function filingStatusLabel");
+  const renderLatestListener = sourceSlice(
+    source,
+    'window.addEventListener("psl:render-latest"',
+    'window.addEventListener("psl:path-selected"'
+  );
+  const advanceHelper = sourceSlice(
+    source,
+    "function advancePendingRunIfRenderable()",
+    "function hookRunCompletion()"
+  );
+
+  assert.doesNotMatch(finishWizard, /setScreen\("results"\)/, "wizard should not navigate before the run publishes output");
+  assert.match(finishWizard, /flagPendingRun\(\);\s*if \(!runModelFromRedesign\(\{ cancelActive: true, stream: true \}\)\)/);
+  assert.match(renderLatestListener, /advancePendingRunIfRenderable\(\)/);
+  assert.match(advanceHelper, /!window\.__pslLatest/, "pending navigation must wait for app.mjs to publish latest results");
+  assert.match(advanceHelper, /state\.screen === "workspace" \|\| state\.screen === "persona"/);
+  assert.match(advanceHelper, /setScreen\("results"\)/);
+});
+
+test("wizard results handoff clears pending navigation if the run cannot start or errors", async () => {
+  const source = await redesignSource();
+  const finishWizard = sourceSlice(source, "function finishWizard({ run })", "function filingStatusLabel");
+  const hookRunCompletion = sourceSlice(source, "function hookRunCompletion()", "function rerenderResults()");
+
+  assert.match(finishWizard, /clearPendingRun\(\);\s*showWizardError\(4, "The model is still loading\. Try again in a moment\."\)/);
+  assert.match(hookRunCompletion, /window\.addEventListener\("psl:run-progress"/);
+  assert.match(hookRunCompletion, /ev\.detail\?\.error\)\s*clearPendingRun\(\)/);
+  assert.match(hookRunCompletion, /state\.screen === "workspace" \|\| state\.screen === "persona"/);
 });
