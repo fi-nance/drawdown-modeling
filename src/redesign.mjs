@@ -2180,14 +2180,14 @@ function hookRunCompletion() {
 }
 
 function rerenderResults() {
-  renderKpiStrip();
-  renderDecisionPanel();
-  renderRescueComparisonTable();
-  renderTradeoffFrontierTable();
-  renderActionList();
-  renderBracketFill();
-  renderWithdrawalMix();
-  renderHealthTimeline();
+  try { renderKpiStrip(); } catch (err) { console.error("[PSL Redesign] Error in renderKpiStrip:", err); }
+  try { renderDecisionPanel(); } catch (err) { console.error("[PSL Redesign] Error in renderDecisionPanel:", err); }
+  try { renderRescueComparisonTable(); } catch (err) { console.error("[PSL Redesign] Error in renderRescueComparisonTable:", err); }
+  try { renderTradeoffFrontierTable(); } catch (err) { console.error("[PSL Redesign] Error in renderTradeoffFrontierTable:", err); }
+  try { renderActionList(); } catch (err) { console.error("[PSL Redesign] Error in renderActionList:", err); }
+  try { renderBracketFill(); } catch (err) { console.error("[PSL Redesign] Error in renderBracketFill:", err); }
+  try { renderWithdrawalMix(); } catch (err) { console.error("[PSL Redesign] Error in renderWithdrawalMix:", err); }
+  try { renderHealthTimeline(); } catch (err) { console.error("[PSL Redesign] Error in renderHealthTimeline:", err); }
   // Update results topbar meta
   const meta = document.getElementById("resultsMeta");
   if (meta && window.__pslLatest) {

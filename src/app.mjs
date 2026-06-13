@@ -2484,22 +2484,28 @@ function renderLatest(options = {}) {
 
 function paintLatest(streaming) {
   if (!latest) return;
-  clampSelectedYearToVisible();
+  try {
+    clampSelectedYearToVisible();
+  } catch (err) {
+    console.error("[PSL] Error in clampSelectedYearToVisible:", err);
+  }
   if (latest.plan) {
     // The scrubber ships disabled so a drag before the first run can't desync
     // selectedYearIndex from the slider; results exist now, so enable it.
     if (els.yearRange) els.yearRange.disabled = false;
-    renderKpis();
-    renderAuditPanel();
-    renderFlowAndSales();
-    drawTimeline();
-    renderYearTable();
-    renderAssetBreakdown();
+    try { renderKpis(); } catch (err) { console.error("[PSL] Error in renderKpis:", err); }
+    try { renderAuditPanel(); } catch (err) { console.error("[PSL] Error in renderAuditPanel:", err); }
+    try { renderFlowAndSales(); } catch (err) { console.error("[PSL] Error in renderFlowAndSales:", err); }
+    try { drawTimeline(); } catch (err) { console.error("[PSL] Error in drawTimeline:", err); }
+    try { renderYearTable(); } catch (err) { console.error("[PSL] Error in renderYearTable:", err); }
+    try { renderAssetBreakdown(); } catch (err) { console.error("[PSL] Error in renderAssetBreakdown:", err); }
   }
-  drawDistribution();
-  renderScenarioTable();
-  renderBacktests();
-  if (!latest.plan) renderAuditPanel();
+  try { drawDistribution(); } catch (err) { console.error("[PSL] Error in drawDistribution:", err); }
+  try { renderScenarioTable(); } catch (err) { console.error("[PSL] Error in renderScenarioTable:", err); }
+  try { renderBacktests(); } catch (err) { console.error("[PSL] Error in renderBacktests:", err); }
+  if (!latest.plan) {
+    try { renderAuditPanel(); } catch (err) { console.error("[PSL] Error in renderAuditPanel:", err); }
+  }
   // Only cache final, complete results — mid-run partials would thrash
   // sessionStorage and a refresh during a stream is supposed to start over.
   let cacheOk = true;
@@ -3015,10 +3021,10 @@ function renderYearTable() {
     money(year.taxes?.qbiDeduction ?? 0, year),
     year.qualifyingChildren ?? 0,
     acaPlanLabel(year),
-    money(year.aca.benchmarkPremium ?? 0, year),
-    money(year.aca.grossPremium ?? 0, year),
-    money(year.aca.subsidy, year),
-    money(year.aca.netPremium ?? 0, year),
+    money(year.aca?.benchmarkPremium ?? 0, year),
+    money(year.aca?.grossPremium ?? 0, year),
+    money(year.aca?.subsidy ?? 0, year),
+    money(year.aca?.netPremium ?? 0, year),
     money(year.medicare?.totalAnnualPremium ?? 0, year),
     money(year.plannedSpending, year),
     year.spendingStrategy?.mode === "discretionaryGuardrails" ? money(year.essentialSpending ?? 0, year) : "n/a",
@@ -3338,12 +3344,12 @@ function renderActionPlan() {
     rows.push([...cells, actionConfidenceHtml(actionConfidenceFor(kind, latest?.confidence))]);
   };
   const magiTarget = year.acaMagiCeiling;
-  if (Number.isFinite(magiTarget) && year.aca?.enabled !== false) {
+  if (Number.isFinite(magiTarget) && year.aca && year.aca.enabled !== false) {
     addAction("magiManagement", [
       "Manage MAGI",
       money(magiTarget, year),
       "ACA threshold",
-      `${money(year.magi, year)} projected MAGI; ${money(year.aca.subsidy, year)} subsidy`,
+      `${money(year.magi, year)} projected MAGI; ${money(year.aca?.subsidy ?? 0, year)} subsidy`,
       `Keep discretionary gains and conversions under about ${percentFormatter.format((year.acaMagiCeilingFplPercent ?? 0) / 100)} FPL.`
     ]);
   }
