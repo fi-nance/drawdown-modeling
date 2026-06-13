@@ -572,7 +572,10 @@ const els = {
   assetBreakdownTable: document.querySelector("#assetBreakdownTable")
 };
 
-let assets = sampleAssets.map((asset) => ({ ...asset }));
+// New users start with an empty portfolio — the onboarding wizard collects
+// their real holdings (or they can opt into the sample via __pslLoadSampleData).
+// Returning users get their saved assets restored by applySetupState/loadStoredState.
+let assets = [];
 // Outcome of the latest "Refresh prices" click, keyed by asset id; drives the
 // per-row highlight in renderAssetTable. In-memory only — a reload clears it.
 let priceRefreshState = new Map();
@@ -2190,6 +2193,16 @@ async function runModels(opts = {}) {
       window.dispatchEvent(new CustomEvent("psl:run-progress", { detail: { error: true, validation: true } }));
       return;
     }
+    // Guard the empty-portfolio state (new users start with no holdings). Running
+    // would produce a confusing 0% / $0 result; instead point them at the
+    // portfolio module. The wizard's "See results" CTA waits on the first scenario
+    // (psl:first-scenario-ready), so returning here keeps them put.
+    if (!assets.length) {
+      setStatus("Add at least one holding to your portfolio to see results.", true);
+      els.assetTable?.closest(".module-card")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      window.dispatchEvent(new CustomEvent("psl:run-progress", { detail: { error: true, validation: true } }));
+      return;
+    }
     saveStoredState();
     const taxProfile = readTaxProfile();
     const decisionProfile = readDecisionProfile(scenario);
@@ -2476,6 +2489,34 @@ if (typeof window !== "undefined") {
   window.__pslRunModels = (opts) => runModels(opts);
   window.__pslSelectHistoricalBacktest = (index) => selectHistoricalBacktest(index);
   window.__pslApplyRescueScenarioToWorkspace = (scenario, options) => applyRescueScenarioToWorkspace(scenario, options);
+  // Onboarding wizard → workspace: replace the portfolio with the lots the
+  // wizard synthesized (single total / by account type) or imported. Quietly
+  // updates state without scrolling/status; the wizard owns navigation. Marks
+  // the workspace dirty so "View results" re-runs against the new portfolio.
+  window.__pslApplyWizardPortfolio = (wizardAssets) => {
+    assets = ensureUniqueAssetIds(Array.isArray(wizardAssets) ? wizardAssets.map((asset) => ({ ...asset })) : []);
+    priceRefreshState = new Map();
+    // The user just entered their real plan through the wizard — persist it so a
+    // reload keeps their work (new users default remember-setup off, which would
+    // otherwise drop everything). They can still turn it off or Clear setup.
+    if (!rememberSetupEnabled) {
+      rememberSetupEnabled = true;
+      writeRememberSetupPreference(true);
+      if (els.rememberSetup) els.rememberSetup.checked = true;
+    }
+    renderAssetTable();
+    syncJsonFromAssets();
+    saveStoredState();
+  };
+  // Explicit "Explore with example data" opt-in — the sample portfolio is no
+  // longer loaded by default, so the wizard offers it as a one-click demo.
+  window.__pslLoadSampleData = () => {
+    importAssets(sampleAssets.map((asset) => ({ ...asset })), "Loaded sample portfolio.");
+  };
+  // Lets the redesign layer avoid navigating to an empty results screen when
+  // there are no holdings (the run guard would block and its prompt lives on
+  // the workspace).
+  window.__pslPortfolioCount = () => assets.length;
 }
 
 // Returns the Monte Carlo summary if the run completed, otherwise recomputes
@@ -3879,6 +3920,19 @@ function renderAssetTable() {
     </tr>
   `;
   }).join("");
+
+  if (!assets.length) {
+    // Empty portfolio (new user, or everything removed). Point them at the ways
+    // in rather than showing a bare header row + "$0". The Add/Refresh/import
+    // controls live outside #assetTable, so they remain available above this.
+    els.assetTable.innerHTML = `
+      <p class="empty-state asset-empty-state">
+        No holdings yet. Add your accounts with <strong>Add asset</strong>, import a CSV,
+        or run <button type="button" class="link-button" data-relaunch-wizard>guided setup</button> to enter a few totals.
+      </p>
+    `;
+    return;
+  }
 
   els.assetTable.innerHTML = `
     <table>

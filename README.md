@@ -5,8 +5,8 @@ A browser-based, tax-aware retirement decumulation planner with Monte Carlo simu
 ## What Is Implemented
 
 - Deterministic portfolio engine in `src/core/`
-- Single UI entrypoint at `index.html` with persona, workspace, and results screens
-- "Recently left work" first-screen path and "Bad-market fallback" outcome for households deciding whether they can stay retired after leaving work
+- Single UI entrypoint at `index.html` with a guided onboarding wizard, workspace, and results screens
+- First-run onboarding wizard that collects bare essentials (age, filing/state/household, plan length, target spend) and the portfolio at progressive depth — a single total, totals by account type, or the full per-holding table — then drops the user into the full workspace pre-filled; no sample data loads by default
 - Decision panel that turns the base plan into a safe, fragile, or unsafe verdict with Monte Carlo evidence, historical evidence, failure timing, healthcare guardrails, and ranked rescue options
 - Rescue solvers for bad-market discretionary spending cuts, risk-based historical guardrails, earned-income bridges, and the combined "do both" plan, with final displayed options rerun at the selected Monte Carlo count and historical backtest settings
 - Monte Carlo runs with seeded random return and inflation paths
@@ -52,9 +52,19 @@ Then open:
 http://localhost:4173/
 ```
 
+## Onboarding
+
+First-time visitors land on a guided wizard instead of the full workspace. It collects only the bare essentials — your age and filing status, state, household size, plan length, and annual spending target — and then your portfolio at whatever depth you want:
+
+- **Just a total** — one liquid net-worth number (modeled as a taxable brokerage account, with a one-click nudge to split it for a more accurate tax picture)
+- **By account type** — taxable / pre-tax (401k·IRA) / Roth / HSA totals
+- **Every holding** — the full per-holding table for power users
+
+The first two depths synthesize representative stock/bond lots (using your stock-percent estimate) that drop straight into the editable holdings table, so you can always graduate to per-holding detail later without losing anything. The wizard finishes with a choice: **see your results now** (with smart defaults for taxes, ACA/Medicare, Social Security, and RMDs) or **open the workspace to fine-tune** first. CSV/Google Sheets/saved-setup imports and an explicit **Explore with example data** option are available right in the portfolio step. The sample portfolio no longer loads automatically — you enter your own numbers, or opt into the example. Relaunch the wizard any time from **Guided setup** in the workspace topbar.
+
 ## Decision Engine And Rescue Options
 
-The fastest way to try the decision layer is to choose **Recently left work**, use sample data or import a portfolio, then view results. That path fills a 44-year-old Massachusetts household, preselects the bad-market fallback outcome, enables healthcare and strategy controls, and separates spending into required and flexible amounts.
+The fastest way to try the decision layer is to enter your essentials in the onboarding wizard (or load the example portfolio), then view results. The results Decision panel turns the base plan into a verdict with ranked rescue options; the Basics module separates spending into required and flexible amounts.
 
 The Basics module includes three decision fields:
 
@@ -92,7 +102,7 @@ Private data can also be imported without OAuth by downloading the sheet as CSV 
 
 Privacy mode disables public Google Sheets import, private Google Sheets OAuth import, the live CMS Marketplace plan search, and the external (ticker/CUSIP) price-refresh lookups. It does not disable local CSV, JSON, setup backup/restore, offline ZIP-based ACA estimates, manual ACA plan fields, or the local I-bond price computation. The modeled scenario and audit bundle record whether privacy mode was enabled.
 
-Use the Save setup / Load setup controls in the persona, workspace, or results flow to export or restore the full setup, including assets, scenario controls, decision profile, and one-off cash flows. The results screen can also export a result audit bundle: setup, compacted modeled results, confidence flags, sensitivity output, source-version metadata, the plain-language model-audit rows, and a compact CPA/engineering review summary in one JSON file. Setup backups and result audit bundles both include sensitive household data; the app asks for confirmation before exporting either, and they should be shared only intentionally.
+Use the Save setup / Load setup controls in the wizard, workspace, or results flow to export or restore the full setup, including assets, scenario controls, decision profile, and one-off cash flows. The results screen can also export a result audit bundle: setup, compacted modeled results, confidence flags, sensitivity output, source-version metadata, the plain-language model-audit rows, and a compact CPA/engineering review summary in one JSON file. Setup backups and result audit bundles both include sensitive household data; the app asks for confirmation before exporting either, and they should be shared only intentionally.
 
 ## Accuracy Notes
 

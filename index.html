@@ -8,7 +8,7 @@
     <link rel="icon" href="./favicon.svg?v=20260505-favicon" type="image/svg+xml">
     <meta name="theme-color" content="#07111f">
     <link rel="stylesheet" href="./src/styles.css?v=20260530-ws-mobile-fit">
-    <link rel="stylesheet" href="./src/redesign.css?v=20260613-year-scrubber">
+    <link rel="stylesheet" href="./src/redesign.css?v=20260613-onboarding-wizard">
     <script src="https://accounts.google.com/gsi/client" async defer></script>
   </head>
   <body data-screen="persona" data-theme="dark">
@@ -50,7 +50,8 @@
       </style>
     </div>
 
-    <!-- ───────────── PERSONA SCREEN (Step 1) ───────────── -->
+    <!-- ───────────── ONBOARDING WIZARD (Step 1) ───────────── -->
+    <!-- Screen key stays "persona" for routing/stored-state compatibility. -->
     <div data-screen-content="persona">
       <header class="topbar-redesign">
         <div class="brand-mark">
@@ -72,64 +73,121 @@
         </div>
       </header>
 
-      <main class="persona-screen">
-        <section class="persona-step">
-          <header class="persona-step-header">
-            <span class="step-number">1</span>
-            <h2>Pick the closest fit</h2>
-          </header>
-          <p class="step-sub">We'll pre-fill smart defaults for taxes, ACA, RMDs and the rest. You can change anything later.</p>
-          <div id="personaGrid" class="persona-grid" role="radiogroup" aria-label="Choose a starting persona"></div>
-        </section>
+      <main class="wizard-screen" id="wizard" data-wizard-step="1">
+        <div class="wizard-shell">
+          <ol class="wizard-progress" aria-label="Setup progress">
+            <li data-step="1">About you</li>
+            <li data-step="2">Plan &amp; spending</li>
+            <li data-step="3">Portfolio</li>
+            <li data-step="4">Review</li>
+          </ol>
 
-        <section class="persona-step">
-          <header class="persona-step-header">
-            <span class="step-number">2</span>
-            <h2>What do you want to figure out?</h2>
-          </header>
-          <p class="step-sub">We'll lead with the answer. Other views stay one click away.</p>
-          <div id="outcomeGrid" class="outcome-grid" role="radiogroup" aria-label="Primary question"></div>
-        </section>
+          <p class="wizard-intro">A few essentials and you'll have a working plan. Everything else uses smart defaults you can fine-tune later in the full workspace.</p>
 
-        <section class="persona-step">
-          <header class="persona-step-header">
-            <span class="step-number">3</span>
-            <h2>Drop in your portfolio</h2>
-          </header>
-          <p class="step-sub">Use any of these — you can swap or refine anything in the workspace.</p>
-          <div class="intake-grid">
-            <button type="button" class="intake-card" data-intake="csv">
-              <span class="intake-icon">📊</span>
-              <span class="intake-title">CSV upload</span>
-              <span class="intake-sub">Drop a spreadsheet of holdings</span>
-            </button>
-            <button type="button" class="intake-card" data-intake="sheets">
-              <span class="intake-icon">📋</span>
-              <span class="intake-title">Google Sheets</span>
-              <span class="intake-sub">Public sheet or OAuth-protected</span>
-            </button>
-            <button type="button" class="intake-card" data-intake="manual">
-              <span class="intake-icon">✏️</span>
-              <span class="intake-title">Type it in</span>
-              <span class="intake-sub">Add accounts row-by-row</span>
-            </button>
-            <button type="button" class="intake-card" data-intake="sample">
-              <span class="intake-icon">🧪</span>
-              <span class="intake-title">Use sample data</span>
-              <span class="intake-sub">Explore with a realistic example</span>
-            </button>
-            <button type="button" class="intake-card" data-intake="saved">
-              <span class="intake-icon">JSON</span>
-              <span class="intake-title">Saved setup</span>
-              <span class="intake-sub">Load a Portfolio Success Lab JSON</span>
-            </button>
+          <!-- Step 1 — About you -->
+          <section class="wizard-step" data-step="1">
+            <h2>About you</h2>
+            <p class="step-sub">Used for taxes, mortality, and benefit timing.</p>
+            <div class="wizard-grid">
+              <label><span>Your current age</span><input id="wizCurrentAge" type="number" min="0" max="120" step="1" placeholder="e.g. 60"></label>
+              <label><span>Filing status</span>
+                <select id="wizFilingStatus">
+                  <option value="marriedFilingJointly">Married filing jointly</option>
+                  <option value="single">Single</option>
+                  <option value="headOfHousehold">Head of household</option>
+                  <option value="marriedFilingSeparately">Married filing separately</option>
+                </select>
+              </label>
+              <label data-wiz-spouse><span>Spouse age</span><input id="wizSpouseAge" type="number" min="0" max="120" step="1" placeholder="e.g. 60"></label>
+              <label><span>State of residence</span><select id="wizState"></select></label>
+              <label><span>Household size</span><input id="wizHouseholdSize" type="number" min="1" max="12" step="1" value="2"></label>
+            </div>
+            <p class="wizard-error" id="wizError1" hidden></p>
+          </section>
+
+          <!-- Step 2 — Plan & spending -->
+          <section class="wizard-step" data-step="2" hidden>
+            <h2>Plan &amp; spending</h2>
+            <p class="step-sub">Spending is in today's dollars, on top of taxes and medical costs unless you say otherwise.</p>
+            <div class="wizard-grid">
+              <label><span>Annual spending target</span><input id="wizTargetSpend" type="number" min="0" step="1000" placeholder="e.g. 80000"></label>
+              <label><span>Years to plan for</span><input id="wizPlanYears" type="number" min="1" max="80" step="1" value="35"><small>How long the plan should cover (e.g. to age 95).</small></label>
+            </div>
+            <label class="check-row"><input id="wizIncludeTaxes" type="checkbox"><span>My spending number already includes income taxes</span></label>
+            <label class="check-row"><input id="wizIncludeMedical" type="checkbox"><span>My spending number already includes medical / insurance</span></label>
+            <p class="wizard-error" id="wizError2" hidden></p>
+          </section>
+
+          <!-- Step 3 — Portfolio (progressive depth) -->
+          <section class="wizard-step" data-step="3" hidden>
+            <h2>Your portfolio</h2>
+            <p class="step-sub">Start as rough or as detailed as you like — you can refine every holding later.</p>
+            <div class="wizard-modes" role="radiogroup" aria-label="Portfolio detail">
+              <button type="button" class="wizard-mode is-active" data-portfolio-mode="total" aria-pressed="true">
+                <span class="wizard-mode-title">Just a total</span>
+                <span class="wizard-mode-sub">One liquid net-worth number</span>
+              </button>
+              <button type="button" class="wizard-mode" data-portfolio-mode="split" aria-pressed="false">
+                <span class="wizard-mode-title">By account type</span>
+                <span class="wizard-mode-sub">Taxable / pre-tax / Roth / HSA totals</span>
+              </button>
+              <button type="button" class="wizard-mode" data-portfolio-mode="detail" aria-pressed="false">
+                <span class="wizard-mode-title">Every holding</span>
+                <span class="wizard-mode-sub">Enter each account line by line</span>
+              </button>
+            </div>
+
+            <div class="wizard-mode-panel" data-portfolio-panel="total">
+              <div class="wizard-grid">
+                <label><span>Total investable assets</span><input id="wizTotal" type="number" min="0" step="1000" placeholder="e.g. 1200000"></label>
+                <label><span>Roughly % in stocks (<output id="wizTotalStockOut">60</output>%)</span><input id="wizTotalStock" type="range" min="0" max="100" step="5" value="60"></label>
+              </div>
+              <p class="wizard-note">We'll treat this as a taxable brokerage account. <button type="button" class="link-button" data-portfolio-mode-jump="split">Split it by account type →</button> for a more accurate tax picture.</p>
+            </div>
+
+            <div class="wizard-mode-panel" data-portfolio-panel="split" hidden>
+              <div class="wizard-grid">
+                <label><span>Taxable / brokerage</span><input id="wizTaxable" type="number" min="0" step="1000" placeholder="0"></label>
+                <label><span>Pre-tax (401k / IRA)</span><input id="wizTraditional" type="number" min="0" step="1000" placeholder="0"></label>
+                <label><span>Roth</span><input id="wizRoth" type="number" min="0" step="1000" placeholder="0"></label>
+                <label><span>HSA</span><input id="wizHsa" type="number" min="0" step="1000" placeholder="0"></label>
+                <label><span>Roughly % in stocks (<output id="wizSplitStockOut">60</output>%)</span><input id="wizSplitStock" type="range" min="0" max="100" step="5" value="60"></label>
+              </div>
+            </div>
+
+            <div class="wizard-mode-panel" data-portfolio-panel="detail" hidden>
+              <p class="wizard-note">You'll get the full holdings table in the workspace — add each account with its units, price, and cost basis. Hit Continue to jump there.</p>
+            </div>
+
+            <div class="wizard-import">
+              <span class="wizard-import-label">Already have it somewhere?</span>
+              <button type="button" class="link-button" id="wizImportCsv">Import CSV</button>
+              <button type="button" class="link-button" id="wizImportSheets">Google Sheets</button>
+              <button type="button" class="link-button" id="wizLoadSaved">Load saved setup</button>
+              <button type="button" class="link-button" id="wizLoadSample">Explore with example data</button>
+            </div>
+            <p class="wizard-error" id="wizError3" hidden></p>
+          </section>
+
+          <!-- Step 4 — Review & go -->
+          <section class="wizard-step" data-step="4" hidden>
+            <h2>Review &amp; go</h2>
+            <p class="step-sub">We filled in smart defaults for taxes, ACA/Medicare, Social Security, and RMDs — tune any of it in the workspace.</p>
+            <dl class="wizard-recap" id="wizRecap"></dl>
+            <div class="wizard-finish">
+              <button type="button" class="cta-button" id="wizSeeResults">See my results →</button>
+              <button type="button" class="subtle-button" id="wizOpenWorkspace">Open the workspace to fine-tune →</button>
+            </div>
+            <p class="wizard-error" id="wizError4" hidden></p>
+          </section>
+
+          <div class="wizard-nav">
+            <button type="button" class="subtle-button" id="wizBack" hidden>← Back</button>
+            <button type="button" class="cta-button" id="wizNext">Continue →</button>
           </div>
-          <input id="personaRestoreSetupFile" data-setup-restore-file type="file" accept="application/json,.json" hidden>
-        </section>
 
-        <section class="persona-step" style="margin-top: 2.5rem;">
-          <button id="personaContinue" class="cta-button" type="button" style="font-size: 1rem; padding: 0.85rem 1.5rem;">Continue to workspace →</button>
-        </section>
+          <input id="wizardRestoreSetupFile" data-setup-restore-file type="file" accept="application/json,.json" hidden>
+        </div>
       </main>
     </div>
 
@@ -156,6 +214,7 @@
           <button class="theme-toggle" data-theme-toggle type="button" aria-label="Toggle theme">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
           </button>
+          <button class="subtle-button" type="button" id="workspaceGuidedSetup" data-relaunch-wizard>Guided setup</button>
           <button class="subtle-button" type="button" id="workspaceSaveSetup">Save setup</button>
           <button class="subtle-button" type="button" id="workspaceLoadSetup">Load setup</button>
           <button class="subtle-button" type="button" id="workspaceClearSetup">Clear setup</button>
@@ -1249,7 +1308,7 @@
       <select id="viewMode"><option value="real" selected>Today's $</option><option value="nominal">Future $</option></select>
     </div>
 
-    <script type="module" src="./src/app.mjs?v=20260613-table-content-cap"></script>
-    <script type="module" src="./src/redesign.mjs?v=20260613-table-content-cap"></script>
+    <script type="module" src="./src/app.mjs?v=20260613-onboarding-wizard"></script>
+    <script type="module" src="./src/redesign.mjs?v=20260613-onboarding-wizard"></script>
   </body>
 </html>

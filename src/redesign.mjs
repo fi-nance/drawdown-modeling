@@ -1,10 +1,11 @@
 import { RESULTS_CACHE_KEY } from "./core/resultsCache.mjs";
 import { actionConfidenceFor, rescueConfidenceFor } from "./core/confidence.mjs";
+import { representativeAssets, portfolioFromTotal, essentialsToControls } from "./core/onboarding.mjs";
 
 /* ──────────────────────────────────────────────────────────────────
    redesign.mjs
    - Companion to app.mjs (which still does all simulation/data work)
-   - Implements: three-screen router, theme toggle, persona presets,
+   - Implements: three-screen router, theme toggle, onboarding wizard,
      module library, setup save/load, action-plan card, bracket fill,
      withdrawal mix per year, sensitivity tornado, mobile polish.
    - DOM IDs from the app shell are preserved, so app.mjs continues
@@ -12,150 +13,17 @@ import { actionConfidenceFor, rescueConfidenceFor } from "./core/confidence.mjs"
    ────────────────────────────────────────────────────────────────── */
 
 const SCREENS = ["persona", "workspace", "results"];
+// The first screen's key is "persona" for routing/stored-state compatibility,
+// but it now hosts the onboarding wizard (personas were removed).
 const STORAGE_SCREEN = "psl:redesign:screen";
 const STORAGE_THEME = "psl:redesign:theme";
-const STORAGE_PERSONA = "psl:redesign:persona";
-const STORAGE_OUTCOME = "psl:redesign:outcome";
 const STORAGE_DETAIL = "psl:redesign:detail";
 const STORAGE_MODULES = "psl:redesign:modules";
 const STORAGE_COLLAPSED = "psl:redesign:collapsedModules";
 
-// Persona presets — what each card pre-fills in the workspace.
-const PERSONAS = [
-  {
-    id: "recentlyLeftWork",
-    label: "Recently left work",
-    sub: "Can we stay retired, or do I need income?",
-    dot: "#34d1b6",
-    age: 44,
-    spouseAge: 44,
-    plan: 50,
-    spend: 100000,
-    requiredSpend: 72000,
-    flexibleSpend: 28000,
-    state: "Massachusetts",
-    householdSize: 4,
-    marketplaceMembers: 4,
-    rothBasis: 120000,
-    outcome: "fallback",
-    spendingStrategyMode: "discretionaryGuardrails",
-    enabledModules: ["healthcare", "strategy", "history", "what-ifs", "other-income"]
-  },
-  {
-    id: "fire",
-    label: "FIRE / early",
-    sub: "Retired in 30s–40s, 50+ year horizon",
-    dot: "#f06060",
-    age: 38,
-    spouseAge: 38,
-    plan: 55,
-    spend: 65000,
-    rothBasis: 120000,
-    enabledModules: ["healthcare", "strategy", "history", "what-ifs"]
-  },
-  {
-    id: "fiveYears",
-    label: "5 years out",
-    sub: "Pre-retiree, ages 55–62, big tax-planning window",
-    dot: "#34d1b6",
-    age: 55,
-    spouseAge: 55,
-    plan: 35,
-    spend: 90000,
-    rothBasis: 60000,
-    enabledModules: ["healthcare", "strategy", "what-ifs"]
-  },
-  {
-    id: "justRetired",
-    label: "Just retired",
-    sub: "Ages 62–67, claiming SS soon, ACA bridge",
-    dot: "#5b8def",
-    age: 64,
-    spouseAge: 64,
-    plan: 30,
-    spend: 95000,
-    rothBasis: 60000,
-    enabledModules: ["healthcare", "other-income", "strategy"]
-  },
-  {
-    id: "medicareAge",
-    label: "Medicare-age",
-    sub: "65+, on Medicare, RMD planning ahead",
-    dot: "#f0a848",
-    age: 68,
-    spouseAge: 68,
-    plan: 25,
-    spend: 85000,
-    rothBasis: 60000,
-    enabledModules: ["medicare", "other-income", "strategy"]
-  },
-  {
-    id: "lateStage",
-    label: "Late stage",
-    sub: "75+, RMDs active, legacy planning",
-    dot: "#7c6cf0",
-    age: 78,
-    spouseAge: 78,
-    plan: 18,
-    spend: 70000,
-    rothBasis: 60000,
-    enabledModules: ["medicare", "other-income"]
-  },
-  {
-    id: "buildOwn",
-    label: "Build my own",
-    sub: "I know my numbers, skip presets",
-    dot: "#8892a8",
-    age: null,
-    enabledModules: []
-  }
-];
-
-const OUTCOMES = [
-  {
-    id: "fallback",
-    label: "Bad-market fallback",
-    sub: "Show the cut or income bridge that keeps us safe.",
-    focus: "decisionPanel",
-    enable: ["healthcare", "strategy", "history", "what-ifs", "other-income"]
-  },
-  {
-    id: "lasts",
-    label: "Will my money last?",
-    sub: "Show me a simple yes / no with why.",
-    focus: "kpiStrip",
-    enable: []
-  },
-  {
-    id: "spend",
-    label: "How much can I safely spend?",
-    sub: "Find my safe spend number.",
-    focus: "kpiStrip",
-    enable: [],
-    note: "(Solver coming soon — for now, the all-in spend rate KPI is highlighted.)"
-  },
-  {
-    id: "roth",
-    label: "Should I do Roth conversions?",
-    sub: "What's my conversion ladder?",
-    focus: "actionPlanPanel",
-    enable: ["strategy"]
-  },
-  {
-    id: "order",
-    label: "Which account should I draw from first?",
-    sub: "Walk me through the order.",
-    focus: "withdrawalMix",
-    enable: ["strategy"]
-  },
-  {
-    id: "aca",
-    label: "How do I keep ACA subsidies?",
-    sub: "Cap my MAGI without starving cash.",
-    focus: "actionPlanPanel",
-    enable: ["healthcare"]
-  }
-];
+// Persona and outcome presets were removed in favor of the guided onboarding
+// wizard (see the "Onboarding wizard" section below), which collects the user's
+// real essentials instead of pre-filling sample assumptions.
 
 const MODULES = [
   { id: "basics",        label: "The basics",     desc: "Age, plan length, target spend",        controls: 19, required: true,  enabledByDefault: true  },
@@ -201,23 +69,31 @@ let pendingRunAdvance = false;
 const state = {
   screen: "persona",
   theme: "dark",
-  persona: null,
-  outcome: null,
   detail: "plain",
   enabledModules: new Set(MODULES.filter(m => m.enabledByDefault).map(m => m.id))
 };
+
+// Onboarding-wizard step state. Declared here (not in the wizard section lower
+// down) because boot() runs near the top of this module and calls buildWizard(),
+// which reads `wizard` — a `const` lower in the file would be in its temporal
+// dead zone at that point and throw, aborting the rest of boot().
+const wizard = {
+  step: 1,
+  portfolioMode: "total", // total | split | detail
+  externalPortfolio: false // sample/import/saved already populated the portfolio
+};
+let wizardAssetSeq = 0;
 
 // ─── Boot ──────────────────────────────────────────────────────────
 
 function boot() {
   hydrateState();
-  buildPersonaCards();
-  buildOutcomeCards();
+  buildWizard();
   buildModuleLibrary();
   wireModuleCollapse();
   bindRouter();
   bindTheme();
-  bindIntakes();
+  bindWizard();
   bindSetupTransfer();
   bindRescueAppliedModuleVisibility();
   bindWorkspaceSummary();
@@ -282,9 +158,16 @@ function hydrateState() {
     }
   }
 
+  // A persisted "workspace" pointer but no saved portfolio (e.g. a brand-new
+  // visitor, or one who never enabled remember-setup so nothing stuck) means
+  // there's nothing to fine-tune yet — start them at the onboarding wizard
+  // rather than an empty workspace.
+  if (state.screen === "workspace" && !hasStoredWorkspaceData() && !hasCachedResults()) {
+    state.screen = "persona";
+    writeStorage(STORAGE_SCREEN, "persona");
+  }
+
   state.theme = readStorage(STORAGE_THEME, "dark");
-  state.persona = readStorage(STORAGE_PERSONA, null);
-  state.outcome = readStorage(STORAGE_OUTCOME, null);
   state.detail = readStorage(STORAGE_DETAIL, "plain");
 
   const savedModules = readJsonStorage(STORAGE_MODULES, null);
@@ -305,161 +188,334 @@ function applyAll() {
   syncViewModeToggle();
   syncModuleVisibility();
   syncModuleLibraryUI();
-  syncPersonaSelection();
-  syncOutcomeSelection();
 }
 
-// ─── Persona cards ─────────────────────────────────────────────────
+// ─── Onboarding wizard ─────────────────────────────────────────────
+// The first screen is a guided 4-step wizard (about you → plan & spending →
+// portfolio → review) that collects bare essentials and writes them into the
+// real workspace controls before handing off to results or the workspace. The
+// portfolio step offers progressive depth: a single total or account-type
+// totals (both synthesized into representative stock/bond lots via
+// onboarding.mjs), or the full holdings table. Sample data is an explicit
+// opt-in here — it no longer loads by default.
+// (The `wizard` state object and `wizardAssetSeq` are declared up near `state`
+// so they exist before boot() runs — see the comment there.)
 
-function buildPersonaCards() {
-  const root = document.getElementById("personaGrid");
-  if (!root) return;
-  root.innerHTML = "";
-  for (const p of PERSONAS) {
-    const card = document.createElement("button");
-    card.type = "button";
-    card.className = "persona-card";
-    card.setAttribute("role", "radio");
-    card.dataset.persona = p.id;
-    card.setAttribute("aria-pressed", "false");
-    const stats = p.age == null ? "" : `
-      <dl class="persona-stats">
-        <div><dt>Age</dt><dd>${p.age}</dd></div>
-        <div><dt>Plan</dt><dd>${p.plan}y</dd></div>
-        <div><dt>Spend</dt><dd>$${(p.spend/1000)|0}k</dd></div>
-      </dl>`;
-    card.innerHTML = `
-      <div class="persona-title"><span class="persona-dot" style="background:${p.dot}"></span>${p.label}</div>
-      <div class="persona-sub">${p.sub}</div>
-      ${stats}`;
-    card.addEventListener("click", () => selectPersona(p.id));
-    root.appendChild(card);
-  }
+function wizardMakeId() {
+  wizardAssetSeq += 1;
+  return `asset-wiz-${wizardAssetSeq}-${Date.now()}`;
 }
 
-function selectPersona(id) {
-  state.persona = id;
-  writeStorage(STORAGE_PERSONA, id);
-  syncPersonaSelection();
-  applyPersonaPreset(id);
+function buildWizard() {
+  if (!document.getElementById("wizard")) return;
+  // Clone the (app-populated) workspace state <select> into the wizard's copy.
+  syncWizardStateOptions();
+  // #stateSelect can fill a frame after boot — retry once next frame.
+  requestAnimationFrame(syncWizardStateOptions);
+  syncWizardSpouseVisibility();
+  syncWizardModePanels();
+  syncWizardStep();
 }
 
-function syncPersonaSelection() {
-  document.querySelectorAll(".persona-card[data-persona]").forEach(card => {
-    const isActive = card.dataset.persona === state.persona;
-    card.setAttribute("aria-pressed", String(isActive));
-  });
+function syncWizardStateOptions() {
+  const src = document.getElementById("stateSelect");
+  const dst = document.getElementById("wizState");
+  if (!src || !dst || !src.options.length) return;
+  if (dst.options.length === src.options.length) return;
+  dst.innerHTML = src.innerHTML;
+  dst.value = src.value;
 }
 
-function applyPersonaPreset(id) {
-  const persona = PERSONAS.find(p => p.id === id);
-  if (!persona || persona.id === "buildOwn") return;
-  setInputValue("currentAge", persona.age);
-  setInputValue("spouseAge", persona.spouseAge ?? persona.age);
-  setInputValue("planYears", persona.plan);
-  setInputValue("targetSpend", persona.spend);
-  if (persona.requiredSpend != null) setInputValue("decisionRequiredSpend", persona.requiredSpend);
-  if (persona.flexibleSpend != null) setInputValue("decisionFlexibleSpend", persona.flexibleSpend);
-  if (persona.state) setInputValue("stateSelect", persona.state);
-  if (persona.householdSize != null) setInputValue("householdSize", persona.householdSize);
-  if (persona.marketplaceMembers != null) setInputValue("marketplaceMembers", persona.marketplaceMembers);
-  if (persona.requiredSpend != null) setInputValue("essentialSpend", persona.requiredSpend);
-  if (persona.flexibleSpend != null) setInputValue("discretionarySpend", persona.flexibleSpend);
-  if (persona.spendingStrategyMode) setInputValue("spendingStrategyMode", persona.spendingStrategyMode);
-  setInputValue("decisionTargetSuccessRate", 90);
-  if (persona.rothBasis != null) setInputValue("rothBasis", persona.rothBasis);
-  if (persona.outcome) {
-    state.outcome = persona.outcome;
-    writeStorage(STORAGE_OUTCOME, persona.outcome);
-    syncOutcomeSelection();
-    const outcome = OUTCOMES.find(x => x.id === persona.outcome);
-    if (outcome?.enable) {
-      for (const id of outcome.enable) state.enabledModules.add(id);
-    }
-  }
+function bindWizard() {
+  const root = document.getElementById("wizard");
+  if (root) {
+    document.getElementById("wizNext")?.addEventListener("click", onWizardNext);
+    document.getElementById("wizBack")?.addEventListener("click", () => goToWizardStep(wizard.step - 1));
+    document.getElementById("wizFilingStatus")?.addEventListener("change", syncWizardSpouseVisibility);
 
-  // Pre-enable suggested modules (without disabling user's existing picks).
-  if (Array.isArray(persona.enabledModules)) {
-    for (const id of persona.enabledModules) state.enabledModules.add(id);
-    persistModules();
-    syncModuleLibraryUI();
-    syncModuleVisibility();
-  }
-}
-
-// ─── Outcome cards ─────────────────────────────────────────────────
-
-function buildOutcomeCards() {
-  const root = document.getElementById("outcomeGrid");
-  if (!root) return;
-  root.innerHTML = "";
-  for (const o of OUTCOMES) {
-    const card = document.createElement("label");
-    card.className = "outcome-card";
-    card.dataset.outcome = o.id;
-    card.innerHTML = `
-      <span class="outcome-radio" aria-hidden="true"></span>
-      <span class="outcome-text">
-        <span class="outcome-title">${o.label}</span>
-        <span class="outcome-sub">${o.sub}${o.note ? ` <em>${o.note}</em>` : ""}</span>
-      </span>
-      <input type="radio" name="primaryOutcome" value="${o.id}">`;
-    card.querySelector("input").addEventListener("change", () => selectOutcome(o.id));
-    card.addEventListener("click", () => selectOutcome(o.id));
-    root.appendChild(card);
-  }
-}
-
-function selectOutcome(id) {
-  state.outcome = id;
-  writeStorage(STORAGE_OUTCOME, id);
-  syncOutcomeSelection();
-  // Pre-enable any modules this outcome implies.
-  const o = OUTCOMES.find(x => x.id === id);
-  if (o?.enable?.length) {
-    for (const m of o.enable) state.enabledModules.add(m);
-    persistModules();
-    syncModuleLibraryUI();
-    syncModuleVisibility();
-  }
-}
-
-function syncOutcomeSelection() {
-  document.querySelectorAll(".outcome-card[data-outcome]").forEach(card => {
-    const isActive = card.dataset.outcome === state.outcome;
-    card.classList.toggle("is-selected", isActive);
-    const input = card.querySelector('input[type="radio"]');
-    if (input) input.checked = isActive;
-  });
-}
-
-// ─── Intake cards (CSV/Sheets/Manual/Sample) ───────────────────────
-
-function bindIntakes() {
-  document.querySelectorAll(".intake-card[data-intake]").forEach(card => {
-    card.addEventListener("click", () => {
-      const intake = card.dataset.intake;
-      // Mark visual active state for one click.
-      document.querySelectorAll(".intake-card[data-intake]").forEach(c => c.classList.toggle("is-active", c === card));
-      if (intake === "saved") {
-        triggerSetupRestore();
-        return;
-      }
-      // Switch to workspace and let the user complete intake there.
-      setScreen("workspace");
-      // After paint, scroll the right module into focus.
-      requestAnimationFrame(() => {
-        if (intake === "csv" || intake === "sheets" || intake === "manual" || intake === "sample") {
-          const portfolio = document.querySelector('.module-card[data-module="portfolio"]');
-          portfolio?.scrollIntoView({ behavior: "smooth", block: "start" });
-        }
-        if (intake === "csv") document.getElementById("csvFile")?.click();
-        if (intake === "sheets") document.getElementById("sheetUrl")?.focus();
-        if (intake === "manual") document.getElementById("addAsset")?.click();
-        // "sample" is a no-op; default sample data is already loaded.
-      });
+    root.querySelectorAll("[data-portfolio-mode]").forEach(btn => {
+      btn.addEventListener("click", () => setWizardPortfolioMode(btn.dataset.portfolioMode));
     });
+    root.querySelectorAll("[data-portfolio-mode-jump]").forEach(btn => {
+      btn.addEventListener("click", () => setWizardPortfolioMode(btn.dataset.portfolioModeJump));
+    });
+    bindRangeOutput("wizTotalStock", "wizTotalStockOut");
+    bindRangeOutput("wizSplitStock", "wizSplitStockOut");
+
+    document.getElementById("wizImportCsv")?.addEventListener("click", () => wizardHandoffToWorkspace("csv"));
+    document.getElementById("wizImportSheets")?.addEventListener("click", () => wizardHandoffToWorkspace("sheets"));
+    document.getElementById("wizLoadSaved")?.addEventListener("click", () => triggerSetupRestore());
+    document.getElementById("wizLoadSample")?.addEventListener("click", onWizardLoadSample);
+
+    document.getElementById("wizSeeResults")?.addEventListener("click", () => finishWizard({ run: true }));
+    document.getElementById("wizOpenWorkspace")?.addEventListener("click", () => finishWizard({ run: false }));
+  }
+
+  // Relaunch from anywhere — the workspace "Guided setup" button and the
+  // empty-portfolio hint both carry data-relaunch-wizard.
+  document.addEventListener("click", (ev) => {
+    const trigger = ev.target?.closest?.("[data-relaunch-wizard]");
+    if (!trigger) return;
+    ev.preventDefault();
+    relaunchWizard();
   });
+}
+
+function bindRangeOutput(inputId, outputId) {
+  const input = document.getElementById(inputId);
+  const out = document.getElementById(outputId);
+  if (!input || !out) return;
+  const update = () => { out.textContent = String(input.value); };
+  input.addEventListener("input", update);
+  update();
+}
+
+function syncWizardSpouseVisibility() {
+  const filing = document.getElementById("wizFilingStatus")?.value;
+  const married = filing === "marriedFilingJointly" || filing === "marriedFilingSeparately";
+  const label = document.querySelector("[data-wiz-spouse]");
+  if (label) label.hidden = !married;
+}
+
+function setWizardPortfolioMode(mode) {
+  if (!["total", "split", "detail"].includes(mode)) return;
+  wizard.portfolioMode = mode;
+  wizard.externalPortfolio = false;
+  document.querySelectorAll("[data-portfolio-mode]").forEach(btn => {
+    const active = btn.dataset.portfolioMode === mode;
+    btn.classList.toggle("is-active", active);
+    btn.setAttribute("aria-pressed", String(active));
+  });
+  syncWizardModePanels();
+  syncWizardStep();
+}
+
+function syncWizardModePanels() {
+  document.querySelectorAll("[data-portfolio-panel]").forEach(panel => {
+    panel.hidden = panel.dataset.portfolioPanel !== wizard.portfolioMode;
+  });
+}
+
+function goToWizardStep(step) {
+  wizard.step = Math.min(4, Math.max(1, step));
+  syncWizardStep();
+}
+
+function syncWizardStep() {
+  const root = document.getElementById("wizard");
+  if (root) root.dataset.wizardStep = String(wizard.step);
+  document.querySelectorAll(".wizard-step[data-step]").forEach(section => {
+    section.hidden = Number(section.dataset.step) !== wizard.step;
+  });
+  document.querySelectorAll(".wizard-progress [data-step]").forEach(item => {
+    const n = Number(item.dataset.step);
+    item.classList.toggle("is-active", n === wizard.step);
+    item.classList.toggle("is-done", n < wizard.step);
+  });
+  const back = document.getElementById("wizBack");
+  const next = document.getElementById("wizNext");
+  if (back) back.hidden = wizard.step === 1;
+  if (next) {
+    next.hidden = wizard.step === 4; // step 4 uses its own CTAs
+    next.textContent = wizard.step === 3 && wizard.portfolioMode === "detail"
+      ? "Continue to workspace →"
+      : "Continue →";
+  }
+  if (wizard.step === 4) renderWizardRecap();
+  clearWizardErrors();
+}
+
+function clearWizardErrors() {
+  document.querySelectorAll(".wizard-error").forEach(el => { el.hidden = true; el.textContent = ""; });
+}
+function showWizardError(step, message) {
+  const el = document.getElementById(`wizError${step}`);
+  if (el) { el.textContent = message; el.hidden = false; }
+}
+
+function onWizardNext() {
+  if (wizard.step === 1) {
+    if (!wizardHasValue("wizCurrentAge")) { showWizardError(1, "Enter your current age to continue."); return; }
+    goToWizardStep(2);
+  } else if (wizard.step === 2) {
+    if (!(wizardNum("wizTargetSpend") > 0)) { showWizardError(2, "Enter your annual spending target to continue."); return; }
+    goToWizardStep(3);
+  } else if (wizard.step === 3) {
+    if (wizard.portfolioMode === "detail") { wizardHandoffToWorkspace("manual"); return; }
+    if (!wizardHasPortfolioInput()) {
+      showWizardError(3, "Enter at least one amount, or pick another way to add your portfolio below.");
+      return;
+    }
+    goToWizardStep(4);
+  }
+}
+
+function wizardHasValue(id) {
+  const el = document.getElementById(id);
+  return !!(el && String(el.value).trim() !== "");
+}
+function wizardNum(id) {
+  const n = Number(document.getElementById(id)?.value);
+  return Number.isFinite(n) ? n : 0;
+}
+function wizardValOrNull(id) {
+  const v = document.getElementById(id)?.value;
+  return v == null || String(v).trim() === "" ? null : v;
+}
+
+function wizardHasPortfolioInput() {
+  if (wizard.externalPortfolio) return true;
+  if (wizard.portfolioMode === "total") return wizardNum("wizTotal") > 0;
+  if (wizard.portfolioMode === "split") {
+    return ["wizTaxable", "wizTraditional", "wizRoth", "wizHsa"].some(id => wizardNum(id) > 0);
+  }
+  return false;
+}
+
+function readWizardEssentials() {
+  return {
+    currentAge: wizardValOrNull("wizCurrentAge"),
+    spouseAge: wizardValOrNull("wizSpouseAge"),
+    filingStatus: document.getElementById("wizFilingStatus")?.value,
+    state: document.getElementById("wizState")?.value,
+    householdSize: wizardValOrNull("wizHouseholdSize"),
+    planYears: wizardValOrNull("wizPlanYears"),
+    targetSpend: wizardValOrNull("wizTargetSpend"),
+    includeTaxes: document.getElementById("wizIncludeTaxes")?.checked,
+    includeMedical: document.getElementById("wizIncludeMedical")?.checked
+  };
+}
+
+function applyWizardEssentials() {
+  const controls = essentialsToControls(readWizardEssentials());
+  for (const [id, value] of Object.entries(controls)) {
+    setInputValue(id, value);
+  }
+}
+
+function applyWizardPortfolio() {
+  if (wizard.externalPortfolio) return; // sample/import already set the assets
+  const stockPercent = wizard.portfolioMode === "split" ? wizardNum("wizSplitStock") : wizardNum("wizTotalStock");
+  let assets = [];
+  if (wizard.portfolioMode === "total") {
+    assets = portfolioFromTotal({ total: wizardNum("wizTotal"), stockPercent, makeId: wizardMakeId });
+  } else if (wizard.portfolioMode === "split") {
+    assets = representativeAssets({
+      taxable: wizardNum("wizTaxable"),
+      traditional: wizardNum("wizTraditional"),
+      roth: wizardNum("wizRoth"),
+      hsa: wizardNum("wizHsa"),
+      stockPercent,
+      makeId: wizardMakeId
+    });
+  }
+  if (typeof window.__pslApplyWizardPortfolio === "function") {
+    window.__pslApplyWizardPortfolio(assets);
+  }
+}
+
+function wizardHandoffToWorkspace(intake) {
+  applyWizardEssentials();
+  setScreen("workspace");
+  requestAnimationFrame(() => {
+    document.querySelector('.module-card[data-module="portfolio"]')?.scrollIntoView({ behavior: "smooth", block: "start" });
+    if (intake === "csv") document.getElementById("csvFile")?.click();
+    if (intake === "sheets") document.getElementById("sheetUrl")?.focus();
+    if (intake === "manual") document.getElementById("addAsset")?.click();
+  });
+}
+
+function onWizardLoadSample() {
+  if (typeof window.__pslLoadSampleData !== "function") return;
+  window.__pslLoadSampleData();
+  wizard.externalPortfolio = true;
+  goToWizardStep(4);
+}
+
+function finishWizard({ run }) {
+  applyWizardEssentials();
+  applyWizardPortfolio();
+  if (run) {
+    if (!wizardHasPortfolioInput()) {
+      showWizardError(4, "Add at least one holding before viewing results.");
+      return;
+    }
+    setScreen("results");
+    runModelFromRedesign({ cancelActive: true, stream: true });
+  } else {
+    setScreen("workspace");
+  }
+}
+
+function filingStatusLabel(status) {
+  return ({
+    marriedFilingJointly: "Married filing jointly",
+    single: "Single",
+    headOfHousehold: "Head of household",
+    marriedFilingSeparately: "Married filing separately"
+  })[status] || "—";
+}
+
+function wizardPortfolioSummary() {
+  if (wizard.externalPortfolio) return "Example / imported portfolio";
+  if (wizard.portfolioMode === "total") {
+    return `${formatCurrencyShort(wizardNum("wizTotal"))} · taxable · ${wizardNum("wizTotalStock")}% stocks`;
+  }
+  if (wizard.portfolioMode === "split") {
+    const total = ["wizTaxable", "wizTraditional", "wizRoth", "wizHsa"].reduce((a, id) => a + wizardNum(id), 0);
+    return `${formatCurrencyShort(total)} across accounts · ${wizardNum("wizSplitStock")}% stocks`;
+  }
+  return "Entered in the workspace";
+}
+
+function renderWizardRecap() {
+  const dl = document.getElementById("wizRecap");
+  if (!dl) return;
+  const e = readWizardEssentials();
+  const married = e.filingStatus === "marriedFilingJointly" || e.filingStatus === "marriedFilingSeparately";
+  const rows = [];
+  if (e.currentAge) {
+    rows.push(["Age", married && e.spouseAge ? `${e.currentAge} · spouse ${e.spouseAge}` : String(e.currentAge)]);
+  }
+  rows.push(["Filing", filingStatusLabel(e.filingStatus)]);
+  if (e.state) rows.push(["State", e.state]);
+  if (e.planYears) rows.push(["Plan length", `${e.planYears} years`]);
+  if (e.targetSpend) rows.push(["Annual spend", formatCurrencyShort(Number(e.targetSpend))]);
+  rows.push(["Portfolio", wizardPortfolioSummary()]);
+  dl.innerHTML = rows.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join("");
+}
+
+function relaunchWizard() {
+  wizard.step = 1;
+  wizard.externalPortfolio = false;
+  syncWizardStateOptions();
+  prefillWizardFromWorkspace();
+  syncWizardSpouseVisibility();
+  syncWizardModePanels();
+  syncWizardStep();
+  setScreen("persona");
+}
+
+function prefillWizardFromWorkspace() {
+  const copyValue = (srcId, dstId) => {
+    const s = document.getElementById(srcId);
+    const d = document.getElementById(dstId);
+    if (s && d && String(s.value).trim() !== "") d.value = s.value;
+  };
+  copyValue("currentAge", "wizCurrentAge");
+  copyValue("spouseAge", "wizSpouseAge");
+  copyValue("filingStatus", "wizFilingStatus");
+  copyValue("stateSelect", "wizState");
+  copyValue("householdSize", "wizHouseholdSize");
+  copyValue("planYears", "wizPlanYears");
+  copyValue("targetSpend", "wizTargetSpend");
+  const copyCheck = (srcId, dstId) => {
+    const s = document.getElementById(srcId);
+    const d = document.getElementById(dstId);
+    if (s && d) d.checked = !!s.checked;
+  };
+  copyCheck("includeTaxes", "wizIncludeTaxes");
+  copyCheck("includeMedical", "wizIncludeMedical");
 }
 
 // ─── Module library ────────────────────────────────────────────────
@@ -646,12 +702,12 @@ function persistCollapsedModules() {
 // ─── Router ────────────────────────────────────────────────────────
 
 function bindRouter() {
-  const personaContinue = document.getElementById("personaContinue");
-  personaContinue?.addEventListener("click", () => setScreen("workspace"));
-
   const wsViewResults = document.getElementById("wsViewResults");
   wsViewResults?.addEventListener("click", () => {
-    setScreen("results");
+    // With an empty portfolio the run guard blocks and prompts on the workspace
+    // — don't strand the user on a blank results screen; stay put so they see it.
+    const empty = typeof window.__pslPortfolioCount === "function" && window.__pslPortfolioCount() === 0;
+    if (!empty) setScreen("results");
     runModelFromRedesign({ cancelActive: true, stream: true });
   });
 
@@ -678,7 +734,6 @@ function setScreen(screen) {
   document.body.dataset.screen = screen;
   if (screen === "results") {
     rerenderResults();
-    scrollOutcomeIntoFocus();
   }
   if (screen === "workspace") {
     syncWorkspaceSummary();
@@ -688,15 +743,6 @@ function setScreen(screen) {
   url.searchParams.set("screen", screen);
   window.history.replaceState({}, "", url);
   console.debug(`[PSL] setScreen: ${fromScreen} → ${screen} · url now ${window.location.search || "(no query)"}`);
-}
-
-function scrollOutcomeIntoFocus() {
-  const o = OUTCOMES.find(x => x.id === state.outcome);
-  if (!o?.focus) return;
-  requestAnimationFrame(() => {
-    const target = document.getElementById(o.focus) || document.querySelector(`[id="${o.focus}"]`);
-    target?.scrollIntoView({ behavior: "smooth", block: "start" });
-  });
 }
 
 // ─── Theme toggle ──────────────────────────────────────────────────
@@ -857,8 +903,6 @@ function triggerSetupClear() {
 function redesignStateSnapshot() {
   return {
     screen: state.screen,
-    persona: state.persona,
-    outcome: state.outcome,
     detail: state.detail,
     enabledModules: [...state.enabledModules]
   };
@@ -866,8 +910,6 @@ function redesignStateSnapshot() {
 
 function applyRedesignStateSnapshot(snapshot) {
   if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) return;
-  if (snapshot.persona == null || typeof snapshot.persona === "string") state.persona = snapshot.persona ?? null;
-  if (snapshot.outcome == null || typeof snapshot.outcome === "string") state.outcome = snapshot.outcome ?? null;
   if (snapshot.detail === "plain" || snapshot.detail === "pro") state.detail = snapshot.detail;
   if (Array.isArray(snapshot.enabledModules)) {
     state.enabledModules = new Set(snapshot.enabledModules.filter((id) => MODULES.some((module) => module.id === id)));
@@ -876,8 +918,6 @@ function applyRedesignStateSnapshot(snapshot) {
     }
     persistModules();
   }
-  writeStorage(STORAGE_PERSONA, state.persona ?? "");
-  writeStorage(STORAGE_OUTCOME, state.outcome ?? "");
   writeStorage(STORAGE_DETAIL, state.detail);
   applyAll();
 }
@@ -2131,7 +2171,11 @@ function setInputValue(id, value) {
   const el = document.getElementById(id);
   if (!el) return;
   if (value == null) return;
-  el.value = String(value);
+  if (el.type === "checkbox") {
+    el.checked = Boolean(value);
+  } else {
+    el.value = String(value);
+  }
   el.dispatchEvent(new Event("change", { bubbles: true }));
 }
 
