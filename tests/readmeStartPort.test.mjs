@@ -8,7 +8,7 @@ test("private Sheets OAuth README origin matches the local start port", async ()
     readFile(new URL("../README.md", import.meta.url), "utf8")
   ]);
   const pkg = JSON.parse(packageText);
-  const port = pkg.scripts?.start?.match(/http\.server\s+(\d+)/)?.[1];
+  const port = pkg.scripts?.start?.match(/(?:http\.server|devServer\.mjs)\s+(\d+)/)?.[1];
 
   assert.equal(port, "4173");
   assert.ok(readme.includes(`http://127.0.0.1:${port}`));

@@ -1,5 +1,6 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
+import { createRequestListener, PRICE_REFRESH_PROXY_PATH } from "../scripts/devServer.mjs";
 import {
   classifyPriceIdentifier,
   fiscalDataTipsUrl,
@@ -7,6 +8,7 @@ import {
   iBondCoverageThrough,
   iBondUnitValue,
   isValidCusip,
+  localTickerProxyUrl,
   parseTipsIndexRatio,
   parseYahooChart,
   refreshAssetPrices,
@@ -152,6 +154,10 @@ test("parseTipsIndexRatio converts the index ratio to a per-$100 par price", () 
 test("quote URLs hit the documented endpoints", () => {
   assert.match(yahooChartUrl("https://query1.finance.yahoo.com", "BRK-B"),
     /^https:\/\/query1\.finance\.yahoo\.com\/v8\/finance\/chart\/BRK-B\?interval=1d&range=5d$/);
+  assert.equal(
+    localTickerProxyUrl("BRK-B", "http://127.0.0.1:4173/api/price-refresh/yahoo-chart"),
+    "http://127.0.0.1:4173/api/price-refresh/yahoo-chart?symbol=BRK-B"
+  );
   const url = fiscalDataTipsUrl("912810FD5", "2026-06-12");
   assert.match(url, /^https:\/\/api\.fiscaldata\.treasury\.gov\/services\/api\/fiscal_service\/v1\/accounting\/od\/tips_cpi_data_detail\?filter=/);
   assert.ok(url.includes(encodeURIComponent("cusip:eq:912810FD5,index_date:lte:2026-06-12")));
@@ -174,6 +180,24 @@ function stubFetch(routes) {
   };
   impl.calls = calls;
   return impl;
+}
+
+async function invokeListener(listener, url, method = "GET") {
+  const req = { method, url };
+  const response = {
+    status: null,
+    headers: null,
+    body: "",
+    writeHead(status, headers) {
+      this.status = status;
+      this.headers = headers;
+    },
+    end(chunk = "") {
+      this.body += chunk;
+    }
+  };
+  await listener(req, response);
+  return response;
 }
 
 const NOW = new Date(2026, 5, 12); // June 12, 2026 (local time)
@@ -232,6 +256,56 @@ test("refreshAssetPrices updates each identified row and flags failures per-row"
   assert.match(results.get("a-bad").message, /not a recognizable/);
 
   assert.deepEqual(summary, { updated: 5, failed: 2, skipped: 0, noIdentifier: 1 });
+});
+
+test("ticker refresh uses the local quote proxy before direct Yahoo fetches", async () => {
+  const assets = [{ id: "a-vti", symbol: "VTI", price: 100 }];
+  const fetchImpl = stubFetch([
+    ["127.0.0.1:4173/api/price-refresh/yahoo-chart?symbol=VTI", () =>
+      jsonResponse({ chart: { result: [{ meta: { regularMarketPrice: 288.12, currency: "USD" } }] } })],
+    ["query1.finance.yahoo.com", () => {
+      throw new Error("direct Yahoo fetch should not be needed");
+    }]
+  ]);
+
+  const { results, summary } = await refreshAssetPrices(assets, {
+    fetchImpl,
+    now: NOW,
+    tickerProxyBaseUrl: "http://127.0.0.1:4173/api/price-refresh/yahoo-chart"
+  });
+
+  assert.equal(results.get("a-vti").status, "updated");
+  assert.equal(assets[0].price, 288.12);
+  assert.equal(fetchImpl.calls.length, 1);
+  assert.match(fetchImpl.calls[0], /\/api\/price-refresh\/yahoo-chart\?symbol=VTI$/);
+  assert.deepEqual(summary, { updated: 1, failed: 0, skipped: 0, noIdentifier: 0 });
+});
+
+test("local dev server proxies ticker quotes as same-origin JSON", async () => {
+  const upstreamCalls = [];
+  const fetchImpl = async (url, options) => {
+    upstreamCalls.push({ url, headers: options.headers });
+    return {
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({
+        chart: { result: [{ meta: { regularMarketPrice: 288.12, currency: "USD" } }] }
+      })
+    };
+  };
+  const listener = createRequestListener({ fetchImpl });
+
+  const response = await invokeListener(listener, `${PRICE_REFRESH_PROXY_PATH}?symbol=vti`);
+  const payload = JSON.parse(response.body);
+
+  assert.equal(response.status, 200);
+  assert.equal(response.headers["content-type"], "application/json; charset=utf-8");
+  assert.equal(response.headers["cache-control"], "no-store");
+  assert.equal(payload.chart.result[0].meta.regularMarketPrice, 288.12);
+  assert.equal(upstreamCalls.length, 1);
+  assert.match(upstreamCalls[0].url, /query1\.finance\.yahoo\.com\/v8\/finance\/chart\/VTI\?/);
+  assert.equal(upstreamCalls[0].headers.accept, "application/json");
+  assert.match(upstreamCalls[0].headers["user-agent"], /PortfolioSuccessLab/);
 });
 
 test("privacy mode blocks network quotes but still computes I-bond values locally", async () => {

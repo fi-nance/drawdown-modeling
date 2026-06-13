@@ -3,8 +3,9 @@
 // Assets carry an optional `symbol` identifier that tells the refresher how to
 // price the row. Three identifier shapes are recognized:
 //
-//   ticker         "VTI", "BRK-B", "VOD.L"  → Yahoo Finance chart API quote
-//                  (regular-market price, falling back to the previous close).
+//   ticker         "VTI", "BRK-B", "VOD.L"  → local same-origin Yahoo chart
+//                  proxy (regular-market price, falling back to the previous
+//                  close). Browser CORS blocks direct Yahoo reads.
 //   Treasury CUSIP "912810SV1" (9 chars,    → FiscalData "TIPS and CPI Data"
 //                  valid check digit)         daily index ratio. Price is the
 //                                             inflation-adjusted principal per
@@ -30,6 +31,7 @@
 import { I_BOND_FIXED_RATES, I_BOND_INFLATION_RATES } from "../data/iBondRates.generated.mjs";
 
 const YAHOO_CHART_HOSTS = ["https://query1.finance.yahoo.com", "https://query2.finance.yahoo.com"];
+const LOCAL_TICKER_PROXY_PATH = "/api/price-refresh/yahoo-chart";
 const FISCAL_DATA_TIPS_URL = "https://api.fiscaldata.treasury.gov/services/api/fiscal_service/v1/accounting/od/tips_cpi_data_detail";
 const I_BOND_PENALTY_MONTHS = 3;
 const I_BOND_PENALTY_HORIZON_MONTHS = 60;
@@ -202,6 +204,20 @@ export function yahooChartUrl(host, symbol) {
   return `${host}/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=5d`;
 }
 
+export function localTickerProxyUrl(symbol, baseUrl = defaultTickerProxyBaseUrl()) {
+  if (!baseUrl) return null;
+  const documentUrl = globalThis.location?.href ?? "http://127.0.0.1/";
+  const url = new URL(baseUrl, documentUrl);
+  url.searchParams.set("symbol", symbol);
+  return url.toString();
+}
+
+function defaultTickerProxyBaseUrl() {
+  const location = globalThis.location;
+  if (!location || location.protocol === "file:") return null;
+  return `${location.origin}${LOCAL_TICKER_PROXY_PATH}`;
+}
+
 // Returns { price, priceHint, asOf } or throws with a human-readable reason.
 export function parseYahooChart(payload, symbol) {
   const result = payload?.chart?.result?.[0];
@@ -237,21 +253,31 @@ export function parseYahooChart(payload, symbol) {
   throw new Error(`${symbol}: no usable price in quote response.`);
 }
 
-async function fetchTickerQuote(symbol, fetchImpl) {
-  let lastError = null;
+async function fetchTickerQuote(symbol, fetchImpl, tickerProxyBaseUrl) {
+  const attempts = [];
+  const proxyUrl = localTickerProxyUrl(symbol, tickerProxyBaseUrl);
+  if (proxyUrl) attempts.push({ label: "local quote proxy", url: proxyUrl });
   for (const host of YAHOO_CHART_HOSTS) {
+    attempts.push({ label: new URL(host).host, url: yahooChartUrl(host, symbol) });
+  }
+
+  const errors = [];
+  for (const attempt of attempts) {
     try {
-      const response = await fetchImpl(yahooChartUrl(host, symbol), { headers: { accept: "application/json" } });
+      const response = await fetchImpl(attempt.url, { headers: { accept: "application/json" } });
       if (!response.ok) {
-        lastError = new Error(`${symbol}: quote request failed (HTTP ${response.status}).`);
+        errors.push(`${attempt.label}: HTTP ${response.status}`);
         continue;
       }
       return parseYahooChart(await response.json(), symbol);
     } catch (error) {
-      lastError = error instanceof Error ? error : new Error(String(error));
+      errors.push(`${attempt.label}: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
-  throw lastError ?? new Error(`${symbol}: quote request failed.`);
+  const suffix = tickerProxyBaseUrl
+    ? ""
+    : " Start the app with `npm start` so ticker lookups can use the local quote proxy.";
+  throw new Error(`${symbol}: quote request failed (${errors.join("; ")}).${suffix}`);
 }
 
 export function fiscalDataTipsUrl(cusip, asOfDate) {
@@ -293,7 +319,8 @@ async function fetchTipsPrice(cusip, fetchImpl, asOfDate) {
 export async function refreshAssetPrices(assets = [], {
   fetchImpl = globalThis.fetch,
   now = new Date(),
-  privacyMode = false
+  privacyMode = false,
+  tickerProxyBaseUrl = defaultTickerProxyBaseUrl()
 } = {}) {
   const asOfDate = isoDate(now);
   const asOfMonth = asOfDate.slice(0, 7);
@@ -357,7 +384,7 @@ export async function refreshAssetPrices(assets = [], {
     const cacheKey = `${type}:${value}`;
     if (!fetchCache.has(cacheKey)) {
       fetchCache.set(cacheKey, (type === "ticker"
-        ? fetchTickerQuote(value, fetchImpl)
+        ? fetchTickerQuote(value, fetchImpl, tickerProxyBaseUrl)
         : fetchTipsPrice(value, fetchImpl, asOfDate)
       ).then(
         (quote) => ({ ok: true, quote }),
