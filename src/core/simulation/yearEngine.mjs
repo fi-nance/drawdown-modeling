@@ -357,7 +357,7 @@ export function simulateYear({
     socialSecurityBenefits = customSocialSecurityBenefits;
   } else {
     const primarySS = socialSecurityBenefitsForYear(scenario, age, inflationIndex, yearTaxProfile);
-    const spouseSS = spouseSocialSecurityBenefitsForYear(scenario, spouseAge, inflationIndex, yearTaxProfile);
+    const spouseSS = spouseSocialSecurityBenefitsForYear(scenario, spouseAge, inflationIndex, yearTaxProfile, { primaryAge: age });
     socialSecurityBenefits = primarySS + spouseSS;
   }
 

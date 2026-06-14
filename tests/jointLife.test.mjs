@@ -116,6 +116,90 @@ test("surviving spouse Social Security: year of death keeps combined benefits; y
   assert.equal(plan.years[3].socialSecurityBenefits, 30000);
 });
 
+test("living spouse Social Security switches to excess spousal benefit after primary files", () => {
+  const plan = simulatePlan({
+    assets: [
+      {
+        id: "taxable-cash",
+        accountType: "taxable",
+        assetClass: "cash",
+        units: 100000,
+        price: 1,
+        costBasisPerUnit: 1
+      }
+    ],
+    scenario: {
+      planYears: 10,
+      targetSpend: 0,
+      currentAge: 62,
+      spouseAge: 62,
+      primaryMortalityAge: 120,
+      spouseMortalityAge: 120,
+      // Entered benefits are claim-age amounts. $49,600 at 70 implies a
+      // $40,000 FRA/PIA benefit, so the spouse cap is $20,000, not $24,800.
+      // The spouse's own early-claim reduction stays in place; the top-up is
+      // the excess over their inferred $17,142.857 PIA, not a full replacement.
+      socialSecurityAnnualBenefit: 49600,
+      socialSecurityStartAge: 70,
+      socialSecurityInflationAdjusted: false,
+      spouseSocialSecurityAnnualBenefit: 12000,
+      spouseSocialSecurityStartAge: 62,
+      spouseSocialSecurityInflationAdjusted: false,
+      rothConversion: { enabled: false },
+      aca: { enabled: false }
+    },
+    taxProfile: noTaxProfile,
+    returnSequence: Array.from({ length: 10 }, () => ({ cash: 0 })),
+    inflationSequence: Array.from({ length: 10 }, () => 0)
+  });
+
+  assert.equal(plan.years[0].socialSecurityBenefits, 12000);
+  assert.equal(plan.years[7].socialSecurityBenefits, 12000);
+  assert.equal(plan.years[8].age, 70);
+  assert.equal(plan.years[8].socialSecurityBenefits, 64457.142857);
+  assert.equal(plan.years[9].socialSecurityBenefits, 64457.142857);
+});
+
+test("pure spousal Social Security waits until the primary files", () => {
+  const plan = simulatePlan({
+    assets: [
+      {
+        id: "taxable-cash",
+        accountType: "taxable",
+        assetClass: "cash",
+        units: 100000,
+        price: 1,
+        costBasisPerUnit: 1
+      }
+    ],
+    scenario: {
+      planYears: 10,
+      targetSpend: 0,
+      currentAge: 62,
+      spouseAge: 62,
+      primaryMortalityAge: 120,
+      spouseMortalityAge: 120,
+      socialSecurityAnnualBenefit: 49600,
+      socialSecurityStartAge: 70,
+      socialSecurityInflationAdjusted: false,
+      spouseSocialSecurityAnnualBenefit: 0,
+      spouseSocialSecurityStartAge: 62,
+      spouseSocialSecurityInflationAdjusted: false,
+      estimateSocialSecurityFromEarnings: true,
+      rothConversion: { enabled: false },
+      aca: { enabled: false }
+    },
+    taxProfile: noTaxProfile,
+    returnSequence: Array.from({ length: 10 }, () => ({ cash: 0 })),
+    inflationSequence: Array.from({ length: 10 }, () => 0)
+  });
+
+  assert.equal(plan.years[0].socialSecurityBenefits, 0);
+  assert.equal(plan.years[7].socialSecurityBenefits, 0);
+  assert.equal(plan.years[8].socialSecurityBenefits, 69600);
+  assert.equal(plan.years[9].socialSecurityBenefits, 69600);
+});
+
 test("plan.years.length stays equal to planYears: post-mortality years are emitted as flagged stubs, not dropped", () => {
   const plan = simulatePlan({
     assets: [
