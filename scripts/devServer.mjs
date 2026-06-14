@@ -68,7 +68,7 @@ async function handleYahooProxy(req, res, requestUrl, { fetchImpl, yahooHosts })
 
 async function serveStatic(req, res, requestUrl, root) {
   if (req.method !== "GET" && req.method !== "HEAD") {
-    sendJson(res, 405, { error: "Only GET is supported by the local static server." });
+    sendJson(res, 405, { error: "Only GET and HEAD are supported by the local static server." });
     return;
   }
 

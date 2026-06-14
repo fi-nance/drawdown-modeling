@@ -321,6 +321,43 @@ test("ticker refresh can fall through to a deployed function proxy path", async 
   assert.deepEqual(summary, { updated: 1, failed: 0, skipped: 0, noIdentifier: 0 });
 });
 
+test("default browser ticker refresh tries every bundled same-origin proxy path", async () => {
+  const assets = [{ id: "a-vti", symbol: "VTI", price: 100 }];
+  const previousLocation = globalThis.location;
+  Object.defineProperty(globalThis, "location", {
+    value: { protocol: "https:", origin: "https://example.com", href: "https://example.com/" },
+    configurable: true
+  });
+  const fetchImpl = stubFetch([
+    ["example.com/api/price-refresh/yahoo-chart?symbol=VTI", () => jsonResponse({ error: "Not found" }, 404)],
+    ["example.com/.netlify/functions/price-refresh-yahoo-chart?symbol=VTI", () =>
+      jsonResponse({ chart: { result: [{ meta: { regularMarketPrice: 290.01, currency: "USD" } }] } })],
+    ["query1.finance.yahoo.com", () => {
+      throw new Error("direct Yahoo fetch should not be needed after the bundled function proxy succeeds");
+    }]
+  ]);
+
+  try {
+    const { results, summary } = await refreshAssetPrices(assets, { fetchImpl, now: NOW });
+
+    assert.equal(results.get("a-vti").status, "updated");
+    assert.equal(assets[0].price, 290.01);
+    assert.equal(fetchImpl.calls.length, 2);
+    assert.match(fetchImpl.calls[0], /\/api\/price-refresh\/yahoo-chart\?symbol=VTI$/);
+    assert.match(fetchImpl.calls[1], /\/\.netlify\/functions\/price-refresh-yahoo-chart\?symbol=VTI$/);
+    assert.deepEqual(summary, { updated: 1, failed: 0, skipped: 0, noIdentifier: 0 });
+  } finally {
+    if (previousLocation === undefined) {
+      delete globalThis.location;
+    } else {
+      Object.defineProperty(globalThis, "location", {
+        value: previousLocation,
+        configurable: true
+      });
+    }
+  }
+});
+
 test("shared quote proxy response returns browser-readable JSON", async () => {
   const upstreamCalls = [];
   const fetchImpl = async (url, options) => {
@@ -369,6 +406,15 @@ test("local dev server proxies ticker quotes as same-origin JSON", async () => {
   assert.match(upstreamCalls[0].url, /query1\.finance\.yahoo\.com\/v8\/finance\/chart\/VTI\?/);
   assert.equal(upstreamCalls[0].headers.accept, "application/json");
   assert.match(upstreamCalls[0].headers["user-agent"], /PortfolioSuccessLab/);
+});
+
+test("local static server 405 copy matches the supported methods", async () => {
+  const listener = createRequestListener({ fetchImpl: stubFetch([]) });
+  const response = await invokeListener(listener, "/index.html", "POST");
+  const payload = JSON.parse(response.body);
+
+  assert.equal(response.status, 405);
+  assert.match(payload.error, /GET and HEAD/);
 });
 
 test("privacy mode blocks network quotes but still computes I-bond values locally", async () => {
