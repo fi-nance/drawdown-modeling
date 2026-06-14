@@ -743,6 +743,9 @@ function setScreen(screen) {
   document.body.dataset.screen = screen;
   if (screen === "results") {
     rerenderResults();
+    if (typeof window.__pslRecapTables === "function") {
+      window.__pslRecapTables();
+    }
   }
   if (screen === "workspace") {
     syncWorkspaceSummary();
@@ -2231,6 +2234,9 @@ function rerenderResults() {
     const cacheNote = lastCacheOk === false ? " · not cached for refresh" : "";
     meta.textContent = `Updated just now · ${runs} sims · ${years} years${cacheNote}`;
     meta.dataset.cacheOk = lastCacheOk === false ? "false" : "true";
+  }
+  if (state.screen === "results" && typeof window.__pslRecapTables === "function") {
+    window.__pslRecapTables();
   }
 }
 

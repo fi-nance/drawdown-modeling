@@ -729,13 +729,17 @@ function saveTableHeight(tableId, height) {
 // proxy are in the DOM, so the measured content height is complete.
 function capTableToContent(container, tableId) {
   if (!container.querySelector("table")) return;
+  // If the container is currently hidden (e.g. results screen is inactive), measurements will
+  // return 0. Skip sizing so we don't write a tiny inline height.
+  if (container.offsetWidth === 0 && container.offsetHeight === 0) return;
+
   // Natural content height (rows + sticky resize hint + x-scroll proxy) with the
   // caps lifted, measured synchronously between style writes so nothing flashes.
   const prevHeight = container.style.height;
   const prevMaxHeight = container.style.maxHeight;
   container.style.height = "auto";
   container.style.maxHeight = "none";
-  const content = Math.max(120, Math.ceil(container.scrollHeight));
+  const content = Math.max(360, Math.ceil(container.scrollHeight));
   container.style.maxHeight = prevMaxHeight;
   container.style.height = prevHeight;
 
@@ -2687,6 +2691,10 @@ if (typeof window !== "undefined") {
   // there are no holdings (the run guard would block and its prompt lives on
   // the workspace).
   window.__pslPortfolioCount = () => assets.length;
+  window.__pslRecapTables = () => {
+    if (els.yearTable) capTableToContent(els.yearTable, "yearTable");
+    if (els.assetBreakdownTable) capTableToContent(els.assetBreakdownTable, "assetBreakdown");
+  };
 }
 
 // Returns the Monte Carlo summary if the run completed, otherwise recomputes
