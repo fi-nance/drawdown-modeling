@@ -271,9 +271,9 @@
               <div class="module-body">
                 <div class="control-grid">
                   <label><span>Current age</span><input id="currentAge" type="number" min="0" max="120" step="0.5" value="55"></label>
-                  <label><span>Spouse age</span><input id="spouseAge" type="number" min="0" max="120" step="0.5" value="55"></label>
+                  <label data-married-controls><span>Spouse age</span><input id="spouseAge" type="number" min="0" max="120" step="0.5" value="55"></label>
                   <label><span>Primary mortality age</span><input id="primaryMortalityAge" type="number" min="40" max="120" step="1" value="95"></label>
-                  <label><span>Spouse mortality age</span><input id="spouseMortalityAge" type="number" min="40" max="120" step="1" value="95"></label>
+                  <label data-married-controls><span>Spouse mortality age</span><input id="spouseMortalityAge" type="number" min="40" max="120" step="1" value="95"></label>
                   <label><span>Plan years</span><input id="planYears" type="number" min="1" max="80" value="35"></label>
                   <label><span>Target spend</span><input id="targetSpend" type="number" min="1000" step="1000" value="90000"></label>
                   <label><span>Required spend</span><input id="decisionRequiredSpend" type="number" min="0" step="1000" placeholder="Auto from strategy"></label>
@@ -302,7 +302,7 @@
                 <label class="check-row"><input id="includeMedical" type="checkbox"><span>Target spend already includes medical</span></label>
                 <label class="check-row"><input id="decisionIncomeBridgeEnabled" type="checkbox" checked><span>Consider returning to work for bridge income</span></label>
                 <label class="check-row"><input id="agePhasedSpending" type="checkbox"><span>Age-banded spending (retirement smile)</span><small>Scales fixed and essential/discretionary spending by phase. Not applied to dynamic strategies (Guyton-Klinger, Kitces, VPW, risk-based guardrails).</small></label>
-                <div class="control-grid">
+                <div class="control-grid" data-age-phased-controls hidden>
                   <label><span>Slow-go from age</span><input id="slowGoAge" type="number" min="40" max="110" step="1" value="76"></label>
                   <label><span>Slow-go spend %</span><input id="slowGoPercent" type="number" min="0" max="200" step="1" value="85"></label>
                   <label><span>No-go from age</span><input id="noGoAge" type="number" min="40" max="120" step="1" value="86"></label>
@@ -528,18 +528,18 @@
                 <div class="control-grid">
                   <label><span>SS annual benefit</span>    <input id="socialSecurityAnnualBenefit" type="number" min="0" step="1000" value="0"></label>
                   <label><span>SS start age</span>         <input id="socialSecurityStartAge" type="number" min="0" max="120" step="0.5" value="67"></label>
-                  <label><span>Spouse SS annual benefit</span><input id="spouseSocialSecurityAnnualBenefit" type="number" min="0" step="1000" value="0"></label>
-                  <label><span>Spouse SS start age</span>     <input id="spouseSocialSecurityStartAge" type="number" min="0" max="120" step="0.5" value="67"></label>
+                  <label data-married-controls><span>Spouse SS annual benefit</span><input id="spouseSocialSecurityAnnualBenefit" type="number" min="0" step="1000" value="0"></label>
+                  <label data-married-controls><span>Spouse SS start age</span>     <input id="spouseSocialSecurityStartAge" type="number" min="0" max="120" step="0.5" value="67"></label>
                   <label><span>Medicare wages</span>       <input id="medicareWages" type="number" min="0" step="1000" value="0"></label>
                   <label><span>W-2 SS wages</span>         <input id="socialSecurityWages" type="number" min="0" step="1000" placeholder="Auto"></label>
                   <label><span>Self-employment income</span><input id="selfEmploymentIncome" type="number" min="0" step="1000" value="0"></label>
                   <label><span>RRTA compensation</span>    <input id="rrtaCompensation" type="number" min="0" step="1000" value="0"></label>
-                  <label><span>Spouse Medicare wages</span><input id="spouseMedicareWages" type="number" min="0" step="1000" value="0"></label>
-                  <label><span>Spouse W-2 SS wages</span>  <input id="spouseSocialSecurityWages" type="number" min="0" step="1000" placeholder="Auto"></label>
-                  <label><span>Spouse self-employment income</span><input id="spouseSelfEmploymentIncome" type="number" min="0" step="1000" value="0"></label>
+                  <label data-married-controls><span>Spouse Medicare wages</span><input id="spouseMedicareWages" type="number" min="0" step="1000" value="0"></label>
+                  <label data-married-controls><span>Spouse W-2 SS wages</span>  <input id="spouseSocialSecurityWages" type="number" min="0" step="1000" placeholder="Auto"></label>
+                  <label data-married-controls><span>Spouse self-employment income</span><input id="spouseSelfEmploymentIncome" type="number" min="0" step="1000" value="0"></label>
                 </div>
                 <label class="check-row"><input id="socialSecurityInflationAdjusted" type="checkbox" checked><span>Inflation-adjust Social Security</span></label>
-                <label class="check-row"><input id="spouseSocialSecurityInflationAdjusted" type="checkbox" checked><span>Inflation-adjust spouse Social Security</span></label>
+                <label class="check-row" data-married-controls><input id="spouseSocialSecurityInflationAdjusted" type="checkbox" checked><span>Inflation-adjust spouse Social Security</span></label>
                 <label class="check-row"><input id="earnedIncomeInflationAdjusted"  type="checkbox" checked><span>Inflation-adjust earned income</span></label>
                 <label class="check-row"><input id="estimateSocialSecurityFromEarnings" type="checkbox"><span>Estimate Social Security from earnings</span><small>Opt-in coarse proxy: entered wages are treated as the career-average AIME against the SSA 2026 bend points. Spouse wages feed the spouse's own PIA; without them a 50% spousal benefit applies.</small></label>
                 <h4 class="control-subhead">Recurring income streams</h4>
@@ -642,10 +642,10 @@
 	                <label class="check-row"><input id="taxLossHarvesting" type="checkbox" checked><span>Tax-loss harvesting</span></label>
                 <label class="check-row"><input id="taxGainHarvesting" type="checkbox" checked><span>Tax-gain harvesting</span></label>
                 <label class="check-row"><input id="rothConversion"    type="checkbox" checked><span>Roth conversions</span></label>
-                <label class="check-row"><input id="rothConversionOptimizeForAca" type="checkbox" checked><span>ACA-aware Roth conversions</span></label>
-                <label class="check-row"><input id="rothConversionMagiGuardrails" type="checkbox"><span>Apply MAGI conversion guardrails</span></label>
-                <label class="check-row"><input id="rothConversionSpendingAware" type="checkbox" checked><span>Spending-aware conversion sizing</span><small>Sizes conversions on top of RMDs, TIPS rung maturities, and the year's spending withdrawals so ACA premium tax credits survive. Unchecking restores the legacy income-blind sizing.</small></label>
-                <label class="check-row"><input id="rothConversionSpendFromBasis" type="checkbox" checked><span>Spend Roth basis to widen conversions</span><small>When spendable Roth value covers the year's cash gap in ACA years, fund spending from Roth (no MAGI) and convert the freed headroom instead.</small></label>
+                <label class="check-row" data-roth-conversion-controls><input id="rothConversionOptimizeForAca" type="checkbox" checked><span>ACA-aware Roth conversions</span></label>
+                <label class="check-row" data-roth-conversion-controls><input id="rothConversionMagiGuardrails" type="checkbox"><span>Apply MAGI conversion guardrails</span></label>
+                <label class="check-row" data-roth-conversion-controls><input id="rothConversionSpendingAware" type="checkbox" checked><span>Spending-aware conversion sizing</span><small>Sizes conversions on top of RMDs, TIPS rung maturities, and the year's spending withdrawals so ACA premium tax credits survive. Unchecking restores the legacy income-blind sizing.</small></label>
+                <label class="check-row" data-roth-conversion-controls><input id="rothConversionSpendFromBasis" type="checkbox" checked><span>Spend Roth basis to widen conversions</span><small>When spendable Roth value covers the year's cash gap in ACA years, fund spending from Roth (no MAGI) and convert the freed headroom instead.</small></label>
                 <label class="check-row"><input id="rothBasisOptimization" type="checkbox" checked><span>Roth basis optimization</span></label>
                 <label class="check-row"><input id="unifiedMarginalOptimizer" type="checkbox" checked><span>Unified marginal-rate optimizer</span></label>
                 <label class="check-row"><input id="assetLocationOptimization" type="checkbox"><span>Asset-location swaps</span></label>
@@ -654,7 +654,7 @@
                 <label class="check-row"><input id="allocationAwareWithdrawals" type="checkbox"><span>Allocation-aware withdrawals</span></label>
                 <label class="check-row"><input id="taxAwareRebalancing" type="checkbox"><span>Tax-aware annual rebalancing</span></label>
                 <label class="check-row"><input id="equityGlidepath" type="checkbox"><span>Equity glidepath</span></label>
-                <label class="check-row"><input id="survivorStepUpEnabled" type="checkbox"><span>Survivor basis step-up at first death</span><small>Steps up taxable lots owned by the deceased to market value (joint lots by the configured share) at the first death of a married couple. Tag account owners in the portfolio table.</small></label>
+                <label class="check-row" data-married-controls><input id="survivorStepUpEnabled" type="checkbox"><span>Survivor basis step-up at first death</span><small>Steps up taxable lots owned by the deceased to market value (joint lots by the configured share) at the first death of a married couple. Tag account owners in the portfolio table.</small></label>
                 <div class="control-grid">
                   <label><span>Conversion target rate %</span><input id="rothTargetRate" type="number" min="0" max="37" step="1" value="12"></label>
                   <label><span>Heir ordinary tax rate %</span><input id="heirOrdinaryTaxRate" type="number" min="0" max="100" step="1" value="24"><small>Applied to inherited traditional/HSA balances in the after-tax bequest estimate.</small></label>
@@ -666,12 +666,12 @@
                       <option value="eligibleDesignated">Eligible Stretch</option>
                     </select>
                   </label>
-                  <label>
+                  <label data-heir-type-controls="nonSpouse10Yr" hidden>
                     <span>Non-spouse 10-yr tax drag %</span>
                     <input id="nonSpouse10YrTaxDrag" type="number" min="0" max="40" step="1" value="0">
                     <small>Planning assumption (no primary source); added to heir ordinary rate when beneficiary type is Non-Spouse.</small>
                   </label>
-                  <label>
+                  <label data-heir-type-controls="eligibleDesignated" hidden>
                     <span>Eligible stretch discount %</span>
                     <input id="eligibleDesignatedTaxDiscount" type="number" min="0" max="20" step="1" value="0">
                     <small>Planning assumption (no primary source); subtracted from heir ordinary rate when beneficiary type is Eligible Stretch.</small>
@@ -705,23 +705,23 @@
                     </select>
                     <small>Indexed scales heir brackets, deduction, base income, and the $15M estate exclusion to the death-year price level; frozen is the conservative planning view.</small>
                   </label>
-                  <label><span>Joint basis step-up %</span><input id="survivorStepUpJointPercent" type="number" min="0" max="100" step="5" value="50"><small>Share of jointly-owned taxable gains stepped up at the first death (50 = common-law half step-up; 100 ≈ community property).</small></label>
-                  <label><span>Annual conversion override</span><input id="rothAmount" type="number" min="0" step="1000" placeholder="Auto"></label>
-                  <label><span>Conversion max ACA FPL %</span><input id="rothConversionMaxAcaFplPercent" type="number" min="100" max="600" step="1" value="400"></label>
-                  <label><span>Conversion MAGI buffer</span><input id="rothConversionMagiBuffer" type="number" min="0" step="100" value="0"></label>
-                  <label><span>Roth basis MAGI buffer</span><input id="rothBasisMagiBuffer" type="number" min="0" step="100" value="1000"></label>
-                  <label>
+                  <label data-survivor-step-up-controls hidden><span>Joint basis step-up %</span><input id="survivorStepUpJointPercent" type="number" min="0" max="100" step="5" value="50"><small>Share of jointly-owned taxable gains stepped up at the first death (50 = common-law half step-up; 100 ≈ community property).</small></label>
+                  <label data-roth-conversion-controls><span>Annual conversion override</span><input id="rothAmount" type="number" min="0" step="1000" placeholder="Auto"></label>
+                  <label data-roth-conversion-controls><span>Conversion max ACA FPL %</span><input id="rothConversionMaxAcaFplPercent" type="number" min="100" max="600" step="1" value="400"></label>
+                  <label data-roth-conversion-controls><span>Conversion MAGI buffer</span><input id="rothConversionMagiBuffer" type="number" min="0" step="100" value="0"></label>
+                  <label data-roth-basis-controls><span>Roth basis MAGI buffer</span><input id="rothBasisMagiBuffer" type="number" min="0" step="100" value="1000"></label>
+                  <label data-roth-basis-controls>
                     <span>Roth basis hurdle</span>
                     <select id="rothBasisOpportunityCostMode">
                       <option value="dynamic" selected>Dynamic opportunity cost</option>
                       <option value="fixed">Fixed savings rate</option>
                     </select>
                   </label>
-                  <label><span>Gain harvest MAGI buffer</span><input id="taxGainMagiBuffer" type="number" min="0" step="100" value="0"></label>
-                  <label><span>Max annual loss override</span><input id="tlhMax" type="number" min="0" step="500" placeholder="Auto"></label>
-                  <label><span>Max annual gain override</span><input id="tghMax" type="number" min="0" step="1000" placeholder="Auto"></label>
-                  <label><span>HSA contribution override</span><input id="hsaContributionAmount" type="number" min="0" step="100" placeholder="Auto"></label>
-                  <label>
+                  <label data-tax-gain-controls><span>Gain harvest MAGI buffer</span><input id="taxGainMagiBuffer" type="number" min="0" step="100" value="0"></label>
+                  <label data-tax-loss-controls><span>Max annual loss override</span><input id="tlhMax" type="number" min="0" step="500" placeholder="Auto"></label>
+                  <label data-tax-gain-controls><span>Max annual gain override</span><input id="tghMax" type="number" min="0" step="1000" placeholder="Auto"></label>
+                  <label data-hsa-contribution-controls hidden><span>HSA contribution override</span><input id="hsaContributionAmount" type="number" min="0" step="100" placeholder="Auto"></label>
+                  <label data-hsa-contribution-controls hidden>
                     <span>HSA coverage</span>
                     <select id="hsaCoverage">
                       <option value="auto">Auto</option>
@@ -729,11 +729,11 @@
                       <option value="family">Family</option>
                     </select>
                   </label>
-                  <label><span>Stock target %</span><input id="targetStockAllocation" type="number" min="0" max="100" step="1" value="70"></label>
-                  <label><span>Rebalance band +/- %</span><input id="rebalanceBand" type="number" min="0" max="50" step="1" value="5"></label>
-                  <label><span>Glidepath start stock %</span><input id="glidepathStartStockAllocation" type="number" min="0" max="100" step="1" value="60"></label>
-                  <label><span>Glidepath end stock %</span><input id="glidepathEndStockAllocation" type="number" min="0" max="100" step="1" value="80"></label>
-                  <label><span>Glidepath years</span><input id="glidepathYears" type="number" min="1" max="60" step="1" value="15"></label>
+                  <label data-allocation-target-controls hidden><span>Stock target %</span><input id="targetStockAllocation" type="number" min="0" max="100" step="1" value="70"></label>
+                  <label data-rebalance-controls hidden><span>Rebalance band +/- %</span><input id="rebalanceBand" type="number" min="0" max="50" step="1" value="5"></label>
+                  <label data-glidepath-controls hidden><span>Glidepath start stock %</span><input id="glidepathStartStockAllocation" type="number" min="0" max="100" step="1" value="60"></label>
+                  <label data-glidepath-controls hidden><span>Glidepath end stock %</span><input id="glidepathEndStockAllocation" type="number" min="0" max="100" step="1" value="80"></label>
+                  <label data-glidepath-controls hidden><span>Glidepath years</span><input id="glidepathYears" type="number" min="1" max="60" step="1" value="15"></label>
                 </div>
                 <p class="strategy-summary"><span>Assumption: automated tax moves are capped by bracket, ACA, NIIT, IRMAA, and liquidity guardrails before they are treated as recommended actions.</span></p>
               </div>
@@ -761,12 +761,12 @@
                     <option value="hybrid">Hybrid reserve</option>
                   </select>
                 </label>
-                <div class="control-grid">
+                <div class="control-grid" data-reserve-controls hidden>
                   <label><span>Reserve target years</span><input id="sequenceReserveTargetYears" type="number" min="0.5" max="10" step="0.5" value="3"></label>
                   <label><span>Reserve tent years</span>  <input id="sequenceReserveTentYears" type="number" min="1" max="30" step="1" value="10"></label>
                 </div>
                 <label class="check-row"><input id="tipsLadderEnabled" type="checkbox"><span>TIPS bond ladder</span><small>Carves an N-year held-to-maturity TIPS ladder out of the portfolio at the first rebalance (tax-deferred-first placement; pre-59&frac12; rungs taxable-first). Each rung funds one year of spending, inflation-adjusted, and rungs are excluded from rebalancing. A 500-run seeded tournament found spend-on-stress keeps nearly all of always-replenish's success rate at a fraction of its heir-value cost; build-once-deplete maximizes heir value.</small></label>
-                <div class="control-grid">
+                <div class="control-grid" data-tips-ladder-controls hidden>
                   <label><span>Ladder years</span><input id="tipsLadderYears" type="number" min="1" max="40" step="1" value="10"></label>
                   <label><span>Ladder annual amount</span><input id="tipsLadderAnnualAmount" type="number" min="0" step="1000" placeholder="Auto: base spending target"></label>
                   <label><span>Ladder real yield %</span><input id="tipsLadderRealYieldPercent" type="number" min="-2" max="8" step="0.1" value="2"></label>
@@ -779,8 +779,8 @@
                       <option value="always">Always replenish</option>
                     </select>
                   </label>
-                  <label class="check-row"><input id="tipsLadderReplenishCatchUp" type="checkbox" checked><span>Catch up missed rungs after a recovery (stocks-up mode)</span></label>
-                  <label><span>Stress trigger % (0 = any down year, -10 = down 10% or worse)</span><input id="tipsLadderTriggerStockReturnPercent" type="number" step="1" value="0"></label>
+                  <label class="check-row" data-tips-ladder-mode-controls="stocks-up" hidden><input id="tipsLadderReplenishCatchUp" type="checkbox" checked><span>Catch up missed rungs after a recovery (stocks-up mode)</span></label>
+                  <label data-tips-ladder-mode-controls="spend-on-stress" hidden><span>Stress trigger % (0 = any down year, -10 = down 10% or worse)</span><input id="tipsLadderTriggerStockReturnPercent" type="number" step="1" value="0"></label>
                 </div>
               </div>
             </section>
@@ -825,7 +825,7 @@
                 <div class="control-grid">
                   <label><span>Inflation persistence %</span><input id="mcInflationPersistence" type="number" min="0" max="95" step="5" value="0"><small>AR(1) serial correlation for sampled inflation paths (0 = independent draws). Annual US CPI runs roughly 60-80; variance stays calibrated to the volatility above.</small></label>
                 </div>
-                <div class="control-grid">
+                <div class="control-grid" data-mc-custom-controls hidden>
                   <label><span>Stock mean %</span><input id="mcStockMean" type="number" min="-100" max="500" step="0.1" value="7.1"></label>
                   <label><span>Stock volatility %</span><input id="mcStockStdev" type="number" min="0" max="500" step="0.1" value="15.3"></label>
                   <label><span>Bond mean %</span><input id="mcBondMean" type="number" min="-100" max="500" step="0.1" value="4.9"></label>
@@ -877,7 +877,7 @@
                   </label>
                   <label><span>Start year</span><input id="historicalStartYear" type="number" min="1872" max="2025" value="1928"></label>
                   <label><span>End year</span>  <input id="historicalEndYear"   type="number" min="1872" max="2025" value="2025"></label>
-                  <label><span>Chunk size years</span><input id="historicalChunkYears" type="number" min="1" max="50" value="10"></label>
+                  <label data-backtest-chunk-controls hidden><span>Chunk size years</span><input id="historicalChunkYears" type="number" min="1" max="50" value="10"></label>
                 </div>
                 <label class="check-row"><input id="cryptoStockProxy" type="checkbox" checked><span>Use stock returns before crypto history</span></label>
                 <label class="check-row"><input id="tipsBondProxy"   type="checkbox" checked><span>Use bond returns before TIPS history</span></label>
@@ -895,40 +895,51 @@
                     <span class="module-sub">Future expenses, income, or asset sales</span>
                   </div>
                 </div>
-                <div class="module-actions"><span class="controls-pill">13+ controls</span></div>
+                <div class="module-actions"><span class="controls-pill">14+ controls</span></div>
               </div>
               <div class="module-body">
-                <div class="control-grid">
-                  <label><span>Name</span><input id="oneOffName" type="text" value="New car"></label>
-                  <label>
-                    <span>Type</span>
-                    <select id="oneOffType">
-                      <option value="expense">Expense</option>
-                      <option value="taxableOrdinaryIncome">Taxable ordinary income</option>
-                      <option value="taxFreeIncome">Tax-free income</option>
-                      <option value="medicareWages">Medicare wages</option>
-                      <option value="selfEmploymentIncome">Self-employment income</option>
-                      <option value="rrtaCompensation">RRTA compensation</option>
-                    </select>
-                  </label>
-                  <label><span>Start year</span><input id="oneOffStart" type="number" min="1" value="7"></label>
-                  <label><span>End year</span>  <input id="oneOffEnd"   type="number" min="1" value="7"></label>
-                  <label><span>Amount</span>    <input id="oneOffAmount" type="number" min="0" step="1000" value="45000"></label>
+                <label>
+                  <span>Add what-if</span>
+                  <select id="whatIfEditorMode">
+                    <option value="oneOff" selected>Scheduled cash flow</option>
+                    <option value="conditionalSale">Conditional asset sale</option>
+                  </select>
+                </label>
+                <div data-what-if-editor="oneOff">
+                  <div class="control-grid">
+                    <label><span>Name</span><input id="oneOffName" type="text" value="New car"></label>
+                    <label>
+                      <span>Type</span>
+                      <select id="oneOffType">
+                        <option value="expense">Expense</option>
+                        <option value="taxableOrdinaryIncome">Taxable ordinary income</option>
+                        <option value="taxFreeIncome">Tax-free income</option>
+                        <option value="medicareWages">Medicare wages</option>
+                        <option value="selfEmploymentIncome">Self-employment income</option>
+                        <option value="rrtaCompensation">RRTA compensation</option>
+                      </select>
+                    </label>
+                    <label><span>Start year</span><input id="oneOffStart" type="number" min="1" value="7"></label>
+                    <label><span>End year</span>  <input id="oneOffEnd"   type="number" min="1" value="7"></label>
+                    <label><span>Amount</span>    <input id="oneOffAmount" type="number" min="0" step="1000" value="45000"></label>
+                  </div>
+                  <label class="check-row"><input id="oneOffInflation" type="checkbox" checked><span>Inflation adjusted</span></label>
+                  <button id="addOneOff" class="ghost-button" type="button">+ Add one-off</button>
                 </div>
-                <label class="check-row"><input id="oneOffInflation" type="checkbox" checked><span>Inflation adjusted</span></label>
-                <button id="addOneOff" class="ghost-button" type="button">+ Add one-off</button>
                 <div id="oneOffList" class="one-off-list"></div>
-                <div class="control-grid">
-                  <label><span>Asset name</span><input id="conditionalSaleName" type="text" value="Second home"></label>
-                  <label><span>Sell if portfolio below</span><input id="conditionalSaleTrigger" type="number" min="0" step="1000" value="500000"></label>
-                  <label><span>Net sale proceeds</span><input id="conditionalSaleProceeds" type="number" min="0" step="1000" value="250000"></label>
-                  <label><span>Taxable LT gain</span><input id="conditionalSaleTaxableGain" type="number" min="0" step="1000" value="0"></label>
+                <div data-what-if-editor="conditionalSale" hidden>
+                  <div class="control-grid">
+                    <label><span>Asset name</span><input id="conditionalSaleName" type="text" value="Second home"></label>
+                    <label><span>Sell if portfolio below</span><input id="conditionalSaleTrigger" type="number" min="0" step="1000" value="500000"></label>
+                    <label><span>Net sale proceeds</span><input id="conditionalSaleProceeds" type="number" min="0" step="1000" value="250000"></label>
+                    <label><span>Taxable LT gain</span><input id="conditionalSaleTaxableGain" type="number" min="0" step="1000" value="0"></label>
+                  </div>
+                  <label class="check-row"><input id="conditionalSaleInflation" type="checkbox" checked><span>Inflation adjusted</span></label>
+                  <button id="addConditionalSale" class="ghost-button" type="button">+ Add sale trigger</button>
                 </div>
-                <label class="check-row"><input id="conditionalSaleInflation" type="checkbox" checked><span>Inflation adjusted</span></label>
-                <button id="addConditionalSale" class="ghost-button" type="button">+ Add sale trigger</button>
                 <div id="conditionalSaleList" class="one-off-list"></div>
                 <label class="check-row"><input id="ltcStressEnabled" type="checkbox"><span>Long-term-care stress test</span><small>Adds a medical-inflated annual care cost while the selected member is alive and inside the age window. A planning stress, not an LTC-insurance model.</small></label>
-                <div class="control-grid">
+                <div class="control-grid" data-ltc-stress-controls hidden>
                   <label>
                     <span>LTC member</span>
                     <select id="ltcStressMember">
@@ -977,10 +988,10 @@
                       <option value="itemized">Force itemized</option>
                     </select>
                   </label>
-                  <label><span>SALT paid</span>                   <input id="itemizedStateLocalTaxes" type="number" min="0" step="500" value="0"></label>
-                  <label><span>Mortgage interest</span>           <input id="itemizedMortgageInterest" type="number" min="0" step="500" value="0"></label>
-                  <label><span>Charitable gifts</span>            <input id="itemizedCharitableContributions" type="number" min="0" step="500" value="0"></label>
-                  <label><span>Medical expenses</span>            <input id="itemizedMedicalExpenses" type="number" min="0" step="500" value="0"></label>
+                  <label data-itemized-controls><span>SALT paid</span>                   <input id="itemizedStateLocalTaxes" type="number" min="0" step="500" value="0"></label>
+                  <label data-itemized-controls><span>Mortgage interest</span>           <input id="itemizedMortgageInterest" type="number" min="0" step="500" value="0"></label>
+                  <label data-itemized-controls><span>Charitable gifts</span>            <input id="itemizedCharitableContributions" type="number" min="0" step="500" value="0"></label>
+                  <label data-itemized-controls><span>Medical expenses</span>            <input id="itemizedMedicalExpenses" type="number" min="0" step="500" value="0"></label>
                   <label>
                     <span>AMT preference/addbacks</span>
                     <input id="amtPreferenceItems" type="number" min="0" step="500" value="0">
@@ -995,11 +1006,11 @@
                     </select>
                     <small>Section 199A planning mode; explicit estimates get CPA-review flags.</small>
                   </label>
-                  <label><span>QBI amount</span>                  <input id="qbiAmount" type="number" min="0" step="500" value="0"></label>
-                  <label><span>QBI W-2 wages</span>              <input id="qbiW2Wages" type="number" min="0" step="500" value="0"></label>
-                  <label><span>QBI UBIA property</span>          <input id="qbiUbiaQualifiedProperty" type="number" min="0" step="500" value="0"></label>
+                  <label data-qbi-manual-controls hidden><span>QBI amount</span>                  <input id="qbiAmount" type="number" min="0" step="500" value="0"></label>
+                  <label data-qbi-business-controls hidden><span>QBI W-2 wages</span>              <input id="qbiW2Wages" type="number" min="0" step="500" value="0"></label>
+                  <label data-qbi-business-controls hidden><span>QBI UBIA property</span>          <input id="qbiUbiaQualifiedProperty" type="number" min="0" step="500" value="0"></label>
                   <label><span>State tax % override</span>         <input id="stateTaxRate" type="number" min="0" max="20" step="0.1" placeholder="Auto"></label>
-                  <label><span>State capital gains %</span>        <input id="stateCapitalRate" type="number" min="0" max="20" step="0.1" placeholder="Auto"></label>
+                  <label data-state-capital-gains-controls hidden><span>State capital gains %</span>        <input id="stateCapitalRate" type="number" min="0" max="20" step="0.1" placeholder="Auto"></label>
                   <label><span>Manual state retirement exclusion</span><input id="stateRetirementExclusion" type="number" min="0" step="500" value="0"></label>
                   <label><span>Manual state taxable SS %</span>    <input id="stateSocialSecurityTaxablePercent" type="number" min="0" max="100" step="5" placeholder="Auto"></label>
                 </div>

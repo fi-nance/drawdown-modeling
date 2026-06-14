@@ -543,12 +543,10 @@ body[data-screen="persona"]::before {
   background: transparent;
   accent-color: var(--teal);
 }
-/* Several wizard elements are toggled via the hidden attribute (the spouse-age
-   label, the Back/Continue nav buttons on the first/last steps), but their base
-   rules set an explicit `display` (label → grid, .cta-button/.subtle-button →
-   inline-flex) which outranks the [hidden] UA default. Enforce it here so a
-   hidden element actually disappears. */
-.wizard-screen [hidden] { display: none !important; }
+/* Components often set explicit display modes (grid, flex, inline-flex), which
+   can outrank the browser's default [hidden] rule. Enforce the attribute so
+   progressively disclosed controls actually disappear everywhere. */
+[hidden] { display: none !important; }
 
 .wizard-step .check-row {
   font-size: 0.85rem;

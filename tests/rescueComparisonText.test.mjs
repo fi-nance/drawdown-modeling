@@ -222,6 +222,36 @@ test("module library counts match expanded module cards", async () => {
   assert.match(source, /id: "strategy"[\s\S]*controls: 43/);
   assert.match(html, /data-module="reserve"[\s\S]*<span class="controls-pill">11 controls<\/span>/);
   assert.match(source, /id: "reserve"[\s\S]*controls: 11/);
+  assert.match(html, /data-module="what-ifs"[\s\S]*<span class="controls-pill">14\+ controls<\/span>/);
+  assert.match(source, /id: "what-ifs"[\s\S]*controls: 14/);
+});
+
+test("workspace progressively hides option-specific controls", async () => {
+  const [html, appSource, css] = await Promise.all([
+    readFile(new URL("../index.html", import.meta.url), "utf8"),
+    readFile(new URL("../src/app.mjs", import.meta.url), "utf8"),
+    readFile(new URL("../src/redesign.css", import.meta.url), "utf8")
+  ]);
+
+  assert.match(html, /id="whatIfEditorMode"/);
+  assert.match(html, /data-what-if-editor="oneOff"/);
+  assert.match(html, /data-what-if-editor="conditionalSale" hidden/);
+  assert.match(html, /data-mc-custom-controls hidden/);
+  assert.match(html, /data-reserve-controls hidden/);
+  assert.match(html, /data-tips-ladder-controls hidden/);
+  assert.match(html, /data-backtest-chunk-controls hidden/);
+  assert.match(html, /data-ltc-stress-controls hidden/);
+  assert.match(html, /data-qbi-manual-controls hidden/);
+  assert.match(html, /data-state-capital-gains-controls hidden/);
+  assert.doesNotMatch(html, /data-module="basics"(?:(?!<\/section>)[\s\S])*id="whatIfEditorMode"/);
+
+  assert.match(appSource, /PROGRESSIVE_DISCLOSURE_CONTROL_IDS/);
+  assert.match(appSource, /function syncProgressiveDisclosureControls\(\)/);
+  assert.match(appSource, /setProgressiveVisibility\("\[data-mc-custom-controls\]"/);
+  assert.match(appSource, /document\.querySelectorAll\("\[data-what-if-editor\]"\)/);
+  assert.match(appSource, /setProgressiveVisibility\("\[data-tips-ladder-controls\]"/);
+  assert.match(appSource, /setProgressiveVisibility\("\[data-qbi-business-controls\]"/);
+  assert.match(css, /\[hidden\]\s*\{\s*display: none !important;\s*\}/);
 });
 
 test("module library can scroll to reveal disabled-module knobs", async () => {

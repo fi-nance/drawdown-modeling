@@ -79,6 +79,30 @@ const MONTE_CARLO_PRESET_LABELS = Object.freeze({
   historical: "historical-fit",
   custom: "custom"
 });
+const PROGRESSIVE_DISCLOSURE_CONTROL_IDS = new Set([
+  "filingStatus",
+  "agePhasedSpending",
+  "heirType",
+  "taxLossHarvesting",
+  "taxGainHarvesting",
+  "rothConversion",
+  "rothBasisOptimization",
+  "hsaContributionStrategy",
+  "allocationAwareWithdrawals",
+  "taxAwareRebalancing",
+  "equityGlidepath",
+  "survivorStepUpEnabled",
+  "sequenceReserveMode",
+  "tipsLadderEnabled",
+  "tipsLadderMaintenanceMode",
+  "mcPreset",
+  "backtestMode",
+  "whatIfEditorMode",
+  "ltcStressEnabled",
+  "itemizedDeductionMode",
+  "qbiSourceMode",
+  "separateStateGains"
+]);
 
 const STORAGE_KEY = "portfolio-success-lab:v3";
 const REMEMBER_SETUP_KEY = "portfolio-success-lab:remember-setup";
@@ -304,6 +328,7 @@ const CONTROL_IDS = [
   "oneOffEnd",
   "oneOffAmount",
   "oneOffInflation",
+  "whatIfEditorMode",
   "conditionalSaleName",
   "conditionalSaleTrigger",
   "conditionalSaleProceeds",
@@ -555,6 +580,7 @@ const els = {
   oneOffEnd: document.querySelector("#oneOffEnd"),
   oneOffAmount: document.querySelector("#oneOffAmount"),
   oneOffInflation: document.querySelector("#oneOffInflation"),
+  whatIfEditorMode: document.querySelector("#whatIfEditorMode"),
   addOneOff: document.querySelector("#addOneOff"),
   oneOffList: document.querySelector("#oneOffList"),
   conditionalSaleName: document.querySelector("#conditionalSaleName"),
@@ -848,6 +874,7 @@ function initialize() {
   updatePrivacyModeControls();
   syncSpendingStrategyControls();
   syncMonteCarloControls();
+  syncProgressiveDisclosureControls();
   syncJsonFromAssets();
   renderAssetTable();
   renderOneOffs();
@@ -1055,6 +1082,7 @@ function bindEvents() {
       const restoredState = parseSetupBackup(await file.text());
       applySetupState(restoredState);
       syncSpendingStrategyControls();
+      syncProgressiveDisclosureControls();
       syncJsonFromAssets();
       renderAssetTable();
       renderOneOffs();
@@ -1206,6 +1234,62 @@ function syncMonteCarloControls() {
     els.mcLongTermReversionYears
   ].forEach((input) => {
     if (input) input.disabled = !meanReversionEnabled;
+  });
+}
+
+function syncProgressiveDisclosureControls() {
+  const filingStatus = els.filingStatus?.value;
+  const married = filingStatus === "marriedFilingJointly" || filingStatus === "marriedFilingSeparately";
+  setProgressiveVisibility("[data-married-controls]", married);
+  setProgressiveVisibility("[data-age-phased-controls]", els.agePhasedSpending?.checked === true);
+
+  const heirType = els.heirType?.value ?? "spouse";
+  document.querySelectorAll("[data-heir-type-controls]").forEach((element) => {
+    element.hidden = element.dataset.heirTypeControls !== heirType;
+  });
+
+  const rothConversionEnabled = els.rothConversion?.checked === true;
+  setProgressiveVisibility("[data-roth-conversion-controls]", rothConversionEnabled);
+  setProgressiveVisibility("[data-roth-basis-controls]", els.rothBasisOptimization?.checked !== false);
+  setProgressiveVisibility("[data-tax-loss-controls]", els.taxLossHarvesting?.checked === true);
+  setProgressiveVisibility("[data-tax-gain-controls]", els.taxGainHarvesting?.checked === true);
+  setProgressiveVisibility("[data-hsa-contribution-controls]", els.hsaContributionStrategy?.checked === true);
+  const allocationTargetVisible = els.allocationAwareWithdrawals?.checked === true
+    || els.taxAwareRebalancing?.checked === true
+    || els.equityGlidepath?.checked === true;
+  setProgressiveVisibility("[data-allocation-target-controls]", allocationTargetVisible);
+  setProgressiveVisibility("[data-rebalance-controls]", els.taxAwareRebalancing?.checked === true);
+  setProgressiveVisibility("[data-glidepath-controls]", els.equityGlidepath?.checked === true);
+  setProgressiveVisibility("[data-survivor-step-up-controls]", married && els.survivorStepUpEnabled?.checked === true);
+
+  const reserveEnabled = (els.sequenceReserveMode?.value ?? "none") !== "none";
+  setProgressiveVisibility("[data-reserve-controls]", reserveEnabled);
+  const tipsLadderEnabled = els.tipsLadderEnabled?.checked === true;
+  setProgressiveVisibility("[data-tips-ladder-controls]", tipsLadderEnabled);
+  const tipsLadderMode = els.tipsLadderMaintenanceMode?.value ?? "none";
+  document.querySelectorAll("[data-tips-ladder-mode-controls]").forEach((element) => {
+    element.hidden = !tipsLadderEnabled || element.dataset.tipsLadderModeControls !== tipsLadderMode;
+  });
+
+  setProgressiveVisibility("[data-mc-custom-controls]", els.mcPreset?.value === "custom");
+  setProgressiveVisibility("[data-backtest-chunk-controls]", els.backtestMode?.value === "chunks");
+
+  const whatIfMode = els.whatIfEditorMode?.value ?? "oneOff";
+  document.querySelectorAll("[data-what-if-editor]").forEach((element) => {
+    element.hidden = element.dataset.whatIfEditor !== whatIfMode;
+  });
+  setProgressiveVisibility("[data-ltc-stress-controls]", els.ltcStressEnabled?.checked === true);
+
+  setProgressiveVisibility("[data-itemized-controls]", els.itemizedDeductionMode?.value !== "standard");
+  const qbiMode = els.qbiSourceMode?.value ?? "none";
+  setProgressiveVisibility("[data-qbi-manual-controls]", qbiMode === "manual");
+  setProgressiveVisibility("[data-qbi-business-controls]", qbiMode !== "none");
+  setProgressiveVisibility("[data-state-capital-gains-controls]", els.separateStateGains?.checked === true);
+}
+
+function setProgressiveVisibility(selector, visible) {
+  document.querySelectorAll(selector).forEach((element) => {
+    element.hidden = !visible;
   });
 }
 
@@ -1666,6 +1750,9 @@ function loadStoredState() {
 }
 
 function handleWorkspaceControlChange(event) {
+  if (PROGRESSIVE_DISCLOSURE_CONTROL_IDS.has(event?.target?.id)) {
+    syncProgressiveDisclosureControls();
+  }
   if (event?.target?.id === "marketplaceZip") {
     handleZipCodeChange();
   }
@@ -1865,6 +1952,7 @@ function applyRescueScenarioToWorkspace(scenario = {}, { label = "rescue scenari
     }
     appliedRescueScenarioOverride = extractRescueScenarioOverride(scenario);
     syncSpendingStrategyControls();
+    syncProgressiveDisclosureControls();
     saveStoredState();
   } finally {
     applyingRescueScenario = false;
