@@ -35,7 +35,7 @@ const MODULES = [
   { id: "reserve",       label: "Cash reserve",   desc: "Bucket strategy",                          controls: 11, required: false, enabledByDefault: false },
   { id: "monte-carlo",   label: "Monte Carlo",    desc: "Return model and sampling",                controls: 20, required: false, enabledByDefault: true  },
   { id: "history",       label: "History test",   desc: "How would you have done?",                controls: 7,  required: false, enabledByDefault: false },
-  { id: "what-ifs",      label: "What ifs",       desc: "Future expenses or income",                controls: 8,  required: false, enabledByDefault: true  },
+  { id: "what-ifs",      label: "What ifs",       desc: "Future expenses, income, or asset sales",   controls: 13, required: false, enabledByDefault: true  },
   { id: "tax-overrides", label: "Tax overrides",  desc: "Power-user tax tweaks",                    controls: 23, required: false, enabledByDefault: false }
 ];
 

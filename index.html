@@ -892,10 +892,10 @@
                   <span class="module-icon">✨</span>
                   <div>
                     <h3>What ifs</h3>
-                    <span class="module-sub">Future expenses or income</span>
+                    <span class="module-sub">Future expenses, income, or asset sales</span>
                   </div>
                 </div>
-                <div class="module-actions"><span class="controls-pill">8+ controls</span></div>
+                <div class="module-actions"><span class="controls-pill">13+ controls</span></div>
               </div>
               <div class="module-body">
                 <div class="control-grid">
@@ -918,6 +918,15 @@
                 <label class="check-row"><input id="oneOffInflation" type="checkbox" checked><span>Inflation adjusted</span></label>
                 <button id="addOneOff" class="ghost-button" type="button">+ Add one-off</button>
                 <div id="oneOffList" class="one-off-list"></div>
+                <div class="control-grid">
+                  <label><span>Asset name</span><input id="conditionalSaleName" type="text" value="Second home"></label>
+                  <label><span>Sell if portfolio below</span><input id="conditionalSaleTrigger" type="number" min="0" step="1000" value="500000"></label>
+                  <label><span>Net sale proceeds</span><input id="conditionalSaleProceeds" type="number" min="0" step="1000" value="250000"></label>
+                  <label><span>Taxable LT gain</span><input id="conditionalSaleTaxableGain" type="number" min="0" step="1000" value="0"></label>
+                </div>
+                <label class="check-row"><input id="conditionalSaleInflation" type="checkbox" checked><span>Inflation adjusted</span></label>
+                <button id="addConditionalSale" class="ghost-button" type="button">+ Add sale trigger</button>
+                <div id="conditionalSaleList" class="one-off-list"></div>
                 <label class="check-row"><input id="ltcStressEnabled" type="checkbox"><span>Long-term-care stress test</span><small>Adds a medical-inflated annual care cost while the selected member is alive and inside the age window. A planning stress, not an LTC-insurance model.</small></label>
                 <div class="control-grid">
                   <label>

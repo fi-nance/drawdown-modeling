@@ -31,6 +31,13 @@ const setupState = {
     amount: 35000,
     inflationAdjusted: true
   }],
+  conditionalAssetSales: [{
+    name: "Second home",
+    triggerPortfolioValue: 500000,
+    saleProceeds: 250000,
+    taxableLongTermGain: 50000,
+    inflationAdjusted: true
+  }],
   decisionProfile: {
     mode: "recentlyLeftWork",
     requiredSpend: 72000,
@@ -63,14 +70,22 @@ test("setup backup parser accepts wrapped and legacy saved-state JSON", () => {
   assert.deepEqual(parseSetupBackup(JSON.stringify(legacy)), { ...setupState, incomeStreams: [] });
 });
 
-test("backups without income streams normalize to an empty array so restores clear current streams", () => {
-  // Pre-v2 (schema v1) backups carry no incomeStreams field; restoring one
-  // must replace the workspace's streams with [], not silently keep them.
-  const restored = parseSetupBackup(JSON.stringify({ type: SETUP_BACKUP_TYPE, state: setupState }));
+test("backups without dynamic lists normalize to empty arrays so restores clear current lists", () => {
+  // Older backups may carry no incomeStreams or conditionalAssetSales fields;
+  // restoring one must replace the workspace's lists with [], not keep them.
+  const legacyState = { ...setupState };
+  delete legacyState.incomeStreams;
+  delete legacyState.conditionalAssetSales;
+  const restored = parseSetupBackup(JSON.stringify({ type: SETUP_BACKUP_TYPE, state: legacyState }));
   assert.deepEqual(restored.incomeStreams, []);
+  assert.deepEqual(restored.conditionalAssetSales, []);
   assert.throws(
     () => parseSetupBackup(JSON.stringify({ ...setupState, incomeStreams: "bad" })),
     /income streams/i
+  );
+  assert.throws(
+    () => parseSetupBackup(JSON.stringify({ ...setupState, conditionalAssetSales: "bad" })),
+    /conditional asset sales/i
   );
 });
 

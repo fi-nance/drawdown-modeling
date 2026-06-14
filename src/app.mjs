@@ -304,6 +304,11 @@ const CONTROL_IDS = [
   "oneOffEnd",
   "oneOffAmount",
   "oneOffInflation",
+  "conditionalSaleName",
+  "conditionalSaleTrigger",
+  "conditionalSaleProceeds",
+  "conditionalSaleTaxableGain",
+  "conditionalSaleInflation",
   "flowMode",
   "magiDisplayMode",
   "yearRange",
@@ -552,6 +557,13 @@ const els = {
   oneOffInflation: document.querySelector("#oneOffInflation"),
   addOneOff: document.querySelector("#addOneOff"),
   oneOffList: document.querySelector("#oneOffList"),
+  conditionalSaleName: document.querySelector("#conditionalSaleName"),
+  conditionalSaleTrigger: document.querySelector("#conditionalSaleTrigger"),
+  conditionalSaleProceeds: document.querySelector("#conditionalSaleProceeds"),
+  conditionalSaleTaxableGain: document.querySelector("#conditionalSaleTaxableGain"),
+  conditionalSaleInflation: document.querySelector("#conditionalSaleInflation"),
+  addConditionalSale: document.querySelector("#addConditionalSale"),
+  conditionalSaleList: document.querySelector("#conditionalSaleList"),
   kpis: document.querySelector("#kpis"),
   flowMode: document.querySelector("#flowMode"),
   magiDisplayMode: document.querySelector("#magiDisplayMode"),
@@ -588,6 +600,7 @@ function newAssetId() {
   return `asset-new-${assetIdCounter}-${Date.now()}`;
 }
 let oneOffExpenses = defaultOneOffExpenses.map((expense) => ({ ...expense }));
+let conditionalAssetSales = [];
 let incomeStreams = [];
 let selectedYearIndex = 0;
 let selectedScenarioId = null;
@@ -838,6 +851,7 @@ function initialize() {
   syncJsonFromAssets();
   renderAssetTable();
   renderOneOffs();
+  renderConditionalAssetSales();
   renderIncomeStreams();
   bindEvents();
   // Restore previously-rendered results from sessionStorage so a refresh paints
@@ -1044,6 +1058,7 @@ function bindEvents() {
       syncJsonFromAssets();
       renderAssetTable();
       renderOneOffs();
+      renderConditionalAssetSales();
       renderIncomeStreams();
       saveStoredState();
       runModels();
@@ -1071,6 +1086,19 @@ function bindEvents() {
       inflationAdjusted: els.oneOffInflation.checked
     });
     renderOneOffs();
+    saveStoredState();
+  });
+
+  els.addConditionalSale?.addEventListener("click", () => {
+    conditionalAssetSales.push({
+      id: `conditional-sale-${Date.now()}-${conditionalAssetSales.length}`,
+      name: els.conditionalSaleName?.value || "Conditional asset sale",
+      triggerPortfolioValue: Math.max(0, Number(els.conditionalSaleTrigger?.value) || 0),
+      saleProceeds: Math.max(0, Number(els.conditionalSaleProceeds?.value) || 0),
+      taxableLongTermGain: Math.max(0, Number(els.conditionalSaleTaxableGain?.value) || 0),
+      inflationAdjusted: els.conditionalSaleInflation?.checked !== false
+    });
+    renderConditionalAssetSales();
     saveStoredState();
   });
 
@@ -1734,6 +1762,7 @@ function setupStateSnapshot() {
     decisionProfile: decisionProfileStateSnapshot(),
     assets,
     oneOffExpenses,
+    conditionalAssetSales,
     incomeStreams,
     ...(redesign ? { redesign } : {})
   };
@@ -1783,6 +1812,9 @@ function applySetupState(stored) {
   if (Array.isArray(stored.oneOffExpenses)) {
     oneOffExpenses = stored.oneOffExpenses.map((expense) => ({ ...expense }));
   }
+  conditionalAssetSales = Array.isArray(stored.conditionalAssetSales)
+    ? stored.conditionalAssetSales.map((sale) => ({ ...sale }))
+    : [];
   if (Array.isArray(stored.incomeStreams)) {
     incomeStreams = stored.incomeStreams.map((stream) => ({ ...stream }));
   }
@@ -1822,6 +1854,10 @@ function applyRescueScenarioToWorkspace(scenario = {}, { label = "rescue scenari
     if (Array.isArray(scenario.oneOffExpenses)) {
       oneOffExpenses = scenario.oneOffExpenses.map((expense) => ({ ...expense }));
       renderOneOffs();
+    }
+    if (Array.isArray(scenario.conditionalAssetSales)) {
+      conditionalAssetSales = scenario.conditionalAssetSales.map((sale) => ({ ...sale }));
+      renderConditionalAssetSales();
     }
     if (Array.isArray(scenario.incomeStreams)) {
       incomeStreams = scenario.incomeStreams.map((stream) => ({ ...stream }));
@@ -2001,6 +2037,7 @@ function extractRescueScenarioOverride(scenario = {}) {
     "spouseSelfEmploymentIncome",
     "estimateSocialSecurityFromEarnings",
     "earnedIncomeInflationAdjusted",
+    "conditionalAssetSales",
     "taxEfficiencyStrategy",
     "primaryMortalityAge",
     "spouseMortalityAge",
@@ -2988,7 +3025,7 @@ function acaPlanLabel(year) {
 function renderYearTable() {
   const years = activeVisibleYears();
   const magiColumn = selectedMagiColumn();
-  const headers = ["Year", "Age", "Stock", "Bond", "Real estate", "TIPS", "Crypto", "Inflation", "Start value", "End value", "Sales / withdrawals", "Dividends", "Social Security", "Earned income", "One-off income", "RMD", "Total cash", "Total need", "Tax", "Fed income tax", "CG/QD tax", "NIIT", "W-2 FICA", "SE tax", "Addl Medicare", "Credits", "Refundable credits", "State tax", magiColumn.header, "Taxable SS", "Deduction", "Itemized ded", "65+ deduction", "Senior bonus", "QBI ded", "CTC children", "ACA plan", "ACA SLCSP", "ACA gross", "ACA subsidy", "ACA net", "Medicare", "Spend", "Essential", "Discretionary", "Disc. %", "Market DD", "Medical", "Tax gain harvest", "Roth conv.", "Roth basis available", "Penalty", "CL offset", "ST loss carry", "LT loss carry", "Loss carry", "State loss review"];
+  const headers = ["Year", "Age", "Stock", "Bond", "Real estate", "TIPS", "Crypto", "Inflation", "Start value", "End value", "Sales / withdrawals", "Dividends", "Social Security", "Earned income", "One-off income", "Asset sale", "RMD", "Total cash", "Total need", "Tax", "Fed income tax", "CG/QD tax", "NIIT", "W-2 FICA", "SE tax", "Addl Medicare", "Credits", "Refundable credits", "State tax", magiColumn.header, "Taxable SS", "Deduction", "Itemized ded", "65+ deduction", "Senior bonus", "QBI ded", "CTC children", "ACA plan", "ACA SLCSP", "ACA gross", "ACA subsidy", "ACA net", "Medicare", "Spend", "Essential", "Discretionary", "Disc. %", "Market DD", "Medical", "Tax gain harvest", "Roth conv.", "Roth basis available", "Penalty", "CL offset", "ST loss carry", "LT loss carry", "Loss carry", "State loss review"];
   const rows = years.map((year) => [
     yearDisplayLabel(year),
     ageLabel(year.age),
@@ -3005,6 +3042,7 @@ function renderYearTable() {
     money(year.socialSecurityBenefits ?? 0, year),
     money(year.earnedIncome ?? 0, year),
     money(year.oneOffIncome ?? 0, year),
+    money(year.conditionalAssetSaleProceeds ?? 0, year),
     money(year.rmdAmount ?? 0, year),
     money(year.cashAvailable ?? ((year.cashRaised ?? 0) + (year.taxableDividendsCash ?? 0)), year),
     money(year.totalCashRequired ?? ((year.plannedSpending ?? 0) + (year.medicalCost ?? 0) + (year.taxes?.totalTax ?? 0)), year),
@@ -3407,6 +3445,16 @@ function renderActionPlan() {
       "One-off income",
       `${money(taxAttributionFor(year, "One-off income"), year)} estimated tax share`,
       "Adds outside cash for the configured year range before selling portfolio assets."
+    ]);
+  }
+
+  if ((year.conditionalAssetSaleProceeds ?? 0) > 0) {
+    addAction("conditionalAssetSale", [
+      "Sell contingent asset",
+      money(year.conditionalAssetSaleProceeds, year),
+      "Outside asset sale",
+      `${money(year.conditionalAssetSaleTaxableLongTermGain ?? 0, year)} taxable long-term gain; ${money(taxAttributionFor(year, "Contingent asset sale"), year)} estimated tax share`,
+      "Adds outside sale proceeds only in paths where the portfolio threshold is breached."
     ]);
   }
 
@@ -4039,6 +4087,32 @@ function renderOneOffs() {
     button.addEventListener("click", () => {
       oneOffExpenses.splice(Number(button.dataset.removeOneOff), 1);
       renderOneOffs();
+      saveStoredState();
+    });
+  });
+}
+
+function renderConditionalAssetSales() {
+  if (!els.conditionalSaleList) return;
+  if (!conditionalAssetSales.length) {
+    els.conditionalSaleList.innerHTML = `<p class="empty-state">No conditional asset sales.</p>`;
+    return;
+  }
+
+  els.conditionalSaleList.innerHTML = conditionalAssetSales.map((sale, index) => `
+    <div class="one-off-item">
+      <div>
+        <strong>${escapeHtml(sale.name || "Conditional asset sale")}</strong>
+        <span>Sell below ${moneyFormatter.format(Math.max(0, Number(sale.triggerPortfolioValue) || 0))}; proceeds ${moneyFormatter.format(Math.max(0, Number(sale.saleProceeds ?? sale.amount) || 0))}${sale.taxableLongTermGain > 0 ? `, LT gain ${moneyFormatter.format(Math.max(0, Number(sale.taxableLongTermGain) || 0))}` : ""}; ${sale.inflationAdjusted === false ? "fixed" : "inflation adjusted"}</span>
+      </div>
+      <button type="button" data-remove-conditional-sale="${index}">Remove</button>
+    </div>
+  `).join("");
+
+  els.conditionalSaleList.querySelectorAll("[data-remove-conditional-sale]").forEach((button) => {
+    button.addEventListener("click", () => {
+      conditionalAssetSales.splice(Number(button.dataset.removeConditionalSale), 1);
+      renderConditionalAssetSales();
       saveStoredState();
     });
   });
@@ -4706,6 +4780,14 @@ function sankeyNodeDetailsForYear(year) {
     ].join("\n");
   }
 
+  const conditionalSales = year.conditionalAssetSaleDetails ?? [];
+  if (conditionalSales.length) {
+    details["Contingent asset sale"] = [
+      `Contingent asset sale: ${money(year.conditionalAssetSaleProceeds ?? 0, year)}`,
+      ...conditionalSales.map((sale) => `${sale.name}: ${money(sale.saleProceeds ?? 0, year)} proceeds, ${money(sale.taxableLongTermGain ?? 0, year)} taxable LT gain`)
+    ].join("\n");
+  }
+
   const rothBasisSales = (year.sales ?? []).filter((sale) => (sale.rothBasisUsed ?? 0) > 1);
   if (rothBasisSales.length) {
     const total = rothBasisSales.reduce((sum, sale) => sum + (sale.rothBasisUsed ?? 0), 0);
@@ -4827,6 +4909,7 @@ function portfolioFlowsForYear(year) {
   const socialSecurity = adjustAmount(year.socialSecurityBenefits ?? 0, year);
   const earnedIncome = adjustAmount(year.earnedIncome ?? 0, year);
   const oneOffIncome = adjustAmount(year.oneOffIncome ?? 0, year);
+  const conditionalAssetSale = adjustAmount(year.conditionalAssetSaleProceeds ?? 0, year);
   const taxRefund = adjustAmount(year.taxRefundCash ?? 0, year);
   const unspent = adjustAmount(year.unspentCash ?? 0, year);
   const spending = adjustAmount(year.plannedSpending ?? 0, year);
@@ -4836,7 +4919,7 @@ function portfolioFlowsForYear(year) {
   const totalReturn = ending + withdrawals - beginning - unspent;
   const marketGains = Math.max(0, totalReturn);
   const marketLosses = Math.max(0, -totalReturn);
-  const reserveInflow = withdrawals + dividends + socialSecurity + earnedIncome + oneOffIncome + taxRefund;
+  const reserveInflow = withdrawals + dividends + socialSecurity + earnedIncome + oneOffIncome + conditionalAssetSale + taxRefund;
   const reserveOutflow = spending + medical + taxes + penalties;
   const flows = [
     { from: "Starting balance", to: "Portfolio after returns", amount: beginning, type: "balance" }
@@ -4849,6 +4932,7 @@ function portfolioFlowsForYear(year) {
   if (socialSecurity > 0) flows.push({ from: "Social Security", to: "Yearly cash flow", amount: socialSecurity, type: "income" });
   if (earnedIncome > 0) flows.push({ from: "Earned income", to: "Yearly cash flow", amount: earnedIncome, type: "income" });
   if (oneOffIncome > 0) flows.push({ from: "One-off income", to: "Yearly cash flow", amount: oneOffIncome, type: "income" });
+  if (conditionalAssetSale > 0) flows.push({ from: "Contingent asset sale", to: "Yearly cash flow", amount: conditionalAssetSale, type: "income" });
   if (taxRefund > 0) flows.push({ from: "Tax refund", to: "Yearly cash flow", amount: taxRefund, type: "income" });
   if (spending > 0) flows.push({ from: "Yearly cash flow", to: "Lifestyle spending", amount: spending, type: "spending" });
   if (medical > 0) flows.push({ from: "Yearly cash flow", to: "Medical", amount: medical, type: "medical" });
@@ -5100,6 +5184,7 @@ function readScenario() {
     },
     returnAssumptions: readMonteCarloReturnAssumptions(),
     oneOffExpenses,
+    conditionalAssetSales,
     incomeStreams,
     agePhasedSpending: {
       enabled: els.agePhasedSpending?.checked === true,

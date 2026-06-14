@@ -1,6 +1,6 @@
-// v2: state gained an `incomeStreams` array (recurring pension/annuity/rent
-// streams). v1 backups restore cleanly — missing streams normalize to [].
-export const SETUP_BACKUP_SCHEMA_VERSION = 2;
+// v3: state gained `conditionalAssetSales` for threshold-triggered outside
+// asset sales. Older backups restore cleanly — missing arrays normalize to [].
+export const SETUP_BACKUP_SCHEMA_VERSION = 3;
 export const SETUP_BACKUP_TYPE = "portfolio-success-lab-full-setup";
 export const SETUP_BACKUP_PRIVACY_NOTICE = "Setup backups can include household ages, account balances, tax assumptions, healthcare inputs, heirs/goals, and decision preferences. Keep them local unless you intentionally share them with a CPA or trusted reviewer.";
 
@@ -40,6 +40,9 @@ export function normalizeSetupState(state) {
   if (state.oneOffExpenses != null && !Array.isArray(state.oneOffExpenses)) {
     throw new Error("Setup backup one-off expenses must be an array.");
   }
+  if (state.conditionalAssetSales != null && !Array.isArray(state.conditionalAssetSales)) {
+    throw new Error("Setup backup conditional asset sales must be an array.");
+  }
   if (state.incomeStreams != null && !Array.isArray(state.incomeStreams)) {
     throw new Error("Setup backup income streams must be an array.");
   }
@@ -54,8 +57,9 @@ export function normalizeSetupState(state) {
     controls: copyPlainObject(state.controls ?? {}),
     assets: copyObjectArray(state.assets, "assets"),
     oneOffExpenses: copyObjectArray(state.oneOffExpenses ?? [], "one-off expenses"),
-    // Default to [] (like oneOffExpenses) so restoring a pre-stream backup
-    // clears the workspace's current streams instead of silently keeping them.
+    conditionalAssetSales: copyObjectArray(state.conditionalAssetSales ?? [], "conditional asset sales"),
+    // Default to [] so restoring older backups clears current dynamic lists
+    // instead of silently keeping whatever is already in the workspace.
     incomeStreams: copyObjectArray(state.incomeStreams ?? [], "income streams")
   };
   if (state.redesign != null) normalized.redesign = copyPlainObject(state.redesign);

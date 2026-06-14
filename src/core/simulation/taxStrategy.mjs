@@ -7,7 +7,7 @@ import { getMedicareIrmaaConfig } from "../../data/taxData.mjs";
 import { round } from "../utils.mjs";
 import { emptyRebalanceResult } from "./allocation.mjs";
 import { emptyAssetLocationResult } from "./assetLocation.mjs";
-import { emptyEarnedIncome, emptyOneOffCashFlows } from "./cashFlows.mjs";
+import { emptyConditionalAssetSales, emptyEarnedIncome, emptyOneOffCashFlows } from "./cashFlows.mjs";
 import { CASH_RAISED_EPSILON } from "./constants.mjs";
 import { finiteRoom } from "./guards.mjs";
 import { emptyHsaContribution, hsaStrategyConfig } from "./hsa.mjs";
@@ -44,6 +44,7 @@ export function estimateTaxAttribution({
   allocationStrategy = emptyRebalanceResult(),
   assetLocation = emptyAssetLocationResult(),
   tipsLadderBuild = null,
+  conditionalAssetSales = emptyConditionalAssetSales(),
   taxableSocialSecurity = 0
 }) {
   const totalTax = Math.max(0, finalTaxes.incomeTax ?? (finalTaxes.totalTax - (finalTaxes.penaltyTax ?? 0)));
@@ -154,6 +155,9 @@ export function estimateTaxAttribution({
     longTermCapitalGains: tipsLadderBuild?.longTermCapitalGains ?? 0,
     capitalLosses: tipsLadderBuild?.capitalLosses ?? 0
   });
+  addSource("Contingent asset sale", {
+    longTermCapitalGains: conditionalAssetSales.taxableLongTermGain ?? 0
+  });
   addSource("Tax gain harvesting", {
     longTermCapitalGains: Math.max(
       0,
@@ -161,6 +165,7 @@ export function estimateTaxAttribution({
         - (allocationStrategy.longTermCapitalGains ?? 0)
         - (assetLocation.longTermCapitalGains ?? 0)
         - (tipsLadderBuild?.longTermCapitalGains ?? 0)
+        - (conditionalAssetSales.taxableLongTermGain ?? 0)
     )
   });
 

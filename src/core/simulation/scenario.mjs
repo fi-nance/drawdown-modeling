@@ -144,6 +144,7 @@ export const DEFAULT_SCENARIO = {
     startingHsaQualifiedExpenseBalance: 0
   },
   oneOffExpenses: [],
+  conditionalAssetSales: [],
   currentAge: 55,
   spouseAge: 55,
   retirementPenaltyAge: 59.5,
@@ -383,6 +384,9 @@ export function mergeScenario(scenario) {
     },
     aca: mergeAcaScenario(scenario.aca),
     oneOffExpenses: scenario.oneOffExpenses ?? DEFAULT_SCENARIO.oneOffExpenses,
+    conditionalAssetSales: Array.isArray(scenario.conditionalAssetSales)
+      ? scenario.conditionalAssetSales
+      : DEFAULT_SCENARIO.conditionalAssetSales,
     incomeStreams: Array.isArray(scenario.incomeStreams) ? scenario.incomeStreams : DEFAULT_SCENARIO.incomeStreams
   };
 }

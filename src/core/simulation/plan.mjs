@@ -63,6 +63,7 @@ export function simulatePlan({
   let riskBasedRealSpend = null;
   const irmaaMagiHistory = [];
   let spendingGuardrailMarketState = initialSpendingGuardrailMarketState();
+  const conditionalAssetSaleState = { soldIds: new Set() };
 
   const wasMarried = isMarriedFiling(taxProfile?.filingStatus);
   // Hoist: rebuilding the survivor profile is independent of yearIndex and
@@ -227,7 +228,8 @@ export function simulatePlan({
       rothBasisRemaining,
       hsaQualifiedExpenseBalance,
       magiHistory: irmaaMagiHistory,
-      passedBaseSpend
+      passedBaseSpend,
+      conditionalAssetSaleState
     });
     spendingGuardrailMarketState = advanceSpendingGuardrailMarketState({
       scenario: mergedScenario,

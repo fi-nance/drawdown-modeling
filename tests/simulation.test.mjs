@@ -31,6 +31,11 @@ const flatOrdinaryTaxProfile = {
   ordinaryBrackets: [{ upTo: Infinity, rate: 0.1 }]
 };
 
+const flatCapitalGainsTaxProfile = {
+  ...noTaxProfile,
+  capitalGainsBrackets: [{ upTo: Infinity, rate: 0.15 }]
+};
+
 const employeePayrollOnlyTaxProfile = {
   ...noTaxProfile,
   employeePayrollTax: {
@@ -2925,6 +2930,112 @@ test("one-off tax-free income adds cash without MAGI", () => {
   assert.equal(plan.years[0].magi, 0);
   assert.equal(plan.years[0].taxes.totalTax, 0);
   assert.equal(Math.round(plan.endingValue), 100);
+});
+
+test("conditional asset sale can rescue a year when portfolio value breaches the trigger", () => {
+  const plan = simulatePlan({
+    assets: [{
+      id: "cash",
+      accountType: "taxable",
+      assetClass: "cash",
+      units: 100,
+      price: 1,
+      costBasisPerUnit: 1
+    }],
+    scenario: {
+      planYears: 1,
+      targetSpend: 150,
+      targetSpendIncludesTaxes: true,
+      targetSpendIncludesMedical: true,
+      conditionalAssetSales: [{
+        name: "Second home",
+        triggerPortfolioValue: 100,
+        saleProceeds: 75,
+        taxableLongTermGain: 0,
+        inflationAdjusted: false
+      }],
+      rothConversion: { enabled: false },
+      aca: { enabled: false },
+      returnAssumptions: { cash: { mean: 0, stdev: 0 } }
+    },
+    taxProfile: noTaxProfile,
+    returnSequence: [{ cash: 0 }],
+    inflationSequence: [0]
+  });
+
+  assert.equal(plan.success, true);
+  assert.equal(plan.years[0].conditionalAssetSaleProceeds, 75);
+  assert.equal(plan.years[0].conditionalAssetSaleDetails[0].name, "Second home");
+  assert.equal(plan.years[0].cashAvailable, 150);
+  assert.equal(plan.years[0].cashRaised, 75);
+  assert.equal(plan.endingValue, 25);
+});
+
+test("conditional asset sale trigger is real-dollar based and fires only once per path", () => {
+  const plan = simulatePlan({
+    assets: [{
+      id: "cash",
+      accountType: "taxable",
+      assetClass: "cash",
+      units: 200,
+      price: 1,
+      costBasisPerUnit: 1
+    }],
+    scenario: {
+      planYears: 3,
+      targetSpend: 0,
+      targetSpendIncludesTaxes: true,
+      targetSpendIncludesMedical: true,
+      conditionalAssetSales: [{
+        name: "Cabin",
+        triggerPortfolioValue: 175,
+        saleProceeds: 20,
+        taxableLongTermGain: 0
+      }],
+      rothConversion: { enabled: false },
+      aca: { enabled: false },
+      returnAssumptions: { cash: { mean: 0, stdev: 0 } }
+    },
+    taxProfile: noTaxProfile,
+    returnSequence: [{ cash: 0 }, { cash: 0 }, { cash: 0 }],
+    inflationSequence: [1, 0, 0]
+  });
+
+  assert.deepEqual(plan.years.map((year) => year.conditionalAssetSaleProceeds), [0, 40, 0]);
+  assert.equal(plan.years[1].conditionalAssetSaleDetails[0].realPortfolioValue, 100);
+  assert.equal(plan.endingValue, 240);
+});
+
+test("conditional asset sale taxable gain flows through long-term gains and tax attribution", () => {
+  const plan = simulatePlan({
+    assets: [],
+    scenario: {
+      planYears: 1,
+      targetSpend: 0,
+      targetSpendIncludesTaxes: false,
+      targetSpendIncludesMedical: true,
+      conditionalAssetSales: [{
+        name: "Second home",
+        triggerPortfolioValue: 0,
+        saleProceeds: 100,
+        taxableLongTermGain: 80,
+        inflationAdjusted: false
+      }],
+      rothConversion: { enabled: false },
+      aca: { enabled: false }
+    },
+    taxProfile: flatCapitalGainsTaxProfile,
+    returnSequence: [{}],
+    inflationSequence: [0]
+  });
+
+  assert.equal(plan.years[0].conditionalAssetSaleProceeds, 100);
+  assert.equal(plan.years[0].conditionalAssetSaleTaxableLongTermGain, 80);
+  assert.equal(plan.years[0].realizedLongTermGains, 80);
+  assert.equal(plan.years[0].magi, 80);
+  assert.equal(plan.years[0].taxes.totalTax, 12);
+  assert.equal(plan.endingValue, 88);
+  assert.ok(plan.years[0].taxAttribution.some((item) => item.source === "Contingent asset sale"));
 });
 
 test("ACA premiums age-rate by simulated year on top of inflation", () => {

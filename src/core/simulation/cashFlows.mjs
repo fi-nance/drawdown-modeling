@@ -168,6 +168,60 @@ export function oneOffCashFlowsForYear(scenario, planYear, inflationIndex) {
   return result;
 }
 
+export function conditionalAssetSalesForYear(
+  scenario,
+  { planYear, inflationIndex, portfolioValue: nominalPortfolioValue, saleState = null } = {}
+) {
+  const result = emptyConditionalAssetSales();
+  const priceIndex = Number.isFinite(Number(inflationIndex)) && Number(inflationIndex) > 0
+    ? Number(inflationIndex)
+    : 1;
+  const realPortfolioValue = priceIndex > 0
+    ? (Number(nominalPortfolioValue) || 0) / priceIndex
+    : (Number(nominalPortfolioValue) || 0);
+  const soldIds = saleState?.soldIds instanceof Set ? saleState.soldIds : null;
+
+  for (const [index, entry] of (scenario.conditionalAssetSales ?? []).entries()) {
+    if (!entry || typeof entry !== "object") continue;
+    const id = conditionalAssetSaleId(entry, index);
+    if (soldIds?.has(id)) continue;
+
+    const triggerPortfolioValue = Number(entry.triggerPortfolioValue);
+    if (!Number.isFinite(triggerPortfolioValue) || realPortfolioValue > triggerPortfolioValue) continue;
+
+    const inflationAdjusted = entry.inflationAdjusted !== false;
+    const amountIndex = inflationAdjusted ? priceIndex : 1;
+    const proceeds = round(Math.max(0, Number(entry.saleProceeds ?? entry.amount) || 0) * amountIndex, 6);
+    if (proceeds <= 0) continue;
+
+    const taxableGainIndex = entry.taxableGainInflationAdjusted === false ? 1 : amountIndex;
+    const taxableLongTermGain = round(Math.min(
+      proceeds,
+      Math.max(0, Number(entry.taxableLongTermGain ?? entry.taxableGain) || 0) * taxableGainIndex
+    ), 6);
+    const detail = {
+      id,
+      name: entry.name ?? "Conditional asset sale",
+      planYear,
+      triggerPortfolioValue,
+      realPortfolioValue: round(realPortfolioValue, 6),
+      portfolioValue: round(Number(nominalPortfolioValue) || 0, 6),
+      saleProceeds: proceeds,
+      taxableLongTermGain,
+      inflationAdjusted
+    };
+
+    result.proceeds += proceeds;
+    result.taxableLongTermGain += taxableLongTermGain;
+    result.details.push(detail);
+    soldIds?.add(id);
+  }
+
+  result.proceeds = round(result.proceeds, 6);
+  result.taxableLongTermGain = round(result.taxableLongTermGain, 6);
+  return result;
+}
+
 export function emptyOneOffCashFlows() {
   return {
     income: 0,
@@ -178,6 +232,18 @@ export function emptyOneOffCashFlows() {
     incomeDetails: [],
     expenseDetails: []
   };
+}
+
+export function emptyConditionalAssetSales() {
+  return {
+    proceeds: 0,
+    taxableLongTermGain: 0,
+    details: []
+  };
+}
+
+function conditionalAssetSaleId(entry = {}, index = 0) {
+  return entry.id ?? `${index}:${entry.name ?? "conditional-asset-sale"}`;
 }
 
 function normalizedOneOffCashFlowType(type) {

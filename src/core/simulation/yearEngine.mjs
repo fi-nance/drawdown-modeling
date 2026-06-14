@@ -7,7 +7,7 @@ import { computeIncomeTax, inflateTaxProfile } from "../tax.mjs?v=20260613-rescu
 import { round } from "../utils.mjs";
 import { allocationStrategyStateForYear } from "./allocation.mjs";
 import { assetLocationStateForYear } from "./assetLocation.mjs";
-import { earnedIncomeForYear, emptyEarnedIncome, mergeEarnedIncome, oneOffCashFlowsForYear } from "./cashFlows.mjs";
+import { conditionalAssetSalesForYear, earnedIncomeForYear, emptyEarnedIncome, mergeEarnedIncome, oneOffCashFlowsForYear } from "./cashFlows.mjs";
 import { CASH_GAP_TOLERANCE, CASH_RAISED_EPSILON } from "./constants.mjs";
 import { acaConfigForSimulationYear, buildSurvivorTaxProfile, isMarriedFiling, mortalityStatus } from "./household.mjs";
 import { addHsaContributionLot, emptyHsaContribution, hsaContributionForYear, hsaQualifiedExpenseAvailableForWithdrawal, hsaStrategyConfig } from "./hsa.mjs";
@@ -42,7 +42,8 @@ export function simulateYear({
   rothBasisRemaining,
   hsaQualifiedExpenseBalance = 0,
   magiHistory = [],
-  passedBaseSpend = null
+  passedBaseSpend = null,
+  conditionalAssetSaleState = null
 }) {
   // Accept either a number (legacy: treated as long-term) or
   // { shortTerm, longTerm } object so callers can preserve §1212(b) character.
@@ -131,6 +132,12 @@ export function simulateYear({
   const afterReturnPortfolioValue = portfolioValue(portfolio);
 
   const flows = [...dividends.flows, ...(tipsLadderCoupons?.flows ?? [])];
+  const conditionalAssetSales = conditionalAssetSalesForYear(scenario, {
+    planYear: yearIndex + 1,
+    inflationIndex,
+    portfolioValue: afterReturnPortfolioValue,
+    saleState: conditionalAssetSaleState
+  });
   const oneOffCashFlows = oneOffCashFlowsForYear(scenario, yearIndex + 1, inflationIndex);
   const recurringEarnedIncome = earnedIncomeForYear(scenario, inflationIndex, { primaryDeceased, spouseDeceased });
   const earnedIncome = mergeEarnedIncome(recurringEarnedIncome, oneOffCashFlows.earnedIncome);
@@ -143,7 +150,7 @@ export function simulateYear({
   // Taxable-rung coupon cash joins the year's available income cash so it offsets
   // withdrawals (free for spending or rebalancing); sheltered coupons stayed in
   // their account above and are NOT household cash.
-  const incomeCashAvailable = round(recurringEarnedIncome.cash + oneOffCashFlows.income + streamIncome.cash + tipsLadderCouponCash, 6);
+  const incomeCashAvailable = round(recurringEarnedIncome.cash + oneOffCashFlows.income + streamIncome.cash + tipsLadderCouponCash + conditionalAssetSales.proceeds, 6);
   let ordinaryIncome = dividends.ordinaryDividends + earnedIncome.ordinaryIncome + oneOffCashFlows.taxableOrdinaryIncome + streamIncome.ordinaryIncome + tipsLadderPhantomIncome + tipsLadderCouponCash;
   let qualifiedDividends = dividends.qualifiedDividends;
   // Non-qualified dividends, taxable TIPS phantom income, AND taxable TIPS coupon
@@ -162,7 +169,7 @@ export function simulateYear({
   let strategyShortTermLosses = 0;
   let strategyLongTermLosses = 0;
   let strategyShortTermGains = 0;
-  let strategyLongTermGains = 0;
+  let strategyLongTermGains = conditionalAssetSales.taxableLongTermGain;
   const annualPenaltyExceptionAmount = earlyWithdrawalPenaltyExceptionAmountForYear(scenario);
 
   const lossHarvestLimit = strategyLimit({
@@ -883,6 +890,7 @@ export function simulateYear({
     allocationStrategy,
     assetLocation,
     tipsLadderBuild,
+    conditionalAssetSales,
     taxableSocialSecurity: finalTaxableSocialSecurity
   });
   flows.push(...finalWithdrawal.flows);
@@ -907,6 +915,14 @@ export function simulateYear({
       from: "One-off income",
       to: "Spending reserve",
       amount: oneOffCashFlows.income,
+      type: "income"
+    });
+  }
+  if (conditionalAssetSales.proceeds > 0) {
+    flows.push({
+      from: "Contingent asset sale",
+      to: "Spending reserve",
+      amount: conditionalAssetSales.proceeds,
       type: "income"
     });
   }
@@ -1048,6 +1064,9 @@ export function simulateYear({
       details: streamIncome.details
     },
     oneOffIncome: round(oneOffCashFlows.income, 6),
+    conditionalAssetSaleProceeds: round(conditionalAssetSales.proceeds, 6),
+    conditionalAssetSaleTaxableLongTermGain: round(conditionalAssetSales.taxableLongTermGain, 6),
+    conditionalAssetSaleDetails: conditionalAssetSales.details,
     taxRefundCash: round(taxRefundCash, 6),
     oneOffExpenses: round(oneOffCashFlows.expenses, 6),
     oneOffIncomeDetails: oneOffCashFlows.incomeDetails,
@@ -1099,6 +1118,7 @@ export function simulateYear({
         - allocationStrategy.longTermCapitalGains
         - assetLocation.longTermCapitalGains
         - (tipsLadderBuild?.longTermCapitalGains ?? 0)
+        - conditionalAssetSales.taxableLongTermGain
     ), 6),
     realizedShortTermGains: round(strategyShortTermGains + finalWithdrawal.shortTermCapitalGains, 6),
     realizedCapitalLosses: round(strategyCapitalLosses + finalWithdrawal.capitalLosses, 6),
@@ -1418,6 +1438,9 @@ export function buildPostMortalityYearResult({ scenario, yearIndex, portfolio, i
     earnedIncome: 0,
     streamIncome: { cash: 0, ordinaryIncome: 0, retirementOrdinaryIncome: 0, taxFreeIncome: 0, details: [] },
     oneOffIncome: 0,
+    conditionalAssetSaleProceeds: 0,
+    conditionalAssetSaleTaxableLongTermGain: 0,
+    conditionalAssetSaleDetails: [],
     oneOffExpenses: 0,
     oneOffIncomeDetails: [],
     oneOffExpenseDetails: [],
