@@ -751,7 +751,7 @@ function capTableToContent(container, tableId) {
   // fit content up to ~80vh so a 35-row ledger doesn't fill the screen on load.
   const saved = loadTableHeights()[tableId];
   const viewportCap = Math.round((window.innerHeight || 800) * 0.8);
-  container.style.height = `${saved && saved > 50 ? saved : Math.min(content, viewportCap)}px`;
+  container.style.height = `${saved && saved > 150 ? saved : Math.min(content, viewportCap)}px`;
   // Record what we set so the resize observer below can tell our programmatic
   // sizing apart from a genuine user drag.
   container._expectedTableHeight = container.offsetHeight;
