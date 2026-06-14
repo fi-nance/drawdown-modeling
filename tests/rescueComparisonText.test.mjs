@@ -244,6 +244,11 @@ test("workspace progressively hides option-specific controls", async () => {
   assert.match(html, /data-qbi-manual-controls hidden/);
   assert.match(html, /data-state-capital-gains-controls hidden/);
   assert.doesNotMatch(html, /data-module="basics"(?:(?!<\/section>)[\s\S])*id="whatIfEditorMode"/);
+  assert.match(html, /id="taxLossHarvesting"[\s\S]*data-tax-loss-controls[\s\S]*id="tlhMax"[\s\S]*id="taxGainHarvesting"/);
+  assert.match(html, /id="taxGainHarvesting"[\s\S]*data-tax-gain-controls[\s\S]*id="taxGainMagiBuffer"[\s\S]*id="tghMax"[\s\S]*id="rothConversion"/);
+  assert.match(html, /id="rothConversion"[\s\S]*data-roth-conversion-controls[\s\S]*id="rothTargetRate"[\s\S]*id="rothAmount"[\s\S]*id="rothBasisOptimization"/);
+  assert.match(html, /data-allocation-target-controls hidden[\s\S]*Shared allocation target[\s\S]*id="targetStockAllocation"/);
+  assert.match(html, /Legacy \/ heir assumptions[\s\S]*id="heirOrdinaryTaxRate"[\s\S]*id="heirTaxIndexing"/);
 
   assert.match(appSource, /PROGRESSIVE_DISCLOSURE_CONTROL_IDS/);
   assert.match(appSource, /function syncProgressiveDisclosureControls\(\)/);
@@ -252,6 +257,8 @@ test("workspace progressively hides option-specific controls", async () => {
   assert.match(appSource, /setProgressiveVisibility\("\[data-tips-ladder-controls\]"/);
   assert.match(appSource, /setProgressiveVisibility\("\[data-qbi-business-controls\]"/);
   assert.match(css, /\[hidden\]\s*\{\s*display: none !important;\s*\}/);
+  assert.match(css, /\.module-card \.strategy-option-controls/);
+  assert.match(css, /\.module-card \.strategy-shared-option/);
 });
 
 test("module library can scroll to reveal disabled-module knobs", async () => {

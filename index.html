@@ -639,24 +639,85 @@
 	                  <label><span>Annual income ceiling</span><input id="riskGuardrailIncomeCeiling" type="number" min="0" step="1000" placeholder="Optional"></label>
 	                </div>
 	                <p class="assumption-note" data-risk-guardrail-controls hidden>Risk-based guardrails solve a fixed failsafe spend, starting spend, lower cut trigger, and upper raise trigger from the selected historical backtest cohorts.</p>
-	                <label class="check-row"><input id="taxLossHarvesting" type="checkbox" checked><span>Tax-loss harvesting</span></label>
+                <label class="check-row"><input id="taxLossHarvesting" type="checkbox" checked><span>Tax-loss harvesting</span></label>
+                <div class="control-grid strategy-option-controls" data-tax-loss-controls>
+                  <label><span>Max annual loss override</span><input id="tlhMax" type="number" min="0" step="500" placeholder="Auto"></label>
+                </div>
+
                 <label class="check-row"><input id="taxGainHarvesting" type="checkbox" checked><span>Tax-gain harvesting</span></label>
-                <label class="check-row"><input id="rothConversion"    type="checkbox" checked><span>Roth conversions</span></label>
-                <label class="check-row" data-roth-conversion-controls><input id="rothConversionOptimizeForAca" type="checkbox" checked><span>ACA-aware Roth conversions</span></label>
-                <label class="check-row" data-roth-conversion-controls><input id="rothConversionMagiGuardrails" type="checkbox"><span>Apply MAGI conversion guardrails</span></label>
-                <label class="check-row" data-roth-conversion-controls><input id="rothConversionSpendingAware" type="checkbox" checked><span>Spending-aware conversion sizing</span><small>Sizes conversions on top of RMDs, TIPS rung maturities, and the year's spending withdrawals so ACA premium tax credits survive. Unchecking restores the legacy income-blind sizing.</small></label>
-                <label class="check-row" data-roth-conversion-controls><input id="rothConversionSpendFromBasis" type="checkbox" checked><span>Spend Roth basis to widen conversions</span><small>When spendable Roth value covers the year's cash gap in ACA years, fund spending from Roth (no MAGI) and convert the freed headroom instead.</small></label>
+                <div class="control-grid strategy-option-controls" data-tax-gain-controls>
+                  <label><span>Gain harvest MAGI buffer</span><input id="taxGainMagiBuffer" type="number" min="0" step="100" value="0"></label>
+                  <label><span>Max annual gain override</span><input id="tghMax" type="number" min="0" step="1000" placeholder="Auto"></label>
+                </div>
+
+                <label class="check-row"><input id="rothConversion" type="checkbox" checked><span>Roth conversions</span></label>
+                <div class="strategy-option-stack" data-roth-conversion-controls>
+                  <label class="check-row"><input id="rothConversionOptimizeForAca" type="checkbox" checked><span>ACA-aware Roth conversions</span></label>
+                  <label class="check-row"><input id="rothConversionMagiGuardrails" type="checkbox"><span>Apply MAGI conversion guardrails</span></label>
+                  <label class="check-row"><input id="rothConversionSpendingAware" type="checkbox" checked><span>Spending-aware conversion sizing</span><small>Sizes conversions on top of RMDs, TIPS rung maturities, and the year's spending withdrawals so ACA premium tax credits survive. Unchecking restores the legacy income-blind sizing.</small></label>
+                  <label class="check-row"><input id="rothConversionSpendFromBasis" type="checkbox" checked><span>Spend Roth basis to widen conversions</span><small>When spendable Roth value covers the year's cash gap in ACA years, fund spending from Roth (no MAGI) and convert the freed headroom instead.</small></label>
+                  <div class="control-grid strategy-option-controls">
+                    <label><span>Conversion target rate %</span><input id="rothTargetRate" type="number" min="0" max="37" step="1" value="12"></label>
+                    <label><span>Annual conversion override</span><input id="rothAmount" type="number" min="0" step="1000" placeholder="Auto"></label>
+                    <label><span>Conversion max ACA FPL %</span><input id="rothConversionMaxAcaFplPercent" type="number" min="100" max="600" step="1" value="400"></label>
+                    <label><span>Conversion MAGI buffer</span><input id="rothConversionMagiBuffer" type="number" min="0" step="100" value="0"></label>
+                  </div>
+                </div>
+
                 <label class="check-row"><input id="rothBasisOptimization" type="checkbox" checked><span>Roth basis optimization</span></label>
+                <div class="control-grid strategy-option-controls" data-roth-basis-controls>
+                  <label><span>Roth basis MAGI buffer</span><input id="rothBasisMagiBuffer" type="number" min="0" step="100" value="1000"></label>
+                  <label>
+                    <span>Roth basis hurdle</span>
+                    <select id="rothBasisOpportunityCostMode">
+                      <option value="dynamic" selected>Dynamic opportunity cost</option>
+                      <option value="fixed">Fixed savings rate</option>
+                    </select>
+                  </label>
+                </div>
+
                 <label class="check-row"><input id="unifiedMarginalOptimizer" type="checkbox" checked><span>Unified marginal-rate optimizer</span></label>
                 <label class="check-row"><input id="assetLocationOptimization" type="checkbox"><span>Asset-location swaps</span></label>
+
                 <label class="check-row"><input id="hsaContributionStrategy" type="checkbox"><span>HSA contribution strategy</span></label>
+                <div class="control-grid strategy-option-controls" data-hsa-contribution-controls hidden>
+                  <label><span>HSA contribution override</span><input id="hsaContributionAmount" type="number" min="0" step="100" placeholder="Auto"></label>
+                  <label>
+                    <span>HSA coverage</span>
+                    <select id="hsaCoverage">
+                      <option value="auto">Auto</option>
+                      <option value="self">Self-only</option>
+                      <option value="family">Family</option>
+                    </select>
+                  </label>
+                </div>
                 <label class="check-row"><input id="hsaQualifiedExpenseLimit" type="checkbox" checked><span>Limit HSA withdrawals to qualified medical expenses</span><small>Tracked modeled medical costs gate tax-free HSA withdrawals; at 65+ the excess is distributable as ordinary income. Unchecking restores the legacy unlimited tax-free treatment.</small></label>
+
                 <label class="check-row"><input id="allocationAwareWithdrawals" type="checkbox"><span>Allocation-aware withdrawals</span></label>
                 <label class="check-row"><input id="taxAwareRebalancing" type="checkbox"><span>Tax-aware annual rebalancing</span></label>
+                <div class="control-grid strategy-option-controls" data-rebalance-controls hidden>
+                  <label><span>Rebalance band +/- %</span><input id="rebalanceBand" type="number" min="0" max="50" step="1" value="5"></label>
+                </div>
                 <label class="check-row"><input id="equityGlidepath" type="checkbox"><span>Equity glidepath</span></label>
+                <div class="control-grid strategy-option-controls" data-glidepath-controls hidden>
+                  <label><span>Glidepath start stock %</span><input id="glidepathStartStockAllocation" type="number" min="0" max="100" step="1" value="60"></label>
+                  <label><span>Glidepath end stock %</span><input id="glidepathEndStockAllocation" type="number" min="0" max="100" step="1" value="80"></label>
+                  <label><span>Glidepath years</span><input id="glidepathYears" type="number" min="1" max="60" step="1" value="15"></label>
+                </div>
+                <div class="strategy-shared-option" data-allocation-target-controls hidden>
+                  <h4 class="control-subhead">Shared allocation target</h4>
+                  <div class="control-grid strategy-option-controls">
+                    <label><span>Stock target %</span><input id="targetStockAllocation" type="number" min="0" max="100" step="1" value="70"></label>
+                  </div>
+                </div>
+
                 <label class="check-row" data-married-controls><input id="survivorStepUpEnabled" type="checkbox"><span>Survivor basis step-up at first death</span><small>Steps up taxable lots owned by the deceased to market value (joint lots by the configured share) at the first death of a married couple. Tag account owners in the portfolio table.</small></label>
-                <div class="control-grid">
-                  <label><span>Conversion target rate %</span><input id="rothTargetRate" type="number" min="0" max="37" step="1" value="12"></label>
+                <div class="control-grid strategy-option-controls" data-survivor-step-up-controls hidden>
+                  <label><span>Joint basis step-up %</span><input id="survivorStepUpJointPercent" type="number" min="0" max="100" step="5" value="50"><small>Share of jointly-owned taxable gains stepped up at the first death (50 = common-law half step-up; 100 ≈ community property).</small></label>
+                </div>
+
+                <h4 class="control-subhead">Legacy / heir assumptions</h4>
+                <div class="control-grid strategy-shared-controls">
                   <label><span>Heir ordinary tax rate %</span><input id="heirOrdinaryTaxRate" type="number" min="0" max="100" step="1" value="24"><small>Applied to inherited traditional/HSA balances in the after-tax bequest estimate.</small></label>
                   <label>
                     <span>Heir beneficiary type</span>
@@ -705,35 +766,6 @@
                     </select>
                     <small>Indexed scales heir brackets, deduction, base income, and the $15M estate exclusion to the death-year price level; frozen is the conservative planning view.</small>
                   </label>
-                  <label data-survivor-step-up-controls hidden><span>Joint basis step-up %</span><input id="survivorStepUpJointPercent" type="number" min="0" max="100" step="5" value="50"><small>Share of jointly-owned taxable gains stepped up at the first death (50 = common-law half step-up; 100 ≈ community property).</small></label>
-                  <label data-roth-conversion-controls><span>Annual conversion override</span><input id="rothAmount" type="number" min="0" step="1000" placeholder="Auto"></label>
-                  <label data-roth-conversion-controls><span>Conversion max ACA FPL %</span><input id="rothConversionMaxAcaFplPercent" type="number" min="100" max="600" step="1" value="400"></label>
-                  <label data-roth-conversion-controls><span>Conversion MAGI buffer</span><input id="rothConversionMagiBuffer" type="number" min="0" step="100" value="0"></label>
-                  <label data-roth-basis-controls><span>Roth basis MAGI buffer</span><input id="rothBasisMagiBuffer" type="number" min="0" step="100" value="1000"></label>
-                  <label data-roth-basis-controls>
-                    <span>Roth basis hurdle</span>
-                    <select id="rothBasisOpportunityCostMode">
-                      <option value="dynamic" selected>Dynamic opportunity cost</option>
-                      <option value="fixed">Fixed savings rate</option>
-                    </select>
-                  </label>
-                  <label data-tax-gain-controls><span>Gain harvest MAGI buffer</span><input id="taxGainMagiBuffer" type="number" min="0" step="100" value="0"></label>
-                  <label data-tax-loss-controls><span>Max annual loss override</span><input id="tlhMax" type="number" min="0" step="500" placeholder="Auto"></label>
-                  <label data-tax-gain-controls><span>Max annual gain override</span><input id="tghMax" type="number" min="0" step="1000" placeholder="Auto"></label>
-                  <label data-hsa-contribution-controls hidden><span>HSA contribution override</span><input id="hsaContributionAmount" type="number" min="0" step="100" placeholder="Auto"></label>
-                  <label data-hsa-contribution-controls hidden>
-                    <span>HSA coverage</span>
-                    <select id="hsaCoverage">
-                      <option value="auto">Auto</option>
-                      <option value="self">Self-only</option>
-                      <option value="family">Family</option>
-                    </select>
-                  </label>
-                  <label data-allocation-target-controls hidden><span>Stock target %</span><input id="targetStockAllocation" type="number" min="0" max="100" step="1" value="70"></label>
-                  <label data-rebalance-controls hidden><span>Rebalance band +/- %</span><input id="rebalanceBand" type="number" min="0" max="50" step="1" value="5"></label>
-                  <label data-glidepath-controls hidden><span>Glidepath start stock %</span><input id="glidepathStartStockAllocation" type="number" min="0" max="100" step="1" value="60"></label>
-                  <label data-glidepath-controls hidden><span>Glidepath end stock %</span><input id="glidepathEndStockAllocation" type="number" min="0" max="100" step="1" value="80"></label>
-                  <label data-glidepath-controls hidden><span>Glidepath years</span><input id="glidepathYears" type="number" min="1" max="60" step="1" value="15"></label>
                 </div>
                 <p class="strategy-summary"><span>Assumption: automated tax moves are capped by bracket, ACA, NIIT, IRMAA, and liquidity guardrails before they are treated as recommended actions.</span></p>
               </div>

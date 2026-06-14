@@ -987,6 +987,41 @@ body[data-screen="persona"]::before {
      widths min() resolves to 170px, so multi-column layout is unchanged. */
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr));
 }
+.module-card .strategy-option-controls,
+.module-card .strategy-option-stack,
+.module-card .strategy-shared-option {
+  margin-left: 1.55rem;
+  padding-left: 0.85rem;
+  border-left: 2px solid rgba(15, 122, 94, 0.22);
+}
+[data-theme="dark"] .module-card .strategy-option-controls,
+[data-theme="dark"] .module-card .strategy-option-stack,
+[data-theme="dark"] .module-card .strategy-shared-option,
+:root:not([data-theme]) .module-card .strategy-option-controls,
+:root:not([data-theme]) .module-card .strategy-option-stack,
+:root:not([data-theme]) .module-card .strategy-shared-option {
+  border-left-color: rgba(52, 209, 182, 0.22);
+}
+.module-card .strategy-option-stack,
+.module-card .strategy-shared-option {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+.module-card .strategy-option-stack .strategy-option-controls,
+.module-card .strategy-shared-option .strategy-option-controls {
+  margin-left: 0;
+  padding-left: 0;
+  border-left: 0;
+}
+.module-card .control-subhead {
+  margin: 0.35rem 0 -0.2rem;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
 .module-card label {
   font-size: 0.78rem;
 }
