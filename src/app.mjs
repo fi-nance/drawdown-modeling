@@ -2463,6 +2463,12 @@ function mergeDecisionProgress(previousDecision, progress = {}) {
 
 function renderLatest(options = {}) {
   if (!latest) return;
+  // Progress events are synchronous, but streamed paints are coalesced onto the
+  // next frame. Publish the live latest object now so redesign.mjs can refresh
+  // results modules from the same data that the app is about to paint.
+  if (typeof window !== "undefined") {
+    window.__pslLatest = latest;
+  }
   const streaming = !!options.streaming;
   // Streaming flushes can arrive faster than the browser can paint. Coalesce
   // them onto the next animation frame so the UI stays responsive while a

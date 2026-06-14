@@ -13,7 +13,7 @@ import { buildTaxProfile } from "../src/data/taxData.mjs";
 const sumUnits = (assets) => assets.reduce((acc, a) => acc + a.units * a.price, 0);
 const redesignSource = () => readFile(new URL("../src/redesign.mjs", import.meta.url), "utf8");
 const htmlSource = () => readFile(new URL("../index.html", import.meta.url), "utf8");
-const ONBOARDING_RESULTS_STREAM_ASSET_KEY = "20260613-long-horizon-progress-b";
+const ONBOARDING_RESULTS_STREAM_ASSET_KEY = "20260613-streaming-kpi-refresh-b";
 
 function sourceSlice(source, startNeedle, endNeedle) {
   const start = source.indexOf(startNeedle);
@@ -229,6 +229,29 @@ test("base Monte Carlo results refresh the results chrome before rescue solving 
   assert.match(rerenderResults, /phase: "decision"/);
 });
 
+test("streamed Monte Carlo progress refreshes the KPI strip directly", async () => {
+  const redesign = await redesignSource();
+  const hookRunCompletion = sourceSlice(redesign, "function hookRunCompletion()", "function refreshStreamingKpisForRunProgress");
+  const streamingKpiRefresh = sourceSlice(redesign, "function refreshStreamingKpisForRunProgress", "function rerenderResults()");
+
+  assert.match(hookRunCompletion, /refreshStreamingKpisForRunProgress\(detail\)/);
+  assert.match(streamingKpiRefresh, /phase !== "monteCarlo" && phase !== "decision"/);
+  assert.match(streamingKpiRefresh, /monteCarloScenarios\(latest\)\.length > 0/);
+  assert.match(streamingKpiRefresh, /Array\.isArray\(latest\?\.backtests\) && latest\.backtests\.length > 0/);
+  assert.match(streamingKpiRefresh, /renderKpiStrip\(\)/);
+});
+
+test("streamed result data is published before coalesced paints", async () => {
+  const app = await readFile(new URL("../src/app.mjs", import.meta.url), "utf8");
+  const renderLatest = sourceSlice(app, "function renderLatest(options = {})", "function paintLatest(");
+  const publishIndex = renderLatest.indexOf("window.__pslLatest = latest");
+  const rafIndex = renderLatest.indexOf("requestAnimationFrame");
+
+  assert.ok(publishIndex > 0, "renderLatest should publish latest for redesign listeners");
+  assert.ok(rafIndex > 0, "renderLatest should still coalesce streaming paints");
+  assert.ok(publishIndex < rafIndex, "latest must publish before progress events can outrun the animation-frame paint");
+});
+
 test("deployed shell cache-busts the wizard streaming fix modules", async () => {
   const html = await htmlSource();
 
@@ -239,4 +262,6 @@ test("deployed shell cache-busts the wizard streaming fix modules", async () => 
   assert.doesNotMatch(html, /onboarding-results-stream-a/, "deployed HTML must not keep the previous results-stream asset key");
   assert.doesNotMatch(html, /long-horizon-results-a/, "deployed HTML must not keep the intermediate long-horizon asset key");
   assert.doesNotMatch(html, /long-horizon-progress-a/, "deployed HTML must not keep the intermediate progress asset key");
+  assert.doesNotMatch(html, /long-horizon-progress-b/, "deployed HTML must not keep the previous KPI-stream asset key");
+  assert.doesNotMatch(html, /streaming-kpi-refresh-a/, "deployed HTML must not keep the first KPI-race asset key");
 });

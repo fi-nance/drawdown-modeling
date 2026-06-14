@@ -2161,7 +2161,11 @@ function hookRunCompletion() {
   });
   window.addEventListener("psl:run-progress", (ev) => {
     if (ev.detail?.error) clearPendingRun();
-    else updateResultsMetaForRun(ev.detail ?? {});
+    else {
+      const detail = ev.detail ?? {};
+      updateResultsMetaForRun(detail);
+      refreshStreamingKpisForRunProgress(detail);
+    }
   });
   window.addEventListener("psl:base-results-ready", (ev) => {
     rerenderResults();
@@ -2177,6 +2181,17 @@ function hookRunCompletion() {
       if (state.screen === "workspace" || state.screen === "persona") setScreen("results");
     }
   });
+}
+
+function refreshStreamingKpisForRunProgress(detail) {
+  const phase = detail?.phase;
+  if (phase !== "monteCarlo" && phase !== "decision") return;
+  const latest = window.__pslLatest;
+  if (!latest) return;
+  const hasMonteCarloData = monteCarloScenarios(latest).length > 0 || !!latest?.monteCarlo?.summary;
+  const hasHistoricalData = Array.isArray(latest?.backtests) && latest.backtests.length > 0;
+  if (!hasMonteCarloData && !hasHistoricalData) return;
+  try { renderKpiStrip(); } catch (err) { console.error("[PSL Redesign] Error in renderKpiStrip:", err); }
 }
 
 function rerenderResults() {
