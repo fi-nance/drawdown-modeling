@@ -160,6 +160,56 @@ test("living spouse Social Security switches to excess spousal benefit after pri
   assert.equal(plan.years[9].socialSecurityBenefits, 64457.142857);
 });
 
+test("earnings-estimated spouse keeps own claiming-age benefit when primary later files", () => {
+  const piaProfile = buildTaxProfile({
+    taxYear: 2026,
+    filingStatus: "marriedFilingJointly",
+    state: "Florida"
+  });
+  const plan = simulatePlan({
+    assets: [
+      {
+        id: "taxable-cash",
+        accountType: "taxable",
+        assetClass: "cash",
+        units: 1000000,
+        price: 1,
+        costBasisPerUnit: 1
+      }
+    ],
+    scenario: {
+      planYears: 10,
+      targetSpend: 0,
+      currentAge: 62,
+      spouseAge: 62,
+      primaryMortalityAge: 120,
+      spouseMortalityAge: 120,
+      estimateSocialSecurityFromEarnings: true,
+      medicareWages: 120000,
+      socialSecurityWages: 120000,
+      socialSecurityStartAge: 70,
+      socialSecurityInflationAdjusted: false,
+      spouseMedicareWages: 30000,
+      spouseSocialSecurityWages: 30000,
+      spouseSocialSecurityStartAge: 62,
+      spouseSocialSecurityInflationAdjusted: false,
+      rothConversion: { enabled: false },
+      aca: { enabled: false }
+    },
+    taxProfile: piaProfile,
+    returnSequence: Array.from({ length: 10 }, () => ({ cash: 0 })),
+    inflationSequence: Array.from({ length: 10 }, () => 0)
+  });
+
+  // Spouse's own PIA from $30k earnings is $18,549.60. Claimed at 62, that
+  // own benefit stays $12,984.72; the primary's later filing only adds the
+  // excess spousal top-up above that PIA.
+  assert.equal(plan.years[0].socialSecurityBenefits, 12984.72);
+  assert.equal(plan.years[7].socialSecurityBenefits, 12984.72);
+  assert.equal(plan.years[8].socialSecurityBenefits, 68834.736);
+  assert.equal(plan.years[9].socialSecurityBenefits, 68834.736);
+});
+
 test("pure spousal Social Security waits until the primary files", () => {
   const plan = simulatePlan({
     assets: [

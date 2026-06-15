@@ -120,3 +120,10 @@ test("setup backup export is privacy-gated and wired", async () => {
   assert.match(appSource, /createSetupBackup/);
   assert.match(appSource, /ensureUniqueAssetIds\(stored\.assets\.map\(\(asset\) => \(\{ \.\.\.asset \}\)\)\)/);
 });
+
+test("README setup-backup copy names every dynamic setup list", async () => {
+  const readme = await readFile(new URL("../README.md", import.meta.url), "utf8");
+  assert.match(readme, /one-off cash flows/);
+  assert.match(readme, /conditional asset sales/);
+  assert.match(readme, /recurring income streams/);
+});

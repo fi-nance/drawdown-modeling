@@ -142,21 +142,22 @@ export function spouseSocialSecurityBenefitsForYear(scenario, spouseAge, inflati
         taxProfile
       );
       ownPia = basePia;
+      benefitAtStart = basePia * socialSecurityScalingFactor(startAge);
     } else {
       // No spouse earnings → 50% spousal benefit off the primary's PIA (FRA benefit).
       if (hasPrimaryFilingContext && !primaryHasFiled) return 0;
       basePia = primaryPiaForScenario(scenario, taxProfile) * 0.5;
       isSpousalBenefit = true;
       receivesPureSpousalBenefit = true;
-    }
 
-    // Spousal benefits do NOT earn delayed-retirement credits (they max at the
-    // 50%-of-PIA amount at FRA), so cap the scaling factor at 1.0 for the spousal
-    // case. Early-claiming reduction is approximated with the retirement curve.
-    const entitlementAge = spousalEntitlementAge(startAge, spouseAge, primaryAge, primaryStartAge);
-    const rawFactor = socialSecurityScalingFactor(entitlementAge);
-    const factor = isSpousalBenefit ? Math.min(1, rawFactor) : rawFactor;
-    benefitAtStart = basePia * factor;
+      // Spousal benefits do NOT earn delayed-retirement credits (they max at the
+      // 50%-of-PIA amount at FRA), so cap the scaling factor at 1.0. Early-
+      // claiming reduction is approximated with the retirement curve.
+      const entitlementAge = spousalEntitlementAge(startAge, spouseAge, primaryAge, primaryStartAge);
+      const rawFactor = socialSecurityScalingFactor(entitlementAge);
+      const factor = isSpousalBenefit ? Math.min(1, rawFactor) : rawFactor;
+      benefitAtStart = basePia * factor;
+    }
   }
 
   if (primaryHasFiled && !receivesPureSpousalBenefit) {
