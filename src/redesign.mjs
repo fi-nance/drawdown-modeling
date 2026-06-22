@@ -1,6 +1,7 @@
 import { RESULTS_CACHE_KEY } from "./core/resultsCache.mjs";
 import { actionConfidenceFor, rescueConfidenceFor } from "./core/confidence.mjs";
 import { representativeAssets, portfolioFromTotal, essentialsToControls } from "./core/onboarding.mjs";
+import { finiteNumberOr } from "./core/utils.mjs?v=20260622-zero-inputs";
 
 /* ──────────────────────────────────────────────────────────────────
    redesign.mjs
@@ -1546,7 +1547,7 @@ function renderActionList() {
   if (taxableW > 0) items.push({ kind: "withdraw", confidenceKind: "withdrawal", title: "Sell from taxable", sub: "0% LTCG bracket where possible", amt: taxableW });
   if (traditionalW > 0) items.push({ kind: "withdraw", confidenceKind: "traditionalWithdrawal", title: "Sell from Traditional", sub: "Ordinary income", amt: traditionalW });
   if (rothW > 0) items.push({ kind: "withdraw", confidenceKind: "withdrawal", title: "Sell from Roth", sub: "Tax-free draws", amt: rothW });
-  if (year.rothConversionAmount > 0) items.push({ kind: "convert", confidenceKind: "rothConversion", title: "Convert Trad → Roth", sub: `In ${(Number(document.getElementById("rothTargetRate")?.value) || 12)}% bracket target`, amt: year.rothConversionAmount });
+  if (year.rothConversionAmount > 0) items.push({ kind: "convert", confidenceKind: "rothConversion", title: "Convert Trad → Roth", sub: `In ${finiteNumberOr(document.getElementById("rothTargetRate")?.value, 12)}% bracket target`, amt: year.rothConversionAmount });
   if (year.aca?.subsidy > 0) items.push({ kind: "aca", confidenceKind: "magiManagement", title: "Cap MAGI for PTC", sub: `+${formatYearCurrencyShort(year.aca.subsidy, year)} PTC`, amt: year.magi });
   if (year.taxGainHarvested > 0) items.push({ kind: "harvest", confidenceKind: "taxGainHarvesting", title: "Realize gains", sub: "Use favorable gain room", amt: year.taxGainHarvested });
   if (year.realizedCapitalLosses > 0) items.push({ kind: "harvest", confidenceKind: "taxLossHarvesting", title: "Tax-loss harvest", sub: "$3k ordinary offset + carryforward", amt: year.realizedCapitalLosses });

@@ -8,7 +8,7 @@
     <link rel="icon" href="./favicon.svg?v=20260505-favicon" type="image/svg+xml">
     <meta name="theme-color" content="#07111f">
     <link rel="stylesheet" href="./src/styles.css?v=20260530-ws-mobile-fit">
-    <link rel="stylesheet" href="./src/redesign.css?v=20260613-streaming-kpi-refresh-b">
+    <link rel="stylesheet" href="./src/redesign.css?v=20260622-zero-inputs">
     <script src="https://accounts.google.com/gsi/client" async defer></script>
   </head>
   <body data-screen="persona" data-theme="dark">
@@ -527,9 +527,9 @@
               <div class="module-body">
                 <div class="control-grid">
                   <label><span>SS annual benefit</span>    <input id="socialSecurityAnnualBenefit" type="number" min="0" step="1000" value="0"></label>
-                  <label><span>SS start age</span>         <input id="socialSecurityStartAge" type="number" min="0" max="120" step="0.5" value="67"></label>
+                  <label><span>SS start age</span>         <input id="socialSecurityStartAge" type="number" min="62" max="70" step="0.5" value="67"></label>
                   <label data-married-controls><span>Spouse SS annual benefit</span><input id="spouseSocialSecurityAnnualBenefit" type="number" min="0" step="1000" value="0"></label>
-                  <label data-married-controls><span>Spouse SS start age</span>     <input id="spouseSocialSecurityStartAge" type="number" min="0" max="120" step="0.5" value="67"></label>
+                  <label data-married-controls><span>Spouse SS start age</span>     <input id="spouseSocialSecurityStartAge" type="number" min="62" max="70" step="0.5" value="67"></label>
                   <label><span>Medicare wages</span>       <input id="medicareWages" type="number" min="0" step="1000" value="0"></label>
                   <label><span>W-2 SS wages</span>         <input id="socialSecurityWages" type="number" min="0" step="1000" placeholder="Auto"></label>
                   <label><span>Self-employment income</span><input id="selfEmploymentIncome" type="number" min="0" step="1000" value="0"></label>
@@ -963,8 +963,8 @@
                   <div class="control-grid">
                     <label><span>Asset name</span><input id="conditionalSaleName" type="text" value="Second home"></label>
                     <label><span>Sell if portfolio below</span><input id="conditionalSaleTrigger" type="number" min="0" step="1000" value="500000"></label>
-                    <label><span>Net sale proceeds</span><input id="conditionalSaleProceeds" type="number" min="0" step="1000" value="250000"></label>
-                    <label><span>Taxable LT gain</span><input id="conditionalSaleTaxableGain" type="number" min="0" step="1000" value="0"></label>
+                    <label><span>Sale proceeds before tax</span><input id="conditionalSaleProceeds" type="number" min="0" step="1000" value="250000"><small>Cash received after selling costs. The taxable gain below is taxed separately by the model.</small></label>
+                    <label><span>Taxable LT gain included above</span><input id="conditionalSaleTaxableGain" type="number" min="0" step="1000" value="0"></label>
                   </div>
                   <label class="check-row"><input id="conditionalSaleInflation" type="checkbox" checked><span>Inflation adjusted</span></label>
                   <button id="addConditionalSale" class="ghost-button" type="button">+ Add sale trigger</button>
@@ -1362,7 +1362,7 @@
       <select id="viewMode"><option value="real" selected>Today's $</option><option value="nominal">Future $</option></select>
     </div>
 
-    <script type="module" src="./src/app.mjs?v=20260613-streaming-kpi-refresh-b"></script>
-    <script type="module" src="./src/redesign.mjs?v=20260613-streaming-kpi-refresh-b"></script>
+    <script type="module" src="./src/app.mjs?v=20260622-zero-inputs"></script>
+    <script type="module" src="./src/redesign.mjs?v=20260622-zero-inputs"></script>
   </body>
 </html>

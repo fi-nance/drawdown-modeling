@@ -9,6 +9,12 @@ export function round(value, digits = 2) {
   return Math.round((Number(value) + Number.EPSILON) * factor) / factor;
 }
 
+export function finiteNumberOr(value, fallback) {
+  if (value == null || String(value).trim() === "") return fallback;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
+}
+
 export function sumBy(items, selector) {
   return items.reduce((total, item, index) => total + selector(item, index), 0);
 }
@@ -67,4 +73,3 @@ export function percentile(values, p) {
   const weight = index - lower;
   return sorted[lower] * (1 - weight) + sorted[upper] * weight;
 }
-

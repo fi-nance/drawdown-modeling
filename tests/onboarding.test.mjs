@@ -13,7 +13,7 @@ import { buildTaxProfile } from "../src/data/taxData.mjs";
 const sumUnits = (assets) => assets.reduce((acc, a) => acc + a.units * a.price, 0);
 const redesignSource = () => readFile(new URL("../src/redesign.mjs", import.meta.url), "utf8");
 const htmlSource = () => readFile(new URL("../index.html", import.meta.url), "utf8");
-const ONBOARDING_RESULTS_STREAM_ASSET_KEY = "20260613-streaming-kpi-refresh-b";
+const ONBOARDING_RESULTS_STREAM_ASSET_KEY = "20260622-zero-inputs";
 
 function sourceSlice(source, startNeedle, endNeedle) {
   const start = source.indexOf(startNeedle);

@@ -269,7 +269,7 @@ test("module library can scroll to reveal disabled-module knobs", async () => {
 
   assert.match(css, /\.module-library\s*\{[\s\S]*max-height: calc\(100vh - 2rem\)/);
   assert.match(css, /\.module-library\s*\{[\s\S]*overflow-y: auto/);
-  assert.match(html, /src\/redesign\.css\?v=20260613-streaming-kpi-refresh-b/);
+  assert.match(html, /src\/redesign\.css\?v=20260622-zero-inputs/);
 });
 
 test("rescue comparison table includes per-option confidence labels", async () => {

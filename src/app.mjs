@@ -25,7 +25,7 @@ import {
   simulatePlan,
   generateSingleMonteCarloPath
 } from "./core/simulation.mjs?v=20260613-rescue-precision";
-import { round } from "./core/utils.mjs";
+import { finiteNumberOr, round } from "./core/utils.mjs?v=20260622-zero-inputs";
 import { defaultOneOffExpenses, sampleAssets } from "./data/sample.mjs";
 import {
   assetClassesInPortfolio,
@@ -1139,7 +1139,7 @@ function bindEvents() {
       name: els.incomeStreamName?.value || "",
       type: els.incomeStreamType?.value || "pension",
       owner: els.incomeStreamOwner?.value === "spouse" ? "spouse" : "primary",
-      startAge: Number(els.incomeStreamStartAge?.value) || 65,
+      startAge: finiteNumberOr(els.incomeStreamStartAge?.value, 65),
       endAge: numberOrNull(els.incomeStreamEndAge?.value),
       annualAmount: Number(els.incomeStreamAmount?.value) || 0,
       survivorPercent: numberOrNull(els.incomeStreamSurvivorPercent?.value) ?? 0,
@@ -2336,7 +2336,7 @@ async function runModels(opts = {}) {
     const taxProfile = readTaxProfile();
     const decisionProfile = readDecisionProfile(scenario);
     const runs = clampInteger(Number(els.runs.value), 10, 5000);
-    const seed = Number(els.seed.value) || 42;
+    const seed = finiteNumberOr(els.seed.value, 42);
     const historicalDataSource = readHistoricalDataSource();
     const historicalAssetClasses = assetClassesInPortfolio(assets);
     const historicalProxies = historicalProxyMapForControls(historicalAssetClasses);
@@ -2850,7 +2850,7 @@ function resultAuditSourceVersions() {
     historicalRange: latest?.historicalRange ?? null,
     monteCarloPreset: latest?.scenario?.monteCarlo?.assumptionPreset ?? els.mcPreset?.value,
     monteCarloRuns: latest?.monteCarlo?.summary?.runs ?? latest?.monteCarlo?.progress?.total ?? null,
-    seed: Number(els.seed?.value) || 42,
+    seed: finiteNumberOr(els.seed?.value, 42),
     taxYear: latest?.scenario?.taxYear ?? null,
     state: latest?.scenario?.state ?? null,
     privacyMode: latest?.scenario?.privacyMode ?? privacyModeEnabled()
@@ -3811,7 +3811,7 @@ function ensureScenarioTimeline(id) {
     const activeAssets = latest.assets || assets || [];
     const activeScenario = latest.scenario || readScenario();
     const activeTaxProfile = latest.taxProfile || readTaxProfile();
-    const activeSeed = latest.seed || (Number(els.seed?.value) || 42);
+    const activeSeed = latest.seed ?? finiteNumberOr(els.seed?.value, 42);
     
     const plan = generateSingleMonteCarloPath({
       assets: activeAssets,
@@ -5165,10 +5165,10 @@ function readScenario() {
     heirType: els.heirType.value || DEFAULT_SCENARIO.heirType,
     nonSpouse10YrTaxDrag: percentInputValue("nonSpouse10YrTaxDrag", DEFAULT_SCENARIO.nonSpouse10YrTaxDrag),
     eligibleDesignatedTaxDiscount: percentInputValue("eligibleDesignatedTaxDiscount", DEFAULT_SCENARIO.eligibleDesignatedTaxDiscount),
-    heirBaseIncome: Number(els.heirBaseIncome.value) || 80000,
-    heirAge: Number(els.heirAge.value) || 30,
+    heirBaseIncome: finiteNumberOr(els.heirBaseIncome.value, 80000),
+    heirAge: finiteNumberOr(els.heirAge.value, 30),
     heirState: els.heirState.value || null,
-    retirementPenaltyAge: Number(els.retirementPenaltyAge.value) || DEFAULT_SCENARIO.retirementPenaltyAge,
+    retirementPenaltyAge: finiteNumberOr(els.retirementPenaltyAge.value, DEFAULT_SCENARIO.retirementPenaltyAge),
     rothBasis: Number(els.rothBasis.value) || 0,
     earlyWithdrawalPenaltyExceptionAmount: numberOrNull(els.earlyWithdrawalPenaltyExceptionAmount.value) ?? 0,
     rothFiveYearRuleSatisfied: els.rothFiveYearRuleSatisfied.checked,
@@ -5183,10 +5183,14 @@ function readScenario() {
     estimateSocialSecurityFromEarnings: els.estimateSocialSecurityFromEarnings?.checked === true,
     earnedIncomeInflationAdjusted: els.earnedIncomeInflationAdjusted.checked,
     socialSecurityAnnualBenefit: Number(els.socialSecurityAnnualBenefit.value) || 0,
-    socialSecurityStartAge: Number(els.socialSecurityStartAge.value) || DEFAULT_SCENARIO.socialSecurityStartAge,
+    socialSecurityStartAge: Math.max(62, Math.min(70,
+      finiteNumberOr(els.socialSecurityStartAge.value, DEFAULT_SCENARIO.socialSecurityStartAge)
+    )),
     socialSecurityInflationAdjusted: els.socialSecurityInflationAdjusted.checked,
     spouseSocialSecurityAnnualBenefit: Number(els.spouseSocialSecurityAnnualBenefit.value) || 0,
-    spouseSocialSecurityStartAge: Number(els.spouseSocialSecurityStartAge.value) || DEFAULT_SCENARIO.spouseSocialSecurityStartAge,
+    spouseSocialSecurityStartAge: Math.max(62, Math.min(70,
+      finiteNumberOr(els.spouseSocialSecurityStartAge.value, DEFAULT_SCENARIO.spouseSocialSecurityStartAge)
+    )),
     spouseSocialSecurityInflationAdjusted: els.spouseSocialSecurityInflationAdjusted.checked,
     rmd: {
       enabled: els.rmdEnabled.checked,
@@ -5249,10 +5253,10 @@ function readScenario() {
       withdrawalBiasEnabled: els.allocationAwareWithdrawals?.checked === true,
       rebalanceEnabled: els.taxAwareRebalancing?.checked === true,
       glidepathEnabled: els.equityGlidepath?.checked === true,
-      targetStockPercent: Math.max(0, Math.min(100, Number(els.targetStockAllocation?.value) || 70)),
-      rebalanceBandPercent: Math.max(0, Math.min(50, Number(els.rebalanceBand?.value) || 5)),
-      glidepathStartStockPercent: Math.max(0, Math.min(100, Number(els.glidepathStartStockAllocation?.value) || 60)),
-      glidepathEndStockPercent: Math.max(0, Math.min(100, Number(els.glidepathEndStockAllocation?.value) || 80)),
+      targetStockPercent: Math.max(0, Math.min(100, finiteNumberOr(els.targetStockAllocation?.value, 70))),
+      rebalanceBandPercent: Math.max(0, Math.min(50, finiteNumberOr(els.rebalanceBand?.value, 5))),
+      glidepathStartStockPercent: Math.max(0, Math.min(100, finiteNumberOr(els.glidepathStartStockAllocation?.value, 60))),
+      glidepathEndStockPercent: Math.max(0, Math.min(100, finiteNumberOr(els.glidepathEndStockAllocation?.value, 80))),
       glidepathYears: Math.max(1, Number(els.glidepathYears?.value) || 15)
     },
     taxEfficiencyStrategy: {
@@ -5316,7 +5320,7 @@ function readScenario() {
       enabled: els.rothConversion.checked,
       mode: numberOrNull(els.rothAmount.value) == null ? "auto" : "manual",
       overrideAmount: numberOrNull(els.rothAmount.value),
-      targetMarginalRate: Math.max(0, (Number(els.rothTargetRate.value) || 12) / 100),
+      targetMarginalRate: Math.max(0, finiteNumberOr(els.rothTargetRate.value, 12) / 100),
       optimizeForAca: els.rothConversionOptimizeForAca?.checked !== false,
       maxAcaFplPercent: Math.max(100, Math.min(600, Number(els.rothConversionMaxAcaFplPercent?.value) || 400)),
       magiBuffer: Math.max(0, Number(els.rothConversionMagiBuffer?.value) || 0),
@@ -5328,7 +5332,7 @@ function readScenario() {
       enabled: els.rothBasisOptimization?.checked !== false,
       minSavingsRate: DEFAULT_SCENARIO.rothBasisOptimization?.minSavingsRate ?? 0.5,
       opportunityCostMode: els.rothBasisOpportunityCostMode?.value === "fixed" ? "fixed" : "dynamic",
-      magiBuffer: Math.max(0, Number(els.rothBasisMagiBuffer?.value) || 1000)
+      magiBuffer: Math.max(0, finiteNumberOr(els.rothBasisMagiBuffer?.value, 1000))
     },
     aca
   };
