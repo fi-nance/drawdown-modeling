@@ -315,12 +315,25 @@ test("after-tax bequest control is visible, persisted, and audited", async () =>
     readFile(new URL("../src/app.mjs", import.meta.url), "utf8"),
     readFile(new URL("../src/redesign.mjs", import.meta.url), "utf8")
   ]);
+  const controlIdsSource = appSource.slice(
+    appSource.indexOf("const CONTROL_IDS = ["),
+    appSource.indexOf("const els = {")
+  );
 
   assert.match(html, /id="heirOrdinaryTaxRate"/);
+  assert.match(html, /id="heirBaseIncome"/);
+  assert.match(html, /id="heirAge"/);
+  assert.match(html, /id="heirState"/);
   assert.match(html, /Heir ordinary tax rate %/);
   assert.match(appSource, /"heirOrdinaryTaxRate"/);
+  assert.match(controlIdsSource, /"heirBaseIncome"/);
+  assert.match(controlIdsSource, /"heirAge"/);
+  assert.match(controlIdsSource, /"heirState"/);
   assert.match(appSource, /heirOrdinaryTaxRate: document\.querySelector\("#heirOrdinaryTaxRate"\)/);
   assert.match(appSource, /heirOrdinaryTaxRate: percentInputValue\("heirOrdinaryTaxRate", DEFAULT_SCENARIO\.heirOrdinaryTaxRate\)/);
+  assert.match(appSource, /heirBaseIncome: [^\n]*els\.heirBaseIncome\.value/);
+  assert.match(appSource, /heirAge: [^\n]*els\.heirAge\.value/);
+  assert.match(appSource, /heirState: [^\n]*els\.heirState\.value/);
   assert.match(appSource, /legacyAuditLine/);
   assert.match(appSource, /Median after-tax bequest/);
   assert.match(appSource, /After-tax heirs/);
