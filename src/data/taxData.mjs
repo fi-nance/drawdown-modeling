@@ -213,9 +213,9 @@ export const FEDERAL_TAX_BY_YEAR = {
 
 export const FPL_2025 = {
   year: 2025,
-  source: "HHS 2025 poverty guidelines, 90 FR 4481",
+  source: "HHS 2025 poverty guidelines, 90 FR 5917",
   contiguous: { base: 15650, increment: 5500 },
-  Alaska: { base: 19550, increment: 6870 },
+  Alaska: { base: 19550, increment: 6880 },
   Hawaii: { base: 17990, increment: 6330 }
 };
 

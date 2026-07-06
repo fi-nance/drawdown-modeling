@@ -11,7 +11,7 @@
 //     FPL guidelines, which is why `buildAcaConfig({ taxYear: 2026 })`
 //     loads `FPL_2025`.
 //   - HHS 2025 FPL: $21,150 for a household of 2 in the 48 contiguous
-//     states + DC (Federal Register 2025-01644).
+//     states + DC (Federal Register 2025-01377 / 90 FR 5917).
 //
 // The test exercises the published 2026 applicable percentage curve at
 // known FPL anchors and computes the expected PTC by hand from the

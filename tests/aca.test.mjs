@@ -52,6 +52,7 @@ test("2025 FPL is available for prior-year ACA lookups (Treas. Reg. §1.36B-1(h)
   // regular enrollment period for coverage" — i.e. the 2025 HHS guidelines.
   assert.equal(getFplGuideline({ taxYear: 2025, state: "Florida", householdSize: 2 }), 21150);
   assert.equal(getFplGuideline({ taxYear: 2025, state: "Alaska", householdSize: 1 }), 19550);
+  assert.equal(getFplGuideline({ taxYear: 2025, state: "Alaska", householdSize: 2 }), 26430);
   assert.equal(getFplGuideline({ taxYear: 2025, state: "Hawaii", householdSize: 4 }), 36980);
 });
 

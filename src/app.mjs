@@ -2988,9 +2988,9 @@ function backupPlanAuditSummary() {
 
 function dataCustodyAuditLine(scenario) {
   if (scenario?.privacyMode === true) {
-    return "Privacy mode was enabled. Google Sheets imports and live CMS Marketplace plan search were disabled; CSV, JSON, setup files, offline ZIP lookup, and manual ACA plan inputs stayed available.";
+    return "Privacy mode was enabled. Google Sheets imports, live CMS Marketplace plan search, and external ticker/CUSIP price lookups were disabled; CSV, JSON, setup files, offline ZIP lookup, manual ACA plan inputs, and local I-bond pricing stayed available.";
   }
-  return "Local-first run. Setup/results stayed in this browser unless the user explicitly invoked Google Sheets, CMS Marketplace search, or confirmed an export; Google access tokens are held in memory only.";
+  return "Local-first run. Setup/results stayed in this browser unless the user explicitly invoked Google Sheets, CMS Marketplace search, external ticker/CUSIP price lookup, or confirmed an export; Google access tokens are held in memory only.";
 }
 
 function simulationAuditLine() {
