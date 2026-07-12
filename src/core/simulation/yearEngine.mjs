@@ -355,6 +355,10 @@ export function simulateYear({
       });
       bucketWithdrawal = mergeWithdrawals(bucketWithdrawal, rungFallback);
     }
+    bucketWithdrawal.sales = bucketWithdrawal.sales.map((sale) => ({
+      ...sale,
+      withdrawalPurpose: "rmd"
+    }));
     rmdWithdrawal = mergeWithdrawals(rmdWithdrawal, bucketWithdrawal);
   }
   rothBasisRemaining = rmdWithdrawal.rothBasisRemaining;

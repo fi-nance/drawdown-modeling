@@ -1876,11 +1876,14 @@ function renderWithdrawalMix() {
 
   root.innerHTML = picked.map(({ year: y, labels }) => {
     const tax  = y.sales?.filter(s => s.accountType === "taxable").reduce((t, s) => t + (s.proceeds ?? 0), 0) ?? 0;
-    const trad = y.sales?.filter(s => s.accountType === "traditional").reduce((t, s) => t + (s.proceeds ?? 0), 0) ?? 0;
+    const traditionalSales = Math.max(0, Number(y.sales?.filter(s => s.accountType === "traditional").reduce((t, s) => t + (Number(s.proceeds) || 0), 0)) || 0);
     const roth = y.sales?.filter(s => s.accountType === "roth").reduce((t, s) => t + (s.proceeds ?? 0), 0) ?? 0;
     const hsa  = y.sales?.filter(s => s.accountType === "hsa").reduce((t, s) => t + (s.proceeds ?? 0), 0) ?? 0;
-    const ss   = y.socialSecurity?.benefit ?? 0;
-    const rmd  = y.rmdAmount ?? 0;
+    const ss = Math.max(0, Number(y.socialSecurityBenefits) || 0);
+    const rmd = Math.max(0, Number(y.rmdAmount) || 0);
+    // RMD proceeds are already included in traditional-account sales. Split
+    // them out for the chart instead of counting the same dollars twice.
+    const trad = Math.max(0, traditionalSales - rmd);
     const total = Math.max(1, tax + trad + roth + hsa + ss + rmd);
     const segs = [
       { cls: "mix-trad", v: trad, label: "Trad" },

@@ -3452,9 +3452,46 @@ test("RMDs force traditional-account distributions and retain unspent cash", () 
   });
 
   assert.equal(plan.years[0].rmdAmount, 100);
+  assert.deepEqual(
+    plan.years[0].sales.map((sale) => sale.withdrawalPurpose),
+    ["rmd"],
+    "forced RMD sales must retain their purpose so user-facing actions can avoid duplicate instructions"
+  );
   assert.equal(plan.years[0].unspentCash, 100);
   assert.equal(plan.endingAccounts.traditional, 2550);
   assert.equal(plan.endingAccounts.taxable, 100);
+});
+
+test("RMD sale tagging preserves additional traditional withdrawal actions", () => {
+  const plan = simulatePlan({
+    assets: [{
+      id: "ira",
+      accountType: "traditional",
+      assetClass: "bond",
+      units: 2650,
+      price: 1,
+      costBasisPerUnit: 1
+    }],
+    scenario: {
+      planYears: 1,
+      targetSpend: 150,
+      targetSpendIncludesTaxes: true,
+      targetSpendIncludesMedical: true,
+      withdrawalOrder: ["traditional"],
+      currentAge: 73,
+      returnAssumptions: { bond: { mean: 0, stdev: 0 } },
+      rothConversion: { enabled: false },
+      aca: { enabled: false }
+    },
+    taxProfile: noTaxProfile,
+    returnSequence: [{ bond: 0 }],
+    inflationSequence: [0]
+  });
+
+  assert.deepEqual(
+    plan.years[0].sales.map((sale) => [sale.proceeds, sale.withdrawalPurpose ?? null]),
+    [[100, "rmd"], [50, null]]
+  );
 });
 
 test("Social Security benefits create cash and taxable ordinary income by provisional income", () => {
