@@ -50,6 +50,24 @@ const RESCUE_CHANGE_MODULES = [
   }
 ];
 
+const RESCUE_KIND_MODULE_FALLBACK = {
+  safeSpending: "basics",
+  discretionaryCut: "strategy",
+  incomeBridge: "what-ifs",
+  combined: "what-ifs",
+  sequenceReserve: "reserve",
+  tipsLadder: "reserve",
+  allocationShift: "strategy",
+  withdrawalShift: "strategy",
+  healthcareRescue: "strategy",
+  rothBasisCliffRescue: "strategy",
+  taxableLotRescue: "strategy",
+  conversionGuardrail: "strategy",
+  magiSpendTrim: "strategy",
+  irmaaLookbackRescue: "medicare",
+  socialSecurityBridge: "other-income"
+};
+
 const TIER_THRESHOLDS = { warn: 0.85, risk: 0.7 };
 
 // Cache-friendly Monte Carlo run cap. Above this, the compact cache may still
@@ -570,11 +588,15 @@ function buildModuleLibrary() {
 function toggleModule(id) {
   const m = MODULES.find(x => x.id === id);
   if (!m || m.required) return;
-  if (state.enabledModules.has(id)) state.enabledModules.delete(id);
-  else state.enabledModules.add(id);
+  const enabling = !state.enabledModules.has(id);
+  if (enabling) state.enabledModules.add(id);
+  else state.enabledModules.delete(id);
   persistModules();
   syncModuleLibraryUI();
   syncModuleVisibility();
+  if (enabling) {
+    requestAnimationFrame(() => revealWorkspaceModule(id));
+  }
 }
 
 function persistModules() {
@@ -639,6 +661,77 @@ function expandWorkspaceModules(moduleIds) {
     setCardCollapsed(card, false);
   }
   persistCollapsedModules();
+}
+
+function revealWorkspaceModule(id, { smooth = true } = {}) {
+  const grid = document.getElementById("moduleGrid");
+  const card = grid?.querySelector(`.module-card[data-module="${id}"]`);
+  if (!card) return false;
+  card.hidden = false;
+  setCardCollapsed(card, false);
+  persistCollapsedModules();
+  card.scrollIntoView({ behavior: smooth ? "smooth" : "auto", block: "start" });
+  return true;
+}
+
+function rescueModulesForOption(option, baseScenario = {}) {
+  const modules = modulesForRescueChanges(rescueChangeList(option, baseScenario));
+  if (!modules.size) {
+    const fallback = RESCUE_KIND_MODULE_FALLBACK[option?.kind];
+    if (fallback) modules.add(fallback);
+  }
+  return modules;
+}
+
+function openRescueOptionInWorkspace(option, baseScenario = {}) {
+  const modules = [...rescueModulesForOption(option, baseScenario)];
+  if (!modules.length) {
+    setScreen("workspace");
+    return;
+  }
+  let changed = false;
+  for (const id of modules) {
+    if (!state.enabledModules.has(id)) {
+      state.enabledModules.add(id);
+      changed = true;
+    }
+  }
+  if (changed) persistModules();
+  syncModuleLibraryUI();
+  syncModuleVisibility();
+  setScreen("workspace");
+  requestAnimationFrame(() => {
+    for (const id of modules) {
+      if (revealWorkspaceModule(id)) break;
+    }
+  });
+}
+
+function openWorkspaceModule(id) {
+  if (!id) return;
+  if (!state.enabledModules.has(id)) {
+    state.enabledModules.add(id);
+    persistModules();
+  }
+  syncModuleLibraryUI();
+  syncModuleVisibility();
+  setScreen("workspace");
+  requestAnimationFrame(() => revealWorkspaceModule(id));
+}
+
+function applyRescueOptionFromDecision(option, baseScenario = {}) {
+  if (!option?.scenario || typeof window.__pslApplyRescueScenarioToWorkspace !== "function") return false;
+  const title = rescueTitle(option);
+  const changes = rescueChangeList(option, baseScenario);
+  const changeText = changes.length
+    ? changes.map((change) => `- ${change}`).join("\n")
+    : "- Apply the tested rescue scenario values.";
+  const confirmed = window.confirm(`Apply "${capitalizeFirst(title)}" to the workspace and rerun projections?\n\n${changeText}`);
+  if (!confirmed) return false;
+  window.__pslApplyRescueScenarioToWorkspace(option.scenario, { label: title, changes });
+  openRescueOptionInWorkspace(option, baseScenario);
+  runModelFromRedesign({ cancelActive: true, stream: true });
+  return true;
 }
 
 // ─── Module collapse / expand ─────────────────────────────────────
@@ -1098,7 +1191,7 @@ function renderDecisionPanel() {
   const anatomy = decision.failureAnatomy ?? {};
   const healthcare = decision.healthcare ?? {};
   const confidence = latest.confidence ?? { headline: "Confidence not evaluated", flags: [] };
-  const rescueCards = rescues.map((option) => rescueCardHtml(option, base, confidence)).join("");
+  const rescueCards = rescues.map((option, index) => rescueCardHtml(option, base, confidence, index)).join("");
   const riskGuardrailTable = riskBasedGuardrailTableHtml(decision);
   const diagnosisLine = diagnosis.primary && diagnosis.primary !== "none"
     ? `<p class="decision-sub"><strong>${escapeHtml(diagnosis.label)}.</strong> ${escapeHtml(diagnosis.reason)}</p>`
@@ -1141,6 +1234,20 @@ function renderDecisionPanel() {
         ${confidenceCardHtml(confidence)}
       </div>
     </div>`;
+  root.querySelectorAll("[data-rescue-open]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const option = rescues[Number(button.dataset.rescueOpen)];
+      if (!option) return;
+      openRescueOptionInWorkspace(option, decision.base?.scenario ?? latest?.scenario ?? {});
+    });
+  });
+  root.querySelectorAll("[data-rescue-apply]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const option = rescues[Number(button.dataset.rescueApply)];
+      if (!option) return;
+      applyRescueOptionFromDecision(option, decision.base?.scenario ?? latest?.scenario ?? {});
+    });
+  });
 }
 
 function decisionHeadline(decision) {
@@ -1242,12 +1349,14 @@ function capitalizeFirst(text) {
   return str ? str.charAt(0).toUpperCase() + str.slice(1) : str;
 }
 
-function rescueCardHtml(option, base, confidenceReport = {}) {
+function rescueCardHtml(option, base, confidenceReport = {}, index = 0) {
   const delta = option.delta?.monteCarloSuccessRate ?? 0;
   const title = rescueTitle(option);
   const tier = rescueTierLabel(option.kind);
   const confidence = rescueConfidenceFor(option, confidenceReport);
   const guardrailSummary = riskBasedGuardrailSummary(option);
+  const canOpen = !!option?.scenario;
+  const canApply = canOpen && typeof window !== "undefined" && typeof window.__pslApplyRescueScenarioToWorkspace === "function";
   const sideEffect = option.delta?.firstYearSubsidy == null
     ? "No healthcare delta"
     : `${option.delta.firstYearSubsidy >= 0 ? "+" : ""}${formatCurrencyShort(option.delta.firstYearSubsidy)} year-1 subsidy`;
@@ -1260,6 +1369,10 @@ function rescueCardHtml(option, base, confidenceReport = {}) {
       ${guardrailSummary ? `<small>${escapeHtml(guardrailSummary)}</small>` : ""}
       <small>${escapeHtml(sideEffect)}</small>
       ${confidenceBadgeHtml(confidence)}
+      ${canOpen ? `<span class="decision-rescue-actions">
+        <button type="button" class="decision-rescue-cta" data-rescue-open="${index}">Review controls →</button>
+        <button type="button" class="decision-rescue-apply" data-rescue-apply="${index}" ${canApply ? "" : "disabled"}>Apply &amp; rerun</button>
+      </span>` : ""}
     </article>`;
 }
 
@@ -1864,41 +1977,119 @@ function bracketRowHtml(b, maxFinite) {
 
 // ─── Withdrawal mix per year ───────────────────────────────────────
 
+export function withdrawalMixBreakdown(year = {}) {
+  const taxable = year.sales?.filter(s => s.accountType === "taxable").reduce((t, s) => t + (s.proceeds ?? 0), 0) ?? 0;
+  const traditionalSales = Math.max(0, Number(year.sales?.filter(s => s.accountType === "traditional").reduce((t, s) => t + (Number(s.proceeds) || 0), 0)) || 0);
+  const roth = year.sales?.filter(s => s.accountType === "roth").reduce((t, s) => t + (s.proceeds ?? 0), 0) ?? 0;
+  const hsa = year.sales?.filter(s => s.accountType === "hsa").reduce((t, s) => t + (s.proceeds ?? 0), 0) ?? 0;
+  const socialSecurity = Math.max(0, Number(year.socialSecurityBenefits) || 0);
+  const rmd = Math.max(0, Number(year.rmdAmount) || 0);
+  const traditional = Math.max(0, traditionalSales - rmd);
+  const total = taxable + traditional + roth + hsa + socialSecurity + rmd;
+  const flows = Array.isArray(year.flows) ? year.flows : [];
+  const flowAmount = (flow) => Math.max(0, Number(flow?.amount) || 0);
+  const cashInFromFlows = flows
+    .filter((flow) => flow?.to === "Spending reserve")
+    .reduce((sum, flow) => sum + flowAmount(flow), 0);
+  const cashOutFromFlows = flows
+    .filter((flow) => flow?.from === "Spending reserve" && flow?.type !== "balance")
+    .reduce((sum, flow) => sum + flowAmount(flow), 0);
+  const reserveTransfer = flows
+    .filter((flow) => flow?.from === "Spending reserve" && flow?.type === "balance")
+    .reduce((sum, flow) => sum + flowAmount(flow), 0);
+  const fallbackCashOut = Math.max(0, Number(year.plannedSpending) || 0)
+    + Math.max(0, Number(year.taxes?.totalTax) || 0)
+    + Math.max(0, Number(year.medicalCost) || 0);
+  const cashIn = cashInFromFlows > 0 ? cashInFromFlows : total;
+  const cashOut = cashOutFromFlows > 0 ? cashOutFromFlows : fallbackCashOut;
+  const otherIncome = Math.max(0, cashIn - total);
+  return {
+    taxable,
+    traditional,
+    roth,
+    hsa,
+    socialSecurity,
+    rmd,
+    total,
+    otherIncome,
+    cashIn,
+    cashOut,
+    reserveTransfer,
+    rothConversion: Math.max(0, Number(year.rothConversionAmount) || 0),
+    spending: Math.max(0, Number(year.plannedSpending) || 0),
+    taxes: Math.max(0, Number(year.taxes?.totalTax) || 0),
+    medical: Math.max(0, Number(year.medicalCost) || 0)
+  };
+}
+
 function renderWithdrawalMix() {
   const root = document.getElementById("withdrawalMix");
   const legend = document.getElementById("mixLegend");
+  const detail = document.getElementById("withdrawalMixDetail");
   if (!root) return;
   const latest = window.__pslLatest;
   const years = withdrawalMixVisibleYears(planYears(latest));
-  if (!years.length) { root.innerHTML = ""; if (legend) legend.innerHTML = ""; return; }
-  const selectedYearNumber = currentSelectedYearIndex() + 1;
-  const picked = withdrawalMixYearPicks(years, selectedYearNumber - 1);
+  if (!years.length) {
+    root.innerHTML = "";
+    if (legend) legend.innerHTML = "";
+    if (detail) detail.innerHTML = "";
+    return;
+  }
+  const selectedYearIndex = Math.max(0, Math.min(years.length - 1, currentSelectedYearIndex()));
+  const labelsByIndex = withdrawalMixYearLabels(years, selectedYearIndex);
+  const displayedAmount = (amount, year) => Math.max(0, Number(displayAmount(amount, year)) || 0);
+  const maxTotal = Math.max(...years.flatMap((year) => {
+    const breakdown = withdrawalMixBreakdown(year);
+    return [breakdown.cashIn, breakdown.cashOut, breakdown.rothConversion].map((amount) => displayedAmount(amount, year));
+  }), 1);
+  root.style.setProperty("--mix-cols", String(years.length));
 
-  root.innerHTML = picked.map(({ year: y, labels }) => {
-    const tax  = y.sales?.filter(s => s.accountType === "taxable").reduce((t, s) => t + (s.proceeds ?? 0), 0) ?? 0;
-    const traditionalSales = Math.max(0, Number(y.sales?.filter(s => s.accountType === "traditional").reduce((t, s) => t + (Number(s.proceeds) || 0), 0)) || 0);
-    const roth = y.sales?.filter(s => s.accountType === "roth").reduce((t, s) => t + (s.proceeds ?? 0), 0) ?? 0;
-    const hsa  = y.sales?.filter(s => s.accountType === "hsa").reduce((t, s) => t + (s.proceeds ?? 0), 0) ?? 0;
-    const ss = Math.max(0, Number(y.socialSecurityBenefits) || 0);
-    const rmd = Math.max(0, Number(y.rmdAmount) || 0);
-    // RMD proceeds are already included in traditional-account sales. Split
-    // them out for the chart instead of counting the same dollars twice.
-    const trad = Math.max(0, traditionalSales - rmd);
-    const total = Math.max(1, tax + trad + roth + hsa + ss + rmd);
+  root.innerHTML = years.map((y, index) => {
+    const breakdown = withdrawalMixBreakdown(y);
+    const total = Math.max(1, breakdown.cashIn);
+    const labels = labelsByIndex.get(index) ?? [];
     const segs = [
-      { cls: "mix-trad", v: trad, label: "Trad" },
-      { cls: "mix-roth", v: roth, label: "Roth" },
-      { cls: "mix-tax",  v: tax,  label: "Tax" },
-      { cls: "mix-hsa",  v: hsa,  label: "HSA" },
-      { cls: "mix-rmd",  v: rmd,  label: "RMD" },
-      { cls: "mix-ss",   v: ss,   label: "SS" }
+      { cls: "mix-trad", v: breakdown.traditional, label: "Trad" },
+      { cls: "mix-roth", v: breakdown.roth, label: "Roth" },
+      { cls: "mix-tax", v: breakdown.taxable, label: "Tax" },
+      { cls: "mix-hsa", v: breakdown.hsa, label: "HSA" },
+      { cls: "mix-rmd", v: breakdown.rmd, label: "RMD" },
+      { cls: "mix-ss", v: breakdown.socialSecurity, label: "SS" },
+      { cls: "mix-other", v: breakdown.otherIncome, label: "Other" }
     ].filter(s => s.v > 0);
-    const isSelected = y.yearIndex === selectedYearNumber;
+    const isSelected = index === selectedYearIndex;
     const labelText = labels.join(", ");
+    const cashInHeight = breakdown.cashIn > 0 ? Math.max(8, (displayedAmount(breakdown.cashIn, y) / maxTotal) * 100) : 0;
+    const cashOutHeight = breakdown.cashOut > 0 ? Math.max(8, (displayedAmount(breakdown.cashOut, y) / maxTotal) * 100) : 0;
+    const conversionHeight = breakdown.rothConversion > 0 ? Math.max(8, (displayedAmount(breakdown.rothConversion, y) / maxTotal) * 100) : 0;
+    const summaryLines = [
+      `Cash in ${formatYearCurrencyShort(breakdown.cashIn, y)}`,
+      `Cash out ${formatYearCurrencyShort(breakdown.cashOut, y)}`,
+      breakdown.rothConversion > 0 ? `Roth conversion ${formatYearCurrencyShort(breakdown.rothConversion, y)}` : null,
+      breakdown.taxable > 0 ? `Taxable ${formatYearCurrencyShort(breakdown.taxable, y)}` : null,
+      breakdown.traditional > 0 ? `Traditional ${formatYearCurrencyShort(breakdown.traditional, y)}` : null,
+      breakdown.roth > 0 ? `Roth ${formatYearCurrencyShort(breakdown.roth, y)}` : null,
+      breakdown.hsa > 0 ? `HSA ${formatYearCurrencyShort(breakdown.hsa, y)}` : null,
+      breakdown.rmd > 0 ? `RMD ${formatYearCurrencyShort(breakdown.rmd, y)}` : null,
+      breakdown.socialSecurity > 0 ? `Social Security ${formatYearCurrencyShort(breakdown.socialSecurity, y)}` : null,
+      breakdown.otherIncome > 0 ? `Other income ${formatYearCurrencyShort(breakdown.otherIncome, y)}` : null
+    ].filter(Boolean).join(" · ");
     return `
-      <button type="button" class="mix-col" data-year-index="${y.yearIndex - 1}" data-selected="${isSelected ? "true" : "false"}" aria-pressed="${isSelected ? "true" : "false"}" aria-label="Year ${y.yearIndex}${y.age ? `, age ${Math.round(y.age)}` : ""}${labelText ? `, ${labelText}` : ""} — click to inspect">
+      <button type="button" class="mix-col" data-year-index="${index}" data-selected="${isSelected ? "true" : "false"}" aria-pressed="${isSelected ? "true" : "false"}" aria-label="Year ${y.yearIndex}${y.age ? `, age ${Math.round(y.age)}` : ""}${labelText ? `, ${labelText}` : ""}. ${summaryLines}" title="${summaryLines}">
         <div class="mix-stack">
-          ${segs.map(s => `<span class="${s.cls}" style="flex-basis:${(s.v/total*100).toFixed(2)}%">${s.v/total > 0.12 ? s.label : ""}</span>`).join("")}
+          <div class="mix-bar-set" aria-hidden="true">
+            <div class="mix-bar-track" title="Cash in ${formatYearCurrencyShort(breakdown.cashIn, y)}">
+              <div class="mix-bar mix-bar-in" style="height:${cashInHeight.toFixed(2)}%">
+                ${segs.map(s => `<span class="${s.cls}" style="flex-basis:${(s.v / total * 100).toFixed(2)}%"></span>`).join("")}
+              </div>
+            </div>
+            <div class="mix-bar-track" title="Cash out ${formatYearCurrencyShort(breakdown.cashOut, y)}">
+              <div class="mix-bar mix-bar-out" style="height:${cashOutHeight.toFixed(2)}%"></div>
+            </div>
+            <div class="mix-bar-track" title="Roth conversion ${formatYearCurrencyShort(breakdown.rothConversion, y)}">
+              <div class="mix-bar mix-bar-conversion" style="height:${conversionHeight.toFixed(2)}%"></div>
+            </div>
+          </div>
         </div>
         ${labels.length ? `<span class="mix-badges">${labels.map((label) => `<span class="mix-badge" data-kind="${label.toLowerCase()}">${label}</span>`).join("")}</span>` : ""}
         <span class="mix-year">Y${y.yearIndex}</span>
@@ -1911,7 +2102,13 @@ function renderWithdrawalMix() {
     <span><span class="swatch" style="background:#1f4ed8"></span>Roth</span>
     <span><span class="swatch" style="background:#0e7da6"></span>HSA</span>
     <span><span class="swatch" style="background:#c43838"></span>RMD</span>
-    <span><span class="swatch" style="background:#117a4d;opacity:.55"></span>Soc Sec</span>`;
+    <span><span class="swatch" style="background:#f08c3a"></span>Soc Sec</span>
+    <span><span class="swatch" style="background:#6b7180"></span>Other income</span>
+    <span><span class="swatch" style="background:#d87943"></span>Cash out</span>
+    <span><span class="swatch conversion-swatch"></span>Roth conversion</span>`;
+  if (detail) renderWithdrawalMixDetail(detail, years[selectedYearIndex], {
+    hasSocialSecurity: years.some((year) => withdrawalMixBreakdown(year).socialSecurity > 0)
+  });
 }
 
 function withdrawalMixVisibleYears(years = []) {
@@ -1920,24 +2117,14 @@ function withdrawalMixVisibleYears(years = []) {
   return years.slice(0, Math.min(years.length, Math.trunc(max)));
 }
 
-function withdrawalMixYearPicks(years, selectedIndex = 0) {
-  const picks = new Map();
-  const add = (index, label = null) => {
+function withdrawalMixYearLabels(years, selectedIndex = 0) {
+  const labels = new Map();
+  const add = (index, label) => {
     const bounded = Math.max(0, Math.min(years.length - 1, Number(index)));
-    const year = years[bounded];
-    if (!year) return;
-    const existing = picks.get(bounded) ?? { year, labels: [] };
-    if (label && !existing.labels.includes(label)) existing.labels.push(label);
-    picks.set(bounded, existing);
+    const existing = labels.get(bounded) ?? [];
+    if (label && !existing.includes(label)) existing.push(label);
+    labels.set(bounded, existing);
   };
-
-  // Keep the strip digestible while guaranteeing the important outlier years
-  // are present and clickable.
-  const stride = Math.max(1, Math.round(years.length / 8));
-  for (let i = 0; i < years.length; i += stride) add(i);
-  add(years.length - 1);
-  add(selectedIndex);
-
   const ranked = years
     .map((year, index) => ({ index, value: displayAmount(year?.endingPortfolioValue ?? NaN, year) }))
     .filter((item) => Number.isFinite(item.value));
@@ -1946,10 +2133,8 @@ function withdrawalMixYearPicks(years, selectedIndex = 0) {
     add(ranked[0].index, "Worst");
     add(ranked[ranked.length - 1].index, "Best");
   }
-
-  return [...picks.entries()]
-    .sort(([a], [b]) => a - b)
-    .map(([, pick]) => pick);
+  add(selectedIndex, "Selected");
+  return labels;
 }
 
 function currentSelectedYearIndex() {
@@ -2028,6 +2213,62 @@ function bindWithdrawalMix() {
     syncMixSelectedHighlight(currentSelectedYearIndex());
     renderBracketFill();
     renderActionList();
+  });
+}
+
+function renderWithdrawalMixDetail(root, year, { hasSocialSecurity = false } = {}) {
+  if (!root || !year) return;
+  const breakdown = withdrawalMixBreakdown(year);
+  const rows = [
+    ["Taxable", breakdown.taxable],
+    ["Traditional", breakdown.traditional],
+    ["Roth", breakdown.roth],
+    ["HSA", breakdown.hsa],
+    ["RMD", breakdown.rmd],
+    ["Social Security", breakdown.socialSecurity],
+    ["Other income", breakdown.otherIncome],
+    ["Roth conversions", breakdown.rothConversion],
+    ["Taxes reserved", breakdown.taxes],
+    ["Medical", breakdown.medical],
+    ["Lifestyle spending", breakdown.spending]
+  ];
+  root.innerHTML = `
+    <div class="withdrawal-mix-detail-head">
+      <strong>Selected year: ${yearDisplayLabel(year)}</strong>
+      <span>Bar heights are absolute dollars relative to the largest visible year. Click any year to inspect the numbers.</span>
+    </div>
+    <div class="withdrawal-mix-detail-grid">
+      ${rows.map(([label, value]) => `
+        <div class="withdrawal-mix-detail-row">
+          <span>${escapeHtml(label)}</span>
+          <strong>${formatYearCurrencyShort(value, year)}</strong>
+        </div>
+      `).join("")}
+      <div class="withdrawal-mix-detail-row" data-kind="total">
+        <span>Cash in total</span>
+        <strong>${formatYearCurrencyShort(breakdown.cashIn, year)}</strong>
+      </div>
+      <div class="withdrawal-mix-detail-row" data-kind="total">
+        <span>Cash out total</span>
+        <strong>${formatYearCurrencyShort(breakdown.cashOut, year)}</strong>
+      </div>
+      <div class="withdrawal-mix-detail-row">
+        <span>Moved to cash reserve</span>
+        <strong>${formatYearCurrencyShort(breakdown.reserveTransfer, year)}</strong>
+      </div>
+      <div class="withdrawal-mix-detail-row">
+        <span>Account withdrawals + Social Security</span>
+        <strong>${formatYearCurrencyShort(breakdown.total, year)}</strong>
+      </div>
+    </div>
+    ${hasSocialSecurity ? "" : `<div class="withdrawal-mix-detail-callout">
+      <span>Social Security is $0 throughout this plan.</span>
+      <button type="button" data-withdrawal-open-module="other-income">Add Social Security in Workspace →</button>
+    </div>`}
+    <div class="withdrawal-mix-detail-note">Cash in and cash out share one absolute dollar scale. Roth conversions are shown separately because they move money between accounts rather than fund spending.</div>
+  `;
+  root.querySelector("[data-withdrawal-open-module]")?.addEventListener("click", (event) => {
+    openWorkspaceModule(event.currentTarget.dataset.withdrawalOpenModule);
   });
 }
 
@@ -2367,6 +2608,13 @@ function describeStorageState() {
     persistedScreen: (() => { try { return localStorage.getItem("psl:redesign:screen"); } catch { return null; } })(),
     queryScreen: new URL(window.location.href).searchParams.get("screen")
   };
+}
+
+function yearDisplayLabel(year) {
+  if (!year) return "";
+  return Number.isFinite(year.historicalSourceYear)
+    ? `${year.year} (${year.historicalSourceYear})`
+    : `${year.year}`;
 }
 
 function planYears(latest) {

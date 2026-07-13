@@ -226,8 +226,8 @@
       <div class="ws-shell">
         <aside class="module-library" id="moduleLibrary">
           <p class="lib-eyebrow">Module library</p>
-          <h2>Drag in only what you need</h2>
-          <p class="lib-blurb">Required modules can't be removed. Skipped modules use smart defaults — your numbers will still be tax-correct.</p>
+          <h2>Turn on only what you need</h2>
+          <p class="lib-blurb">Required modules stay on. Optional modules use smart defaults until you enable them, and newly enabled modules open right in the workspace.</p>
           <button class="lib-toggle-collapse" type="button" data-toggle-library>Show library</button>
           <div id="moduleToggleList"></div>
         </aside>
@@ -1123,6 +1123,12 @@
                 <h3 class="r-card-title" id="cashFlowYearTitle">Year 1</h3>
               </div>
               <div class="inline-controls">
+                <div class="cashflow-year-nav" aria-label="Cash-flow year selector">
+                  <span>Year</span>
+                  <button type="button" id="cashFlowYearPrev" class="year-scrub-step" aria-label="Previous cash-flow year" disabled>‹</button>
+                  <input id="cashFlowYearRange" type="range" min="1" max="35" value="1" class="year-scrubber-range cashflow-year-range" aria-label="Cash-flow plan year" disabled>
+                  <button type="button" id="cashFlowYearNext" class="year-scrub-step" aria-label="Next cash-flow year" disabled>›</button>
+                </div>
                 <label>
                   <span>Flow</span>
                   <select id="flowMode">
@@ -1175,11 +1181,12 @@
             <div class="r-card-head">
               <div>
                 <p class="r-section-eyebrow">Withdrawal order</p>
-                <h3 class="r-card-title">Account mix per year</h3>
+                <h3 class="r-card-title">Cash in, out &amp; conversions per year</h3>
               </div>
               <div class="mix-legend" id="mixLegend"></div>
             </div>
             <div class="withdrawal-mix" id="withdrawalMix"></div>
+            <div class="withdrawal-mix-detail" id="withdrawalMixDetail" aria-live="polite"></div>
           </section>
 
           <!-- Sensitivity tornado -->

@@ -597,6 +597,9 @@ const els = {
   yearLabel: document.querySelector("#yearLabel"),
   yearScrubPrev: document.querySelector("#yearScrubPrev"),
   yearScrubNext: document.querySelector("#yearScrubNext"),
+  cashFlowYearRange: document.querySelector("#cashFlowYearRange"),
+  cashFlowYearPrev: document.querySelector("#cashFlowYearPrev"),
+  cashFlowYearNext: document.querySelector("#cashFlowYearNext"),
   cashFlowYearTitle: document.querySelector("#cashFlowYearTitle"),
   sankeySvg: document.querySelector("#sankeySvg"),
   timelineSvg: document.querySelector("#timelineSvg"),
@@ -955,6 +958,13 @@ function bindEvents() {
   els.yearRange.addEventListener("input", applySelectedYearFromControl);
   els.yearScrubPrev?.addEventListener("click", () => stepSelectedYear(-1));
   els.yearScrubNext?.addEventListener("click", () => stepSelectedYear(1));
+  els.cashFlowYearRange?.addEventListener("input", () => {
+    if (!els.yearRange) return;
+    els.yearRange.value = els.cashFlowYearRange.value;
+    els.yearRange.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  els.cashFlowYearPrev?.addEventListener("click", () => stepSelectedYear(-1));
+  els.cashFlowYearNext?.addEventListener("click", () => stepSelectedYear(1));
 
   els.addAsset.addEventListener("click", () => {
     assets.push({
@@ -3082,6 +3092,13 @@ function renderYearLabel() {
   const lastIndex = Math.max(0, activeVisibleYears().length - 1);
   if (els.yearScrubPrev) els.yearScrubPrev.disabled = selectedYearIndex <= 0;
   if (els.yearScrubNext) els.yearScrubNext.disabled = selectedYearIndex >= lastIndex;
+  if (els.cashFlowYearRange) {
+    els.cashFlowYearRange.max = String(Math.max(1, activeVisibleYears().length));
+    els.cashFlowYearRange.value = String(selectedYearIndex + 1);
+    els.cashFlowYearRange.disabled = !latest;
+  }
+  if (els.cashFlowYearPrev) els.cashFlowYearPrev.disabled = selectedYearIndex <= 0;
+  if (els.cashFlowYearNext) els.cashFlowYearNext.disabled = selectedYearIndex >= lastIndex;
 }
 
 // Single entry point for a year change driven by the page-level scrubber
