@@ -2,6 +2,18 @@ import { EPSILON, round, sumBy } from "./utils.mjs";
 
 const MIN_PRICE_FACTOR_AFTER_INCOME_SPLIT = 1e-8;
 
+// Securities can change inside an account; ownership and tax history cannot.
+export function accountMetadata(asset = {}) {
+  return {
+    owner: asset.owner ?? "primary",
+    beneficiaryType: asset.beneficiaryType ?? "default",
+    ...(asset.beneficiaryId != null ? { beneficiaryId: asset.beneficiaryId } : {}),
+    ...(asset.beneficiaryAge != null ? { beneficiaryAge: asset.beneficiaryAge } : {}),
+    ...(asset.rothSource != null ? { rothSource: asset.rothSource } : {}),
+    ...(asset.conversionYear != null ? { conversionYear: asset.conversionYear } : {})
+  };
+}
+
 export function clonePortfolio(assets = []) {
   return assets.map((asset) => ({ ...asset }));
 }
@@ -88,7 +100,7 @@ export function sellFromLot(lot, requestedProceeds) {
     name: lot.name ?? lot.id,
     accountType: lot.accountType,
     assetClass: lot.assetClass,
-    beneficiaryType: lot.beneficiaryType,
+    ...accountMetadata(lot),
     proceeds: round(proceeds, 6),
     unitsSold: round(unitsSold, 8),
     costBasisSold: round(costBasisSold, 6),
@@ -121,6 +133,9 @@ function totalReturnForAsset(asset, returnsByAssetClass) {
 }
 
 function incomeReturnForTotalReturn(asset, totalReturn) {
+  // Cash has no capital appreciation: its positive total return is interest.
+  // A zero/omitted dividend yield must not make savings-account interest tax-free.
+  if (asset.assetClass === "cash") return Math.max(0, totalReturn);
   const rawIncomeReturn = Math.max(0, Number(asset.dividendYield) || 0);
   if (rawIncomeReturn <= EPSILON) return 0;
   if (1 + totalReturn <= 0) return 0;
@@ -155,6 +170,7 @@ function addTaxableDividend(result, asset, dividend) {
 }
 
 function qualifiedDividendShareFor(asset) {
+  if (asset.assetClass === "cash") return 0;
   return Math.max(0, Math.min(1, Number(asset.qualifiedDividendShare ?? 0) || 0));
 }
 

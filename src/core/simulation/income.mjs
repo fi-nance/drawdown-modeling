@@ -1,7 +1,7 @@
 // Extracted from simulation.mjs during the modular refactor.
 // Single responsibility: income. No behavior changes — pure code movement.
 
-import { DEFAULT_TAX_PROFILE, computeSelfEmploymentTax, computeTaxableSocialSecurityBenefits, netCapitalGainsAndLosses } from "../tax.mjs?v=20260613-rescue-precision";
+import { DEFAULT_TAX_PROFILE, computeSelfEmploymentTax, computeTaxableSocialSecurityBenefits, federalAgiFromNetting, netCapitalGainsAndLosses } from "../tax.mjs?v=20260613-rescue-precision";
 import { round } from "../utils.mjs";
 import { emptyEarnedIncome } from "./cashFlows.mjs";
 
@@ -169,14 +169,8 @@ export function federalAgiForIncome(
     ordinaryOffsetCap
   });
 
-  return Math.max(0,
-    income.ordinaryIncome
-    + netResult.netShortGains
-    + netResult.netLongGains
-    + Math.max(0, income.qualifiedDividends ?? 0)
-    - adjustments
-    - netResult.ordinaryLossOffset
-  );
+  return federalAgiFromNetting({ ordinaryIncome: income.ordinaryIncome,
+    qualifiedDividends: income.qualifiedDividends, adjustments, netting: netResult });
 }
 
 export function acaMagiForIncome(

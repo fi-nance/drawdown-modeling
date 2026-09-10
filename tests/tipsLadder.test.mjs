@@ -359,8 +359,8 @@ test("rungs maturing after 59.5 fund traditional-first and mature as ordinary in
   assert.ok(rungSale);
   assert.equal(rungSale.accountType, "traditional");
   assert.equal(rungSale.taxType, "ordinary");
-  // The maturity is the year's only AGI source under the flat-zero profile.
-  assertClose(year1.federalAgi, 40000, 0.01);
+  // The $1.5M taxable cash sleeve also earns 2% current interest.
+  assertClose(year1.federalAgi, 40000 + 30000, 0.01);
 });
 
 test("the real-yield coupon is taxed on taxable rungs every year, but not on sheltered rungs", () => {
@@ -368,7 +368,8 @@ test("the real-yield coupon is taxed on taxable rungs every year, but not on she
     currentAge: 62,
     planYears: 4,
     targetSpend: 0,
-    returnAssumptions: deterministicAssumptions({ inflationMean: 0 }),
+    // Isolate ladder coupons from interest on retained maturity proceeds.
+    returnAssumptions: { ...deterministicAssumptions({ inflationMean: 0 }), cash: { mean: 0, stdev: 0 } },
     tipsLadder: { enabled: true, years: 3, annualRealAmount: 40000, realYieldPercent: 2 }
   };
 

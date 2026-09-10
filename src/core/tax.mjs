@@ -118,6 +118,11 @@ export function netCapitalGainsAndLosses({
   };
 }
 
+export function federalAgiFromNetting({ ordinaryIncome = 0, qualifiedDividends = 0, adjustments = 0, netting }) {
+  return round(Math.max(0, ordinaryIncome + netting.netShortGains + netting.netLongGains
+    + Math.max(0, qualifiedDividends) - Math.max(0, adjustments) - netting.ordinaryLossOffset), 6);
+}
+
 function capitalLossCarryforwardForNextYear({
   scheduleDShortTermNet = 0,
   scheduleDLongTermNet = 0,
@@ -223,12 +228,14 @@ export function computeIncomeTax({
   const netShortGains = netting.netShortGains;
   const longGains = netting.netLongGains;
   const dividendPreferentialIncome = Math.max(0, qualifiedDividends);
-  const ordinaryBeforeLossOffset = netting.ordinaryBeforeLossOffset;
+  const ordinaryBeforeLossOffset = ordinaryIncome + netShortGains - adjustments;
   const ordinaryLossOffset = netting.ordinaryLossOffset;
 
-  const ordinaryAfterLossOffset = Math.max(0, ordinaryBeforeLossOffset - ordinaryLossOffset);
+  // Keep the signed ordinary balance until all income is combined. A loss or
+  // adjustment exceeding ordinary income still reduces qualified dividends.
+  const ordinaryAfterLossOffset = ordinaryBeforeLossOffset - ordinaryLossOffset;
   const preferentialIncome = longGains + dividendPreferentialIncome;
-  const magi = round(ordinaryAfterLossOffset + preferentialIncome, 6);
+  const magi = federalAgiFromNetting({ ordinaryIncome, qualifiedDividends, adjustments, netting });
   const enhancedSeniorDeduction = computeEnhancedSeniorDeduction({ magi, profile });
   const deductionChoice = computeFederalDeductionChoice({ agi: magi, profile });
   const federalDeduction = deductionChoice.federalDeduction + enhancedSeniorDeduction;
@@ -963,6 +970,7 @@ function computeStateTax({
     manualExclusion: profile.retirementIncomeExclusion
   });
   const stateOrdinaryIncome = Math.max(0, ordinaryIncome - retirementExclusion - socialSecurityExclusion);
+  const remainingIncomeOffset = Math.max(0, -ordinaryIncome);
   const capitalLossTreatment = stateCapitalLossTreatmentBreakdown({
     profile,
     federalCapitalLossDeduction,
@@ -996,14 +1004,14 @@ function computeStateTax({
     capitalGainsTaxableBase = Math.max(0, capitalGains - deduction);
     tax = taxFromBrackets(capitalGainsTaxableBase, profile.brackets);
   } else if (profile.capitalGainsTreatment === "excluded") {
-    ordinaryTaxableBase = Math.max(0, stateOrdinaryIncome + qualified - deduction);
+    ordinaryTaxableBase = Math.max(0, stateOrdinaryIncome + qualified - remainingIncomeOffset - deduction);
     tax = taxFromBrackets(ordinaryTaxableBase, profile.brackets);
   } else if (profile.treatCapitalGainsAsOrdinary !== false || profile.capitalGainsTreatment === "ordinary") {
-    ordinaryTaxableBase = Math.max(0, stateOrdinaryIncome + capitalGains + qualified - deduction);
+    ordinaryTaxableBase = Math.max(0, stateOrdinaryIncome + capitalGains + qualified - remainingIncomeOffset - deduction);
     tax = taxFromBrackets(ordinaryTaxableBase, profile.brackets);
   } else {
     ordinaryTaxableBase = Math.max(0, stateOrdinaryIncome - deduction);
-    capitalGainsTaxableBase = Math.max(0, capitalGains + qualified);
+    capitalGainsTaxableBase = Math.max(0, capitalGains + qualified - remainingIncomeOffset);
     const stateOrdinaryTax = taxFromBrackets(ordinaryTaxableBase, profile.brackets);
     const stateCapitalGainsTax = capitalGainsTaxableBase * (profile.capitalGainsRate ?? 0);
     tax = round(stateOrdinaryTax + stateCapitalGainsTax, 6);

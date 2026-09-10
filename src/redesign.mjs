@@ -30,7 +30,7 @@ const MODULES = [
   { id: "portfolio",     label: "Portfolio",      desc: "Your accounts and holdings",             controls: 5,  required: true,  enabledByDefault: true  },
   { id: "healthcare",    label: "Healthcare",     desc: "Insurance until Medicare",               controls: 22, required: false, enabledByDefault: true  },
   { id: "medicare",      label: "Medicare/IRMAA", desc: "Premiums after 65",                       controls: 12, required: false, enabledByDefault: false },
-  { id: "other-income",  label: "Other income",   desc: "Social Security, work, pensions",         controls: 22, required: false, enabledByDefault: false },
+  { id: "other-income",  label: "Other income",   desc: "Social Security, work, pensions",         controls: 24, required: false, enabledByDefault: false },
   { id: "strategy",      label: "Strategy toolkit", desc: "Taxes, allocations, withdrawal rules",   controls: 43, required: false, enabledByDefault: true  },
   { id: "reserve",       label: "Cash reserve",   desc: "Bucket strategy",                          controls: 11, required: false, enabledByDefault: false },
   { id: "monte-carlo",   label: "Monte Carlo",    desc: "Return model and sampling",                controls: 20, required: false, enabledByDefault: true  },
@@ -929,8 +929,7 @@ function syncWorkspaceSummary() {
   pctEl.textContent = `${Math.round(successRate * 100)}%`;
   pctEl.removeAttribute("data-empty");
   pctEl.dataset.tier = tierFor(successRate);
-  const targetSpend = Number(document.getElementById("targetSpend")?.value) || 0;
-  labelEl.textContent = `Money lasts at $${targetSpend.toLocaleString()}/yr`;
+  labelEl.textContent = `Required spending funded over ${latest?.scenario?.planYears ?? 0} years`;
   const median = pickEndingValue(latest, 0.5);
   const fifth  = pickEndingValue(latest, 0.05);
   const spendRate = allInSpendRate(latest);
@@ -1052,19 +1051,19 @@ function renderKpiStrip() {
       <div class="dh-result-grid">
         <div class="dh-hero">
           <div class="dh-eyebrow">Monte Carlo</div>
-          <div class="dh-result-title">Money lasts in</div>
+          <div class="dh-result-title">Required spend funded</div>
           <div class="dh-big mono" data-empty="true">—</div>
           <div class="dh-sub">Run the model to see simulated futures</div>
         </div>
         <div class="dh-hero dh-historical">
           <div class="dh-eyebrow">Historical</div>
-          <div class="dh-result-title">Money lasted in</div>
+          <div class="dh-result-title">Required spend funded</div>
           <div class="dh-big mono" data-empty="true">—</div>
           <div class="dh-sub">Run the model to see historical paths</div>
         </div>
       </div>
       <div class="dh-kpis">
-        <div class="dh-kpi"><span class="kpi-label">Lifetime tax</span><span class="kpi-big mono">—</span></div>
+        <div class="dh-kpi"><span class="kpi-label">Modeled tax</span><span class="kpi-big mono">—</span></div>
         <div class="dh-kpi"><span class="kpi-label">Healthcare</span><span class="kpi-big mono">—</span></div>
         <div class="dh-kpi"><span class="kpi-label">All-in spend rate</span><span class="kpi-big mono">—</span></div>
         <div class="dh-kpi"><span class="kpi-label">After-tax bequest</span><span class="kpi-big mono">—</span></div>
@@ -1100,7 +1099,7 @@ function renderKpiStrip() {
         </div>
       </div>
       <div class="dh-kpis">
-        <div class="dh-kpi"><span class="kpi-label">Lifetime tax</span><span class="kpi-big mono">—</span></div>
+        <div class="dh-kpi"><span class="kpi-label">Modeled tax</span><span class="kpi-big mono">—</span></div>
         <div class="dh-kpi"><span class="kpi-label">Healthcare</span><span class="kpi-big mono">—</span></div>
         <div class="dh-kpi"><span class="kpi-label">All-in spend rate</span><span class="kpi-big mono">—</span></div>
         <div class="dh-kpi"><span class="kpi-label">After-tax bequest</span><span class="kpi-big mono">—</span></div>
@@ -1118,7 +1117,7 @@ function renderKpiStrip() {
     <div class="dh-result-grid">
       <div class="dh-hero" data-tier="${tierFor(pct)}" data-streaming="${streaming}">
         <div class="dh-eyebrow">Monte Carlo</div>
-        <div class="dh-result-title">Money lasts in</div>
+        <div class="dh-result-title">Required spend funded</div>
         <div class="dh-big mono">${pctInt}<span class="dh-big-unit">%</span>${spinner}</div>
         <div class="dh-sub">${subline}</div>
         <div class="dh-mini-grid">
@@ -1129,7 +1128,7 @@ function renderKpiStrip() {
       </div>
       <div class="dh-hero dh-historical" data-tier="${tierFor(historical?.successRate ?? 0)}" data-empty="${historical ? "false" : "true"}">
         <div class="dh-eyebrow">Historical</div>
-        <div class="dh-result-title">Money lasted in</div>
+        <div class="dh-result-title">Required spend funded</div>
         <div class="dh-big mono">${historical ? Math.round(historical.successRate * 100) : "—"}${historical ? `<span class="dh-big-unit">%</span>` : ""}</div>
         <div class="dh-sub">${historicalSubline}</div>
         <div class="dh-mini-grid">
@@ -1140,7 +1139,7 @@ function renderKpiStrip() {
       </div>
     </div>
     <div class="dh-kpis">
-      <div class="dh-kpi"><span class="kpi-label">Lifetime tax</span><span class="kpi-big mono">${formatCurrencyShort(summary.lifetimeTax)}</span></div>
+      <div class="dh-kpi"><span class="kpi-label">Modeled tax</span><span class="kpi-big mono">${formatCurrencyShort(summary.lifetimeTax)}</span></div>
       <div class="dh-kpi"><span class="kpi-label">Healthcare</span><span class="kpi-big mono">${formatCurrencyShort(summary.healthcare)}</span></div>
       <div class="dh-kpi"><span class="kpi-label">All-in spend rate</span><span class="kpi-big mono">${(summary.allInSpendRate*100).toFixed(1)}%</span></div>
       <div class="dh-kpi"><span class="kpi-label">After-tax bequest</span><span class="kpi-big mono">${formatCurrencyShort(summary.medianHeirValue)}</span></div>
@@ -1200,14 +1199,14 @@ function renderDecisionPanel() {
     <div class="decision-shell" data-tone="${escapeHtml(verdict?.tone ?? "warn")}">
       <div class="decision-main">
         <p class="r-section-eyebrow">Decision</p>
-        <h2>${decisionVerdictLabel(verdict?.label)} at ${formatRate(target)} target</h2>
+        <h2>${decisionVerdictLabel(verdict?.label, decision.lifetimeHorizon)} at ${formatRate(target)} target</h2>
         <p class="decision-headline">${escapeHtml(headline)}</p>
         <p class="decision-sub">${escapeHtml(verdict?.reason ?? "Evidence is still being evaluated.")}</p>
         ${diagnosisLine}
       </div>
       <div class="decision-evidence">
-        <div><span>Monte Carlo</span><strong>${formatRate(base?.monteCarlo?.successRate)}</strong></div>
-        <div><span>Historical</span><strong>${formatOptionalRate(base?.historical?.successRate)}</strong></div>
+        <div><span>Required-Spending Success</span><strong>${formatRate(base?.monteCarlo?.planningSuccessRate ?? base?.monteCarlo?.successRate)}</strong></div>
+        <div><span>Historical</span><strong>${formatOptionalRate(base?.historical?.planningSuccessRate ?? base?.historical?.successRate)}</strong></div>
         <div><span>Failed paths</span><strong>${numberText(anatomy.failedCount)}</strong></div>
       </div>
       <div class="decision-rescues">
@@ -1221,7 +1220,7 @@ function renderDecisionPanel() {
           <small>${failureTimingText(anatomy)}</small>
         </div>
         <div>
-          <span>Safe spending</span>
+          <span>Fixed-spend boundary</span>
           <strong>${safe?.available ? `${formatCurrencyShort(safe.safeTotalSpend)}/yr` : "n/a"}</strong>
           <small>${escapeHtml(safeSpendingText(safe))}</small>
         </div>
@@ -1250,27 +1249,29 @@ function renderDecisionPanel() {
   });
 }
 
-function decisionHeadline(decision) {
+export function decisionHeadline(decision) {
   const base = decision.base;
   const spend = base?.scenarioSummary?.targetSpend;
   const parts = [
-    `Base plan: ${formatRate(base?.monteCarlo?.successRate)} Monte Carlo success at ${formatCurrencyShort(spend)}/year.`
+    `Base plan: ${formatRate(base?.monteCarlo?.planningSuccessRate ?? base?.monteCarlo?.successRate)} Monte Carlo success funding required spending at a ${formatCurrencyShort(spend)}/year target.`
   ];
+  if (decision.lifetimeHorizon?.complete === false) parts.push(`Limited horizon: ${decision.lifetimeHorizon.missingYears} years before the last configured death are not modeled.`);
+  if (base?.spendingOutcome) parts.push(`Modeled spending: ${formatCurrencyShort(base.spendingOutcome.minimumRealSpending)} to ${formatCurrencyShort(base.spendingOutcome.maximumRealSpending)}/year in starting dollars.`);
   const safe = decision.safeSpending;
   if (safe?.available) {
     if (safe.status === "headroom") {
-      parts.push(`Safe spending is about ${formatCurrencyShort(safe.safeTotalSpend)}/year${safe.headroomCapped ? " or more" : ""}, so the current plan has room.`);
+      parts.push(`The fixed-spending portfolio-survival test supports about ${formatCurrencyShort(safe.safeTotalSpend)}/year${safe.headroomCapped ? " or more" : ""} over the modeled horizon; required-spending fulfillment is evaluated separately.`);
     } else if (safe.status === "required-unsustainable") {
       parts.push("Even with no flexible spending the plan misses the target, so income may be required.");
     } else {
-      parts.push(`Safe spending is about ${formatCurrencyShort(safe.safeTotalSpend)}/year, a ${formatCurrencyShort(Math.abs(safe.gap))} gap from the ${formatCurrencyShort(safe.currentTargetSpend)} target.`);
+      parts.push(`The fixed-spending portfolio-survival boundary is about ${formatCurrencyShort(safe.safeTotalSpend)}/year, a ${formatCurrencyShort(Math.abs(safe.gap))} gap from the ${formatCurrencyShort(safe.currentTargetSpend)} target.`);
     }
   }
   const best = decision.bestOption;
   if (best && best.kind !== "base") {
     parts.push(best.status === "target-met"
-      ? `Best fix that meets the target: ${rescueTitle(best)} (${formatRate(best.monteCarlo?.successRate)} success).`
-      : `Closest tested option: ${rescueTitle(best)} (${formatRate(best.monteCarlo?.successRate)} success, still short of target).`);
+      ? `Best fix that meets the target: ${rescueTitle(best)} (${formatRate(best.monteCarlo?.planningSuccessRate ?? best.monteCarlo?.successRate)} success).`
+      : `Closest tested option: ${rescueTitle(best)} (${formatRate(best.monteCarlo?.planningSuccessRate ?? best.monteCarlo?.successRate)} required-spending success, still short of target).`);
   }
   return parts.join(" ");
 }
@@ -1350,7 +1351,7 @@ function capitalizeFirst(text) {
 }
 
 function rescueCardHtml(option, base, confidenceReport = {}, index = 0) {
-  const delta = option.delta?.monteCarloSuccessRate ?? 0;
+  const delta = option.delta?.planningSuccessRate ?? option.delta?.monteCarloSuccessRate ?? 0;
   const title = rescueTitle(option);
   const tier = rescueTierLabel(option.kind);
   const confidence = rescueConfidenceFor(option, confidenceReport);
@@ -1364,8 +1365,9 @@ function rescueCardHtml(option, base, confidenceReport = {}, index = 0) {
     <article class="decision-rescue" data-status="${escapeHtml(option.status ?? "tested")}">
       <span>${escapeHtml(tier)}</span>
       <strong>${escapeHtml(capitalizeFirst(title))}</strong>
-      <small>${formatRate(base?.monteCarlo?.successRate)} -> ${formatRate(option.monteCarlo?.successRate)} (${signedRate(delta)})</small>
-      <small>Historical ${formatOptionalRate(base?.historical?.successRate)} -> ${formatOptionalRate(option.historical?.successRate)}</small>
+      <small>Required-spending success ${formatRate(base?.monteCarlo?.planningSuccessRate ?? base?.monteCarlo?.successRate)} -> ${formatRate(option.monteCarlo?.planningSuccessRate ?? option.monteCarlo?.successRate)} (${signedRate(delta)})</small>
+      <small>Historical ${formatOptionalRate(base?.historical?.planningSuccessRate ?? base?.historical?.successRate)} -> ${formatOptionalRate(option.historical?.planningSuccessRate ?? option.historical?.successRate)}</small>
+      ${option.spendingOutcome ? `<small>${escapeHtml(rescueSpendingOutcomeText(option))}</small>` : ""}
       ${guardrailSummary ? `<small>${escapeHtml(guardrailSummary)}</small>` : ""}
       <small>${escapeHtml(sideEffect)}</small>
       ${confidenceBadgeHtml(confidence)}
@@ -1416,7 +1418,12 @@ function riskBasedGuardrailTableHtml(decision = {}) {
     </div>`;
 }
 
-function decisionVerdictLabel(label) {
+export function decisionVerdictLabel(label, lifetimeHorizon) {
+  if (lifetimeHorizon?.complete === false) {
+    if (label === "safe") return "Limited-horizon test passes";
+    if (label === "unsafe") return "Limited-horizon test fails";
+    return "Limited-horizon result is fragile";
+  }
   if (label === "safe") return "Plan looks safe";
   if (label === "unsafe") return "Plan is unsafe";
   return "Plan is fragile";
@@ -1536,7 +1543,7 @@ function confidenceLevelText(level) {
 function historicalSummary(latest) {
   const list = Array.isArray(latest?.backtests) ? latest.backtests : [];
   if (!list.length) return null;
-  const successes = list.filter((b) => b?.success).length;
+  const successes = list.filter((b) => b?.planningSuccess ?? b?.success).length;
   const ranked = list
     .map((backtest, index) => ({
       index,
@@ -2624,12 +2631,13 @@ function planYears(latest) {
 function monteCarloScenarios(latest) {
   return latest?.monteCarlo?.scenarios ?? [];
 }
-function computeSuccessRate(latest) {
+export function computeSuccessRate(latest) {
   const summary = latest?.monteCarlo?.summary;
+  if (summary && Number.isFinite(summary.planningSuccessRate)) return summary.planningSuccessRate;
   if (summary && Number.isFinite(summary.successRate)) return summary.successRate;
   const list = monteCarloScenarios(latest);
   if (!list.length) return 0;
-  return list.filter(s => s.success).length / list.length;
+  return list.filter(s => s.planningSuccess ?? s.success).length / list.length;
 }
 function pickEndingValue(latest, percentile) {
   const values = monteCarloScenarios(latest)
@@ -2791,16 +2799,16 @@ function renderRescueComparisonTable() {
     return;
   }
 
-  const headers = ["Rescue Strategy", "Optimized For", "Lifestyle Impact", "MC Success", "Historical Success", "Subsidy Change", "Confidence", "Result", "Apply"];
+  const headers = ["Rescue Strategy", "Optimized For", "Modeled Spending", "MC Required-Spending Success", "Historical Required-Spending Success", "Subsidy Change", "Confidence", "Result", "Apply"];
   const thead = `<thead><tr>${headers.map(h => `<th>${escapeHtml(h)}</th>`).join("")}</tr></thead>`;
 
   const rowsHtml = rescues.map((option, index) => {
     const title = capitalizeFirst(rescueTitle(option));
     const optimization = rescueOptimizationText(option, baseScenario);
-    const tier = rescueTierLabel(option.kind);
+    const tier = rescueSpendingOutcomeText(option) || rescueTierLabel(option.kind);
     const confidence = rescueConfidenceFor(option, latest?.confidence);
-    const mcRate = option.monteCarlo?.successRate;
-    const mcDelta = option.delta?.monteCarloSuccessRate ?? 0;
+    const mcRate = option.monteCarlo?.planningSuccessRate ?? option.monteCarlo?.successRate;
+    const mcDelta = option.delta?.planningSuccessRate ?? option.delta?.monteCarloSuccessRate ?? 0;
     const mcRuns = Number.isFinite(option.monteCarlo?.runs)
       ? `<span class="ink-3" style="display:block;font-size:0.68rem;">${option.monteCarlo.runs.toLocaleString("en-US")} MC runs</span>`
       : "";
@@ -2809,7 +2817,7 @@ function renderRescueComparisonTable() {
     const mcText = `${formatRate(mcRate)} <span class="ink-3" style="font-size:0.72rem;">(${signedRate(mcDelta)})</span>${mcRuns}`;
     
     // Historical Success formatting
-    const histRate = option.historical?.successRate;
+    const histRate = option.historical?.planningSuccessRate ?? option.historical?.successRate;
     const histText = formatOptionalRate(histRate);
 
     // Subsidy formatting
@@ -2828,8 +2836,8 @@ function renderRescueComparisonTable() {
       statusText = "Target Met";
       statusClass = "positive";
     } else if (option.status === "best-tested") {
-      statusText = "Best Tested";
-      statusClass = "positive";
+      statusText = "Below Target";
+      statusClass = "text-secondary";
     } else if (option.status === "discarded") {
       statusText = "Negligible Effect";
       statusClass = "text-muted";
@@ -2901,7 +2909,7 @@ function renderTradeoffFrontierTable() {
     return;
   }
 
-  const headers = ["Alternative Plan", "Annual Spend", "MC Success", "Healthcare Subsidy", "Estimated Legacy", "Apply"];
+  const headers = ["Tested Alternative", "Median Average Real Spend", "Required-Spending Success", "First-Year Subsidy", "Median After-Tax Legacy", "Apply"];
   const thead = `<thead><tr>${headers.map(h => `<th>${escapeHtml(h)}</th>`).join("")}</tr></thead>`;
 
   const rowsHtml = decision.tradeoffFrontier.map((plan, index) => {
@@ -2909,7 +2917,7 @@ function renderTradeoffFrontierTable() {
     const spendText = formatCurrencyShort(plan.spend) + " / yr";
     const mcText = formatRate(plan.resilience);
     const subsidyText = plan.healthcare > 0 ? formatCurrencyShort(plan.healthcare) + " / yr" : "—";
-    const bequestText = formatCurrencyShort(plan.bequest);
+    const bequestText = Number.isFinite(plan.bequest) ? formatCurrencyShort(plan.bequest) : "Unavailable";
 
     const canApply = !!plan.candidate?.scenario && typeof window !== "undefined" && typeof window.__pslApplyRescueScenarioToWorkspace === "function";
 
@@ -2942,7 +2950,7 @@ function renderTradeoffFrontierTable() {
       if (!confirmed) return;
       window.__pslApplyRescueScenarioToWorkspace(plan.candidate.scenario, {
         label: plan.label,
-        changes: [`Adjust target spend to ${formatCurrencyShort(plan.spend)} / yr`, `Modify Roth conversion strategy for ${plan.label}`]
+        changes: [`Adjust target spend to ${formatCurrencyShort(plan.candidate.scenario.targetSpend)} / yr`, `Modify Roth conversion strategy for ${plan.label}`]
       });
       runModelFromRedesign({ cancelActive: true, stream: true });
     });
@@ -3128,7 +3136,7 @@ export function rescueOptimizationText(option, baseScenario = {}) {
     : "";
   switch (option?.kind) {
     case "safeSpending":
-      return `Maximum annual spending that still clears the decision target.${changeSummary}`;
+      return `Tested portfolio-survival spending boundary; the required-spending floor is checked separately.${changeSummary}`;
     case "discretionaryCut":
       return `Flexible-spending cut during early market stress.${changeSummary}`;
     case "riskBasedGuardrailsRescue":
@@ -3166,4 +3174,12 @@ export function rescueOptimizationText(option, baseScenario = {}) {
     default:
       return `${option?.label ?? "Tested rescue configuration"}.${changeSummary}`;
   }
+}
+
+export function rescueSpendingOutcomeText(option = {}) {
+  const outcome = option.spendingOutcome;
+  if (!outcome) return "";
+  const range = `${formatCurrencyShort(outcome.minimumRealSpending)} to ${formatCurrencyShort(outcome.maximumRealSpending)}/yr in starting dollars`;
+  return outcome.essentialSatisfied ? `${range}; required floor funded on the deterministic path.`
+    : `${range}; ${outcome.yearsBelowEssentialFloor} years below the required floor, ${formatCurrencyShort(outcome.totalEssentialShortfall)} total shortfall.`;
 }

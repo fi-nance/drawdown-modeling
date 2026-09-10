@@ -1983,6 +1983,10 @@ body[data-screen="persona"]::before {
   opacity: 0.5;
 }
 .decision-guardrail-table {
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  grid-template-columns: minmax(0, 1fr);
   grid-column: 1 / -1;
   border-top: 1px solid var(--border);
   padding-top: 0.85rem;

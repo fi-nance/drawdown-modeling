@@ -49,6 +49,10 @@ const HEADER_ALIASES = buildAliasMap({
   ],
   holdingPeriod: ["holdingPeriod", "holding period", "holding term", "term", "long short", "long/short"],
   beneficiaryType: ["beneficiaryType", "beneficiary type", "beneficiary", "inherited rule", "inheritance rule", "heir type"],
+  beneficiaryId: ["beneficiaryId", "beneficiary id", "heir id"],
+  beneficiaryAge: ["beneficiaryAge", "beneficiary age", "heir age"],
+  rothSource: ["rothSource", "roth source"],
+  conversionYear: ["conversionYear", "conversion year"],
   owner: ["owner", "account owner", "owned by", "registration", "account registration", "titling"]
 });
 
@@ -78,16 +82,7 @@ const ACCOUNT_TYPE_ALIASES = buildAliasMap({
     "roth",
     "roth ira",
     "roth 401k",
-    "roth 401(k)",
-    "after tax",
-    "after-tax",
-    "aftertax",
-    "after tax 401k",
-    "after-tax 401k",
-    "aftertax 401k",
-    "after tax 401(k)",
-    "after-tax 401(k)",
-    "aftertax 401(k)"
+    "roth 401(k)"
   ],
   hsa: ["hsa", "health savings account"]
 });
@@ -240,7 +235,20 @@ export function normalizeImportedAsset(asset, index = 0) {
   }
   const accountType = canonicalAccountType(asset.accountType);
   if (!VALID_ACCOUNT_TYPES.has(accountType)) {
+    if (/after[\s-]*tax/i.test(String(asset.accountType))) {
+      throw new Error(`Asset ${index + 1}: non-Roth after-tax accounts require separate basis/earnings tracking and are not supported. Use Roth only for a designated Roth account.`);
+    }
     throw new Error(`Asset ${index + 1} has an unsupported accountType.`);
+  }
+  const conversionYear = numberOrNull(asset.conversionYear);
+  if (asset.rothSource === "conversion" && (accountType !== "roth"
+    || !Number.isInteger(conversionYear) || conversionYear < 1900)) {
+    throw new Error(`Asset ${index + 1}: a Roth conversion requires a Roth account and a valid integer conversion year.`);
+  }
+  const beneficiaryAge = numberOrNull(asset.beneficiaryAge);
+  if (asset.beneficiaryAge != null && String(asset.beneficiaryAge).trim() !== ""
+    && (beneficiaryAge === null || beneficiaryAge < 0 || beneficiaryAge > 120)) {
+    throw new Error(`Asset ${index + 1}: beneficiary age must be between 0 and 120.`);
   }
   if (!Number.isFinite(numberOrNull(asset.units))) {
     throw new Error(`Asset ${index + 1} is missing a numeric units value.`);
@@ -269,6 +277,9 @@ export function normalizeImportedAsset(asset, index = 0) {
     qualifiedDividendShare: firstFiniteNumber(asset.qualifiedDividendShare, defaultQualifiedDividendShare(assetClass)),
     holdingPeriod: canonicalHoldingPeriod(asset.holdingPeriod ?? "long"),
     beneficiaryType: canonicalBeneficiaryType(asset.beneficiaryType ?? "default"),
+    ...(String(asset.beneficiaryId ?? "").trim() ? { beneficiaryId: String(asset.beneficiaryId).trim() } : {}),
+    ...(beneficiaryAge !== null ? { beneficiaryAge } : {}),
+    ...(asset.rothSource === "conversion" ? { rothSource: "conversion", conversionYear } : {}),
     owner: canonicalOwner(asset.owner ?? "primary", accountType)
   };
 }

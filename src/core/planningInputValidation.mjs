@@ -1,3 +1,5 @@
+import { normalizeIncomeStream } from "./simulation/incomeStreams.mjs";
+
 export const MIN_USER_PLANNING_ANNUAL_SPEND = 1000;
 
 const USER_PLANNING_SPENDING_MODES = new Set([
@@ -17,6 +19,16 @@ export function validateUserPlanningScenario(scenario = {}, options = {}) {
   const minAnnualSpend = Math.max(1, Number(options.minAnnualSpend) || MIN_USER_PLANNING_ANNUAL_SPEND);
   const errors = [];
   const spendingMode = normalizeUserPlanningSpendingMode(scenario.spendingStrategy?.mode);
+  for (const field of ["socialSecuritySurvivorStartAge", "spouseSocialSecuritySurvivorStartAge"]) {
+    const value = scenario[field];
+    if (value != null && String(value).trim() !== "" && !(finiteNumber(value) >= 60 && finiteNumber(value) <= 120)) {
+      errors.push({ field, controlId: field, message: "Aged survivor Social Security start age must be between 60 and 120, or blank for the first eligible year." });
+    }
+  }
+  for (const [index, stream] of (Array.isArray(scenario.incomeStreams) ? scenario.incomeStreams : []).entries()) {
+    try { normalizeIncomeStream(stream, index); }
+    catch (error) { errors.push({ field: "incomeStreams", controlId: "incomeStreamList", message: error.message }); }
+  }
 
   if (spendingMode === "discretionaryGuardrails") {
     const essentialSpend = finiteNumber(scenario.spendingStrategy?.essentialSpend);

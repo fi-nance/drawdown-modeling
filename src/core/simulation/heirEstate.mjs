@@ -4,8 +4,10 @@
 import { marketValue } from "../portfolio.mjs";
 import { taxFromBrackets } from "../tax.mjs?v=20260613-rescue-precision";
 import { FEDERAL_TAX_2026, buildTaxProfile } from "../../data/taxData.mjs";
+import { STATE_ABBREVIATIONS } from "../../data/geo.mjs";
 import { round } from "../utils.mjs";
 import { DEFAULT_SCENARIO } from "./scenario.mjs";
+import { optionalFiniteNumber } from "./guards.mjs";
 
 // Federal estate tax: the 2026 exclusion is $15,000,000 per decedent. OBBBA
 // (2025) made the higher TCJA exclusion permanent and set it to $15M (indexed);
@@ -33,13 +35,23 @@ const STATE_INHERITANCE_TAX_LINEAL = Object.freeze({
 });
 
 const BENEFICIARY_TYPES = Object.freeze(["spouse", "nonSpouse10Yr", "eligibleDesignated"]);
+const STATE_CODES = new Map(Object.entries(STATE_ABBREVIATIONS)
+  .flatMap(([name, code]) => [[name.toUpperCase(), code], [code, code]]));
+
+function stateCode(value) {
+  if (value == null || String(value).trim() === "") return null;
+  const key = String(value).trim().toUpperCase();
+  return STATE_CODES.get(key) ?? key;
+}
 
 export function inheritanceTaxStateForScenario(scenario = {}) {
-  if (Object.prototype.hasOwnProperty.call(scenario ?? {}, "heirState")) {
-    return scenario.heirState || null;
+  // Inheritance tax follows the decedent's domicile/property nexus, not the
+  // heir's income-tax residence. Ignore the legacy heirState control.
+  if (Object.prototype.hasOwnProperty.call(scenario ?? {}, "inheritanceTaxState")) {
+    return stateCode(scenario.inheritanceTaxState);
   }
   if (Object.prototype.hasOwnProperty.call(scenario ?? {}, "state")) {
-    return scenario.state ?? null;
+    return stateCode(scenario.state);
   }
   return undefined;
 }
@@ -96,9 +108,9 @@ export function estimateHeirValueBreakdown(portfolio, ordinaryTaxRate = 0.24, op
   const drag = Math.max(-1, Math.min(1, Number(nonSpouse10YrTaxDrag) || 0));
   const discount = Math.max(-1, Math.min(1, Number(eligibleDesignatedTaxDiscount) || 0));
 
-  const state = Object.prototype.hasOwnProperty.call(opts, "state")
+  const state = stateCode(Object.prototype.hasOwnProperty.call(opts, "state")
     ? opts.state
-    : opts.taxProfile?.state?.state ?? null;
+    : opts.taxProfile?.state?.state ?? null);
 
   // Heir taxes are always computed as a SINGLE filer (the documented model);
   // a household MFJ/HoH profile is re-resolved to Single brackets and the
@@ -125,6 +137,7 @@ export function estimateHeirValueBreakdown(portfolio, ordinaryTaxRate = 0.24, op
   let nonSpouse10YrBeneficiaryValue = 0;
   let eligibleDesignatedBeneficiaryValue = 0;
   let perAccountBeneficiaryOverrideCount = 0;
+  const inheritanceBeneficiaries = new Map();
 
   const inheritedAccountsByType = Object.fromEntries(
     BENEFICIARY_TYPES.map((type) => [type, { traditionalValue: 0, hsaValue: 0 }])
@@ -148,6 +161,20 @@ export function estimateHeirValueBreakdown(portfolio, ordinaryTaxRate = 0.24, op
     if (assetBeneficiaryType === "spouse") spouseBeneficiaryValue += value;
     else if (assetBeneficiaryType === "eligibleDesignated") eligibleDesignatedBeneficiaryValue += value;
     else nonSpouse10YrBeneficiaryValue += value;
+
+    if (assetBeneficiaryType !== "spouse" && value > 0) {
+      // Untagged accounts share the single modeled non-spouse heir. Explicit
+      // beneficiary IDs let imported lots share one exemption per person.
+      const id = String(asset.beneficiaryId ?? "household-non-spouse");
+      const bucket = inheritanceBeneficiaries.get(id) ?? { value: 0, age: null };
+      const age = optionalFiniteNumber(asset.beneficiaryAge);
+      if (bucket.age !== null && age !== null && bucket.age !== age) {
+        throw new RangeError(`Conflicting ages for beneficiary ${id}.`);
+      }
+      bucket.value += value;
+      bucket.age = age ?? bucket.age;
+      inheritanceBeneficiaries.set(id, bucket);
+    }
 
     if (asset.accountType === "taxable") {
       const basis = (asset.costBasisPerUnit ?? asset.price) * (asset.units ?? 0);
@@ -206,8 +233,15 @@ export function estimateHeirValueBreakdown(portfolio, ordinaryTaxRate = 0.24, op
   // heirs face higher rates not modeled (relationship class isn't captured).
   let stateInheritanceTax = 0;
   if (nonSpouseBeneficiaryValue > 0 && state) {
-    const rate = STATE_INHERITANCE_TAX_LINEAL[String(state).toUpperCase()] ?? 0;
-    stateInheritanceTax = nonSpouseBeneficiaryValue * rate;
+    const rate = STATE_INHERITANCE_TAX_LINEAL[state] ?? 0;
+    for (const beneficiary of inheritanceBeneficiaries.values()) {
+      // Neb. Rev. Stat. 77-2004: $100k per qualifying heir, no inflation
+      // indexing; qualifying heirs under 22 are exempt under current law.
+      const age = beneficiary.age ?? optionalFiniteNumber(heirAge) ?? 30;
+      const exempt = state === "NE" && age < 22;
+      const exemption = state === "NE" ? 100000 : 0;
+      if (!exempt) stateInheritanceTax += Math.max(0, beneficiary.value - exemption) * rate;
+    }
   }
 
   const totalIncomeTaxEstimate = traditionalIncomeTaxEstimate + hsaIncomeTaxEstimate;
@@ -243,6 +277,7 @@ export function estimateHeirValueBreakdown(portfolio, ordinaryTaxRate = 0.24, op
     federalEstateTax,
     federalEstateExclusion,
     stateInheritanceTax,
+    inheritanceBeneficiaryCount: inheritanceBeneficiaries.size,
     heirTaxInflationIndex: index
   };
 

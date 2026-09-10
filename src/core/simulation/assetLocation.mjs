@@ -1,7 +1,7 @@
 // Extracted from simulation.mjs during the modular refactor.
 // Single responsibility: assetLocation. No behavior changes — pure code movement.
 
-import { marketValue, removeEmptyLots, sellFromLot } from "../portfolio.mjs";
+import { accountMetadata, marketValue, removeEmptyLots, sellFromLot } from "../portfolio.mjs";
 import { round } from "../utils.mjs";
 import { applyRebalanceTaxCharacter } from "./allocation.mjs";
 import { CASH_RAISED_EPSILON, GROWTH_ASSET_CLASSES } from "./constants.mjs";
@@ -72,6 +72,7 @@ function applyTaxEfficientAssetLocation(portfolio, { calendarYear = null } = {})
       assetClass: shelteredSale.assetClass,
       amount: swapAmount,
       source: traditionalGrowthAsset,
+      account: taxableSale,
       calendarYear,
       label: "asset location"
     });
@@ -80,6 +81,7 @@ function applyTaxEfficientAssetLocation(portfolio, { calendarYear = null } = {})
       assetClass: taxableSale.assetClass,
       amount: swapAmount,
       source: taxableIncomeAsset,
+      account: shelteredSale,
       calendarYear,
       label: "asset location"
     });
@@ -119,6 +121,7 @@ function addReplacementLot(portfolio, {
   assetClass,
   amount,
   source = {},
+  account = {},
   calendarYear = null,
   label = "replacement"
 }) {
@@ -128,7 +131,7 @@ function addReplacementLot(portfolio, {
     name: `${assetClassLabel(assetClass)} ${label}`,
     accountType,
     assetClass,
-    beneficiaryType: source.beneficiaryType ?? "default",
+    ...accountMetadata(account),
     units: round(amount / price, 8),
     price: round(price, 8),
     costBasisPerUnit: round(price, 8),

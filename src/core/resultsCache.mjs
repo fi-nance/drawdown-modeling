@@ -11,7 +11,8 @@
    only a small number of full Monte Carlo timelines so high-run-count plans do
    not exhaust the renderer. */
 
-export const RESULTS_CACHE_KEY = "portfolio-success-lab:results-cache:current";
+export const MODEL_VERSION = "2026-09-08-retirement-audit";
+export const RESULTS_CACHE_KEY = `portfolio-success-lab:results-cache:${MODEL_VERSION}`;
 
 // Used by tests; defaults to globalThis.sessionStorage in the browser.
 function defaultStorage() {
@@ -32,6 +33,8 @@ export function compactLatestForCache(value) {
   const compactScenario = (s) => ({
     id: s.id,
     success: s.success,
+    planningSuccess: s.planningSuccess,
+    spendingOutcome: s.spendingOutcome,
     endingValue: s.endingValue,
     heirValue: s.heirValue,
     heirValueBreakdown: s.heirValueBreakdown,
@@ -43,6 +46,9 @@ export function compactLatestForCache(value) {
   const compactBacktest = (b) => ({
     id: b.id,
     success: b.success,
+    planningSuccess: b.planningSuccess,
+    spendingOutcome: b.spendingOutcome,
+    lifetimeHorizon: b.lifetimeHorizon,
     endingValue: b.endingValue,
     heirValue: b.heirValue,
     heirValueBreakdown: b.heirValueBreakdown,

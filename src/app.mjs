@@ -9,6 +9,8 @@ import {
 import { portfolioValue } from "./core/portfolio.mjs";
 import { refreshAssetPrices, refreshSummaryText } from "./core/priceRefresh.mjs?v=20260613-deployed-price-proxy";
 import { actionConfidenceFor, buildConfidenceReport } from "./core/confidence.mjs";
+import { normalizeDecisionProfile } from "./core/decisionEngine.mjs?v=20260613-long-horizon-progress-b";
+import { normalizeIncomeStream } from "./core/simulation/incomeStreams.mjs";
 import { createSetupBackup, parseSetupBackup, SETUP_BACKUP_PRIVACY_NOTICE } from "./core/setupBackup.mjs";
 import { cacheLatestResults, clearCachedLatest, restoreCachedLatest } from "./core/resultsCache.mjs";
 import { createResultAuditBundle, RESULT_AUDIT_BUNDLE_PRIVACY_NOTICE } from "./core/resultAuditBundle.mjs";
@@ -216,9 +218,11 @@ const CONTROL_IDS = [
   "earnedIncomeInflationAdjusted",
   "socialSecurityAnnualBenefit",
   "socialSecurityStartAge",
+  "socialSecuritySurvivorStartAge",
   "socialSecurityInflationAdjusted",
   "spouseSocialSecurityAnnualBenefit",
   "spouseSocialSecurityStartAge",
+  "spouseSocialSecuritySurvivorStartAge",
   "spouseSocialSecurityInflationAdjusted",
   "heirType",
   "nonSpouse10YrTaxDrag",
@@ -448,16 +452,17 @@ const els = {
   earnedIncomeInflationAdjusted: document.querySelector("#earnedIncomeInflationAdjusted"),
   socialSecurityAnnualBenefit: document.querySelector("#socialSecurityAnnualBenefit"),
   socialSecurityStartAge: document.querySelector("#socialSecurityStartAge"),
+  socialSecuritySurvivorStartAge: document.querySelector("#socialSecuritySurvivorStartAge"),
   socialSecurityInflationAdjusted: document.querySelector("#socialSecurityInflationAdjusted"),
   spouseSocialSecurityAnnualBenefit: document.querySelector("#spouseSocialSecurityAnnualBenefit"),
   spouseSocialSecurityStartAge: document.querySelector("#spouseSocialSecurityStartAge"),
+  spouseSocialSecuritySurvivorStartAge: document.querySelector("#spouseSocialSecuritySurvivorStartAge"),
   spouseSocialSecurityInflationAdjusted: document.querySelector("#spouseSocialSecurityInflationAdjusted"),
   heirType: document.querySelector("#heirType"),
   nonSpouse10YrTaxDrag: document.querySelector("#nonSpouse10YrTaxDrag"),
   eligibleDesignatedTaxDiscount: document.querySelector("#eligibleDesignatedTaxDiscount"),
   heirBaseIncome: document.querySelector("#heirBaseIncome"),
   heirAge: document.querySelector("#heirAge"),
-  heirState: document.querySelector("#heirState"),
   rmdEnabled: document.querySelector("#rmdEnabled"),
   rmdStartAge: document.querySelector("#rmdStartAge"),
   irmaaEnabled: document.querySelector("#irmaaEnabled"),
@@ -1145,18 +1150,21 @@ function bindEvents() {
   });
 
   els.addIncomeStream?.addEventListener("click", () => {
-    incomeStreams.push({
+    const stream = {
       name: els.incomeStreamName?.value || "",
       type: els.incomeStreamType?.value || "pension",
       owner: els.incomeStreamOwner?.value === "spouse" ? "spouse" : "primary",
-      startAge: Number(els.incomeStreamStartAge?.value) || 65,
+      startAge: numberOrNull(els.incomeStreamStartAge?.value) ?? 65,
       endAge: numberOrNull(els.incomeStreamEndAge?.value),
       annualAmount: Number(els.incomeStreamAmount?.value) || 0,
       survivorPercent: numberOrNull(els.incomeStreamSurvivorPercent?.value) ?? 0,
       taxCharacter: els.incomeStreamTaxCharacter?.value === "taxFree" ? "taxFree" : "ordinary",
       inflationAdjusted: els.incomeStreamCola?.checked !== false,
       stateRetirementIncome: els.incomeStreamStateRetirement?.checked === true
-    });
+    };
+    try { normalizeIncomeStream(stream, incomeStreams.length); }
+    catch (error) { setStatus(error.message, true); return; }
+    incomeStreams.push(stream);
     renderIncomeStreams();
     saveStoredState();
   });
@@ -2002,7 +2010,10 @@ function applyScenarioControls(scenario) {
   setPercentControl("riskGuardrailMinimumAdjustmentPercent", riskGuardrails.minimumAdjustmentPercent);
   setNumberControl("riskGuardrailIncomeFloor", riskGuardrails.incomeFloor);
   setNumberControl("riskGuardrailIncomeCeiling", riskGuardrails.incomeCeiling);
-  if (Number.isFinite(Number(spending.essentialSpend)) && Number.isFinite(Number(spending.discretionarySpend))) {
+  if (scenario.requiredSpendingFloor != null) {
+    setNumberControl("decisionRequiredSpend", scenario.requiredSpendingFloor);
+    setNumberControl("decisionFlexibleSpend", Math.max(0, Number(scenario.targetSpend) - scenario.requiredSpendingFloor));
+  } else if (Number.isFinite(Number(spending.essentialSpend)) && Number.isFinite(Number(spending.discretionarySpend))) {
     setNumberControl("decisionRequiredSpend", spending.essentialSpend);
     setNumberControl("decisionFlexibleSpend", spending.discretionarySpend);
   }
@@ -2056,9 +2067,11 @@ function applyScenarioControls(scenario) {
 
   setNumberControl("socialSecurityAnnualBenefit", scenario.socialSecurityAnnualBenefit);
   setNumberControl("socialSecurityStartAge", scenario.socialSecurityStartAge);
+  setOptionalNumberControl("socialSecuritySurvivorStartAge", scenario.socialSecuritySurvivorStartAge);
   setCheckedControl("socialSecurityInflationAdjusted", scenario.socialSecurityInflationAdjusted);
   setNumberControl("spouseSocialSecurityAnnualBenefit", scenario.spouseSocialSecurityAnnualBenefit);
   setNumberControl("spouseSocialSecurityStartAge", scenario.spouseSocialSecurityStartAge);
+  setOptionalNumberControl("spouseSocialSecuritySurvivorStartAge", scenario.spouseSocialSecuritySurvivorStartAge);
   setCheckedControl("spouseSocialSecurityInflationAdjusted", scenario.spouseSocialSecurityInflationAdjusted);
   setNumberControl("medicareWages", scenario.medicareWages);
   setOptionalNumberControl("socialSecurityWages", scenario.socialSecurityWages);
@@ -2078,7 +2091,6 @@ function applyScenarioControls(scenario) {
   }
   setNumberControl("heirBaseIncome", scenario.heirBaseIncome ?? 80000);
   setNumberControl("heirAge", scenario.heirAge ?? 30);
-  setValueControl("heirState", scenario.heirState ?? "");
   setCheckedControl("irmaaEnabled", scenario.medicare?.irmaaEnabled);
   setOptionalNumberControl("medicarePartBEnrollees", scenario.medicare?.partBEnrollees);
   setOptionalNumberControl("medicarePartDEnrollees", scenario.medicare?.partDEnrollees);
@@ -2131,8 +2143,10 @@ function extractRescueScenarioOverride(scenario = {}) {
     "rothBasisOptimization",
     "medicare",
     "socialSecurityStartAge",
+    "socialSecuritySurvivorStartAge",
     "socialSecurityAnnualBenefit",
     "spouseSocialSecurityStartAge",
+    "spouseSocialSecuritySurvivorStartAge",
     "spouseSocialSecurityAnnualBenefit",
     "spouseMedicareWages",
     "spouseSocialSecurityWages",
@@ -2147,8 +2161,7 @@ function extractRescueScenarioOverride(scenario = {}) {
     "nonSpouse10YrTaxDrag",
     "eligibleDesignatedTaxDiscount",
     "heirBaseIncome",
-    "heirAge",
-    "heirState"
+    "heirAge"
   ];
   const override = {};
   for (const key of keys) {
@@ -2345,6 +2358,7 @@ async function runModels(opts = {}) {
     saveStoredState();
     const taxProfile = readTaxProfile();
     const decisionProfile = readDecisionProfile(scenario);
+    scenario.requiredSpendingFloor = normalizeDecisionProfile(decisionProfile, scenario).requiredSpend;
     const runs = clampInteger(Number(els.runs.value), 10, 5000);
     const seed = Number(els.seed.value) || 42;
     const historicalDataSource = readHistoricalDataSource();
@@ -2374,6 +2388,7 @@ async function runModels(opts = {}) {
     // Buffer used when stream=false so the cached display stays put until
     // we have the full new result.
     const confidenceContext = () => ({
+      assets,
       scenario,
       taxProfile,
       decision: latest?.decision ?? buffered.decision,
@@ -2398,7 +2413,7 @@ async function runModels(opts = {}) {
         historicalMode: els.backtestMode.value,
         plan: null,
         decision: { status: "running" },
-        confidence: buildConfidenceReport({ scenario, taxProfile, historicalCoverage, historicalAssetClasses }),
+        confidence: buildConfidenceReport({ assets, scenario, taxProfile, historicalCoverage, historicalAssetClasses }),
         monteCarlo: {
           scenarios: [],
           summary: null,
@@ -2545,6 +2560,7 @@ async function runModels(opts = {}) {
         plan: buffered.plan,
         decision: buffered.decision,
         confidence: buildConfidenceReport({
+          assets,
           scenario,
           taxProfile,
           decision: buffered.decision,
@@ -2726,6 +2742,7 @@ function effectiveMonteCarloSummary() {
   return {
     runs: scenarios.length,
     successRate: scenarios.filter((s) => s.success).length / scenarios.length,
+    planningSuccessRate: scenarios.filter((s) => s.planningSuccess ?? s.success).length / scenarios.length,
     medianEndingValue: pct(sortedEnding, 0.5),
     p10EndingValue: pct(sortedEnding, 0.1),
     p90EndingValue: pct(sortedEnding, 0.9),
@@ -3042,7 +3059,7 @@ function renderKpis() {
   const adjustedP10 = adjustAmount(summary.p10EndingValue, finalYear);
   const adjustedHeir = adjustAmount(summary.medianHeirValue, finalYear);
   const kpis = [
-    ["Success rate", percentFormatter.format(summary.successRate)],
+    ["Required-spending success", percentFormatter.format(summary.planningSuccessRate ?? summary.successRate)],
     ["Median ending", moneyFormatter.format(adjustedMedian)],
     ["P10 ending", moneyFormatter.format(adjustedP10)],
     ["Median after-tax bequest", moneyFormatter.format(adjustedHeir)],
@@ -3369,7 +3386,7 @@ function renderScenarioTable() {
   const progress = latest.monteCarlo.progress;
   const streaming = progress && !progress.complete;
   els.scenarioTable.innerHTML = tableHtml(
-    ["Run", "Success", "Ending", "After-tax heirs", "Failure year"],
+    ["Run", "Portfolio survived", "Ending", "After-tax heirs", "Depletion year"],
     rows,
     (index) => {
       const scenario = latest.monteCarlo.scenarios[index];
@@ -3420,8 +3437,8 @@ function renderBacktests() {
   const rangeNote = historicalRangeNote();
   const sourceLabel = historicalDataSourceLabel();
   const note = coverage
-    ? `Historical success ${percentFormatter.format(successRate)} across ${latest.backtests.length} paths. ${sourceLabel}; data version ${HISTORICAL_RETURN_DATA_VERSION}; ${coverage.startYear}-${coverage.endYear} available for this asset mix.${proxyNote}${rangeNote}`
-    : `Historical success ${percentFormatter.format(successRate)} across ${latest.backtests.length} paths.`;
+    ? `Historical portfolio survival ${percentFormatter.format(successRate)} across ${latest.backtests.length} paths. ${sourceLabel}; data version ${HISTORICAL_RETURN_DATA_VERSION}; ${coverage.startYear}-${coverage.endYear} available for this asset mix.${proxyNote}${rangeNote}`
+    : `Historical portfolio survival ${percentFormatter.format(successRate)} across ${latest.backtests.length} paths.`;
   const rows = latest.backtests.map((backtest) => {
     const finalYear = backtest.years?.at?.(-1) ?? backtest.lastYear ?? null;
     return [
@@ -3436,7 +3453,7 @@ function renderBacktests() {
   els.backtestTable.innerHTML = `
     <p class="table-note">${escapeHtml(note)}</p>
     ${tableHtml(
-      ["Path", "Success", "Ending", "After-tax heirs", "Failure year"],
+      ["Path", "Portfolio survived", "Ending", "After-tax heirs", "Depletion year"],
       rows,
       (index) => {
         const backtest = latest.backtests[index];
@@ -4536,7 +4553,7 @@ function drawDistribution() {
   // Header
   const summary = latest.monteCarlo.summary;
   svg.append(svgEl("text", { x: margin.left, y: 20, class: "chart-label" },
-    `${summary.runs} scenarios · ${Math.round(summary.successRate * 100)}% success`));
+    `${summary.runs} scenarios · ${Math.round(summary.successRate * 100)}% portfolio survival`));
 
   // X-axis labels
   svg.append(svgEl("text", { x: margin.left, y: height - 8, class: "axis-label" }, moneyFormatter.format(min)));
@@ -5183,9 +5200,8 @@ function readScenario() {
     heirType: els.heirType.value || DEFAULT_SCENARIO.heirType,
     nonSpouse10YrTaxDrag: percentInputValue("nonSpouse10YrTaxDrag", DEFAULT_SCENARIO.nonSpouse10YrTaxDrag),
     eligibleDesignatedTaxDiscount: percentInputValue("eligibleDesignatedTaxDiscount", DEFAULT_SCENARIO.eligibleDesignatedTaxDiscount),
-    heirBaseIncome: Number(els.heirBaseIncome.value) || 80000,
-    heirAge: Number(els.heirAge.value) || 30,
-    heirState: els.heirState.value || null,
+    heirBaseIncome: numberOrNull(els.heirBaseIncome.value) ?? 80000,
+    heirAge: numberOrNull(els.heirAge.value) ?? 30,
     retirementPenaltyAge: Number(els.retirementPenaltyAge.value) || DEFAULT_SCENARIO.retirementPenaltyAge,
     rothBasis: Number(els.rothBasis.value) || 0,
     earlyWithdrawalPenaltyExceptionAmount: numberOrNull(els.earlyWithdrawalPenaltyExceptionAmount.value) ?? 0,
@@ -5202,9 +5218,11 @@ function readScenario() {
     earnedIncomeInflationAdjusted: els.earnedIncomeInflationAdjusted.checked,
     socialSecurityAnnualBenefit: Number(els.socialSecurityAnnualBenefit.value) || 0,
     socialSecurityStartAge: Number(els.socialSecurityStartAge.value) || DEFAULT_SCENARIO.socialSecurityStartAge,
+    socialSecuritySurvivorStartAge: numberOrNull(els.socialSecuritySurvivorStartAge.value),
     socialSecurityInflationAdjusted: els.socialSecurityInflationAdjusted.checked,
     spouseSocialSecurityAnnualBenefit: Number(els.spouseSocialSecurityAnnualBenefit.value) || 0,
     spouseSocialSecurityStartAge: Number(els.spouseSocialSecurityStartAge.value) || DEFAULT_SCENARIO.spouseSocialSecurityStartAge,
+    spouseSocialSecuritySurvivorStartAge: numberOrNull(els.spouseSocialSecuritySurvivorStartAge.value),
     spouseSocialSecurityInflationAdjusted: els.spouseSocialSecurityInflationAdjusted.checked,
     rmd: {
       enabled: els.rmdEnabled.checked,

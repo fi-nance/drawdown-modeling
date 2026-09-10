@@ -169,14 +169,14 @@ export const modelCoverageReport = {
       lens: "CPA + engineering",
       summary: "Benefits, survivor treatment, taxation, claiming age scaling, and opt-in 2026 PIA-from-earnings proxy are modeled, but exact SSA history remains a user-input confidence lever.",
       implemented: [
-        "Entered benefits by claiming age, claiming scale factors from 62 to 70, spousal benefit cap, survivor max benefit, and Pub 915 taxable-benefit calculation.",
+        "Entered benefits by claiming age, cohort-specific worker/spousal reductions, delayed worker credits, aged-survivor eligibility/reduction and Pub 915 taxable-benefit calculation.",
         "Opt-in single-year earnings-to-PIA proxy using 2026 SSA bend points and dime rounding.",
         "Social Security bridge/delay rescue option in the decision engine."
       ],
       limitations: [
         "The PIA estimator is a coarse proxy, not a 35-year indexed earnings record.",
-        "Survivor benefit reductions for claiming survivor benefits before FRA are not modeled.",
-        "Government pension offset, windfall elimination, divorced spouse, dependent, and disability benefit rules are out of model."
+        "Birth cohorts are inferred from annual ages; exact birth-date and monthly filing/death rules are not modeled.",
+        "Divorced spouse, child-in-care, remarriage and disability eligibility require verified SSA inputs."
       ],
       sources: [
         { label: "docs/DATA_SOURCES.md - Social Security sources", href: "./docs/DATA_SOURCES.md" },
@@ -185,13 +185,14 @@ export const modelCoverageReport = {
       tests: [
         "tests/golden_ss_taxation.test.mjs",
         "tests/golden_ss_pia.test.mjs",
+        "tests/golden_ss_claiming.test.mjs",
         "tests/headlineCapabilities.test.mjs",
         "tests/jointLife.test.mjs",
         "tests/decisionEngine.test.mjs"
       ],
       nextReview: [
         "Add a richer earnings-history input or import path before treating PIA optimization as high-confidence.",
-        "Model early survivor-claiming reductions if survivor decisions become recommended actions."
+        "Verify survivor claiming dates, marriage eligibility and special-case benefits before acting."
       ]
     },
     {
@@ -308,7 +309,7 @@ export const modelCoverageReport = {
         "Per-account beneficiary type overrides for traditional/Roth/HSA inherited-account treatment."
       ],
       limitations: [
-        "Non-lineal state inheritance classes, trusts, GST, gift tax, charitable remainder trusts, donor-advised funds, NUA, annuity, pension survivor benefit, and insurance-product rules are out of model.",
+        "Non-lineal state inheritance classes, multistate situs, trusts, GST, gift tax, charitable remainder trusts, donor-advised funds, NUA and full pension/annuity/insurance election rules are out of model.",
         "Eligible-designated stretch uses a generic life-expectancy approximation.",
         "Heir defaults materially affect outputs; actual heir facts should be entered before relying on bequest optimization."
       ],

@@ -1,7 +1,7 @@
 // Extracted from simulation.mjs during the modular refactor.
 // Single responsibility: allocation. No behavior changes — pure code movement.
 
-import { marketValue, sellFromLot } from "../portfolio.mjs";
+import { accountMetadata, marketValue, sellFromLot } from "../portfolio.mjs";
 import { round } from "../utils.mjs";
 import { CASH_RAISED_EPSILON, DEFENSIVE_ASSET_CLASSES } from "./constants.mjs";
 import { finitePercent } from "./guards.mjs";
@@ -211,7 +211,7 @@ function addRebalancedLot(portfolio, sale, {
     name: `${assetClassLabel(assetClass)} rebalance`,
     accountType,
     assetClass,
-    beneficiaryType: template?.beneficiaryType ?? sale.beneficiaryType ?? "default",
+    ...accountMetadata(sale),
     units: round(sale.proceeds / price, 8),
     price: round(price, 8),
     costBasisPerUnit: round(price, 8),

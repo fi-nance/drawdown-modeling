@@ -33,8 +33,9 @@ function oneYearBenefitForWages(medicareWages) {
     scenario: {
       ...DEFAULT_SCENARIO,
       planYears: 1,
+      // The 1959 cohort reaches FRA at 66 years, 10 months in 2026.
       currentAge: 67,
-      socialSecurityStartAge: 67,
+      socialSecurityStartAge: 66 + 10 / 12,
       socialSecurityAnnualBenefit: 0,
       estimateSocialSecurityFromEarnings: true,
       medicareWages,

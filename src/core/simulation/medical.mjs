@@ -214,8 +214,11 @@ function medicalCostForScenario(scenario, acaConfig, inflationIndex, aca = null)
   if (aca?.medicareEligibleHousehold === true && medicareOopBase !== null) {
     return round(base + Math.max(0, medicareOopBase) * inflationIndex, 6);
   }
-  const hasScenarioOopOverride = Number.isFinite(Number(scenario.oopMaxOverride));
-  const scenarioOopOverride = Math.max(0, Number(scenario.oopMaxOverride));
+  const rawOopOverride = optionalFiniteNumber(scenario.oopMaxOverride);
+  const hasScenarioOopOverride = rawOopOverride !== null;
+  const scenarioOopOverride = Math.max(0, rawOopOverride ?? 0);
+  const usesMarketplaceOop = acaConfig.enabled !== false && aca?.medicareEligibleHousehold !== true;
+  if (!usesMarketplaceOop && !hasScenarioOopOverride && !acaConfig.manualOopMaximum) return round(base, 6);
   const activePlanOop = aca?.activePlanRole
     && (aca.activePlanRole === "backup" || acaConfig.manualOopMaximum)
     && Number.isFinite(Number(aca.oopMaximum))

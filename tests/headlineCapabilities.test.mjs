@@ -145,14 +145,11 @@ test("State Inheritance Tax: PA taxes lineal heirs (4.5%), NJ exempts them (Clas
   assert.equal(planNJ.heirValueBreakdown.stateInheritanceTax, 0);
 });
 
-test("state inheritance tax UI labels match the lineal-heir engine scope", async () => {
+test("inheritance jurisdiction is not selected using heir residence", async () => {
   const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
 
-  assert.match(html, /Pennsylvania \(PA - 4\.5% lineal\)/);
-  assert.match(html, /Nebraska \(NE - 1% lineal\)/);
-  assert.match(html, /New Jersey \(NJ - lineal exempt\)/);
-  assert.match(html, /Maryland \(MD - lineal exempt\)/);
-  assert.match(html, /non-spouse bequest value for lineal descendants only/);
+  assert.doesNotMatch(html, /id="heirState"/);
+  assert.match(html, /id="stateSelect"/);
   assert.doesNotMatch(html, /New Jersey \(NJ - 15% non-spouse\)/);
   assert.doesNotMatch(html, /Maryland \(MD - 10%\)/);
 });
@@ -224,7 +221,7 @@ test("Social Security PIA-from-earnings progressive estimation", () => {
     socialSecurityAnnualBenefit: 0,
     estimateSocialSecurityFromEarnings: true, // opt in to earnings-based PIA
     medicareWages: 120000,
-    socialSecurityStartAge: 67,
+    socialSecurityStartAge: 66 + 10 / 12, // 1959 cohort FRA
     currentAge: 67,
     aca: { enabled: false }
   };
@@ -271,8 +268,14 @@ test("Tradeoff frontier compiles alternative plans", () => {
   assert.equal(tradeoff[2].id, "max-healthcare");
   assert.equal(tradeoff[3].id, "max-bequest");
 
-  assert.ok(tradeoff[0].spend > tradeoff[1].spend, "Max spending plan has higher spending than the base plan");
-  assert.ok(tradeoff[3].spend < tradeoff[1].spend, "Max bequest plan has lower spending than the base plan");
+  assert.equal(tradeoff[0].candidate.scenario.targetSpend, 120000);
+  assert.equal(tradeoff[3].candidate.scenario.targetSpend, 60000);
+  // An unfunded higher target need not deliver more spending over the lifetime.
+  for (const point of tradeoff) {
+    assert.equal(point.spend, point.candidate.monteCarlo.medianAverageRealSpending);
+    assert.equal(point.bequest, point.candidate.monteCarlo.medianHeirValue);
+    assert.doesNotMatch(point.label, /Max /);
+  }
 });
 
 test("generateSingleMonteCarloPath reconstructs a deterministic run path matching Monte Carlo output", () => {

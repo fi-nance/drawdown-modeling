@@ -69,11 +69,11 @@ test("CSV importer accepts spreadsheet headers and retirement accounts without b
   assert.equal(result[1].costBasisPerUnit, 220);
 });
 
-test("CSV importer accepts pre-tax and after-tax 401k account labels", () => {
+test("CSV importer accepts pre-tax and designated Roth 401k account labels", () => {
   const result = parsePortfolioCsv([
     "Name,Account Type,Asset Class,Shares,Current Price",
     "Traditional 401k Fund,Pre-Tax 401k,Bonds,100,$50",
-    "Roth 401k Fund,After-Tax 401(k),Stocks,25,$120"
+    "Roth 401k Fund,Roth 401(k),Stocks,25,$120"
   ].join("\n"));
 
   assert.equal(result[0].accountType, "traditional");
@@ -110,7 +110,7 @@ test("row importer accepts traditional and roth 401k account labels", () => {
   const result = parsePortfolioRows([
     ["Name", "Account Type", "Asset Class", "Shares", "Current Price"],
     ["Traditional 401k Fund", "Traditional 401(k)", "Bond", "100", "$50"],
-    ["Roth 401k Fund", "After Tax", "Stock", "25", "$120"]
+    ["Roth 401k Fund", "Roth 401(k)", "Stock", "25", "$120"]
   ]);
 
   assert.equal(result[0].accountType, "traditional");

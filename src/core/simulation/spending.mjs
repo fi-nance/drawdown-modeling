@@ -3,7 +3,7 @@
 
 import { round } from "../utils.mjs";
 import { oneOffCashFlowsForYear } from "./cashFlows.mjs";
-import { nonNegativeNumber, normalizedPercent } from "./guards.mjs";
+import { nonNegativeNumber, normalizedPercent, optionalFiniteNumber } from "./guards.mjs";
 import { normalizeRiskBasedGuardrails, RISK_BASED_GUARDRAILS_MODE } from "./riskBasedGuardrails.mjs";
 import { DEFAULT_SCENARIO } from "./scenario.mjs";
 
@@ -112,6 +112,7 @@ export function plannedSpendingDetailForYear(scenario, planYear, inflationIndex,
   const strategy = spendingStrategyConfig(scenario);
   const oneOffExpenses = round(scheduled.expenses, 6);
   const spendingPhase = agePhasedSpendingForYear(scenario, planYear);
+  const requiredEssentialSpend = requiredSpendingForYear(scenario, planYear, inflationIndex);
 
   if (passedBaseSpend !== null) {
     // Dynamic strategies (Guyton-Klinger, Kitces, VPW, risk-based guardrails)
@@ -121,9 +122,10 @@ export function plannedSpendingDetailForYear(scenario, planYear, inflationIndex,
     return {
       total,
       baseSpend: round(passedBaseSpend, 6),
-      essentialSpend: round(passedBaseSpend, 6),
-      discretionaryBudget: 0,
-      discretionarySpend: 0,
+      requiredEssentialSpend,
+      essentialSpend: round(Math.min(passedBaseSpend, requiredEssentialSpend), 6),
+      discretionaryBudget: round(Math.max(0, passedBaseSpend - requiredEssentialSpend), 6),
+      discretionarySpend: round(Math.max(0, passedBaseSpend - requiredEssentialSpend), 6),
       oneOffExpenses,
       guardrail: spendingGuardrail,
       spendingPhase: null,
@@ -146,6 +148,7 @@ export function plannedSpendingDetailForYear(scenario, planYear, inflationIndex,
       total,
       baseSpend: round(essentialSpend + discretionaryBudget, 6),
       essentialSpend,
+      requiredEssentialSpend,
       discretionaryBudget,
       discretionarySpend,
       oneOffExpenses,
@@ -168,12 +171,40 @@ export function plannedSpendingDetailForYear(scenario, planYear, inflationIndex,
     total,
     baseSpend: round(baseSpend, 6),
     essentialSpend: round(baseSpend, 6),
+    requiredEssentialSpend,
     discretionaryBudget: 0,
     discretionarySpend: 0,
     oneOffExpenses,
     guardrail: null,
     spendingPhase: spendingPhase.phase ? spendingPhase : null,
     strategy: { mode: "fixed", discretionaryPercent: 1 }
+  };
+}
+
+export function requiredSpendingForYear(scenario, planYear, inflationIndex) {
+  const strategy = spendingStrategyConfig(scenario);
+  const explicitFloor = optionalFiniteNumber(scenario.requiredSpendingFloor);
+  const floor = Math.max(0, explicitFloor ?? (strategy.mode === "fixed"
+    ? Math.min(strategy.essentialSpend, Math.max(0, Number(scenario.targetSpend) || 0))
+    : strategy.essentialSpend));
+  const indexed = scenario.requiredSpendingInflationAdjusted ?? strategy.essentialInflationAdjusted;
+  const phase = ["fixed", "discretionaryGuardrails"].includes(strategy.mode)
+    ? agePhasedSpendingForYear(scenario, planYear).percent : 1;
+  return round(floor * (indexed ? inflationIndex : 1) * phase, 6);
+}
+
+export function summarizeSpendingOutcome(years = []) {
+  const living = years.filter((year) => !year.postMortality);
+  const real = living.map((year) => Math.max(0, year.fundedCoreSpending ?? 0) / year.inflationIndex);
+  const shortfall = living.reduce((sum, year) => sum + (year.essentialShortfall ?? 0) / year.inflationIndex, 0);
+  return {
+    basis: "start-year-dollars",
+    essentialSatisfied: shortfall <= 0.01,
+    yearsBelowEssentialFloor: living.filter((year) => year.essentialShortfall > 0.01).length,
+    totalEssentialShortfall: round(shortfall, 2),
+    minimumRealSpending: real.length ? round(Math.min(...real), 2) : 0,
+    maximumRealSpending: real.length ? round(Math.max(...real), 2) : 0,
+    averageRealSpending: real.length ? round(real.reduce((sum, value) => sum + value, 0) / real.length, 2) : 0
   };
 }
 

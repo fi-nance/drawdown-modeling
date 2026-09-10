@@ -258,7 +258,7 @@ test("per-account beneficiary overrides split inherited account taxation and inh
   assert.equal(plan.heirValueBreakdown.effectiveTraditionalTaxRate, 0.3);
 });
 
-test("heir state controls inheritance tax separately from household state", () => {
+test("decedent state controls inheritance tax regardless of legacy heir residence", () => {
   const assets = [{
     id: "child-roth",
     accountType: "roth",
@@ -289,8 +289,8 @@ test("heir state controls inheritance tax separately from household state", () =
     inflationSequence: [0]
   });
 
-  assert.equal(run({ state: "Massachusetts", heirState: "PA" }).heirValueBreakdown.stateInheritanceTax, 45_000);
-  assert.equal(run({ state: "PA", heirState: null }).heirValueBreakdown.stateInheritanceTax, 0);
+  assert.equal(run({ state: "Massachusetts", heirState: "PA" }).heirValueBreakdown.stateInheritanceTax, 0);
+  assert.equal(run({ state: "PA", heirState: null }).heirValueBreakdown.stateInheritanceTax, 45_000);
   assert.equal(run({ state: "PA" }).heirValueBreakdown.stateInheritanceTax, 45_000);
   assert.equal(run({}).heirValueBreakdown.stateInheritanceTax, 45_000);
 });

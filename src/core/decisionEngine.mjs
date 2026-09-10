@@ -11,6 +11,9 @@ import {
   scenarioWithRiskBasedGuardrailTable
 } from "./simulation/riskBasedGuardrails.mjs";
 import { round } from "./utils.mjs";
+import { socialSecurityBirthYear, socialSecurityClaimFactor } from "./simulation/socialSecurity.mjs?v=20260613-rescue-precision";
+import { lifetimeHorizonForScenario } from "./simulation/household.mjs";
+import { requiredSpendingForYear } from "./simulation/spending.mjs";
 
 export const DEFAULT_DECISION_PROFILE = Object.freeze({
   mode: "recentlyLeftWork",
@@ -115,6 +118,14 @@ export function runDecisionBatch({
   onProgress = null
 } = {}) {
   const profile = normalizeDecisionProfile(decisionProfile, scenario);
+  // Keep the household's floor invariant across every candidate, including
+  // variable-spending strategies and lower-spending boundary probes.
+  scenario = { ...scenario, requiredSpendingFloor: profile.requiredSpend };
+  if (basePlan?.years?.[0]?.requiredEssentialSpending !== requiredSpendingForYear(scenario, 1, 1)) {
+    basePlan = null;
+    baseMonteCarlo = null;
+    baseBacktests = null;
+  }
   // Rescue/sensitivity candidates run at a capped resolution (see the constant)
   // so a fragile plan's sweep finishes in seconds; the base/headline below keeps
   // the caller's full `runs`.
@@ -169,12 +180,10 @@ export function runDecisionBatch({
   const socialSecurityBridge = findSocialSecurityBridge(solverContext);
   const combined = buildCombinedRescue({ ...solverContext, discretionaryCut, incomeBridge });
 
-  const verdict = classifyDecisionEvidence({
-    monteCarloSuccessRate: base.monteCarlo.successRate,
-    historicalSuccessRate: base.historical.successRate,
-    historicalCount: base.historical.count,
-    targetSuccessRate: profile.targetSuccessRate
-  });
+  const verdict = base.verdict;
+  const lifetimeHorizon = lifetimeHorizonForScenario(scenario, taxProfile?.filingStatus);
+  verdict.scope = lifetimeHorizon.complete ? "configured-lifetime" : "limited-horizon";
+  if (!lifetimeHorizon.complete) verdict.reason += ` Limited to ${lifetimeHorizon.planYears} years; ${lifetimeHorizon.missingYears} configured lifetime years are not tested.`;
   const diagnosis = diagnoseFailure({ base, safeSpending, profile });
   const sensitivity = buildSensitivityAnalysis({
     assets,
@@ -231,6 +240,7 @@ export function runDecisionBatch({
     status: "ready",
     profile,
     verdict,
+    lifetimeHorizon,
     diagnosis,
     safeSpending,
     targetSuccessRate: profile.targetSuccessRate,
@@ -882,8 +892,9 @@ export function scenarioWithSocialSecurityBridge(scenario = {}, claimAge = 70) {
   const targetStart = clampNumber(Number(claimAge), 62, 70, 70);
   if (!(targetStart > currentStart)) return { ...scenario };
   const annualBenefit = Math.max(0, Number(scenario.socialSecurityAnnualBenefit) || 0);
+  const birthYear = socialSecurityBirthYear(scenario);
   const adjustedBenefit = annualBenefit > 0
-    ? annualBenefit / socialSecurityClaimFactor(currentStart) * socialSecurityClaimFactor(targetStart)
+    ? annualBenefit / socialSecurityClaimFactor(currentStart, birthYear) * socialSecurityClaimFactor(targetStart, birthYear)
     : annualBenefit;
   return {
     ...scenario,
@@ -918,12 +929,12 @@ function findSafeSpendingBoundary({ assets, scenario, taxProfile, runs, seed, se
   let high = Math.max(currentTargetSpend, requiredSpend, 1);
   let highCandidate = probe(high);
   let expansions = 0;
-  while (meetsTarget(highCandidate, profile) && expansions < 4) {
+  while (meetsPortfolioTarget(highCandidate, profile) && expansions < 4) {
     high *= 1.6;
     highCandidate = probe(high);
     expansions += 1;
   }
-  const headroomCapped = meetsTarget(highCandidate, profile);
+  const headroomCapped = meetsPortfolioTarget(highCandidate, profile);
 
   let low = 0;
   let best = 0;
@@ -932,7 +943,7 @@ function findSafeSpendingBoundary({ assets, scenario, taxProfile, runs, seed, se
   } else {
     for (let index = 0; index < SOLVER_ITERATIONS + 2; index += 1) {
       const spend = (low + high) / 2;
-      if (meetsTarget(probe(spend), profile)) {
+      if (meetsPortfolioTarget(probe(spend), profile)) {
         best = spend;
         low = spend;
       } else {
@@ -1432,10 +1443,10 @@ function findSocialSecurityBridge({ assets, scenario, taxProfile, runs, seed, se
       socialSecurityStartAge: primaryAge,
       spouseSocialSecurityStartAge: spouseAge,
       ...(enteredPrimary > 0 ? {
-        socialSecurityAnnualBenefit: round(enteredPrimary / socialSecurityClaimFactor(curPrimaryStart) * socialSecurityClaimFactor(primaryAge), 2)
+        socialSecurityAnnualBenefit: round(enteredPrimary / socialSecurityClaimFactor(curPrimaryStart, socialSecurityBirthYear(scenario)) * socialSecurityClaimFactor(primaryAge, socialSecurityBirthYear(scenario)), 2)
       } : {}),
       ...(enteredSpouse > 0 ? {
-        spouseSocialSecurityAnnualBenefit: round(enteredSpouse / socialSecurityClaimFactor(curSpouseStart) * socialSecurityClaimFactor(spouseAge), 2)
+        spouseSocialSecurityAnnualBenefit: round(enteredSpouse / socialSecurityClaimFactor(curSpouseStart, socialSecurityBirthYear(scenario, "spouse")) * socialSecurityClaimFactor(spouseAge, socialSecurityBirthYear(scenario, "spouse")), 2)
       } : {})
     };
 
@@ -1612,6 +1623,7 @@ function runCandidate({
   includeHistorical = true,
   tracker
 }) {
+  scenario = { ...scenario, requiredSpendingFloor: profile.requiredSpend };
   const candidate = summarizeCandidate({
     id,
     kind,
@@ -1658,8 +1670,8 @@ function summarizeCandidate({ id, kind, label, scenario, plan, monteCarlo, backt
     ? monteCarlo.summary.successRate
     : successRate(mcScenarios);
   const verdict = classifyDecisionEvidence({
-    monteCarloSuccessRate,
-    historicalSuccessRate: historical.successRate,
+    monteCarloSuccessRate: monteCarlo?.summary?.planningSuccessRate ?? monteCarloSuccessRate,
+    historicalSuccessRate: historical.planningSuccessRate,
     historicalCount: historical.count,
     targetSuccessRate: profile.targetSuccessRate
   });
@@ -1678,18 +1690,24 @@ function summarizeCandidate({ id, kind, label, scenario, plan, monteCarlo, backt
       flexibleSpend: round(profile.flexibleSpend ?? 0, 2)
     },
     verdict,
+    spendingOutcome: plan?.spendingOutcome ?? null,
     monteCarlo: {
+      ...monteCarlo?.summary,
       successRate: round(monteCarloSuccessRate, 4),
       runs: monteCarlo?.summary?.runs ?? mcScenarios.length,
       medianEndingValue: monteCarlo?.summary?.medianEndingValue ?? percentile(mcScenarios.map((item) => item.endingValue), 0.5),
       p10EndingValue: monteCarlo?.summary?.p10EndingValue ?? percentile(mcScenarios.map((item) => item.endingValue), 0.1),
-      p90EndingValue: monteCarlo?.summary?.p90EndingValue ?? percentile(mcScenarios.map((item) => item.endingValue), 0.9)
+      p90EndingValue: monteCarlo?.summary?.p90EndingValue ?? percentile(mcScenarios.map((item) => item.endingValue), 0.9),
+      medianHeirValue: monteCarlo?.summary?.medianHeirValue ?? (mcScenarios.some((item) => Number.isFinite(item.heirValue))
+        ? percentile(mcScenarios.map((item) => item.heirValue).filter(Number.isFinite), 0.5) : null)
     },
     historical,
     failureAnatomy: failureAnatomy(mcScenarios),
     planFirstYear: planFirstYear ? {
       year: planFirstYear.year,
       age: round(planFirstYear.age ?? 0, 2),
+      fundedCoreSpending: round(planFirstYear.fundedCoreSpending ?? 0, 2),
+      requiredEssentialSpending: round(planFirstYear.requiredEssentialSpending ?? 0, 2),
       magi: round(planFirstYear.magi ?? 0, 2),
       acaMagiCeiling: Number.isFinite(planFirstYear.acaMagiCeiling) ? round(planFirstYear.acaMagiCeiling, 2) : null,
       acaMagiCeilingFplPercent: Number.isFinite(planFirstYear.acaMagiCeilingFplPercent)
@@ -1715,6 +1733,8 @@ function optionWithDelta(option, base, extra = {}) {
     ...extra,
     delta: {
       monteCarloSuccessRate: round(option.monteCarlo.successRate - base.monteCarlo.successRate, 4),
+      planningSuccessRate: round((option.monteCarlo.planningSuccessRate ?? option.monteCarlo.successRate)
+        - (base.monteCarlo.planningSuccessRate ?? base.monteCarlo.successRate), 4),
       historicalSuccessRate: Number.isFinite(option.historical.successRate) && Number.isFinite(base.historical.successRate)
         ? round(option.historical.successRate - base.historical.successRate, 4)
         : null,
@@ -1747,8 +1767,8 @@ function refineOptionPrecision(option, { assets, taxProfile, runs, seed, profile
     ? monteCarlo.summary.successRate
     : successRate(mcScenarios);
   const verdict = classifyDecisionEvidence({
-    monteCarloSuccessRate: refinedRate,
-    historicalSuccessRate: option.historical?.successRate,
+    monteCarloSuccessRate: monteCarlo?.summary?.planningSuccessRate ?? refinedRate,
+    historicalSuccessRate: option.historical?.planningSuccessRate ?? option.historical?.successRate,
     historicalCount: option.historical?.count ?? 0,
     targetSuccessRate: profile.targetSuccessRate
   });
@@ -1756,6 +1776,7 @@ function refineOptionPrecision(option, { assets, taxProfile, runs, seed, profile
     ...option,
     verdict,
     monteCarlo: {
+      ...monteCarlo?.summary,
       successRate: round(refinedRate, 4),
       runs: monteCarlo?.summary?.runs ?? mcScenarios.length,
       medianEndingValue: monteCarlo?.summary?.medianEndingValue ?? percentile(mcScenarios.map((s) => s.endingValue), 0.5),
@@ -1764,6 +1785,7 @@ function refineOptionPrecision(option, { assets, taxProfile, runs, seed, profile
     },
     failureAnatomy: failureAnatomy(mcScenarios)
   }, base, {});
+  if (refined.status === "target-met" && !meetsTarget(refined, profile)) refined.status = "best-tested";
   // Bump the progress count so the (slower) refinement pass shows it's working.
   tracker?.(refined);
   return refined;
@@ -1780,6 +1802,7 @@ function comparisonOption(option, base, extra = {}) {
     metadata: withDelta.metadata,
     scenario: withDelta.scenario,
     scenarioSummary: withDelta.scenarioSummary,
+    spendingOutcome: withDelta.spendingOutcome,
     verdict: withDelta.verdict,
     monteCarlo: withDelta.monteCarlo,
     historical: withDelta.historical,
@@ -1789,9 +1812,15 @@ function comparisonOption(option, base, extra = {}) {
 }
 
 function meetsTarget(candidate, profile) {
-  return candidate?.verdict?.monteCarloPasses === true
+  return candidate?.spendingOutcome?.essentialSatisfied !== false
+    && candidate?.verdict?.monteCarloPasses === true
     && (candidate.verdict.historicalKnown === false || candidate.verdict.historicalPasses === true)
     && candidate.monteCarlo.successRate + EPSILON >= profile.targetSuccessRate;
+}
+
+function meetsPortfolioTarget(candidate, profile) {
+  return candidate.monteCarlo.successRate + EPSILON >= profile.targetSuccessRate
+    && (!candidate.historical.count || candidate.historical.successRate + EPSILON >= profile.targetSuccessRate);
 }
 
 function incomeSortScore(candidate, profile) {
@@ -1821,6 +1850,9 @@ function lifestyleCost(candidate) {
     case "discretionaryCut":
     case "magiSpendTrim":
     case "safeSpending":
+    case "guytonKlingerRescue":
+    case "vpwRescue":
+    case "riskBasedGuardrailsRescue":
       return 1;
     default:
       return 0;
@@ -1841,6 +1873,7 @@ function historicalEvidence(backtests = []) {
   return {
     count: list.length,
     successRate: list.length ? round(successRate(list), 4) : null,
+    planningSuccessRate: list.length ? round(list.filter((item) => item.planningSuccess ?? item.success).length / list.length, 4) : null,
     medianEndingValue: endings.length ? percentile(endings, 0.5) : null,
     worstEndingValue: worst,
     bestEndingValue: best
@@ -2675,16 +2708,6 @@ function ensureWithdrawalOrderIncludes(order = [], accountType) {
   return normalized.includes(accountType) ? normalized : [...normalized, accountType];
 }
 
-function socialSecurityClaimFactor(age, fullRetirementAge = 67) {
-  const months = Math.round((Number(age) - fullRetirementAge) * 12);
-  if (!Number.isFinite(months) || months === 0) return 1;
-  if (months > 0) return 1 + Math.min(months, 36) * (2 / 3 / 100);
-  const earlyMonths = Math.abs(months);
-  const firstReduction = Math.min(36, earlyMonths) * (5 / 9 / 100);
-  const additionalReduction = Math.max(0, earlyMonths - 36) * (5 / 12 / 100);
-  return Math.max(0, 1 - firstReduction - additionalReduction);
-}
-
 function clampNumber(value, min, max, fallback) {
   if (!Number.isFinite(value)) return fallback;
   return Math.max(min, Math.min(max, value));
@@ -2709,10 +2732,7 @@ export function buildTradeoffFrontier({ assets, scenario, taxProfile, runs, seed
   const searchRuns = solverSearchRuns(runs);
   
   // 1. Max Spending Plan: target spend + 20%
-  const maxSpendingScenario = {
-    ...scenario,
-    targetSpend: round((scenario.targetSpend ?? 90000) * 1.20, 2)
-  };
+  const maxSpendingScenario = scenarioWithFlatSpend(scenario, round((scenario.targetSpend ?? 90000) * 1.20, 2));
   
   // 2. Base plan reference point (current settings, unchanged) — the frontier's
   //    anchor for comparing the spending / healthcare / bequest alternatives
@@ -2733,21 +2753,22 @@ export function buildTradeoffFrontier({ assets, scenario, taxProfile, runs, seed
   };
   
   // 4. Max Bequest Plan: Minimize discretionary spending (essential only)
-  const essentialOnlySpend = scenario.spendingStrategy?.essentialSpend ?? (scenario.targetSpend ?? 90000) * 0.7;
+  const essentialOnlySpend = activeProfile.requiredSpend;
   const maxBequestScenario = {
     ...scenario,
     targetSpend: essentialOnlySpend,
     spendingStrategy: {
       ...(scenario.spendingStrategy ?? {}),
+      mode: "fixed",
       discretionarySpend: 0
     }
   };
   
   const plans = [
-    { id: "max-spending", label: "Max Spending (+20% Spend)", scenario: maxSpendingScenario },
+    { id: "max-spending", label: "Higher Fixed Spending (+20%)", scenario: maxSpendingScenario },
     { id: "base-reference", label: "Base Plan (current settings)", scenario: baseReferenceScenario },
-    { id: "max-healthcare", label: "Max Healthcare Subsidy (MAGI <= 150% FPL)", scenario: maxHealthcareScenario },
-    { id: "max-bequest", label: "Max Bequest (Essential Only, High Shelter)", scenario: maxBequestScenario }
+    { id: "max-healthcare", label: "Conversion MAGI Cap (150% FPL)", scenario: maxHealthcareScenario },
+    { id: "max-bequest", label: "Essential-Only Fixed Spending", scenario: maxBequestScenario }
   ];
   
   const results = plans.map(p => {
@@ -2767,10 +2788,10 @@ export function buildTradeoffFrontier({ assets, scenario, taxProfile, runs, seed
       tracker
     });
     
-    const spend = p.scenario.targetSpend;
-    const resilience = cand.monteCarlo?.successRate ?? 0;
+    const spend = cand.monteCarlo?.medianAverageRealSpending ?? cand.spendingOutcome?.averageRealSpending ?? 0;
+    const resilience = cand.monteCarlo?.planningSuccessRate ?? cand.monteCarlo?.successRate ?? 0;
     const healthcare = cand.planFirstYear?.acaSubsidy ?? 0;
-    const bequest = cand.monteCarlo?.medianHeirValue ?? cand.monteCarlo?.medianEndingValue ?? 0;
+    const bequest = cand.monteCarlo?.medianHeirValue;
     
     return {
       id: p.id,
@@ -2778,7 +2799,7 @@ export function buildTradeoffFrontier({ assets, scenario, taxProfile, runs, seed
       spend: round(spend, 2),
       resilience: round(resilience, 4),
       healthcare: round(healthcare, 2),
-      bequest: round(bequest, 2),
+      bequest: Number.isFinite(bequest) ? round(bequest, 2) : null,
       successRate: round(resilience, 4),
       candidate: cand
     };

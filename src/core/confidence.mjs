@@ -1,5 +1,7 @@
 import { STATE_MEDICAID_EXPANSION_2026 } from "../data/geo.mjs";
 import { benchmarkPremiumForZip } from "./aca.mjs";
+import { optionalFiniteNumber } from "./simulation/guards.mjs";
+import { lifetimeHorizonForScenario } from "./simulation/household.mjs";
 
 export const CONFIDENCE_LEVELS = Object.freeze({
   HIGH: "high-confidence",
@@ -31,6 +33,15 @@ export function actionConfidenceFor(actionKind, confidenceReport = {}) {
   const flags = Array.isArray(confidenceReport.flags) ? confidenceReport.flags : [];
   const has = (id) => flags.some((flag) => flag.id === id);
   const find = (ids) => findFlagByPriority(flags, ids);
+
+  if (["legacy", "traditionalWithdrawal", "rothConversion", "taxReserve"].includes(actionKind)) {
+    const flag = find(["household-beneficiary-lifecycle"]);
+    if (flag) return actionConfidenceFromFlag(flag);
+  }
+  if (["hsaWithdrawal", "hsaContribution", "medicalReserve"].includes(actionKind)) {
+    const flag = find(["hsa-expense-qualification"]);
+    if (flag) return actionConfidenceFromFlag(flag);
+  }
 
   if (["taxReserve", "traditionalWithdrawal", "rothConversion", "taxGainHarvesting", "taxLossHarvesting"].includes(actionKind)) {
     const flag = find(["amt-exposure-review", "qbi-deduction-review", "additional-child-tax-credit-review", "state-capital-loss-conformity-review", "manual-federal-tax-overrides-review", "itemized-deduction-inputs-review", "enhanced-senior-deduction-eligibility"]);
@@ -96,6 +107,9 @@ export function rescueConfidenceFor(option = {}, confidenceReport = {}) {
     };
   }
 
+  const lifecycle = find(["household-beneficiary-lifecycle"]);
+  if (lifecycle) return actionConfidenceFromFlag(lifecycle);
+
   if (!(Number(option?.historical?.count) > 0)) {
     return {
       level: CONFIDENCE_LEVELS.ASSUMPTION_SENSITIVE,
@@ -154,6 +168,7 @@ export function rescueConfidenceFor(option = {}, confidenceReport = {}) {
 }
 
 export function buildConfidenceReport({
+  assets = null,
   scenario = {},
   taxProfile = {},
   decision = null,
@@ -162,6 +177,23 @@ export function buildConfidenceReport({
   historicalAssetClasses = []
 } = {}) {
   const flags = [];
+  const horizon = lifetimeHorizonForScenario(scenario, taxProfile.filingStatus);
+  if (!horizon.complete) flags.push({
+    id: "lifetime-horizon-incomplete",
+    level: CONFIDENCE_LEVELS.INPUT_LIMITED,
+    lens: "engineering",
+    title: "Projection ends before the last modeled death",
+    detail: `The ${horizon.planYears}-year projection omits ${horizon.missingYears} years of the configured household lifetime. Success describes only this finite horizon, not lifetime funding.`,
+    action: `Extend the horizon to at least ${horizon.requiredYears} years to include each configured death year, or retain it as a limited-horizon scenario.`
+  });
+  const spending = decision?.base?.spendingOutcome ?? plan?.spendingOutcome;
+  if (spending?.essentialSatisfied === false) flags.push({
+    id: "essential-spending-shortfall", level: CONFIDENCE_LEVELS.INPUT_LIMITED, lens: "engineering",
+    title: "Required lifestyle spending is not fully funded",
+    detail: `The deterministic path falls below the required spending floor in ${spending.yearsBelowEssentialFloor} years. Portfolio survival alone does not meet the household's spending requirement.`,
+    action: "Review funded spending and the required shortfall before applying a lower-spending strategy."
+  });
+  addAccountScopeFlags(flags, scenario, assets ?? plan?.finalPortfolio ?? [], horizon);
   addHealthcareFlags(flags, scenario, decision);
   addMedicareOopFlags(flags, scenario);
   addCoverageGapFlags(flags, scenario, plan);
@@ -190,6 +222,34 @@ export function buildConfidenceReport({
       [flag.level]: (counts[flag.level] ?? 0) + 1
     }), {})
   };
+}
+
+function addAccountScopeFlags(flags, scenario, assets, horizon) {
+  const active = assets.filter((asset) => Number(asset.units) * Number(asset.price) > 0);
+  if (active.some((asset) => asset.accountType === "hsa") || scenario.taxEfficiencyStrategy?.hsaContributionEnabled === true) {
+    flags.push({
+      id: "hsa-expense-qualification", level: CONFIDENCE_LEVELS.CPA_REVIEW, lens: "cpa",
+      title: "HSA tax-free expense eligibility is not fully classified",
+      detail: "The HSA expense pool includes all modeled medical costs. Ordinary ACA and Medigap premiums are not generally HSA-qualified; household-specific insurance exceptions, eligible expenses, reimbursements and contribution eligibility are not fully modeled. Disabling the qualified-expense limit further assumes unlimited tax-free withdrawals.",
+      action: "Have a tax or benefits professional verify the eligible expense pool and any HSA withdrawals before relying on tax-free funding recommendations."
+    });
+  }
+  if (horizon.lives.length !== 2 || !active.length) return;
+  const deaths = horizon.lives.map((life) => ({ owner: life.owner, year: Math.floor(life.deathAge - life.age) }));
+  const first = deaths[0].year < deaths[1].year ? deaths[0] : deaths[1];
+  const beneficiary = (asset) => ["spouse", "nonSpouse10Yr", "eligibleDesignated"].includes(asset.beneficiaryType)
+    ? asset.beneficiaryType : scenario.heirType ?? "spouse";
+  const nonSpouseTransfer = deaths[0].year !== deaths[1].year && first.year + 1 < horizon.planYears
+    && active.some((asset) => [first.owner, "joint"].includes(asset.owner ?? "primary") && beneficiary(asset) !== "spouse");
+  const missingContingentHeir = horizon.complete && active.some((asset) => beneficiary(asset) === "spouse");
+  if (!nonSpouseTransfer && !missingContingentHeir) return;
+  flags.push({
+    id: "household-beneficiary-lifecycle", level: CONFIDENCE_LEVELS.OUT_OF_MODEL, lens: "cpa",
+    title: "Beneficiary transfers exceed the supported household lifecycle",
+    detail: [nonSpouseTransfer ? "The first-death transition pools assets with the survivor instead of transferring designated non-spouse assets out of the household." : "",
+      missingContingentHeir ? "A spouse beneficiary remains selected at the last modeled death, but contingent beneficiaries and second-death elections are not modeled." : ""].filter(Boolean).join(" "),
+    action: "Do not apply household withdrawal or bequest recommendations for these transfers until an estate professional verifies a supported scenario; contingent and non-spouse first-death transfers require a separate model."
+  });
 }
 
 function addHealthcareFlags(flags, scenario, decision) {
@@ -242,9 +302,7 @@ function addHealthcareFlags(flags, scenario, decision) {
 function addMedicareOopFlags(flags, scenario) {
   const medicare = scenario?.medicare ?? {};
   if (medicare.irmaaEnabled === false) return;
-  if (Number.isFinite(Number(medicare.annualOopBase))) return;
-  // The proxy only applies when ACA modeling supplies an OOP maximum.
-  if (scenario?.aca?.enabled === false) return;
+  if (optionalFiniteNumber(medicare.annualOopBase) !== null) return;
 
   const planYears = Math.max(0, Number(scenario?.planYears) || 0);
   const primaryAge = Number(scenario?.currentAge);
@@ -876,7 +934,7 @@ function addSocialSecurityFlags(flags, scenario) {
     level: CONFIDENCE_LEVELS.INPUT_LIMITED,
     lens: "cpa",
     title: "Social Security claiming uses entered benefit timing",
-    detail: "The action plan uses the entered annual benefit and start age. The claiming solver can compare coarse claiming ages, but it is still a planning model rather than an SSA filing calculator.",
+    detail: "Entered benefits are quoted at the chosen claiming age. Worker and spousal factors use inferred birth-year cohorts. Aged survivor benefits default to the first eligible modeled year unless a survivor claim age is entered; disability, child-in-care, remarriage and exact birth-date eligibility are outside this model.",
     action: "Use verified SSA benefit estimates and review claiming-date recommendations before acting, especially for survivor or spousal benefit cases."
   });
 }
@@ -919,7 +977,7 @@ function findFlagByPriority(flags, ids) {
 function rescueFlagIds(kind) {
   switch (kind) {
     case "healthcareRescue":
-      return ["aca-coverage-gap-modeled", "aca-medicaid-handoff-modeled", "aca-coverage-gap-risk", "aca-plan-inputs", "aca-benchmark-state-fallback", "aca-benchmark-out-of-model", "aca-oop-inputs", "aca-net-premium-quote", "aca-magi-threshold"];
+      return ["hsa-expense-qualification", "aca-coverage-gap-modeled", "aca-medicaid-handoff-modeled", "aca-coverage-gap-risk", "aca-plan-inputs", "aca-benchmark-state-fallback", "aca-benchmark-out-of-model", "aca-oop-inputs", "aca-net-premium-quote", "aca-magi-threshold"];
     case "rothBasisCliffRescue":
     case "conversionGuardrail":
     case "magiSpendTrim":

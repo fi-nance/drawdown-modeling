@@ -4,6 +4,7 @@
 import { acaAgeRatingFactor } from "../aca.mjs";
 import { buildTaxProfile, getAcaFplGuideline } from "../../data/taxData.mjs";
 import { round } from "../utils.mjs";
+import { optionalFiniteNumber } from "./guards.mjs";
 import { DEFAULT_SCENARIO } from "./scenario.mjs";
 
 // Mortality semantics: `mortalityAge` is the calendar age at which the person
@@ -12,7 +13,7 @@ import { DEFAULT_SCENARIO } from "./scenario.mjs";
 // (strictly greater) is the "post-death" predicate, not `age >=`.
 export function mortalityStatus(scenario, yearIndex) {
   const primaryAge = (scenario.currentAge ?? 55) + yearIndex;
-  const spouseAge = Number.isFinite(Number(scenario.spouseAge))
+  const spouseAge = optionalFiniteNumber(scenario.spouseAge) !== null
     ? Number(scenario.spouseAge) + yearIndex
     : null;
   const primaryDeceased = primaryAge > (scenario.primaryMortalityAge ?? 95);
@@ -22,6 +23,20 @@ export function mortalityStatus(scenario, yearIndex) {
 
 export function isMarriedFiling(filingStatus) {
   return filingStatus === "marriedFilingJointly" || filingStatus === "marriedFilingSeparately";
+}
+
+export function lifetimeHorizonForScenario(scenario = {}, filingStatus = "marriedFilingJointly") {
+  const primaryAge = optionalFiniteNumber(scenario.currentAge) ?? DEFAULT_SCENARIO.currentAge;
+  const spouseAge = optionalFiniteNumber(scenario.spouseAge);
+  const planYears = Math.max(0, Math.trunc(scenario.planYears ?? DEFAULT_SCENARIO.planYears));
+  const lives = [{ owner: "primary", age: primaryAge,
+    deathAge: scenario.primaryMortalityAge ?? DEFAULT_SCENARIO.primaryMortalityAge }];
+  if (isMarriedFiling(filingStatus) && spouseAge !== null) lives.push({ owner: "spouse", age: spouseAge,
+    deathAge: scenario.spouseMortalityAge ?? DEFAULT_SCENARIO.spouseMortalityAge });
+  const requiredYears = Math.max(0, ...lives.map((life) => Math.floor(life.deathAge - life.age) + 1));
+  return { complete: planYears >= requiredYears, planYears, requiredYears,
+    missingYears: Math.max(0, requiredYears - planYears),
+    lives: lives.map((life) => ({ ...life, finalModeledAge: life.age + planYears - 1 })) };
 }
 
 // Build a single-filer tax profile from a married baseline, preserving every

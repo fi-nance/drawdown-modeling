@@ -169,6 +169,7 @@ export const DEFAULT_SCENARIO = {
   earnedIncomeInflationAdjusted: true,
   socialSecurityAnnualBenefit: 0,
   socialSecurityStartAge: 67,
+  socialSecuritySurvivorStartAge: null,
   socialSecurityInflationAdjusted: true,
   rmd: {
     enabled: true,
@@ -237,6 +238,7 @@ export const DEFAULT_SCENARIO = {
   spouseMortalityAge: 95,
   spouseSocialSecurityAnnualBenefit: 0,
   spouseSocialSecurityStartAge: 67,
+  spouseSocialSecuritySurvivorStartAge: null,
   spouseSocialSecurityInflationAdjusted: true,
   heirType: "spouse",
   // User-set planning assumptions for inherited-IRA bracket effects. The

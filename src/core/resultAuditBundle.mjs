@@ -1,4 +1,5 @@
-import { compactLatestForCache } from "./resultsCache.mjs";
+import { compactLatestForCache, MODEL_VERSION } from "./resultsCache.mjs";
+import { inheritanceTaxStateForScenario } from "./simulation/heirEstate.mjs";
 import { normalizeSetupState } from "./setupBackup.mjs";
 
 export const RESULT_AUDIT_BUNDLE_SCHEMA_VERSION = 3;
@@ -56,6 +57,10 @@ export function createResultAuditSummary({
     scenario: summarizeScenarioForReview(scenario),
     verdict: {
       planSuccess: latest.plan?.success ?? null,
+      planningSuccess: latest.plan?.planningSuccess ?? null,
+      spendingOutcome: latest.plan?.spendingOutcome ?? null,
+      lifetimeHorizon: latest.plan?.lifetimeHorizon ?? null,
+      requiredSpendingSuccessRate: finiteOrNull(mcSummary.planningSuccessRate),
       monteCarloSuccessRate: finiteOrNull(mcSummary.successRate),
       monteCarloRuns: finiteOrNull(mcSummary.runs ?? mcSummary.total),
       historicalBacktestCount: Array.isArray(latest.backtests) ? latest.backtests.length : 0,
@@ -66,6 +71,7 @@ export function createResultAuditSummary({
       decisionTargetSuccessRate: finiteOrNull(decision.profile?.targetSuccessRate)
     },
     reproducibility: {
+      modelVersion: MODEL_VERSION,
       seed: sourceVersions.seed ?? scenario.seed ?? null,
       monteCarloPreset: sourceVersions.monteCarloPreset ?? scenario.monteCarlo?.assumptionPreset ?? null,
       monteCarloRuns: sourceVersions.monteCarloRuns ?? finiteOrNull(mcSummary.runs ?? mcSummary.total),
@@ -186,6 +192,7 @@ function summarizeScenarioForReview(scenario = {}) {
     legacy: {
       heirType: scenario.heirType ?? null,
       heirState: scenario.heirState ?? null,
+      inheritanceTaxState: inheritanceTaxStateForScenario(scenario) ?? null,
       heirBaseIncome: finiteOrNull(scenario.heirBaseIncome),
       heirAge: finiteOrNull(scenario.heirAge),
       heirOrdinaryTaxRate: finiteOrNull(scenario.heirOrdinaryTaxRate)

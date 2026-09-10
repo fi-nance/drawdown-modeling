@@ -10,7 +10,42 @@ globalThis.document = {
   }
 };
 
-const { rescueChangeList, rescueOptimizationText, rescueComparisonRows } = await import("../src/redesign.mjs?rescue-comparison-text-test");
+const { rescueChangeList, rescueOptimizationText, rescueComparisonRows, rescueSpendingOutcomeText, computeSuccessRate, decisionHeadline, decisionVerdictLabel } = await import("../src/redesign.mjs?rescue-comparison-text-test");
+
+test("short-horizon verdict titles cannot imply lifetime safety", () => {
+  assert.equal(decisionVerdictLabel("safe", { complete: false }), "Limited-horizon test passes");
+  assert.equal(decisionVerdictLabel("unsafe", { complete: false }), "Limited-horizon test fails");
+  assert.equal(decisionVerdictLabel("fragile", { complete: false }), "Limited-horizon result is fragile");
+  assert.equal(decisionVerdictLabel("safe", { complete: true }), "Plan looks safe");
+});
+
+test("fixed-spend headroom does not claim the actual strategy funds required spending", () => {
+  const text = decisionHeadline({
+    base: { monteCarlo: { successRate: 1, planningSuccessRate: 0 }, scenarioSummary: { targetSpend: 30000 } },
+    lifetimeHorizon: { complete: false, missingYears: 20 },
+    safeSpending: { available: true, status: "headroom", safeTotalSpend: 40000 }
+  });
+  assert.match(text, /Base plan: 0%/);
+  assert.match(text, /Limited horizon: 20 years/);
+  assert.match(text, /fixed-spending portfolio-survival test/);
+  assert.match(text, /required-spending fulfillment is evaluated separately/);
+  assert.doesNotMatch(text, /current plan has room|Safe spending is/);
+});
+
+test("required-spending KPI remains accurate while streaming and after completion", () => {
+  assert.equal(computeSuccessRate({ monteCarlo: { summary: { successRate: 1, planningSuccessRate: 0 } } }), 0);
+  assert.equal(computeSuccessRate({ monteCarlo: { scenarios: [
+    { success: true, planningSuccess: false }, { success: true, planningSuccess: true }] } }), .5);
+});
+
+test("rescue spending text discloses actual spending and essential shortfalls", () => {
+  const text = rescueSpendingOutcomeText({ spendingOutcome: { essentialSatisfied: false,
+    minimumRealSpending: 7000, maximumRealSpending: 8000, yearsBelowEssentialFloor: 20,
+    totalEssentialShortfall: 450000 } });
+  assert.match(text, /\$7k to \$8k/);
+  assert.match(text, /20 years below the required floor/);
+  assert.match(text, /\$450k total shortfall/);
+});
 
 test("rescueComparisonRows hides solver probes and shows only finalized options", () => {
   const decision = {
@@ -216,8 +251,8 @@ test("module library counts match expanded module cards", async () => {
 
   assert.match(html, /data-module="medicare"[\s\S]*<span class="controls-pill">12 controls<\/span>/);
   assert.match(source, /id: "medicare"[\s\S]*controls: 12/);
-  assert.match(html, /data-module="other-income"[\s\S]*<span class="controls-pill">22\+ controls<\/span>/);
-  assert.match(source, /id: "other-income"[\s\S]*controls: 22/);
+  assert.match(html, /data-module="other-income"[\s\S]*<span class="controls-pill">24\+ controls<\/span>/);
+  assert.match(source, /id: "other-income"[\s\S]*controls: 24/);
   assert.match(html, /data-module="strategy"[\s\S]*<span class="controls-pill">43 controls<\/span>/);
   assert.match(source, /id: "strategy"[\s\S]*controls: 43/);
   assert.match(html, /data-module="reserve"[\s\S]*<span class="controls-pill">11 controls<\/span>/);
@@ -335,7 +370,7 @@ test("after-tax bequest control is visible, persisted, and audited", async () =>
   assert.match(redesignSource, /pickHeirValue/);
 });
 
-test("heir inheritance-tax state does not overwrite household state", async () => {
+test("legacy heir residence is not wired as inheritance jurisdiction", async () => {
   const appSource = await readFile(new URL("../src/app.mjs", import.meta.url), "utf8");
   const readScenarioSource = appSource.slice(
     appSource.indexOf("function readScenario()"),
@@ -343,7 +378,7 @@ test("heir inheritance-tax state does not overwrite household state", async () =
   );
 
   assert.match(readScenarioSource, /\n\s+state,\n/);
-  assert.match(readScenarioSource, /heirState: els\.heirState\.value \|\| null/);
+  assert.doesNotMatch(readScenarioSource, /heirState:/);
   assert.doesNotMatch(readScenarioSource, /state: els\.heirState\.value \|\| state/);
 });
 

@@ -522,7 +522,7 @@
                     <span class="module-sub">Social Security, work, SE</span>
                   </div>
                 </div>
-                <div class="module-actions"><span class="controls-pill">22+ controls</span></div>
+                <div class="module-actions"><span class="controls-pill">24+ controls</span></div>
               </div>
               <div class="module-body">
                 <div class="control-grid">
@@ -530,6 +530,8 @@
                   <label><span>SS start age</span>         <input id="socialSecurityStartAge" type="number" min="0" max="120" step="0.5" value="67"></label>
                   <label data-married-controls><span>Spouse SS annual benefit</span><input id="spouseSocialSecurityAnnualBenefit" type="number" min="0" step="1000" value="0"></label>
                   <label data-married-controls><span>Spouse SS start age</span>     <input id="spouseSocialSecurityStartAge" type="number" min="0" max="120" step="0.5" value="67"></label>
+                  <label data-married-controls><span>Your survivor SS start age</span><input id="socialSecuritySurvivorStartAge" type="number" min="60" max="120" step="0.5" placeholder="First eligible year"></label>
+                  <label data-married-controls><span>Spouse survivor SS start age</span><input id="spouseSocialSecuritySurvivorStartAge" type="number" min="60" max="120" step="0.5" placeholder="First eligible year"></label>
                   <label><span>Medicare wages</span>       <input id="medicareWages" type="number" min="0" step="1000" value="0"></label>
                   <label><span>W-2 SS wages</span>         <input id="socialSecurityWages" type="number" min="0" step="1000" placeholder="Auto"></label>
                   <label><span>Self-employment income</span><input id="selfEmploymentIncome" type="number" min="0" step="1000" value="0"></label>
@@ -746,17 +748,6 @@
                     <span>Heir age</span>
                     <input id="heirAge" type="number" min="0" max="100" step="1" value="30">
                     <small>Assumed age of the EDB heir at inheritance for life-expectancy required minimum distributions.</small>
-                  </label>
-                  <label>
-                    <span>State inheritance tax</span>
-                    <select id="heirState">
-                      <option value="" selected>None / exempt</option>
-                      <option value="PA">Pennsylvania (PA - 4.5% lineal)</option>
-                      <option value="NJ">New Jersey (NJ - lineal exempt)</option>
-                      <option value="MD">Maryland (MD - lineal exempt)</option>
-                      <option value="NE">Nebraska (NE - 1% lineal)</option>
-                    </select>
-                    <small>Applied to non-spouse bequest value for lineal descendants only; non-lineal relationship classes are out of model.</small>
                   </label>
                   <label>
                     <span>Heir tax-law indexing</span>

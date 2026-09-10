@@ -1322,6 +1322,7 @@ test("failed scenario analysis attributes tax, healthcare, spending, reserve, an
       success: false,
       years: [{
         year: 2026,
+        requiredEssentialSpending: 120000,
         age: 60,
         magi: 0,
         aca: { subsidy: 0, netPremium: 0 },

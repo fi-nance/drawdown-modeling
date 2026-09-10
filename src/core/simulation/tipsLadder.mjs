@@ -34,7 +34,7 @@
 //   last-resort funding path may still break the ladder (rungs sort last) so
 //   a plan never fails while ladder value remains.
 
-import { marketValue, sellFromLot } from "../portfolio.mjs";
+import { accountMetadata, marketValue, sellFromLot } from "../portfolio.mjs";
 import { round } from "../utils.mjs";
 import { withdrawForCash } from "./withdrawalExecution.mjs";
 import { assetOwner } from "./portfolioQueries.mjs";
@@ -147,9 +147,10 @@ export function payTipsLadderCoupons(portfolio, { scenario, inflationIndex }) {
     if (asset.accountType === "taxable") {
       taxableCouponCash = round(taxableCouponCash + coupon, 6);
     } else {
-      const owner = assetOwner(asset) === "spouse" ? "spouse" : "primary";
-      const key = `${asset.accountType}|${owner}`;
-      shelteredByAccount.set(key, round((shelteredByAccount.get(key) ?? 0) + coupon, 6));
+      // Coupons are earnings, not converted principal, but retain ownership
+      // and beneficiary identity within the receiving account.
+      const { rothSource, conversionYear, ...metadata } = accountMetadata(asset);
+      bumpBucket(shelteredByAccount, { accountType: asset.accountType, ...metadata }, coupon);
       shelteredCouponCash = round(shelteredCouponCash + coupon, 6);
     }
   }
@@ -157,25 +158,24 @@ export function payTipsLadderCoupons(portfolio, { scenario, inflationIndex }) {
   const flows = [];
   // Deposit each sheltered account's coupon into a reusable cash lot in that
   // same account+owner so it compounds and stays available there.
-  for (const [key, amount] of shelteredByAccount) {
+  for (const { accountType, metadata, value: amount } of shelteredByAccount.values()) {
     if (!(amount > 0)) continue;
-    const [accountType, owner] = key.split("|");
-    const lotId = `tips-coupon-cash-${accountType}${owner === "spouse" ? "-spouse" : ""}`;
-    let lot = portfolio.find((asset) => asset.id === lotId);
+    const baseId = `tips-coupon-cash-${accountType}${metadata.owner === "spouse" ? "-spouse" : ""}`;
+    let lot = portfolio.find((asset) => String(asset.id).startsWith(baseId)
+      && asset.accountType === accountType && JSON.stringify(accountMetadata(asset)) === JSON.stringify(metadata));
     if (!lot) {
       lot = {
-        id: lotId,
+        id: unusedLotId(portfolio, baseId),
         name: `TIPS coupon cash (${accountLabelFor(accountType)})`,
         accountType,
         assetClass: "cash",
-        beneficiaryType: "default",
+        ...metadata,
         units: 0,
         price: 1,
         costBasisPerUnit: 1,
         holdingPeriod: "long",
         dividendYield: 0
       };
-      if (owner === "spouse") lot.owner = "spouse";
       portfolio.push(lot);
     }
     lot.units = round(Math.max(0, lot.units ?? 0) + amount, 8);
@@ -256,8 +256,7 @@ function emptyBuildResult(config) {
 
 function fundRung({ portfolio, rungCost, maturityYear, yearsToMaturity = maturityYear, accountOrder, realYield, annualRealAmount, result, classPriority = FUNDING_CLASS_PRIORITY, idSuffix = "", ownerAges = null, penaltyAge = 59.5 }) {
   let remaining = rungCost;
-  // Accumulate funded value per (accountType, owner) so each rung lot lands
-  // in the account space — and on the owner's RMD clock — that funded it.
+  // Keep distinct ownership, beneficiaries and conversion clocks separate.
   const rungBuckets = new Map();
 
   // A sheltered lot is a PENALIZED placement when ITS OWNER would still be
@@ -288,7 +287,6 @@ function fundRung({ portfolio, rungCost, maturityYear, yearsToMaturity = maturit
         if (remaining <= 0.000001) break;
         const take = Math.min(remaining, marketValue(asset));
         if (!(take > 0.000001)) continue;
-        const owner = assetOwner(asset);
         if (accountType === "taxable") {
           // Real sale: realized gains/losses join the year's strategy tax math.
           const sale = sellFromLot(asset, take);
@@ -296,13 +294,13 @@ function fundRung({ portfolio, rungCost, maturityYear, yearsToMaturity = maturit
           applyBuildSaleTaxCharacter(result, sale);
           result.sales.push(sale);
           remaining = round(remaining - sale.proceeds, 6);
-          bumpBucket(rungBuckets, accountType, owner, sale.proceeds);
+          bumpBucket(rungBuckets, asset, sale.proceeds);
         } else {
           // Sheltered conversion: no tax event, just shave units.
           const units = take / asset.price;
           asset.units = Math.max(0, round(asset.units - units, 8));
           remaining = round(remaining - take, 6);
-          bumpBucket(rungBuckets, accountType, owner, take);
+          bumpBucket(rungBuckets, asset, take);
         }
       }
     }
@@ -311,19 +309,18 @@ function fundRung({ portfolio, rungCost, maturityYear, yearsToMaturity = maturit
   const funded = round(rungCost - Math.max(0, remaining), 6);
   if (!(funded > 0.000001)) return 0;
 
-  for (const [key, value] of rungBuckets) {
-    const [accountType, owner] = key.split("|");
+  for (const { accountType, metadata, value } of rungBuckets.values()) {
     // units = the rung's real face share; price reproduces the funded cost at
     // build time and follows the closed-form repricing thereafter.
     const faceShare = round(annualRealAmount * (value / rungCost), 6);
     if (!(faceShare > 0.000001) || !(value > 0.000001)) continue;
     const price = round(value / faceShare, 8);
     const rung = {
-      id: `tips-ladder-${maturityYear}${idSuffix}-${accountType}${owner === "spouse" ? "-spouse" : ""}`,
+      id: unusedLotId(portfolio, `tips-ladder-${maturityYear}${idSuffix}-${accountType}${metadata.owner === "spouse" ? "-spouse" : ""}`),
       name: `TIPS ladder rung (year ${maturityYear})`,
       accountType,
       assetClass: "tips",
-      beneficiaryType: "default",
+      ...metadata,
       units: faceShare,
       price,
       costBasisPerUnit: price,
@@ -332,7 +329,6 @@ function fundRung({ portfolio, rungCost, maturityYear, yearsToMaturity = maturit
       tipsLadderYear: maturityYear,
       expectedReturn: round(realYield, 6)
     };
-    if (owner === "spouse") rung.owner = "spouse";
     portfolio.push(rung);
     result.flows.push({
       from: accountLabelFor(accountType),
@@ -344,9 +340,18 @@ function fundRung({ portfolio, rungCost, maturityYear, yearsToMaturity = maturit
   return funded;
 }
 
-function bumpBucket(buckets, accountType, owner, amount) {
-  const key = `${accountType}|${owner === "spouse" ? "spouse" : "primary"}`;
-  buckets.set(key, round((buckets.get(key) ?? 0) + amount, 6));
+function bumpBucket(buckets, asset, amount) {
+  const metadata = accountMetadata(asset);
+  const key = JSON.stringify([asset.accountType, metadata]);
+  buckets.set(key, { accountType: asset.accountType, metadata,
+    value: round((buckets.get(key)?.value ?? 0) + amount, 6) });
+}
+
+function unusedLotId(portfolio, base) {
+  let id = base;
+  let index = 2;
+  while (portfolio.some((lot) => lot.id === id)) id = `${base}-${index++}`;
+  return id;
 }
 
 function applyBuildSaleTaxCharacter(result, sale) {
@@ -529,12 +534,11 @@ function assetShellForRoll(asset, yearIndex) {
     name: asset.name,
     accountType: asset.accountType,
     assetClass: "tips",
-    beneficiaryType: asset.beneficiaryType ?? "default",
+    ...accountMetadata(asset),
     holdingPeriod: "long",
     dividendYield: 0,
     expectedReturn: asset.expectedReturn
   };
-  if (asset.owner === "spouse") shell.owner = "spouse";
   return shell;
 }
 

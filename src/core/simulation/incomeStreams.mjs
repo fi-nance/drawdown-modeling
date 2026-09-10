@@ -18,6 +18,7 @@
 
 import { round } from "../utils.mjs";
 import { mortalityStatus } from "./household.mjs";
+import { optionalFiniteNumber } from "./guards.mjs";
 
 export const INCOME_STREAM_TYPES = Object.freeze(["pension", "annuity", "rent", "other"]);
 
@@ -27,13 +28,23 @@ export function emptyStreamIncome() {
 
 export function normalizeIncomeStream(raw = {}, index = 0) {
   const type = INCOME_STREAM_TYPES.includes(raw.type) ? raw.type : "other";
+  const startAge = optionalFiniteNumber(raw.startAge);
+  const endAge = optionalFiniteNumber(raw.endAge);
+  for (const [field, value] of [["start age", raw.startAge], ["end age", raw.endAge], ["annual amount", raw.annualAmount]]) {
+    if (value != null && String(value).trim() !== "" && (optionalFiniteNumber(value) === null || Number(value) < 0)) {
+      throw new RangeError(`Income stream ${index + 1}: ${field} must be a finite, nonnegative number or blank.`);
+    }
+  }
+  if (endAge !== null && (endAge < 0 || (startAge !== null && endAge < startAge))) {
+    throw new RangeError(`Income stream ${index + 1}: end age must be at or after start age, or blank for life.`);
+  }
   return {
     id: raw.id ?? `income-stream-${index + 1}`,
     name: String(raw.name ?? "").trim() || streamTypeLabel(type),
     type,
     owner: raw.owner === "spouse" ? "spouse" : "primary",
-    startAge: Number.isFinite(Number(raw.startAge)) ? Number(raw.startAge) : null,
-    endAge: Number.isFinite(Number(raw.endAge)) ? Number(raw.endAge) : null,
+    startAge,
+    endAge,
     annualAmount: Math.max(0, Number(raw.annualAmount) || 0),
     inflationAdjusted: raw.inflationAdjusted !== false,
     survivorPercent: Math.max(0, Math.min(100, Number(raw.survivorPercent) || 0)),

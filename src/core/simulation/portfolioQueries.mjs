@@ -1,7 +1,7 @@
 // Extracted from simulation.mjs during the modular refactor.
 // Single responsibility: portfolioQueries. No behavior changes — pure code movement.
 
-import { clonePortfolio, marketValue } from "../portfolio.mjs";
+import { accountMetadata, clonePortfolio, marketValue } from "../portfolio.mjs";
 import { round } from "../utils.mjs";
 
 export function assetClassValue(assets, classes) {
@@ -93,6 +93,7 @@ export function assetSnapshot(portfolio) {
       id: asset.id,
       name: asset.name ?? asset.id,
       accountType: asset.accountType,
+      ...accountMetadata(asset),
       assetClass: asset.assetClass,
       units: round(asset.units ?? 0, 6),
       price: round(asset.price ?? 0, 6),

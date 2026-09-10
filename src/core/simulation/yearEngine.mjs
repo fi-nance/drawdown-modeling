@@ -19,7 +19,7 @@ import { addTaxableCash, assetOwner, assetSnapshot, traditionalAccountValueByOwn
 import { householdRmdForYear } from "./rmd.mjs";
 import { isLifetimeOptimizerEnabled } from "./scenario.mjs";
 import { sequenceRiskReserveStateForYear } from "./sequenceRiskReserve.mjs";
-import { socialSecurityBenefitsForYear, spouseSocialSecurityBenefitsForYear } from "./socialSecurity.mjs?v=20260613-rescue-precision";
+import { socialSecurityBenefitsForYear, spouseSocialSecurityBenefitsForYear, survivorSocialSecurityBenefitsForYear } from "./socialSecurity.mjs?v=20260613-rescue-precision";
 import { plannedSpendingDetailForYear } from "./spending.mjs";
 import { buildTipsLadder, maintainTipsLadder, matureTipsLadderRungs, payTipsLadderCoupons, repriceTipsLadderRungs, tipsLadderConfig, tipsLadderValue } from "./tipsLadder.mjs";
 import { acaMagiCeiling, addPenaltyTax, automaticTaxLossHarvestLimit, effectiveRothConversionTargetRate, estimateTaxAttribution, gainHarvestingRoom, rothConversionAmountForYear, rothConversionMagiBuffer, strategyLimit } from "./taxStrategy.mjs?v=20260613-rescue-precision";
@@ -63,6 +63,7 @@ export function simulateYear({
 
   let baseProfileToUse = taxProfile;
   let customSocialSecurityBenefits = null;
+  let survivorSocialSecurity = null;
   // Which life the household pools under once a survivor year nulls spouseAge;
   // the RMD clock needs to know when that survivor is the spouse.
   let survivorOwner = null;
@@ -70,23 +71,18 @@ export function simulateYear({
   if (wasMarried && hasSpouseLife) {
     if (primaryDeceased && !spouseDeceased) {
       survivorOwner = "spouse";
-      const originalAge = age;
       age = spouseAge;
       spouseAge = null;
       baseProfileToUse = survivorTaxProfile ?? buildSurvivorTaxProfile(taxProfile);
-      const primarySS = socialSecurityBenefitsForYear(scenario, originalAge, inflationIndex, baseProfileToUse);
-      const spouseSS = spouseSocialSecurityBenefitsForYear(scenario, age, inflationIndex, baseProfileToUse);
-      // SSA survivor rule: surviving spouse keeps the higher of their own
-      // benefit or the deceased's PIA. Reductions for survivors claiming
-      // between age 60 and FRA (~71.5–99%) are NOT modeled.
-      customSocialSecurityBenefits = Math.max(primarySS, spouseSS);
     } else if (!primaryDeceased && spouseDeceased) {
-      const originalSpouseAge = spouseAge;
       spouseAge = null;
       baseProfileToUse = survivorTaxProfile ?? buildSurvivorTaxProfile(taxProfile);
-      const primarySS = socialSecurityBenefitsForYear(scenario, age, inflationIndex, baseProfileToUse);
-      const spouseSS = spouseSocialSecurityBenefitsForYear(scenario, originalSpouseAge, inflationIndex, baseProfileToUse);
-      customSocialSecurityBenefits = Math.max(primarySS, spouseSS);
+    }
+    if (primaryDeceased !== spouseDeceased) {
+      survivorSocialSecurity = survivorSocialSecurityBenefitsForYear(scenario, {
+        survivorOwner: primaryDeceased ? "spouse" : "primary", yearIndex, inflationIndex, taxProfile
+      });
+      customSocialSecurityBenefits = survivorSocialSecurity.total;
     }
   }
 
@@ -1041,6 +1037,11 @@ export function simulateYear({
     plannedSpending: round(plannedSpending, 6),
     spendingStrategy: plannedSpendingDetail.strategy,
     essentialSpending: round(plannedSpendingDetail.essentialSpend, 6),
+    requiredEssentialSpending: plannedSpendingDetail.requiredEssentialSpend,
+    // Cash gaps reduce lifestyle funding first, after taxes, medical and one-offs.
+    fundedCoreSpending: round(Math.max(0, plannedSpending - plannedSpendingDetail.oneOffExpenses - unfunded), 6),
+    essentialShortfall: round(Math.max(0, plannedSpendingDetail.requiredEssentialSpend
+      - Math.max(0, plannedSpending - plannedSpendingDetail.oneOffExpenses - unfunded)), 6),
     discretionarySpending: round(plannedSpendingDetail.discretionarySpend, 6),
     discretionarySpendingBudget: round(plannedSpendingDetail.discretionaryBudget, 6),
     spendingGuardrail: plannedSpendingDetail.guardrail,
@@ -1080,6 +1081,7 @@ export function simulateYear({
     selfEmploymentIncome: round(earnedIncome.selfEmploymentIncome, 6),
     rrtaCompensation: round(earnedIncome.rrtaCompensation, 6),
     socialSecurityBenefits: round(socialSecurityBenefits, 6),
+    survivorSocialSecurity,
     taxableSocialSecurity: round(finalTaxableSocialSecurity, 6),
     // Forced RMD sales only — TIPS ladder maturities (which credit against
     // the RMD) are reported separately under tipsLadder.maturedCash.

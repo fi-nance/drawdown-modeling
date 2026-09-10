@@ -1,10 +1,6 @@
-// Unit tests for inheritanceTaxStateForScenario and the state-resolution logic
-// inside estimateHeirValueBreakdown. These cover the priority rules introduced
-// to isolate the heir's state of residence from the household's state:
-//
-//   heirState (own property) → authoritative for inheritance tax state
-//   state (own property, no heirState) → fallback
-//   neither key present → undefined (caller falls back to taxProfile.state.state)
+// Inheritance tax follows decedent domicile, not heir income-tax residence.
+// PA DOR: resident intangible property is in scope irrespective of heir state.
+// Nebraska 77-2004: 1% above $100,000 per qualifying heir; under-22 heirs exempt.
 
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -18,33 +14,31 @@ import {
 // inheritanceTaxStateForScenario — priority / fallback unit tests
 // ---------------------------------------------------------------------------
 
-test("inheritanceTaxStateForScenario: heirState present and truthy returns heirState", () => {
-  assert.equal(inheritanceTaxStateForScenario({ heirState: "PA" }), "PA");
-  assert.equal(inheritanceTaxStateForScenario({ heirState: "NE" }), "NE");
+test("inheritanceTaxStateForScenario: legacy heir residence does not create tax nexus", () => {
+  assert.equal(inheritanceTaxStateForScenario({ heirState: "PA" }), undefined);
+  assert.equal(inheritanceTaxStateForScenario({ heirState: "NE" }), undefined);
 });
 
-test("inheritanceTaxStateForScenario: heirState present but falsy returns null", () => {
-  assert.equal(inheritanceTaxStateForScenario({ heirState: null }), null);
-  assert.equal(inheritanceTaxStateForScenario({ heirState: "" }), null);
-  assert.equal(inheritanceTaxStateForScenario({ heirState: 0 }), null);
+test("inheritanceTaxStateForScenario: unset heir residence does not override profile fallback", () => {
+  assert.equal(inheritanceTaxStateForScenario({ heirState: null }), undefined);
+  assert.equal(inheritanceTaxStateForScenario({ heirState: "" }), undefined);
+  assert.equal(inheritanceTaxStateForScenario({ heirState: 0 }), undefined);
 });
 
-test("inheritanceTaxStateForScenario: heirState takes priority over state when both present", () => {
-  assert.equal(inheritanceTaxStateForScenario({ heirState: "PA", state: "MA" }), "PA");
-  assert.equal(inheritanceTaxStateForScenario({ heirState: "NE", state: "PA" }), "NE");
+test("inheritanceTaxStateForScenario: decedent state takes priority over heir residence", () => {
+  assert.equal(inheritanceTaxStateForScenario({ heirState: "PA", state: "MA" }), "MA");
+  assert.equal(inheritanceTaxStateForScenario({ heirState: "NE", state: "PA" }), "PA");
 });
 
-test("inheritanceTaxStateForScenario: heirState null beats a truthy state", () => {
-  // Explicit heirState: null means the heir is in a non-inheritance-tax state,
-  // and should not inherit the household state.
-  assert.equal(inheritanceTaxStateForScenario({ heirState: null, state: "PA" }), null);
-  assert.equal(inheritanceTaxStateForScenario({ heirState: "", state: "NE" }), null);
+test("inheritanceTaxStateForScenario: null heir residence cannot erase decedent tax", () => {
+  assert.equal(inheritanceTaxStateForScenario({ heirState: null, state: "PA" }), "PA");
+  assert.equal(inheritanceTaxStateForScenario({ heirState: "", state: "NE" }), "NE");
 });
 
 test("inheritanceTaxStateForScenario: no heirState falls back to state", () => {
   assert.equal(inheritanceTaxStateForScenario({ state: "PA" }), "PA");
   assert.equal(inheritanceTaxStateForScenario({ state: "NE" }), "NE");
-  assert.equal(inheritanceTaxStateForScenario({ state: "Florida" }), "Florida");
+  assert.equal(inheritanceTaxStateForScenario({ state: "Florida" }), "FL");
 });
 
 test("inheritanceTaxStateForScenario: no heirState, state null returns null", () => {
@@ -88,10 +82,10 @@ test("PA inheritance tax applies at 4.5% on non-spouse roth value", () => {
   assert.equal(b.afterTaxValue, 955_000);
 });
 
-test("NE inheritance tax applies at 1% on non-spouse roth value", () => {
+test("NE inheritance tax applies at 1% after the qualifying heir exemption", () => {
   const b = estimateHeirValueBreakdown(rothPortfolio(), 0.24, { ...NON_SPOUSE_OPTS, state: "NE" });
-  assert.equal(b.stateInheritanceTax, 10_000);
-  assert.equal(b.afterTaxValue, 990_000);
+  assert.equal(b.stateInheritanceTax, 9_000);
+  assert.equal(b.afterTaxValue, 991_000);
 });
 
 test("state codes are matched case-insensitively", () => {
@@ -167,10 +161,35 @@ test("federal estate tax applies at 40% on the portion above $15M", () => {
 
 test("grossValue, afterTaxValue, and stateInheritanceTax are round-tripped consistently", () => {
   const b = estimateHeirValueBreakdown(rothPortfolio(100_000), 0.24, { ...NON_SPOUSE_OPTS, state: "NE" });
-  // NE: 1% × 100k = 1k
-  assert.equal(b.stateInheritanceTax, 1_000);
+  // The $100k transfer is fully exempt.
+  assert.equal(b.stateInheritanceTax, 0);
   assert.equal(b.grossValue, 100_000);
-  assert.equal(b.afterTaxValue, 99_000);
+  assert.equal(b.afterTaxValue, 100_000);
   assert.equal(b.totalIncomeTaxEstimate, 0); // roth has no income tax
   assert.equal(b.federalEstateTax, 0); // under $15M
+});
+
+test("NE exemption aggregates lots per beneficiary, not per account", () => {
+  const assets = [
+    { ...rothPortfolio(100000)[0], beneficiaryId: "child-a" },
+    { ...rothPortfolio(100000)[0], beneficiaryId: "child-a" },
+    { ...rothPortfolio(100000)[0], beneficiaryId: "child-b" }
+  ];
+  const result = estimateHeirValueBreakdown(assets, .24, { ...NON_SPOUSE_OPTS, state: "ne" });
+  assert.equal(result.stateInheritanceTax, 1000);
+  assert.equal(result.inheritanceBeneficiaryCount, 2);
+});
+
+test("NE qualifying heirs under 22 are exempt; age 22 receives the ordinary exemption", () => {
+  for (const [heirAge, expected] of [[0, 0], [21, 0], [22, 9000]]) {
+    const result = estimateHeirValueBreakdown(rothPortfolio(), .24, { ...NON_SPOUSE_OPTS, state: "NE", heirAge });
+    assert.equal(result.stateInheritanceTax, expected);
+  }
+});
+
+test("inheritance states accept full names and an explicit decedent-nexus override", () => {
+  assert.equal(inheritanceTaxStateForScenario({ state: "pennsylvania" }), "PA");
+  assert.equal(inheritanceTaxStateForScenario({ state: "Florida", inheritanceTaxState: "Nebraska" }), "NE");
+  assert.equal(estimateHeirValueBreakdown(rothPortfolio(), .24,
+    { ...NON_SPOUSE_OPTS, taxProfile: { state: { state: "Pennsylvania" } } }).stateInheritanceTax, 45000);
 });

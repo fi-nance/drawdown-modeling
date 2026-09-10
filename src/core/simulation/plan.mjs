@@ -6,7 +6,7 @@ import { DEFAULT_TAX_PROFILE } from "../tax.mjs?v=20260613-rescue-precision";
 import { createRng, normalRandom, percentile, round } from "../utils.mjs";
 import { DEFAULT_MONTE_CARLO_RUNS, MONTE_CARLO_ASSUMPTION_PRESETS } from "./constants.mjs";
 import { estimateHeirValueBreakdown, inheritanceTaxStateForScenario } from "./heirEstate.mjs?v=20260613-rescue-precision";
-import { buildSurvivorTaxProfile, isMarriedFiling, mortalityStatus } from "./household.mjs";
+import { buildSurvivorTaxProfile, isMarriedFiling, mortalityStatus, lifetimeHorizonForScenario } from "./household.mjs";
 import { hsaStrategyConfig } from "./hsa.mjs";
 import { normalizeLossCarryforward } from "./income.mjs?v=20260613-rescue-precision";
 import {
@@ -20,7 +20,7 @@ import {
 import { assetClassValue } from "./portfolioQueries.mjs";
 import { RISK_BASED_GUARDRAILS_MODE, riskBasedGuardrailSpendForYear } from "./riskBasedGuardrails.mjs";
 import { ensureReturnAssumptionsForAssets, mergeScenario } from "./scenario.mjs";
-import { advanceSpendingGuardrailMarketState, initialSpendingGuardrailMarketState, spendingGuardrailStateForYear, spendingStrategyConfig } from "./spending.mjs";
+import { advanceSpendingGuardrailMarketState, initialSpendingGuardrailMarketState, spendingGuardrailStateForYear, spendingStrategyConfig, summarizeSpendingOutcome } from "./spending.mjs";
 import { buildPostMortalityYearResult, simulateYear } from "./yearEngine.mjs?v=20260613-rescue-precision";
 
 export function simulatePlan({
@@ -262,8 +262,12 @@ export function simulatePlan({
   };
   if (inheritanceTaxState !== undefined) heirValueOptions.state = inheritanceTaxState;
   const heirValueBreakdown = estimateHeirValueBreakdown(portfolio, mergedScenario.heirOrdinaryTaxRate, heirValueOptions);
+  const spendingOutcome = summarizeSpendingOutcome(years);
   return {
     success,
+    planningSuccess: success && spendingOutcome.essentialSatisfied,
+    lifetimeHorizon: lifetimeHorizonForScenario(mergedScenario, taxProfile.filingStatus),
+    spendingOutcome,
     years,
     endingValue,
     endingAccounts,
@@ -342,6 +346,10 @@ export function runMonteCarlo({
     summary: {
       runs,
       successRate: round(scenarios.filter((scenarioResult) => scenarioResult.success).length / runs, 4),
+      planningSuccessRate: round(scenarios.filter((result) => result.planningSuccess).length / runs, 4),
+      essentialSpendingSuccessRate: round(scenarios.filter((result) => result.spendingOutcome.essentialSatisfied).length / runs, 4),
+      medianMinimumRealSpending: round(percentile(scenarios.map((result) => result.spendingOutcome.minimumRealSpending), 0.5), 2),
+      medianAverageRealSpending: round(percentile(scenarios.map((result) => result.spendingOutcome.averageRealSpending), 0.5), 2),
       medianEndingValue: round(percentile(endingValues, 0.5), 2),
       p10EndingValue: round(percentile(endingValues, 0.1), 2),
       p90EndingValue: round(percentile(endingValues, 0.9), 2),
@@ -527,6 +535,8 @@ function monteCarloScenarioResult({ id, plan, depletion, includeTimeline }) {
   const result = {
     id,
     success: plan.success,
+    planningSuccess: plan.planningSuccess,
+    spendingOutcome: plan.spendingOutcome,
     endingValue: plan.endingValue,
     heirValue: plan.heirValue,
     heirValueBreakdown: plan.heirValueBreakdown,

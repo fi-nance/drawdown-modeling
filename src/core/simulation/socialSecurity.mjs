@@ -3,34 +3,57 @@
 
 import { DEFAULT_TAX_PROFILE } from "../tax.mjs?v=20260613-rescue-precision";
 import { round } from "../utils.mjs";
+import { optionalFiniteNumber } from "./guards.mjs";
 
-function socialSecurityScalingFactor(startAge) {
+// Annual age inputs imply a birth-year cohort, not an exact date of birth.
+export function socialSecurityBirthYear(scenario, owner = "primary") {
+  const age = optionalFiniteNumber(owner === "spouse" ? scenario.spouseAge : scenario.currentAge);
+  return age === null ? 1960 : Math.trunc((scenario.startYear ?? 2026) - age);
+}
+
+export function socialSecurityFullRetirementAge(birthYear = 1960, type = "retirement") {
+  const year = Math.trunc(birthYear);
+  const firstTransition = type === "survivor" ? 1940 : 1938;
+  const secondTransition = type === "survivor" ? 1957 : 1955;
+  if (year < firstTransition) return 65;
+  if (year < firstTransition + 5) return 65 + (year - firstTransition + 1) / 6;
+  if (year < secondTransition) return 66;
+  return Math.min(67, 66 + (year - secondTransition + 1) / 6);
+}
+
+function annualDelayedCredit(birthYear) {
+  if (birthYear <= 1924) return 0.03;
+  if (birthYear >= 1943) return 0.08;
+  return 0.035 + Math.floor((birthYear - 1925) / 2) * 0.005;
+}
+
+export function socialSecurityClaimFactor(startAge, birthYear = 1960, type = "retirement") {
   const age = Math.max(62, Math.min(70, Number(startAge) || 67));
-  const diffMonths = (age - 67) * 12;
+  const fra = socialSecurityFullRetirementAge(birthYear);
+  const diffMonths = Math.round((age - fra) * 12);
   if (diffMonths < 0) {
     const first36 = Math.max(-36, diffMonths);
-    const first36Reduction = first36 * (5 / 900);
+    const first36Reduction = first36 * (type === "spousal" ? 25 / 3600 : 5 / 900);
     const extra = Math.min(0, diffMonths + 36);
     const extraReduction = extra * (5 / 1200);
     return 1 + first36Reduction + extraReduction;
   } else {
-    const delayedMonths = Math.min(36, diffMonths);
-    const delayedCredit = delayedMonths * (2 / 300);
+    const delayedCredit = type === "spousal" ? 0 : diffMonths * annualDelayedCredit(birthYear) / 12;
     return 1 + delayedCredit;
   }
 }
 
-function enteredBenefitToPia(annualBenefit, startAge) {
+function enteredBenefitToPia(annualBenefit, startAge, birthYear) {
   const benefit = Math.max(0, Number(annualBenefit) || 0);
   if (benefit <= 0) return 0;
-  const factor = socialSecurityScalingFactor(startAge);
+  const factor = socialSecurityClaimFactor(startAge, birthYear);
   return factor > 0 ? benefit / factor : benefit;
 }
 
 function primaryPiaForScenario(scenario, taxProfile = DEFAULT_TAX_PROFILE) {
   const enteredBenefit = Math.max(0, Number(scenario.socialSecurityAnnualBenefit) || 0);
   if (enteredBenefit > 0) {
-    return enteredBenefitToPia(enteredBenefit, scenario.socialSecurityStartAge ?? 67);
+    return enteredBenefitToPia(enteredBenefit, scenario.socialSecurityStartAge ?? 67, socialSecurityBirthYear(scenario));
   }
   if (scenario.estimateSocialSecurityFromEarnings !== true) return 0;
   return estimatePiaFromEarnings(
@@ -106,7 +129,7 @@ export function socialSecurityBenefitsForYear(scenario, age, inflationIndex, tax
     scenario.selfEmploymentIncome,
     taxProfile
   );
-  const benefitAtStart = pia * socialSecurityScalingFactor(startAge);
+  const benefitAtStart = pia * socialSecurityClaimFactor(startAge, socialSecurityBirthYear(scenario));
   return round(benefitAtStart * (scenario.socialSecurityInflationAdjusted === false ? 1 : inflationIndex), 6);
 }
 
@@ -114,8 +137,8 @@ export function spouseSocialSecurityBenefitsForYear(scenario, spouseAge, inflati
   if (spouseAge === null) return 0;
   const startAge = scenario.spouseSocialSecurityStartAge ?? 67;
   if (spouseAge < startAge) return 0;
-  const primaryAge = Number(options.primaryAge);
-  const hasPrimaryFilingContext = Number.isFinite(primaryAge);
+  const primaryAge = optionalFiniteNumber(options.primaryAge);
+  const hasPrimaryFilingContext = primaryAge !== null;
   const primaryStartAge = scenario.socialSecurityStartAge ?? 67;
   const primaryHasFiled = hasPrimaryFilingContext && primaryAge >= primaryStartAge;
 
@@ -126,7 +149,7 @@ export function spouseSocialSecurityBenefitsForYear(scenario, spouseAge, inflati
   if (enteredBenefit > 0) {
     // Used as-is at the chosen start age (optimizer pre-scales its candidates).
     benefitAtStart = enteredBenefit;
-    ownPia = enteredBenefitToPia(enteredBenefit, startAge);
+    ownPia = enteredBenefitToPia(enteredBenefit, startAge, socialSecurityBirthYear(scenario, "spouse"));
   } else {
     // Derive a spousal/own benefit only under the same opt-in as the primary.
     if (scenario.estimateSocialSecurityFromEarnings !== true) return 0;
@@ -150,12 +173,10 @@ export function spouseSocialSecurityBenefitsForYear(scenario, spouseAge, inflati
       receivesPureSpousalBenefit = true;
     }
 
-    // Spousal benefits do NOT earn delayed-retirement credits (they max at the
-    // 50%-of-PIA amount at FRA), so cap the scaling factor at 1.0 for the spousal
-    // case. Early-claiming reduction is approximated with the retirement curve.
+    // A spouse's own retirement clock is independent of the worker's filing.
     const entitlementAge = spousalEntitlementAge(startAge, spouseAge, primaryAge, primaryStartAge);
-    const rawFactor = socialSecurityScalingFactor(entitlementAge);
-    const factor = isSpousalBenefit ? Math.min(1, rawFactor) : rawFactor;
+    const factor = socialSecurityClaimFactor(isSpousalBenefit ? entitlementAge : startAge,
+      socialSecurityBirthYear(scenario, "spouse"), isSpousalBenefit ? "spousal" : "retirement");
     benefitAtStart = basePia * factor;
   }
 
@@ -165,10 +186,57 @@ export function spouseSocialSecurityBenefitsForYear(scenario, spouseAge, inflati
     const excessSpousalPia = Math.max(0, spouseCap - ownPia);
     if (excessSpousalPia > 0) {
       const entitlementAge = spousalEntitlementAge(startAge, spouseAge, primaryAge, primaryStartAge);
-      const spousalFactor = Math.min(1, socialSecurityScalingFactor(entitlementAge));
+      const spousalFactor = socialSecurityClaimFactor(entitlementAge, socialSecurityBirthYear(scenario, "spouse"), "spousal");
       benefitAtStart += excessSpousalPia * spousalFactor;
     }
   }
 
   return round(benefitAtStart * (scenario.spouseSocialSecurityInflationAdjusted === false ? 1 : inflationIndex), 6);
+}
+
+function ownRecordScenario(scenario, owner) {
+  if (owner === "primary") return scenario;
+  return { ...scenario, currentAge: scenario.spouseAge,
+    socialSecurityAnnualBenefit: scenario.spouseSocialSecurityAnnualBenefit,
+    socialSecurityStartAge: scenario.spouseSocialSecurityStartAge,
+    socialSecurityInflationAdjusted: scenario.spouseSocialSecurityInflationAdjusted,
+    medicareWages: scenario.spouseMedicareWages,
+    socialSecurityWages: scenario.spouseSocialSecurityWages,
+    selfEmploymentIncome: scenario.spouseSelfEmploymentIncome };
+}
+
+// Aged widow(er) benefits only. Disability, child-in-care, remarriage and other
+// eligibility exceptions require a verified SSA calculation outside this model.
+export function survivorSocialSecurityBenefitsForYear(scenario, {
+  survivorOwner, yearIndex, inflationIndex = 1, taxProfile = DEFAULT_TAX_PROFILE
+}) {
+  const deceasedOwner = survivorOwner === "primary" ? "spouse" : "primary";
+  const own = ownRecordScenario(scenario, survivorOwner);
+  const deceased = ownRecordScenario(scenario, deceasedOwner);
+  const age = Number(own.currentAge) + yearIndex;
+  const deathAge = deceasedOwner === "primary" ? scenario.primaryMortalityAge ?? 95 : scenario.spouseMortalityAge ?? 95;
+  const firstSurvivorYear = Math.max(0, Math.floor(deathAge - Number(deceased.currentAge)) + 1);
+  const configuredClaimAge = optionalFiniteNumber(survivorOwner === "primary"
+    ? scenario.socialSecuritySurvivorStartAge : scenario.spouseSocialSecuritySurvivorStartAge);
+  const claimAge = Math.max(60, Number(own.currentAge) + firstSurvivorYear, configuredClaimAge ?? 60);
+  const ownBenefit = socialSecurityBenefitsForYear(own, age, inflationIndex, taxProfile);
+  const pia = primaryPiaForScenario(deceased, taxProfile);
+  const birthYear = socialSecurityBirthYear(deceased);
+  const workerClaimAge = deceased.socialSecurityStartAge ?? 67;
+  const workerClaimed = workerClaimAge <= deathAge;
+  const workerFactor = socialSecurityClaimFactor(workerClaimed ? workerClaimAge : Math.max(
+    socialSecurityFullRetirementAge(birthYear), deathAge), birthYear);
+  const unreducedAnnual = pia * Math.max(1, workerFactor);
+  const fra = socialSecurityFullRetirementAge(socialSecurityBirthYear(own), "survivor");
+  const reductionMonths = Math.max(0, Math.round((fra - claimAge) * 12));
+  const reductionRate = 0.285 * reductionMonths / Math.round((fra - 60) * 12);
+  // POMS RS 00615.301 rounds the monthly reduction UP to the next dime.
+  const monthlyReduction = Math.ceil((unreducedAnnual / 12 * reductionRate - 1e-9) * 10) / 10;
+  const retirementLimit = workerClaimed && workerFactor < 1 ? pia * Math.max(0.825, workerFactor) : Infinity;
+  const survivorBenefit = age < claimAge ? 0 : round(Math.min(retirementLimit,
+    Math.max(0, unreducedAnnual - monthlyReduction * 12)) *
+    (deceased.socialSecurityInflationAdjusted === false ? 1 : inflationIndex), 6);
+  return { total: Math.max(ownBenefit, survivorBenefit), ownBenefit, survivorBenefit,
+    claimAge, fullRetirementAge: fra, deceasedPia: round(pia, 6), workerClaimed,
+    workerFactor, reductionRate: round(reductionRate, 6) };
 }
