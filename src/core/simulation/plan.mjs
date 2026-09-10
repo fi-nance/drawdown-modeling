@@ -1,6 +1,7 @@
 // Extracted from simulation.mjs during the modular refactor.
 // Single responsibility: plan. No behavior changes — pure code movement.
 
+import { ensureRothLedger, rothContributionBalance, rolloverRothLedger } from "../rothLedger.mjs";
 import { accountBreakdown, applySurvivorBasisStepUp, clonePortfolio, portfolioValue } from "../portfolio.mjs";
 import { DEFAULT_TAX_PROFILE } from "../tax.mjs?v=20260613-rescue-precision";
 import { createRng, normalRandom, percentile, round } from "../utils.mjs";
@@ -33,9 +34,10 @@ export function simulatePlan({
 }) {
   const mergedScenario = ensureReturnAssumptionsForAssets(mergeScenario(scenario), assets);
   const portfolio = clonePortfolio(assets);
+  ensureRothLedger(portfolio, mergedScenario);
   const years = [];
   let lossCarryforward = { shortTerm: 0, longTerm: 0 };
-  let rothBasisRemaining = Math.max(0, mergedScenario.rothBasis ?? 0);
+  let rothBasisRemaining = rothContributionBalance(portfolio.rothLedger);
   let hsaQualifiedExpenseBalance = hsaStrategyConfig(mergedScenario).startingQualifiedExpenseBalance;
   let success = true;
   let inflationIndex = 1;
@@ -114,6 +116,10 @@ export function simulatePlan({
         jointStepUpPercent: mergedScenario.survivorStepUp.jointBasisStepUpPercent
       });
       survivorStepUpApplied = true;
+    }
+
+    if (wasMarried && spouseAge !== null && primaryDeceased !== spouseDeceased) {
+      rolloverRothLedger(portfolio, primaryDeceased ? "primary" : "spouse");
     }
 
     const beginningPortfolioVal = portfolioValue(portfolio);
@@ -275,6 +281,7 @@ export function simulatePlan({
     heirValueBreakdown,
     rothBasisRemaining,
     hsaQualifiedExpenseBalance,
+    rothLedger: structuredClone(portfolio.rothLedger),
     finalPortfolio: clonePortfolio(portfolio)
   };
 }

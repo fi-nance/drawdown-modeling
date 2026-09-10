@@ -11,7 +11,7 @@ import {
   scenarioWithRiskBasedGuardrailTable
 } from "./simulation/riskBasedGuardrails.mjs";
 import { round } from "./utils.mjs";
-import { socialSecurityBirthYear, socialSecurityClaimFactor } from "./simulation/socialSecurity.mjs?v=20260613-rescue-precision";
+import { feasibleSocialSecurityClaimAges, scenarioWithSocialSecurityClaimAge } from "./simulation/socialSecurity.mjs?v=20260613-rescue-precision";
 import { lifetimeHorizonForScenario } from "./simulation/household.mjs";
 import { requiredSpendingForYear } from "./simulation/spending.mjs";
 
@@ -891,16 +891,7 @@ export function scenarioWithSocialSecurityBridge(scenario = {}, claimAge = 70) {
   const currentStart = Number(scenario.socialSecurityStartAge ?? 67);
   const targetStart = clampNumber(Number(claimAge), 62, 70, 70);
   if (!(targetStart > currentStart)) return { ...scenario };
-  const annualBenefit = Math.max(0, Number(scenario.socialSecurityAnnualBenefit) || 0);
-  const birthYear = socialSecurityBirthYear(scenario);
-  const adjustedBenefit = annualBenefit > 0
-    ? annualBenefit / socialSecurityClaimFactor(currentStart, birthYear) * socialSecurityClaimFactor(targetStart, birthYear)
-    : annualBenefit;
-  return {
-    ...scenario,
-    socialSecurityStartAge: targetStart,
-    socialSecurityAnnualBenefit: round(adjustedBenefit, 2)
-  };
+  return scenarioWithSocialSecurityClaimAge(scenario, "primary", targetStart);
 }
 
 function findSafeSpendingBoundary({ assets, scenario, taxProfile, runs, seed, sequences, profile, base, tracker }) {
@@ -1410,45 +1401,17 @@ function findSocialSecurityBridge({ assets, scenario, taxProfile, runs, seed, se
   const spouseHasSS = Number(scenario?.spouseSocialSecurityAnnualBenefit) > 0 || (estimateFromEarnings && spousePresent);
   if (!primaryHasSS && !spouseHasSS) return null;
 
-  // Coarse claiming grid (early / mid / FRA / max) keeps the search bounded:
-  // 4 ages → 16 couple candidates (was 9×9 = 81) or 4 single candidates.
-  const ages = [62, 65, 67, 70];
+  const primaryAges = primaryHasSS ? feasibleSocialSecurityClaimAges(scenario) : [Number(scenario.socialSecurityStartAge ?? 67)];
+  const spouseAges = spousePresent && spouseHasSS ? feasibleSocialSecurityClaimAges(scenario, "spouse") : [Number(scenario.spouseSocialSecurityStartAge ?? 67)];
   const searchRuns = solverSearchRuns(runs);
-  const candidatesList = [];
-
-  if (spousePresent) {
-    for (const primaryAge of ages) {
-      for (const spouseAge of ages) {
-        candidatesList.push({ primaryAge, spouseAge });
-      }
-    }
-  } else {
-    for (const primaryAge of ages) {
-      candidatesList.push({ primaryAge, spouseAge: 67 });
-    }
-  }
-
-  // Entered benefits are quoted at the household's current start ages; rescale
-  // them to each candidate age so the sweep actually changes the benefit amount.
-  // (The PIA-from-earnings path scales inside socialSecurityBenefitsForYear, so
-  // for it we only set the start ages.)
-  const curPrimaryStart = Number(scenario.socialSecurityStartAge ?? 67);
-  const curSpouseStart = Number(scenario.spouseSocialSecurityStartAge ?? 67);
-  const enteredPrimary = Math.max(0, Number(scenario.socialSecurityAnnualBenefit) || 0);
-  const enteredSpouse = Math.max(0, Number(scenario.spouseSocialSecurityAnnualBenefit) || 0);
-
-  const candidates = candidatesList.map(({ primaryAge, spouseAge }) => {
-    const candidateScenario = {
-      ...scenario,
-      socialSecurityStartAge: primaryAge,
-      spouseSocialSecurityStartAge: spouseAge,
-      ...(enteredPrimary > 0 ? {
-        socialSecurityAnnualBenefit: round(enteredPrimary / socialSecurityClaimFactor(curPrimaryStart, socialSecurityBirthYear(scenario)) * socialSecurityClaimFactor(primaryAge, socialSecurityBirthYear(scenario)), 2)
-      } : {}),
-      ...(enteredSpouse > 0 ? {
-        spouseSocialSecurityAnnualBenefit: round(enteredSpouse / socialSecurityClaimFactor(curSpouseStart, socialSecurityBirthYear(scenario, "spouse")) * socialSecurityClaimFactor(spouseAge, socialSecurityBirthYear(scenario, "spouse")), 2)
-      } : {})
-    };
+  const candidatesList = primaryAges.flatMap(primaryAge => spouseAges.map(spouseAge => ({ primaryAge, spouseAge })));
+  const candidates = candidatesList.filter(({ primaryAge, spouseAge }) =>
+    primaryAge !== Number(scenario.socialSecurityStartAge ?? 67)
+      || spouseAge !== Number(scenario.spouseSocialSecurityStartAge ?? 67)
+  ).map(({ primaryAge, spouseAge }) => {
+    const candidateScenario = scenarioWithSocialSecurityClaimAge(
+      scenarioWithSocialSecurityClaimAge(scenario, "primary", primaryAge), "spouse", spouseAge
+    );
 
     return runCandidate({
       id: `social-security-${primaryAge}-${spouseAge}`,

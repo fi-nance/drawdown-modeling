@@ -252,3 +252,10 @@ The generator scrapes the two history tables on https://www.treasurydirect.gov/s
 - Add direct source URLs inside every tax-year object, not just source names.
 - Track source retrieval dates and checksums for downloaded raw data files.
 - Add filing-grade itemized deduction substantiation/limitation checks, full Schedule 8812 edge-case support, earned income credit, full Form 6251 AMT calculation, full Form 8995/8995-A business-detail engine, education credit, household-specific ACA benchmark, and rule-specific retirement penalty exception engines.
+
+## September 10, 2026: Roth history and claiming feasibility
+
+- IRS Publication 590-B, Roth IRA ordering and spousal inheritance: https://www.irs.gov/publications/p590b. Feeds `rothLedger.mjs`, `rothBasis`, `spouseRothBasis`, and `rothConversionHistory`. Contributions precede conversions chronologically, taxable before nontaxable within each year, followed by earnings. Conversion recapture uses each conversion year independently. Golden worked cases: `tests/golden_roth_ordering.test.mjs`.
+- SSA claim withdrawal and suspension: https://www.ssa.gov/faqs/en/questions/KA-01993.html and https://www.ssa.gov/benefits/retirement/planner/suspend.html. Feeds `socialSecurityClaimStatus` / `spouseSocialSecurityClaimStatus` and prospective solver constraints. Existing elections cannot be freely reselected; the exceptional procedures are not simulated. Regression: `tests/claimingFeasibility.test.mjs`.
+- Calculation/cache version: `MODEL_VERSION = 2026-09-10-roth-claiming`.
+- Roth spousal rollover five-year clock: 26 CFR 1.408A-6 Q7(b), https://www.irs.gov/pub/irs-regs/td8816.pdf. The earlier of either spouse’s Roth clocks governs once the inherited IRA is treated as the survivor’s own.

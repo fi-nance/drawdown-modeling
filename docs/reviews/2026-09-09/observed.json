@@ -1,0 +1,101 @@
+{
+  "rothSeasonedConversion": {
+    "cash": 60000,
+    "taxable": 10000,
+    "penalty": 1000,
+    "expectedTaxable": 0,
+    "expectedPenalty": 0
+  },
+  "mfsPtc": {
+    "subsidy": 17569.664303,
+    "expectedSubsidy": 0
+  },
+  "childAfterParentsMedicare": {
+    "grossPremium": 0,
+    "expectedGrossPremium": 6000,
+    "medicareEligibleHousehold": true
+  },
+  "irmaaToggle": {
+    "enabled": 4594.8,
+    "disabled": 0
+  },
+  "rentalNiit": {
+    "agi": 300000,
+    "investmentIncome": 0,
+    "niit": 0,
+    "expectedNiit": 1900
+  },
+  "kansas": {
+    "excluded": 0,
+    "expectedExcluded": 30000
+  },
+  "newJersey": {
+    "excluded": 100000,
+    "expectedExcluded": 60000
+  },
+  "michigan": {
+    "excluded": 300000,
+    "expected": "subject to statutory private-retirement cap"
+  },
+  "newYorkCouple": {
+    "excluded": 20000,
+    "expectedExcluded": 40000
+  },
+  "ssEarningsTest": {
+    "benefits": 24000,
+    "expectedAnnualBenefitAfterEarningsTest": 6240
+  },
+  "preferentialOrdinaryCap": {
+    "computed": 5755,
+    "ordinaryTaxAlternative": 5752
+  },
+  "retroactiveSsRescue": {
+    "baseline": {
+      "label": "fragile",
+      "tone": "warn",
+      "monteCarloPasses": false,
+      "historicalPasses": true,
+      "historicalKnown": false,
+      "combinedSuccessRate": 0,
+      "reason": "Monte Carlo misses the target. Limited to 10 years; 11 configured lifetime years are not tested.",
+      "scope": "limited-horizon"
+    },
+    "claimAge": 70,
+    "benefit": 42240,
+    "status": "target-met",
+    "success": 1
+  },
+  "survivorIrmaa": [
+    {
+      "year": 2026,
+      "filingStatus": "marriedFilingJointly",
+      "magi": 200000,
+      "lookbackMagi": 200000,
+      "partBMonthlyIrmaa": 0,
+      "partDMonthlyIrmaa": 0
+    },
+    {
+      "year": 2027,
+      "filingStatus": "single",
+      "magi": 0,
+      "lookbackMagi": 0,
+      "partBMonthlyIrmaa": 0,
+      "partDMonthlyIrmaa": 0
+    },
+    {
+      "year": 2028,
+      "filingStatus": "single",
+      "magi": 0,
+      "lookbackMagi": 200000,
+      "partBMonthlyIrmaa": 324.6,
+      "partDMonthlyIrmaa": 60.4
+    }
+  ],
+  "hsaInsurance": {
+    "netPremium": 12000,
+    "medical": 12000,
+    "hsaProceeds": 12000,
+    "remainingExpensePool": 0,
+    "penalty": 0
+  }
+}

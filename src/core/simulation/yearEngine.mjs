@@ -1,3 +1,4 @@
+import { copyRothLedger, ensureRothLedger } from "../rothLedger.mjs";
 // Extracted from simulation.mjs during the modular refactor.
 // Single responsibility: yearEngine. No behavior changes — pure code movement.
 
@@ -48,6 +49,7 @@ export function simulateYear({
   // Accept either a number (legacy: treated as long-term) or
   // { shortTerm, longTerm } object so callers can preserve §1212(b) character.
   lossCarryforward = normalizeLossCarryforward(lossCarryforward);
+  ensureRothLedger(portfolio, { ...scenario, rothBasisRemaining });
   const calendarYear = scenario.startYear + yearIndex;
 
   const { primaryAge: rawPrimaryAge, spouseAge: rawSpouseAge, primaryDeceased, spouseDeceased }
@@ -300,6 +302,7 @@ export function simulateYear({
       penaltyRate: scenario.earlyWithdrawalPenaltyRate ?? 0.1,
       rothBasisRemaining: rmdWithdrawal.rothBasisRemaining,
       rothFiveYearRuleSatisfied: scenario.rothFiveYearRuleSatisfied !== false,
+        spouseRothFiveYearRuleSatisfied: scenario.spouseRothFiveYearRuleSatisfied ?? scenario.rothFiveYearRuleSatisfied,
       penaltyExceptionRemaining: rmdWithdrawal.penaltyExceptionRemaining,
       returnAssumptions: scenario.returnAssumptions
     }
@@ -330,6 +333,7 @@ export function simulateYear({
       penaltyRate: scenario.earlyWithdrawalPenaltyRate ?? 0.1,
       rothBasisRemaining: rmdWithdrawal.rothBasisRemaining,
       rothFiveYearRuleSatisfied: scenario.rothFiveYearRuleSatisfied !== false,
+        spouseRothFiveYearRuleSatisfied: scenario.spouseRothFiveYearRuleSatisfied ?? scenario.rothFiveYearRuleSatisfied,
       penaltyExceptionRemaining: rmdWithdrawal.penaltyExceptionRemaining,
       returnAssumptions: scenario.returnAssumptions,
       optimizedLotSelection: isLifetimeOptimizerEnabled(scenario)
@@ -421,11 +425,15 @@ export function simulateYear({
       rothBasisRemaining: rmdWithdrawal.rothBasisRemaining,
       rothBasisAvailable: rothBasisAvailableForWithdrawal(portfolio, {
         rothBasisRemaining: rmdWithdrawal.rothBasisRemaining,
+        ownerAges,
+        rothFiveYearRuleSatisfied: scenario.rothFiveYearRuleSatisfied,
+        spouseRothFiveYearRuleSatisfied: scenario.spouseRothFiveYearRuleSatisfied,
         age,
         calendarYear,
         penaltyAge: scenario.retirementPenaltyAge ?? 59.5
       }),
       rothFiveYearRuleSatisfied: scenario.rothFiveYearRuleSatisfied !== false,
+        spouseRothFiveYearRuleSatisfied: scenario.spouseRothFiveYearRuleSatisfied ?? scenario.rothFiveYearRuleSatisfied,
       penaltyExceptionRemaining: rmdWithdrawal.penaltyExceptionRemaining,
       returnAssumptions: scenario.returnAssumptions,
       optimizedLotSelection: isLifetimeOptimizerEnabled(scenario),
@@ -596,10 +604,14 @@ export function simulateYear({
         rothBasisAvailable: rothBasisAvailableForWithdrawal(portfolio, {
           rothBasisRemaining: rmdWithdrawal.rothBasisRemaining,
           age,
+          ownerAges,
+          rothFiveYearRuleSatisfied: scenario.rothFiveYearRuleSatisfied,
+          spouseRothFiveYearRuleSatisfied: scenario.spouseRothFiveYearRuleSatisfied,
           calendarYear,
           penaltyAge: scenario.retirementPenaltyAge ?? 59.5
         }),
         rothFiveYearRuleSatisfied: scenario.rothFiveYearRuleSatisfied !== false,
+        spouseRothFiveYearRuleSatisfied: scenario.spouseRothFiveYearRuleSatisfied ?? scenario.rothFiveYearRuleSatisfied,
         penaltyExceptionRemaining: rmdWithdrawal.penaltyExceptionRemaining,
         returnAssumptions: scenario.returnAssumptions,
         optimizedLotSelection: isLifetimeOptimizerEnabled(scenario) || sequenceRiskReserve.enabled,
@@ -1007,10 +1019,12 @@ export function simulateYear({
   }
 
   portfolio.splice(0, portfolio.length, ...finalPortfolio);
+  copyRothLedger(portfolio, finalPortfolio);
   removeEmptyLots(portfolio);
   const endingAssets = assetSnapshot(portfolio);
   const rothBasisSummary = rothBasisSummaryForYear(finalPortfolio, {
     age,
+    ownerAges,
     calendarYear,
     penaltyAge: scenario.retirementPenaltyAge ?? 59.5
   });
@@ -1142,10 +1156,12 @@ export function simulateYear({
     rothBasisUsed: round(finalWithdrawal.rothBasisUsed, 6),
     rothBasisRemaining: round(finalWithdrawal.rothBasisRemaining, 6),
     rothContributionBasisRemaining: round(finalWithdrawal.rothBasisRemaining, 6),
+    rothLedger: structuredClone(finalPortfolio.rothLedger),
     rothConversionPrincipalRemaining: rothBasisSummary.conversionPrincipal,
     rothPenaltyFreeConversionPrincipal: rothBasisSummary.penaltyFreeConversionPrincipal,
     rothBasisAvailable: round(finalWithdrawal.rothBasisRemaining + rothBasisSummary.penaltyFreeConversionPrincipal, 6),
     rothFiveYearRuleSatisfied: scenario.rothFiveYearRuleSatisfied !== false,
+        spouseRothFiveYearRuleSatisfied: scenario.spouseRothFiveYearRuleSatisfied ?? scenario.rothFiveYearRuleSatisfied,
     rothBasisOptimization: finalRothBasisOptimization,
     hsaContribution,
     hsaWithdrawals: round(finalWithdrawal.hsaProceeds ?? 0, 6),
@@ -1271,10 +1287,14 @@ function reconcileCashRequirement({
         rothBasisAvailable: rothBasisAvailableForWithdrawal(portfolio, {
           rothBasisRemaining: currentWithdrawal.rothBasisRemaining,
           age,
+          ownerAges,
+          rothFiveYearRuleSatisfied: scenario.rothFiveYearRuleSatisfied,
+          spouseRothFiveYearRuleSatisfied: scenario.spouseRothFiveYearRuleSatisfied,
           calendarYear,
           penaltyAge: scenario.retirementPenaltyAge ?? 59.5
         }),
         rothFiveYearRuleSatisfied: scenario.rothFiveYearRuleSatisfied !== false,
+        spouseRothFiveYearRuleSatisfied: scenario.spouseRothFiveYearRuleSatisfied ?? scenario.rothFiveYearRuleSatisfied,
         penaltyExceptionRemaining: currentWithdrawal.penaltyExceptionRemaining,
         returnAssumptions: scenario.returnAssumptions,
         optimizedLotSelection: isLifetimeOptimizerEnabled(scenario) || sequenceRiskReserve?.enabled,
@@ -1314,6 +1334,7 @@ function reconcileCashRequirement({
     if (chosenTopUp.withdrawal.cashRaised <= currentWithdrawal.cashRaised + CASH_RAISED_EPSILON) break;
 
     portfolio.splice(0, portfolio.length, ...chosenTopUp.portfolio);
+    copyRothLedger(portfolio, chosenTopUp.portfolio);
     currentWithdrawal = chosenTopUp.withdrawal;
     currentTaxableSocialSecurity = chosenTopUp.taxableSocialSecurity;
     currentTaxes = chosenTopUp.taxes;
@@ -1345,6 +1366,7 @@ function reconcileCashRequirement({
         penaltyRate: scenario.earlyWithdrawalPenaltyRate ?? 0.1,
         rothBasisRemaining: currentWithdrawal.rothBasisRemaining,
         rothFiveYearRuleSatisfied: scenario.rothFiveYearRuleSatisfied !== false,
+        spouseRothFiveYearRuleSatisfied: scenario.spouseRothFiveYearRuleSatisfied ?? scenario.rothFiveYearRuleSatisfied,
         penaltyExceptionRemaining: currentWithdrawal.penaltyExceptionRemaining,
         returnAssumptions: scenario.returnAssumptions,
         optimizedLotSelection: false,
@@ -1386,6 +1408,7 @@ function reconcileCashRequirement({
     if (forcedTopUp.withdrawal.cashRaised <= currentWithdrawal.cashRaised + CASH_RAISED_EPSILON) break;
 
     portfolio.splice(0, portfolio.length, ...forcedTopUp.portfolio);
+    copyRothLedger(portfolio, forcedTopUp.portfolio);
     currentWithdrawal = forcedTopUp.withdrawal;
     currentTaxableSocialSecurity = forcedTopUp.taxableSocialSecurity;
     currentTaxes = forcedTopUp.taxes;
@@ -1513,10 +1536,12 @@ export function buildPostMortalityYearResult({ scenario, yearIndex, portfolio, i
     rothBasisUsed: 0,
     rothBasisRemaining: 0,
     rothContributionBasisRemaining: 0,
+    rothLedger: structuredClone(portfolio.rothLedger),
     rothConversionPrincipalRemaining: 0,
     rothPenaltyFreeConversionPrincipal: 0,
     rothBasisAvailable: 0,
     rothFiveYearRuleSatisfied: scenario.rothFiveYearRuleSatisfied !== false,
+        spouseRothFiveYearRuleSatisfied: scenario.spouseRothFiveYearRuleSatisfied ?? scenario.rothFiveYearRuleSatisfied,
     rothBasisOptimization: null,
     hsaContribution: emptyHsaContribution(hsaStrategyConfig(scenario)),
     hsaWithdrawals: 0,

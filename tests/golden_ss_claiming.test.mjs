@@ -46,7 +46,7 @@ test("F11: spouse at 62 receives 32.5% of worker PIA when FRA is 67", () => {
 });
 
 test("F11: claiming optimizer uses the same cohort as the simulation", () => {
-  const s = scenarioWithSocialSecurityBridge({ startYear: 2026, currentAge: 72,
+  const s = scenarioWithSocialSecurityBridge({ startYear: 2020, currentAge: 66,
     socialSecurityStartAge: 66, socialSecurityAnnualBenefit: 30000 }, 70);
   close(s.socialSecurityAnnualBenefit, 39600);
 });

@@ -1,6 +1,7 @@
 // Extracted from simulation.mjs during the modular refactor.
 // Single responsibility: withdrawalExecution. No behavior changes — pure code movement.
 
+import { ensureRothLedger, consumeRothDistribution, recordRothConversion, rothContributionBalance, rothLedgerSummary } from "../rothLedger.mjs";
 import { marketValue, removeEmptyLots, sellFromLot } from "../portfolio.mjs";
 import { round } from "../utils.mjs";
 import { allocationWithdrawalStateForPortfolio } from "./allocation.mjs";
@@ -69,7 +70,8 @@ export function emptyWithdrawal(rothBasisRemaining = 0, penaltyExceptionRemainin
 
 export function withdrawForCash(portfolio, amount, withdrawalOrder = [], context = {}) {
   let remaining = Math.max(0, amount);
-  let rothBasisRemaining = Math.max(0, context.rothBasisRemaining ?? 0);
+  const rothLedger = context.rothLedger ?? ensureRothLedger(portfolio, context);
+  let rothBasisRemaining = rothContributionBalance(rothLedger);
   let penaltyExceptionRemaining = Math.max(0, context.penaltyExceptionRemaining ?? 0);
   const allocationWithdrawal = allocationWithdrawalStateForPortfolio(portfolio, context.allocationStrategy);
   const saleContext = {
@@ -150,6 +152,12 @@ export function withdrawForCash(portfolio, amount, withdrawalOrder = [], context
         const rothRoom = maxRothProceeds - result.rothProceeds;
         if (rothRoom <= 0.000001) break;
         requestedSale = Math.min(requestedSale, rothRoom);
+        if (Number.isFinite(maxRothProceeds)) {
+          const key = rothLedger.ownerAliases[asset.owner === "spouse" ? "spouse" : "primary"] ?? (asset.owner === "spouse" ? "spouse" : "primary");
+          const safe = rothLedgerSummary(portfolio, context).ownerAvailable[key] ?? 0;
+          requestedSale = Math.min(requestedSale, safe);
+          if (requestedSale <= 0.000001) continue;
+        }
       } else if (accountType === "hsa" && !assetHsaOrdinaryEligible) {
         // Before the owner is 65, HSA sales are capped at the tracked
         // qualified-expense pool. At 65+, the cap lifts: the excess is sold
@@ -179,7 +187,8 @@ export function withdrawForCash(portfolio, amount, withdrawalOrder = [], context
         hsaOrdinaryEligible: assetHsaOrdinaryEligible,
         penaltyRate,
         calendarYear,
-        rothFiveYearRuleSatisfied,
+        rothFiveYearRuleSatisfied: Object.keys(rothLedger.ownerAliases).length ? rothFiveYearRuleSatisfied || (context.spouseRothFiveYearRuleSatisfied ?? rothFiveYearRuleSatisfied) !== false : asset.owner === "spouse" ? context.spouseRothFiveYearRuleSatisfied ?? rothFiveYearRuleSatisfied : rothFiveYearRuleSatisfied,
+        rothLedger,
         getRothBasis: () => rothBasisRemaining,
         useRothBasis: (amountUsed) => {
           const used = Math.min(rothBasisRemaining, Math.max(0, amountUsed));
@@ -304,30 +313,17 @@ function applyRetirementDistributionTax(sale, context) {
     return;
   }
 
-  if (!context.isEarly && context.rothFiveYearRuleSatisfied !== false) {
-    sale.ordinaryIncome = 0;
-    sale.penaltyBase = 0;
-    sale.penaltyExceptionUsed = 0;
-    sale.penaltyTax = 0;
-    return;
-  }
-
-  let remaining = sale.proceeds;
-  const basisUsed = context.useRothBasis(remaining);
-  remaining -= basisUsed;
-
-  const conversionPrincipal = sale.rothSource === "conversion"
-    ? Math.min(remaining, sale.costBasisSold ?? remaining)
-    : 0;
-  const conversionIsInsideFiveYears = sale.rothSource === "conversion"
-    && Number.isFinite(sale.conversionYear)
-    && context.calendarYear - sale.conversionYear < 5;
-  const conversionPenaltyBase = conversionIsInsideFiveYears ? conversionPrincipal : 0;
-  remaining -= conversionPrincipal;
-
-  const taxableEarnings = Math.max(0, remaining);
-  const penalty = applyPenaltyException(context, context.isEarly ? conversionPenaltyBase + taxableEarnings : 0);
+  const distribution = consumeRothDistribution(context.rothLedger, sale.owner, sale.proceeds, {
+    calendarYear: context.calendarYear,
+    isEarly: context.isEarly,
+    qualified: !context.isEarly && context.rothFiveYearRuleSatisfied !== false
+  });
+  const basisUsed = context.useRothBasis(distribution.contributions);
+  const taxableEarnings = distribution.earnings;
+  const conversionPenaltyBase = distribution.penaltyBase;
+  const penalty = applyPenaltyException(context, distribution.penaltyBase);
   sale.rothBasisUsed = basisUsed;
+  sale.rothConversionPrincipalUsed = distribution.conversionPrincipal;
   sale.ordinaryIncome = taxableEarnings;
   sale.penaltyBase = penalty.penaltyBase;
   sale.penaltyExceptionUsed = penalty.exceptionUsed;
@@ -354,6 +350,7 @@ function applyPenaltyException(context, rawPenaltyBase) {
 }
 
 export function convertTraditionalToRoth(portfolio, requestedAmount, calendarYear) {
+  ensureRothLedger(portfolio);
   let remaining = Math.max(0, requestedAmount);
   let converted = 0;
 
@@ -378,6 +375,7 @@ export function convertTraditionalToRoth(portfolio, requestedAmount, calendarYea
       rothSource: "conversion",
       conversionYear: calendarYear
     });
+    recordRothConversion(portfolio, asset.owner, calendarYear, amount);
     remaining -= amount;
     converted += amount;
   }
@@ -386,31 +384,11 @@ export function convertTraditionalToRoth(portfolio, requestedAmount, calendarYea
   return round(converted, 6);
 }
 
-export function rothBasisSummaryForYear(portfolio, { age, calendarYear, penaltyAge }) {
-  const isEarly = Number(age) < Number(penaltyAge);
-  let conversionPrincipal = 0;
-  let penaltyFreeConversionPrincipal = 0;
-
-  for (const asset of portfolio) {
-    if (asset?.accountType !== "roth" || asset.rothSource !== "conversion") continue;
-    const principal = Math.max(0, Math.min(marketValue(asset), (asset.units ?? 0) * (asset.costBasisPerUnit ?? 0)));
-    if (!(principal > 0)) continue;
-    conversionPrincipal += principal;
-    const conversionYear = Number(asset.conversionYear);
-    const conversionFiveYearClockMet = Number.isFinite(conversionYear) && calendarYear - conversionYear >= 5;
-    if (!isEarly || conversionFiveYearClockMet) {
-      penaltyFreeConversionPrincipal += principal;
-    }
-  }
-
-  return {
-    conversionPrincipal: round(conversionPrincipal, 6),
-    penaltyFreeConversionPrincipal: round(penaltyFreeConversionPrincipal, 6)
-  };
+export function rothBasisSummaryForYear(portfolio, options) {
+  const { conversionPrincipal, penaltyFreeConversionPrincipal } = rothLedgerSummary(portfolio, options);
+  return { conversionPrincipal, penaltyFreeConversionPrincipal };
 }
 
-export function rothBasisAvailableForWithdrawal(portfolio, { rothBasisRemaining = 0, age, calendarYear, penaltyAge }) {
-  if (Number(age) >= Number(penaltyAge)) return Infinity;
-  const summary = rothBasisSummaryForYear(portfolio, { age, calendarYear, penaltyAge });
-  return round(Math.max(0, Number(rothBasisRemaining) || 0) + summary.penaltyFreeConversionPrincipal, 6);
+export function rothBasisAvailableForWithdrawal(portfolio, options) {
+  return rothLedgerSummary(portfolio, options).available;
 }

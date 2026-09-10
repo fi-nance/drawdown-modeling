@@ -336,9 +336,19 @@
                 </div>
                 <p class="assumption-note" style="margin-bottom:1rem;">Symbol / ID accepts a ticker (live quote or previous close), a Treasury TIPS CUSIP (inflation-adjusted principal at par; units = face ÷ $100), or an I-bond purchase month like 2021-11 (official redemption value computed locally; units = face value in dollars). Prices update only when you click refresh — never on their own — and rows that could not update are highlighted with the reason on hover.</p>
                 <div class="control-grid" style="border-top: 1px solid var(--border); padding-top: 1rem; margin-bottom: 1rem;">
-                  <label><span>Roth contribution basis</span><input id="rothBasis" type="number" min="0" step="1000" value="60000"></label>
+                  <label><span>Your remaining Roth contribution basis</span><input id="rothBasis" type="number" min="0" step="1000" value="60000"></label>
                 </div>
                 <label class="check-row" style="margin-bottom: 1rem;"><input id="rothFiveYearRuleSatisfied" type="checkbox" checked><span>Roth five-year rule satisfied</span></label>
+                <div class="control-grid" data-married-controls>
+                  <label><span>Spouse remaining Roth contribution basis</span><input id="spouseRothBasis" type="number" min="0" step="1000" value="0"></label>
+                  <label class="check-row"><input id="spouseRothFiveYearRuleSatisfied" type="checkbox" checked><span>Spouse Roth five-year rule satisfied</span></label>
+                </div>
+                <details class="advanced">
+                  <summary>Opening Roth conversion history</summary>
+                  <label class="check-row"><input id="useRothConversionHistory" type="checkbox"><span>Use my remaining conversion amounts</span></label>
+                  <label><span>One conversion per line: owner, year, taxable amount, nontaxable amount</span><textarea id="rothConversionHistory" rows="4" placeholder="primary, 2020, 100000, 0&#10;spouse, 2023, 20000, 5000"></textarea></label>
+                  <p class="assumption-note">Enter amounts remaining after past withdrawals, without thousands separators. Owner is primary or spouse. Regular contributions go in the fields above. A checked box with no lines means no remaining conversions. Otherwise, legacy conversion-tagged account rows supply the opening principal once. Securities traded inside a Roth do not change these balances. Roth IRA ordering is modeled; inherited beneficiary IRAs and designated Roth employer accounts require separate treatment.</p>
+                </details>
                 <label class="check-row" style="margin-bottom: 0.35rem;"><input id="privacyMode" type="checkbox"><span>Privacy mode</span></label>
                 <p class="assumption-note">Privacy mode keeps modeling local by disabling Google Sheets imports and live CMS Marketplace plan searches. CSV, JSON, setup backup/restore, offline ZIP lookup, and manual ACA plan inputs remain available.</p>
                 <details class="advanced">
@@ -526,6 +536,8 @@
               </div>
               <div class="module-body">
                 <div class="control-grid">
+                  <label><span>Your Social Security claim status</span><select id="socialSecurityClaimStatus"><option value="auto">Infer from start age</option><option value="claimed">Already receiving benefits</option><option value="unclaimed">Not yet claimed</option></select></label>
+                  <label data-married-controls><span>Spouse Social Security claim status</span><select id="spouseSocialSecurityClaimStatus"><option value="auto">Infer from start age</option><option value="claimed">Already receiving benefits</option><option value="unclaimed">Not yet claimed</option></select></label>
                   <label><span>SS annual benefit</span>    <input id="socialSecurityAnnualBenefit" type="number" min="0" step="1000" value="0"></label>
                   <label><span>SS start age</span>         <input id="socialSecurityStartAge" type="number" min="0" max="120" step="0.5" value="67"></label>
                   <label data-married-controls><span>Spouse SS annual benefit</span><input id="spouseSocialSecurityAnnualBenefit" type="number" min="0" step="1000" value="0"></label>
@@ -540,6 +552,7 @@
                   <label data-married-controls><span>Spouse W-2 SS wages</span>  <input id="spouseSocialSecurityWages" type="number" min="0" step="1000" placeholder="Auto"></label>
                   <label data-married-controls><span>Spouse self-employment income</span><input id="spouseSelfEmploymentIncome" type="number" min="0" step="1000" value="0"></label>
                 </div>
+                <p class="assumption-note">For benefits already received, enter the actual claim age and current annual award. For an unclaimed benefit, enter the estimate at the selected future age. Past elections are locked; claim withdrawal, voluntary suspension, retroactive awards, and exact claim-month cash flows are not modeled.</p>
                 <label class="check-row"><input id="socialSecurityInflationAdjusted" type="checkbox" checked><span>Inflation-adjust Social Security</span></label>
                 <label class="check-row" data-married-controls><input id="spouseSocialSecurityInflationAdjusted" type="checkbox" checked><span>Inflation-adjust spouse Social Security</span></label>
                 <label class="check-row"><input id="earnedIncomeInflationAdjusted"  type="checkbox" checked><span>Inflation-adjust earned income</span></label>

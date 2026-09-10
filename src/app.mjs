@@ -1,3 +1,4 @@
+import { parseRothConversionHistory } from "./core/rothLedger.mjs";
 import {
   ensureUniqueAssetIds,
   googleSpreadsheetIdFromInput,
@@ -204,6 +205,10 @@ const CONTROL_IDS = [
   "acaMemberAges",
   "retirementPenaltyAge",
   "rothBasis",
+  "spouseRothBasis",
+  "spouseRothFiveYearRuleSatisfied",
+  "useRothConversionHistory",
+  "rothConversionHistory",
   "earlyWithdrawalPenaltyExceptionAmount",
   "rothFiveYearRuleSatisfied",
   "privacyMode",
@@ -218,6 +223,8 @@ const CONTROL_IDS = [
   "earnedIncomeInflationAdjusted",
   "socialSecurityAnnualBenefit",
   "socialSecurityStartAge",
+  "socialSecurityClaimStatus",
+  "spouseSocialSecurityClaimStatus",
   "socialSecuritySurvivorStartAge",
   "socialSecurityInflationAdjusted",
   "spouseSocialSecurityAnnualBenefit",
@@ -438,6 +445,10 @@ const els = {
   acaMemberAges: document.querySelector("#acaMemberAges"),
   retirementPenaltyAge: document.querySelector("#retirementPenaltyAge"),
   rothBasis: document.querySelector("#rothBasis"),
+  spouseRothBasis: document.querySelector("#spouseRothBasis"),
+  spouseRothFiveYearRuleSatisfied: document.querySelector("#spouseRothFiveYearRuleSatisfied"),
+  useRothConversionHistory: document.querySelector("#useRothConversionHistory"),
+  rothConversionHistory: document.querySelector("#rothConversionHistory"),
   earlyWithdrawalPenaltyExceptionAmount: document.querySelector("#earlyWithdrawalPenaltyExceptionAmount"),
   rothFiveYearRuleSatisfied: document.querySelector("#rothFiveYearRuleSatisfied"),
   privacyMode: document.querySelector("#privacyMode"),
@@ -452,6 +463,8 @@ const els = {
   earnedIncomeInflationAdjusted: document.querySelector("#earnedIncomeInflationAdjusted"),
   socialSecurityAnnualBenefit: document.querySelector("#socialSecurityAnnualBenefit"),
   socialSecurityStartAge: document.querySelector("#socialSecurityStartAge"),
+  socialSecurityClaimStatus: document.querySelector("#socialSecurityClaimStatus"),
+  spouseSocialSecurityClaimStatus: document.querySelector("#spouseSocialSecurityClaimStatus"),
   socialSecuritySurvivorStartAge: document.querySelector("#socialSecuritySurvivorStartAge"),
   socialSecurityInflationAdjusted: document.querySelector("#socialSecurityInflationAdjusted"),
   spouseSocialSecurityAnnualBenefit: document.querySelector("#spouseSocialSecurityAnnualBenefit"),
@@ -1928,7 +1941,16 @@ function applySetupState(stored) {
     incomeStreams = stored.incomeStreams.map((stream) => ({ ...stream }));
   }
 
-  for (const [id, value] of Object.entries(stored.controls ?? {})) {
+  const controlsWithHistoryDefaults = {
+    spouseRothBasis: 0,
+    spouseRothFiveYearRuleSatisfied: stored.controls?.rothFiveYearRuleSatisfied !== false,
+    useRothConversionHistory: false,
+    rothConversionHistory: "",
+    socialSecurityClaimStatus: "auto",
+    spouseSocialSecurityClaimStatus: "auto",
+    ...(stored.controls ?? {})
+  };
+  for (const [id, value] of Object.entries(controlsWithHistoryDefaults)) {
     const input = document.querySelector(`#${id}`);
     if (!input || input.type === "file") continue;
     if (input.type === "checkbox") {
@@ -2066,7 +2088,16 @@ function applyScenarioControls(scenario) {
   setValueControl("rothBasisOpportunityCostMode", scenario.rothBasisOptimization?.opportunityCostMode);
 
   setNumberControl("socialSecurityAnnualBenefit", scenario.socialSecurityAnnualBenefit);
+  setNumberControl("rothBasis", scenario.rothBasis);
+  setNumberControl("spouseRothBasis", scenario.spouseRothBasis);
+  setCheckedControl("spouseRothFiveYearRuleSatisfied", scenario.spouseRothFiveYearRuleSatisfied);
+  if (Array.isArray(scenario.rothConversionHistory)) {
+    setCheckedControl("useRothConversionHistory", true);
+    setValueControl("rothConversionHistory", scenario.rothConversionHistory.map(entry => `${entry.owner}, ${entry.year}, ${entry.taxableAmount}, ${entry.nontaxableAmount ?? 0}`).join("\n"));
+  }
   setNumberControl("socialSecurityStartAge", scenario.socialSecurityStartAge);
+  setValueControl("socialSecurityClaimStatus", scenario.socialSecurityClaimStatus);
+  setValueControl("spouseSocialSecurityClaimStatus", scenario.spouseSocialSecurityClaimStatus);
   setOptionalNumberControl("socialSecuritySurvivorStartAge", scenario.socialSecuritySurvivorStartAge);
   setCheckedControl("socialSecurityInflationAdjusted", scenario.socialSecurityInflationAdjusted);
   setNumberControl("spouseSocialSecurityAnnualBenefit", scenario.spouseSocialSecurityAnnualBenefit);
@@ -5204,6 +5235,9 @@ function readScenario() {
     heirAge: numberOrNull(els.heirAge.value) ?? 30,
     retirementPenaltyAge: Number(els.retirementPenaltyAge.value) || DEFAULT_SCENARIO.retirementPenaltyAge,
     rothBasis: Number(els.rothBasis.value) || 0,
+    spouseRothBasis: Number(els.spouseRothBasis.value) || 0,
+    spouseRothFiveYearRuleSatisfied: els.spouseRothFiveYearRuleSatisfied.checked,
+    ...(els.useRothConversionHistory.checked ? { rothConversionHistory: parseRothConversionHistory(els.rothConversionHistory.value) } : {}),
     earlyWithdrawalPenaltyExceptionAmount: numberOrNull(els.earlyWithdrawalPenaltyExceptionAmount.value) ?? 0,
     rothFiveYearRuleSatisfied: els.rothFiveYearRuleSatisfied.checked,
     heirOrdinaryTaxRate: percentInputValue("heirOrdinaryTaxRate", DEFAULT_SCENARIO.heirOrdinaryTaxRate),
@@ -5217,6 +5251,8 @@ function readScenario() {
     estimateSocialSecurityFromEarnings: els.estimateSocialSecurityFromEarnings?.checked === true,
     earnedIncomeInflationAdjusted: els.earnedIncomeInflationAdjusted.checked,
     socialSecurityAnnualBenefit: Number(els.socialSecurityAnnualBenefit.value) || 0,
+    socialSecurityClaimStatus: els.socialSecurityClaimStatus.value,
+    spouseSocialSecurityClaimStatus: els.spouseSocialSecurityClaimStatus.value,
     socialSecurityStartAge: Number(els.socialSecurityStartAge.value) || DEFAULT_SCENARIO.socialSecurityStartAge,
     socialSecuritySurvivorStartAge: numberOrNull(els.socialSecuritySurvivorStartAge.value),
     socialSecurityInflationAdjusted: els.socialSecurityInflationAdjusted.checked,

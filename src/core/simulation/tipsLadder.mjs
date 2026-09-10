@@ -1,3 +1,4 @@
+import { ensureRothLedger } from "../rothLedger.mjs";
 // Opt-in TIPS bond ladder: a one-time carve-out at plan start (the "first
 // rebalance") of N held-to-maturity, inflation-indexed rungs — one per plan
 // year 1..N — each paying a fixed REAL amount at maturity.
@@ -556,7 +557,8 @@ export function matureTipsLadderRungs({ portfolio, yearIndex, context }) {
   const total = maturing.reduce((sum, asset) => sum + marketValue(asset), 0);
   const withdrawal = withdrawForCash(maturing, total * 1.000001, ["taxable", "traditional", "roth", "hsa"], {
     ...context,
-    includeTipsLadderRungs: true
+    includeTipsLadderRungs: true,
+    rothLedger: ensureRothLedger(portfolio, context)
   });
 
   const traditionalByOwner = { primary: 0, spouse: 0 };

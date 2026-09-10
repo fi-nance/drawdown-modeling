@@ -18,6 +18,13 @@ export function normalizeUserPlanningSpendingMode(value) {
 export function validateUserPlanningScenario(scenario = {}, options = {}) {
   const minAnnualSpend = Math.max(1, Number(options.minAnnualSpend) || MIN_USER_PLANNING_ANNUAL_SPEND);
   const errors = [];
+  for (const [ageField, startField, statusField] of [
+    ['currentAge', 'socialSecurityStartAge', 'socialSecurityClaimStatus'],
+    ['spouseAge', 'spouseSocialSecurityStartAge', 'spouseSocialSecurityClaimStatus']
+  ]) {
+    if (scenario[statusField] === 'unclaimed' && Number(scenario[startField]) < Number(scenario[ageField])) errors.push({ field: startField, controlId: startField, message: 'For an unclaimed benefit, choose a start age at or after the current age. Past elections cannot be recreated.' });
+    if (scenario[statusField] === 'claimed' && Number(scenario[startField]) > Number(scenario[ageField])) errors.push({ field: startField, controlId: startField, message: 'For an existing Social Security award, enter the actual past or current claim age.' });
+  }
   const spendingMode = normalizeUserPlanningSpendingMode(scenario.spendingStrategy?.mode);
   for (const field of ["socialSecuritySurvivorStartAge", "spouseSocialSecuritySurvivorStartAge"]) {
     const value = scenario[field];

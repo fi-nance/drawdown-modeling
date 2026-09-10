@@ -1,3 +1,4 @@
+import { copyRothLedger } from "./rothLedger.mjs";
 import { EPSILON, round, sumBy } from "./utils.mjs";
 
 const MIN_PRICE_FACTOR_AFTER_INCOME_SPLIT = 1e-8;
@@ -15,7 +16,7 @@ export function accountMetadata(asset = {}) {
 }
 
 export function clonePortfolio(assets = []) {
-  return assets.map((asset) => ({ ...asset }));
+  return copyRothLedger(assets.map((asset) => ({ ...asset })), assets);
 }
 
 export function portfolioValue(assets = []) {

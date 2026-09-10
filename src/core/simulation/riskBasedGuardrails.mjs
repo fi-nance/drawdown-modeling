@@ -79,10 +79,9 @@ export function scalePortfolioToValue(assets = [], targetValue = 0) {
   const nextValue = Math.max(0, Number(targetValue) || 0);
   if (!(currentValue > 0)) return clonePortfolio(assets);
   const factor = nextValue / currentValue;
-  return clonePortfolio(assets).map((asset) => ({
-    ...asset,
-    units: round(Math.max(0, Number(asset.units) || 0) * factor, 8)
-  }));
+  const scaled = clonePortfolio(assets);
+  for (const asset of scaled) asset.units = round(Math.max(0, Number(asset.units) || 0) * factor, 8);
+  return scaled;
 }
 
 export function scenarioWithRiskBasedSpend(scenario = {}, spend = 0) {

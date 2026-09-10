@@ -11,7 +11,7 @@
    only a small number of full Monte Carlo timelines so high-run-count plans do
    not exhaust the renderer. */
 
-export const MODEL_VERSION = "2026-09-08-retirement-audit";
+export const MODEL_VERSION = "2026-09-10-roth-claiming";
 export const RESULTS_CACHE_KEY = `portfolio-success-lab:results-cache:${MODEL_VERSION}`;
 
 // Used by tests; defaults to globalThis.sessionStorage in the browser.

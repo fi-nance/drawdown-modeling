@@ -240,3 +240,37 @@ export function survivorSocialSecurityBenefitsForYear(scenario, {
     claimAge, fullRetirementAge: fra, deceasedPia: round(pia, 6), workerClaimed,
     workerFactor, reductionRate: round(reductionRate, 6) };
 }
+
+export function socialSecurityClaimState(scenario, owner = 'primary') {
+  const spouse = owner === 'spouse';
+  const currentAge = Number((spouse ? scenario.spouseAge : scenario.currentAge) ?? 0);
+  const startAge = Number((spouse ? scenario.spouseSocialSecurityStartAge : scenario.socialSecurityStartAge) ?? 67);
+  const status = spouse ? scenario.spouseSocialSecurityClaimStatus : scenario.socialSecurityClaimStatus;
+  // Legacy inputs with a past start age describe history. At the current age,
+  // an explicit receiving status locks the award; an estimate remains feasible.
+  const claimed = status === 'claimed' || (status !== 'unclaimed' && startAge < currentAge);
+  return { currentAge, startAge, claimed };
+}
+
+export function feasibleSocialSecurityClaimAges(scenario, owner = 'primary') {
+  const { currentAge, startAge, claimed } = socialSecurityClaimState(scenario, owner);
+  if (claimed) return [startAge];
+  const earliest = Math.max(62, Math.ceil(currentAge * 12 - 1e-8) / 12);
+  // Delaying past 70 adds no credits, but a still-unclaimed older person can
+  // begin now. The model does not create a retroactive payment or past election.
+  if (earliest >= 70) return [earliest];
+  return [...new Set([earliest, 62, 65, 67, 70, startAge])]
+    .filter(age => age >= earliest && age <= 70).sort((a, b) => a - b);
+}
+
+export function scenarioWithSocialSecurityClaimAge(scenario, owner, targetAge) {
+  const { currentAge, startAge, claimed } = socialSecurityClaimState(scenario, owner);
+  if (claimed || targetAge === startAge || targetAge < Math.max(62, currentAge) || targetAge > Math.max(70, Math.ceil(currentAge * 12 - 1e-8) / 12)) return { ...scenario };
+  const spouse = owner === 'spouse';
+  const benefitKey = spouse ? 'spouseSocialSecurityAnnualBenefit' : 'socialSecurityAnnualBenefit';
+  const ageKey = spouse ? 'spouseSocialSecurityStartAge' : 'socialSecurityStartAge';
+  const benefit = Math.max(0, Number(scenario[benefitKey]) || 0);
+  const birthYear = socialSecurityBirthYear(scenario, owner);
+  return { ...scenario, [ageKey]: targetAge,
+    ...(benefit > 0 ? { [benefitKey]: round(benefit / socialSecurityClaimFactor(startAge, birthYear) * socialSecurityClaimFactor(targetAge, birthYear), 2) } : {}) };
+}
