@@ -40,7 +40,7 @@ test('decision engine cannot rescue a 75-year-old by rewriting an age-62 electio
     taxProfile: buildTaxProfile({ filingStatus: 'single', state: 'Florida' }), runs: 1, seed: 42,
     scenario: { ...DEFAULT_SCENARIO, startYear: 2026, currentAge: 75, spouseAge: null, planYears: 10, targetSpend: 40000,
       socialSecurityAnnualBenefit: 24000, socialSecurityStartAge: 62, returnAssumptions: returns,
-      aca: { enabled: false }, medicare: { irmaaEnabled: false }, rothConversion: { enabled: false }, taxLossHarvesting: { enabled: false }, taxGainHarvesting: { enabled: false } },
+      aca: { enabled: false }, medicare: { premiumsEnabled: false, irmaaEnabled: false }, rothConversion: { enabled: false }, taxLossHarvesting: { enabled: false }, taxGainHarvesting: { enabled: false } },
     decisionProfile: { requiredSpend: 40000, flexibleSpend: 0, incomeBridge: { enabled: false } }
   });
   assert.equal(result.rescueOptions.find(option => option.kind === 'socialSecurityBridge'), undefined);

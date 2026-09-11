@@ -80,6 +80,33 @@ export function computeAca({
     };
   }
 
+  if (Array.isArray(config.coverageCalendar) && config.coverageCalendar.length) {
+    const currentYear = config.coverageYear ?? config.year ?? 2026;
+    const rows = config.coverageCalendar.filter(row => Number(row.year) === Number(currentYear));
+    const base = computeAca({ magi, config: { ...config, coverageCalendar: null, premiumInputMode: "gross", backupPlan: null,
+      ptcEligibility: rows.length ? 'eligible' : 'unknown' }, zip, age, householdAges, planYear });
+    if (!rows.length) return { ...base, eligible: false, eligibilityReason: 'calendar-year-unconfirmed' };
+    const index = config.premiumInflationIndex ?? 1;
+    let grossPremium = 0, benchmarkPremium = 0, subsidy = 0, coveredMonths = 0;
+    const monthlyDetails = [];
+    for (let month = 1; month <= 12; month++) {
+      const active = rows.filter(row => month >= row.firstMonth && month <= row.lastMonth);
+      const eligible = active.filter(row => row.eligibility === 'eligible');
+      const gross = active.reduce((sum, row) => sum + row.monthlyPremium * index, 0);
+      const eligibleGross = eligible.reduce((sum, row) => sum + row.monthlyPremium * index, 0);
+      const benchmark = eligible.reduce((sum, row) => sum + row.monthlyBenchmark * index, 0);
+      const credit = base.eligible ? Math.min(eligibleGross, Math.max(0, benchmark - base.expectedContribution / 12)) : 0;
+      grossPremium += gross; benchmarkPremium += benchmark; subsidy += credit;
+      if (active.length) coveredMonths++;
+      monthlyDetails.push({ month, grossPremium: round(gross, 6), subsidy: round(credit, 6), eligibleMembers: eligible.length });
+    }
+    return { ...base, grossPremium: round(grossPremium, 6), benchmarkPremium: round(benchmarkPremium, 6),
+      subsidy: round(subsidy, 6), maxPremiumTaxCredit: round(subsidy, 6), netPremium: round(grossPremium - subsidy, 6),
+      eligible: base.eligible && rows.some(row => row.eligibility === 'eligible'), coveredMonths,
+      monthlyDetails, eligibilityReason: 'explicit-member-calendar',
+      marketplaceMembers: new Set(rows.map(row => row.member)).size };
+  }
+
   // Thin shim: when a ZIP is supplied, replace the state-level benchmark with
   // the offline rating-area-level SLCSP. When the ZIP cannot be resolved to a
   // rating area (territory/military, a not-yet-ingested state-based exchange, or
@@ -129,7 +156,8 @@ export function computeAca({
     ? config.minEligibleFplPercent
     : 100;
   const maxEligibleFplPercent = config.maxEligibleFplPercent ?? 400;
-  const eligible = fplPercent >= minEligibleFplPercent && fplPercent <= maxEligibleFplPercent;
+  const eligible = fplPercent >= minEligibleFplPercent && fplPercent <= maxEligibleFplPercent
+    && config.ptcAllowedByFiling !== false && !["unknown", "ineligible"].includes(config.ptcEligibility);
   const contributionRate = eligible
     ? contributionRateForFplPercent(
       fplPercent,
@@ -156,6 +184,7 @@ export function computeAca({
     activePlanRole: activePlan.role,
     planName: activePlan.planName ?? "",
     eligible,
+    eligibilityReason: config.ptcAllowedByFiling === false ? "filing-status" : config.ptcEligibility ?? "legacy-assumed-eligible",
     // Present only when a ZIP was supplied. `ratingArea` is null and
     // `benchmarkFallback` describes why when no rating-area data applied.
     ratingArea: zipBenchmark?.ratingArea ?? null,
@@ -311,6 +340,7 @@ export function inflateAcaConfig(config = DEFAULT_ACA_CONFIG, inflationIndex = 1
     ...config,
     currentAge,
     currentMemberAges: projectedMemberAges(config.memberAges, ageContext),
+    coverageYear: Number(ageContext.calendarYear ?? (Number(config.year ?? 2026) + Number(ageContext.yearIndex ?? 0))),
     premiumInflationIndex: medIndex,
     fpl: round((config.fpl ?? 0) * index, 6),
     benchmarkPremium: round(ageAdjustedBenchmarkPremium(config, ageContext) * medIndex, 6),

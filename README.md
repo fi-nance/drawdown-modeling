@@ -12,8 +12,8 @@ A browser-based, tax-aware retirement decumulation planner with Monte Carlo simu
 - Monte Carlo runs with seeded random return and inflation paths
 - Historical rolling, specific-start-year, and chunked-window backtests with a default 1928-present modern source and an opt-in reconstructed 1872-present source
 - Versioned 2026 federal tax tables, preferential long-term capital gains stacking, NIIT, W-2 employee FICA, Additional Medicare Tax, self-employment tax, Child Tax Credit / Additional Child Tax Credit planning, state tax profiles, capital loss carryforwards, and ordinary loss offsets
-- Withdrawal tax character by account type and lot holding period, including Roth contribution basis, Roth five-year-rule controls, conversion five-year penalty recapture, and annual early-withdrawal penalty exception controls
-- HSA withdrawals gated by a tracked qualified-medical-expense pool by default, with 65+ distributions beyond the pool taxed as ordinary income (IRC §223(f)(4)(C)) and an explicit legacy opt-out
+- Withdrawal tax character by account type and lot holding period, including per-owner Roth IRA contribution/conversion history independent of securities, Roth five-year-rule controls, conversion five-year penalty recapture, and annual early-withdrawal penalty exception controls
+- HSA withdrawals gated by documented qualified expenses, after prior reimbursements and deductions; ordinary ACA/Medigap premiums excluded, owner-specific contribution eligibility and catch-ups, and taxable excess distributions at 65+
 - Tax loss harvesting, tax gain harvesting, and Roth conversion modeling
 - Selectable withdrawal strategy modes: the default lifetime optimizer, which tests alternate withdrawal sources, expected-return sale costs, MAGI thresholds, Roth-basis savings hurdles, and forward-looking gain/conversion room, or the established current-year heuristic
 - Optional essential/discretionary spending guardrails that keep essential spending inflation-adjusted while trimming discretionary spending at stock-market drawdown thresholds
@@ -21,7 +21,7 @@ A browser-based, tax-aware retirement decumulation planner with Monte Carlo simu
 - Optional sequence-risk reserve rules for cash/T-bill, bond/TIPS, or hybrid reserves during the early-retirement tent window
 - Optional TIPS bond ladder: carve an N-year held-to-maturity, inflation-indexed ladder out of the portfolio at the first rebalance (penalty-aware, tax-deferred-first placement), with each rung funding one year of real spending before any other withdrawal — also offered automatically as a rescue option (and re-sized when already enabled)
 - 2026 ACA premium tax credit estimates from annual MAGI, household-size FPL, age-rated SLCSP benchmark premiums, optional exact selected-plan premiums/OOP maximums, and backup-plan switching above an FPL trigger
-- Social Security claiming solver (coarse claiming-age 62-70 grid as a solver dimension, rescaling benefits per age), opt-in earnings-to-PIA estimation with source-versioned SSA 2026 bend points (a coarse single-year proxy, off by default), taxable benefit modeling, forced RMDs, age-65 standard-deduction bumps, the 2025-2028 enhanced senior deduction with MAGI phaseout, and Medicare Part B/D IRMAA estimates
+- Social Security claiming solver that locks existing elections independently for each person and tests feasible future ages on a coarse grid, rescaling unclaimed benefit estimates per age; opt-in earnings-to-PIA estimation with source-versioned SSA 2026 bend points (a coarse single-year proxy, off by default), taxable benefit modeling, forced RMDs, age-65 standard-deduction bumps, the 2025-2028 enhanced senior deduction with MAGI phaseout, and Medicare Part B/D IRMAA estimates
 - Detailed legacy planner with heir-specific rules (spouse rollover, non-spouse 10-year distributions stacked progressively to simulate bracket compression, eligible-designated life-expectancy stretch), Federal Estate Tax (40% above the 2026 $15M per-decedent exclusion; spouse exempt), and lineal-heir state inheritance tax (PA 4.5%, NE 1%; NJ/MD exempt lineal heirs)
 - Target spend controls that can include or exclude taxes and medical costs
 - Opt-in age-banded spending (go-go/slow-go/no-go "retirement smile") that scales fixed and essential/discretionary spending by phase percentages on the primary's age clock
@@ -64,6 +64,16 @@ The first two depths synthesize representative stock/bond lots (using your stock
 
 ## Decision Engine And Rescue Options
 
+Before testing early-retirement withdrawals, enter each person's remaining regular Roth contribution basis and five-year qualified-distribution status in the retirement-tax controls. Enable **Use explicit remaining Roth conversion history** to enter one conversion per line as `owner, year, remaining taxable amount, remaining nontaxable amount`, for example `primary, 2020, 100000, 0`. Use amounts remaining after past distributions, without thousands separators. An enabled empty history means no remaining conversion principal; otherwise conversion-tagged holdings seed the history once at plan start. The ledger then follows contributions, conversions by year, and earnings through sales, returns, rebalancing, and modeled spousal rollover.
+
+In **Other income**, set each person's Social Security claim status. For **Already receiving benefits**, enter the actual claim age and current annual award. For **Not yet claimed**, enter the estimate at the selected future age. **Infer from start age** treats a start age before the current age as an existing election; explicitly choose receiving status to lock an award claimed at the current age. The solver keeps existing awards fixed and limits alternatives to prospective ages. The earnings test reduces pre-FRA work-and-benefit cash flows, with claim-month proration and an optional complete monthly work calendar for the first-year and FRA-year rules. Exact payment dates, claim withdrawal, voluntary suspension, auxiliary-family withholding, and retroactive awards remain outside the annual model.
+
+Use **Opening tax history** for remaining short- and long-term capital losses. Positive nondeductible traditional IRA basis stops recommendations pending Form 8606 support. **Investment fees** separates advisory cash fees from fund fees already embedded in return assumptions.
+
+In **Healthcare**, confirm PTC eligibility before expecting a subsidy. The optional member calendar accepts `member, year, firstMonth, lastMonth, eligibility, monthlyBenchmark, monthlyPremium` with `eligible`, `employer`, `medicaid`, `dependent`, or `unknown` status. Dollar quotes are gross, in starting-year dollars, projected with medical inflation; each year's eligibility must be supplied. **Medicare** keeps base costs when IRMAA is disabled and accepts prior-return filing statuses and explicit redeterminations.
+
+Under **Strategy toolkit**, enter HSA receipts and eligibility, and separate **Survivor budgets** for either death order. **The basics → Longer-life stress test** compares current lifetimes and five extra years for either or both partners using a shared full horizon and the selected Monte Carlo count. It displays a comparison without changing the saved setup.
+
 The fastest way to try the decision layer is to enter your essentials in the onboarding wizard (or load the example portfolio), then view results. The results Decision panel turns the base plan into a verdict with ranked rescue options; the Basics module separates spending into required and flexible amounts.
 
 The Basics module includes three decision fields:
@@ -92,7 +102,7 @@ The optional `symbol` column (aliases: `Ticker Symbol`, `CUSIP`, `Identifier`, `
 Price refresh is user-triggered only — prices never change on their own, so trying different scenarios won't shift outcomes underneath you. Rows that cannot update (an unknown ticker, a non-TIPS CUSIP, a quote-service failure, or privacy mode blocking an external lookup) are highlighted with the reason on hover; refreshed prices fill the editable field but do not rerun the model. I-bond values are computed offline and work in privacy mode; ticker and CUSIP lookups are external and are blocked by privacy mode.
 
 Supported `accountType` values are `taxable`, `traditional`, `roth`, and `hsa`.
-CSV and Google Sheets imports also normalize common retirement account labels: `traditional`, `pre-tax`, and `pre-tax 401k` import as `traditional`; `roth`, `after-tax`, and `after-tax 401k` import as `roth`.
+CSV and Google Sheets imports also normalize common retirement account labels: `traditional`, `pre-tax`, and `pre-tax 401k` import as `traditional`; explicit `roth`, `roth ira`, and `roth 401k` labels import as `roth`. Ambiguous non-Roth `after-tax` retirement accounts are rejected because their basis/earnings rules differ. Accepted Roth employer-plan labels do not add designated Roth distribution rules: the current withdrawal-ordering model covers Roth IRAs (see [known limitations](docs/KNOWN_LIMITATIONS.md)).
 Supported `assetClass` values are `stock`, `bond`, `cash`, `realEstate`, `tips`, and `crypto`.
 Optional `beneficiaryType` values are `default`, `spouse`, `nonSpouse10Yr`, and `eligibleDesignated`; this lets an account override the household-level heir beneficiary assumption in the after-tax bequest estimate.
 
@@ -134,4 +144,6 @@ Monte Carlo defaults use the 2026 market-neutral preset: 1000 correlated annual 
 - [Continuous CPA / engineering / design review bar](docs/REVIEW_BAR.md)
 - [Data sources and annual update runbook](docs/DATA_SOURCES.md)
 - [Known modeling limitations](docs/KNOWN_LIMITATIONS.md)
+- [September 8 retirement audit fixes and verification](docs/RETIREMENT_AUDIT_FIXES.md)
+- [September 9 review findings](docs/reviews/2026-09-09/review.md) and [follow-up delivery status](docs/RETIREMENT_REVIEW_FIXES.md)
 - [Product design review for the post-job decision engine](docs/PRODUCT_DESIGN_REVIEW.md)

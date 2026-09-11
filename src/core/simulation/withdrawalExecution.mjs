@@ -88,7 +88,7 @@ export function withdrawForCash(portfolio, amount, withdrawalOrder = [], context
     : Infinity;
   const maxHsaProceeds = Number.isFinite(Number(context.hsaQualifiedExpenseAvailable))
     ? Math.max(0, Number(context.hsaQualifiedExpenseAvailable))
-    : Infinity;
+    : 0;
   // Household-level isEarly drives the lot-sort heuristic; the penalty and
   // HSA-age rules themselves are applied per asset via ageForAsset below.
   const isEarly = age < penaltyAge;
@@ -349,7 +349,20 @@ function applyPenaltyException(context, rawPenaltyBase) {
   };
 }
 
-export function convertTraditionalToRoth(portfolio, requestedAmount, calendarYear) {
+export function conversionIncomeDetails(portfolio, requestedAmount) {
+  let remaining = Math.max(0, requestedAmount);
+  const details = [];
+  for (const asset of portfolio) {
+    if (asset.accountType !== 'traditional' || asset.tipsLadderYear != null || !(marketValue(asset) > 0)) continue;
+    const amount = Math.min(remaining, marketValue(asset));
+    details.push({ owner: asset.owner === 'spouse' ? 'spouse' : 'primary', type: 'conversion', amount });
+    remaining -= amount;
+    if (remaining <= 0) break;
+  }
+  return details;
+}
+
+export function convertTraditionalToRoth(portfolio, requestedAmount, calendarYear, convertedByOwner = null) {
   ensureRothLedger(portfolio);
   let remaining = Math.max(0, requestedAmount);
   let converted = 0;
@@ -376,6 +389,7 @@ export function convertTraditionalToRoth(portfolio, requestedAmount, calendarYea
       conversionYear: calendarYear
     });
     recordRothConversion(portfolio, asset.owner, calendarYear, amount);
+    if (convertedByOwner) convertedByOwner[asset.owner === "spouse" ? "spouse" : "primary"] += amount;
     remaining -= amount;
     converted += amount;
   }

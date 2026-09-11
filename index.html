@@ -298,6 +298,12 @@
                   </label>
                   <label><span>Penalty-free age</span><input id="retirementPenaltyAge" type="number" min="0" max="120" step="0.5" value="59.5"></label>
                 </div>
+                <details class="advanced"><summary>Longer-life stress test</summary>
+                  <p class="assumption-note">Compare the current lifetimes with five extra years for you, your spouse, and both. Uses your selected simulation count, fees, healthcare and survivor budgets, and extends the horizon through both lifetimes.</p>
+                  <button id="runLongevityStress" class="ghost-button" type="button">Compare longer lives</button>
+                  <button id="cancelLongevityStress" class="ghost-button" type="button" hidden>Cancel comparison</button>
+                  <div id="longevityStressResults" role="status" aria-live="polite"></div>
+                </details>
                 <label class="check-row"><input id="includeTaxes"   type="checkbox"><span>Target spend already includes taxes</span></label>
                 <label class="check-row"><input id="includeMedical" type="checkbox"><span>Target spend already includes medical</span></label>
                 <label class="check-row"><input id="decisionIncomeBridgeEnabled" type="checkbox" checked><span>Consider returning to work for bridge income</span></label>
@@ -349,6 +355,19 @@
                   <label><span>One conversion per line: owner, year, taxable amount, nontaxable amount</span><textarea id="rothConversionHistory" rows="4" placeholder="primary, 2020, 100000, 0&#10;spouse, 2023, 20000, 5000"></textarea></label>
                   <p class="assumption-note">Enter amounts remaining after past withdrawals, without thousands separators. Owner is primary or spouse. Regular contributions go in the fields above. A checked box with no lines means no remaining conversions. Otherwise, legacy conversion-tagged account rows supply the opening principal once. Securities traded inside a Roth do not change these balances. Roth IRA ordering is modeled; inherited beneficiary IRAs and designated Roth employer accounts require separate treatment.</p>
                 </details>
+<details class="advanced"><summary>Opening tax history</summary>
+                <div class="control-grid"><label><span>Prior-year short-term capital loss carryforward</span><input id="openingShortTermLoss" type="number" min="0" step="1000" value="0"></label>
+                  <label><span>Prior-year long-term capital loss carryforward</span><input id="openingLongTermLoss" type="number" min="0" step="1000" value="0"></label>
+                  <label><span>Your nondeductible traditional IRA basis</span><input id="traditionalIraBasis" type="number" min="0" step="1000" value="0"></label>
+                  <label><span>Spouse nondeductible traditional IRA basis</span><input id="spouseTraditionalIraBasis" type="number" min="0" step="1000" value="0"></label>
+                </div>
+                <p class="assumption-note">Use remaining carryforwards from the prior return. A positive nondeductible traditional IRA basis stops the calculation because Form 8606 pro-rata treatment is not supported.</p>
+              </details>
+              <details class="advanced"><summary>Investment fees</summary>
+                <div class="control-grid"><label><span>Annual advisory/account fee %</span><input id="advisoryFeePercent" type="number" min="0" max="10" step="0.05" value="0"></label>
+                  <label><span>Fund expense % if returns are gross</span><input id="fundExpensePercent" type="number" min="0" max="10" step="0.01" value="0"></label>
+                </div><label class="check-row"><input id="returnsNetOfFundExpenses" type="checkbox" checked><span>Return assumptions already include fund expenses</span></label><p class="assumption-note">Advisory fees are an additional annual cash expense based on beginning portfolio value. Fund expenses reduce investment values only when returns are marked gross; use the same convention for Monte Carlo and historical returns. Individual TIPS ladder securities are excluded from the fund-expense charge.</p>
+              </details>
                 <label class="check-row" style="margin-bottom: 0.35rem;"><input id="privacyMode" type="checkbox"><span>Privacy mode</span></label>
                 <p class="assumption-note">Privacy mode keeps modeling local by disabling Google Sheets imports and live CMS Marketplace plan searches. CSV, JSON, setup backup/restore, offline ZIP lookup, and manual ACA plan inputs remain available.</p>
                 <details class="advanced">
@@ -399,6 +418,8 @@
                 <div class="module-actions"><span class="controls-pill">20 controls</span></div>
               </div>
               <div class="module-body">
+<label><span>Premium tax credit eligibility</span><select id="acaPtcEligibility"><option value="unknown">Not yet confirmed — no subsidy assumed</option><option value="eligible">Confirmed eligible for the modeled years</option><option value="ineligible">Ineligible — pay full premium</option></select></label><label class="check-row"><input id="acaMfsPtcException" type="checkbox"><span>MFS: qualifying domestic abuse / spousal abandonment exception</span></label><p class="assumption-note">Confirm tax-dependent status, employer coverage affordability/minimum value, Medicaid/CHIP and other coverage eligibility before choosing eligible. The MFS exception must meet IRS requirements; living apart alone does not establish it.</p><details class="advanced"><summary>Member coverage calendar</summary><label><span>One coverage period per line: member, year, first month, last month, eligibility, monthly benchmark, monthly plan premium</span><textarea id="acaCoverageCalendar" rows="5" placeholder="primary, 2026, 1, 6, eligible, 700, 650&#10;child1, 2026, 1, 12, eligible, 300, 280"></textarea></label><p class="assumption-note">Use primary, spouse, or a dependent name. Eligibility is eligible, employer, medicaid, dependent (claimed by another tax family), or unknown. Only eligible months receive a modeled credit. Enter Marketplace premiums in today’s dollars, before tax credits, without thousands separators. All members and months need their own records; unspecified future years receive no subsidy until confirmed. A dependent you claim can be eligible. The calendar overrides household premium quotes for its specified years.</p>
+              </details>
                 <label class="check-row"><input id="acaEnabled" type="checkbox" checked><span>ACA marketplace coverage</span></label>
                 <p class="assumption-note">Assumption: ACA subsidy math uses coverage-year household size, marketplace member ages, and prior-year FPL guidelines for the selected tax year.</p>
                 <div class="control-grid">
@@ -504,17 +525,24 @@
                 <div class="module-actions"><span class="controls-pill">12 controls</span></div>
               </div>
               <div class="module-body">
-                <label class="check-row"><input id="irmaaEnabled" type="checkbox" checked><span>Apply Medicare / IRMAA surcharges</span></label>
+<label class="check-row"><input id="medicarePremiumsEnabled" type="checkbox" checked><span>Include Medicare premiums and out-of-pocket costs</span></label>
+                <label class="check-row"><input id="irmaaEnabled" type="checkbox" checked><span>Apply income-related IRMAA surcharges</span></label>
                 <div class="control-grid">
                   <label><span>Part B enrollees</span>      <input id="medicarePartBEnrollees" type="number" min="0" max="2" step="1" placeholder="Auto"></label>
                   <label><span>Part D enrollees</span>      <input id="medicarePartDEnrollees" type="number" min="0" max="2" step="1" placeholder="Auto"></label>
                   <label><span>Part D monthly premium</span><input id="medicarePartDMonthlyPremium" type="number" min="0" step="1" value="0"></label>
                   <label><span>Medigap/Advantage monthly premium</span><input id="medicareMedigapMonthlyPremium" type="number" min="0" step="10" value="0"><small>Supplemental premium per enrolled member (today's dollars, medical-inflated, no IRMAA).</small></label>
-                  <label><span>Medicare annual OOP</span>   <input id="medicareAnnualOopBase" type="number" min="0" step="500" placeholder="ACA-plan proxy"><small>Non-premium out-of-pocket estimate (today's dollars) once the household is fully on Medicare. Blank keeps the ACA-plan OOP proxy.</small></label>
+                  <label><span>Medicare annual OOP</span>   <input id="medicareAnnualOopBase" type="number" min="0" step="500" placeholder="ACA-plan proxy"><small>Non-premium out-of-pocket estimate (today's dollars) for the household’s enrolled Medicare members, including mixed Marketplace/Medicare years. Blank keeps the legacy OOP assumption.</small></label>
                   <label><span>MAGI two years ago</span>   <input id="twoYearsPriorMagi" type="number" min="0" step="1000" placeholder="Use estimate"></label>
                   <label><span>MAGI last year</span>       <input id="priorYearMagi" type="number" min="0" step="1000" placeholder="Use estimate"></label>
                   <label><span>Max IRMAA tier</span>       <input id="maxIrmaaTier" type="number" min="0" max="5" step="1" placeholder="No cap"></label>
                 </div>
+<details class="advanced"><summary>IRMAA tax-return history and redeterminations</summary>
+                <div class="control-grid"><label><span>Filing status two years ago</span><select id="twoYearsPriorFilingStatus"><option value="">Same as current setup</option><option value="single">Single</option><option value="marriedFilingJointly">Married filing jointly</option><option value="marriedFilingSeparately">Married filing separately</option><option value="headOfHousehold">Head of household</option></select></label>
+                  <label><span>Filing status last year</span><select id="priorYearFilingStatus"><option value="">Same as current setup</option><option value="single">Single</option><option value="marriedFilingJointly">Married filing jointly</option><option value="marriedFilingSeparately">Married filing separately</option><option value="headOfHousehold">Head of household</option></select></label>
+                </div><label class="check-row"><input id="twoYearsPriorMfsLivedTogether" type="checkbox"><span>Two years ago: MFS lived together</span></label><label class="check-row"><input id="priorYearMfsLivedTogether" type="checkbox"><span>Last year: MFS lived together</span></label>
+                  <label><span>Optional confirmed redetermination: premium year, MAGI, filing status, MFS lived together (yes/no)</span><textarea id="irmaaRedeterminations" rows="3" placeholder="2028, 60000, single, no"></textarea></label><p class="assumption-note">Modeled lookback years retain their actual filing status. Enter a redetermination only for an approved or separately confirmed SSA-44 assumption; a spouse’s death does not automatically grant relief.</p>
+              </details>
                 <label class="check-row"><input id="mfsLivedTogether" type="checkbox"><span>MFS lived with spouse</span></label>
                 <label class="check-row"><input id="rmdEnabled" type="checkbox" checked><span>Force RMDs</span></label>
                 <label><span>RMD start age override</span><input id="rmdStartAge" type="number" min="0" max="120" step="0.5" placeholder="Auto"></label>
@@ -553,6 +581,7 @@
                   <label data-married-controls><span>Spouse self-employment income</span><input id="spouseSelfEmploymentIncome" type="number" min="0" step="1000" value="0"></label>
                 </div>
                 <p class="assumption-note">For benefits already received, enter the actual claim age and current annual award. For an unclaimed benefit, enter the estimate at the selected future age. Past elections are locked; claim withdrawal, voluntary suspension, retroactive awards, and exact claim-month cash flows are not modeled.</p>
+<details class="advanced"><summary>Claim-month and earnings-test detail</summary><div class="control-grid"><label><span>Your claim month (1–12)</span><input id="socialSecurityClaimMonth" type="number" min="0" max="12" step="1" value="1"></label><label><span>Spouse claim month (1–12)</span><input id="spouseSocialSecurityClaimMonth" type="number" min="0" max="12" step="1" value="1"></label></div><label><span>Monthly work calendar: owner, year, month, earnings, substantial self-employment services (yes/no)</span><textarea id="socialSecurityWorkCalendar" rows="4" placeholder="primary, 2026, 1, 10000, no"></textarea></label><p class="assumption-note">The annual earnings test is automatic before full retirement age. To use the special first-year monthly rule, enter all 12 months and reconcile their total to annual wages plus net self-employment income. Otherwise the annual test applies. In the FRA year, missing monthly detail conservatively treats all annual earnings as pre-FRA earnings. Withheld months adjust future worker benefits at FRA; auxiliary/survivor adjustments require SSA review.</p></details>
                 <label class="check-row"><input id="socialSecurityInflationAdjusted" type="checkbox" checked><span>Inflation-adjust Social Security</span></label>
                 <label class="check-row" data-married-controls><input id="spouseSocialSecurityInflationAdjusted" type="checkbox" checked><span>Inflation-adjust spouse Social Security</span></label>
                 <label class="check-row"><input id="earnedIncomeInflationAdjusted"  type="checkbox" checked><span>Inflation-adjust earned income</span></label>
@@ -590,7 +619,8 @@
                   </label>
                 </div>
                 <label class="check-row"><input id="incomeStreamCola" type="checkbox" checked><span>Inflation adjusted (COLA)</span></label>
-                <label class="check-row"><input id="incomeStreamStateRetirement" type="checkbox" checked><span>State retirement-income exclusion eligible</span></label>
+                <label class="check-row"><input id="incomeStreamNiitException" type="checkbox"><span>Rental income qualifies for a nonpassive-business NIIT exception</span></label>
+                  <label class="check-row"><input id="incomeStreamStateRetirement" type="checkbox" checked><span>State retirement-income exclusion eligible</span></label>
                 <button id="addIncomeStream" class="ghost-button" type="button">+ Add income stream</button>
                 <div id="incomeStreamList" class="one-off-list"></div>
               </div>
@@ -706,8 +736,21 @@
                     </select>
                   </label>
                 </div>
-                <label class="check-row"><input id="hsaQualifiedExpenseLimit" type="checkbox" checked><span>Limit HSA withdrawals to qualified medical expenses</span><small>Tracked modeled medical costs gate tax-free HSA withdrawals; at 65+ the excess is distributable as ordinary income. Unchecking restores the legacy unlimited tax-free treatment.</small></label>
+                <label class="check-row"><input id="hsaQualifiedExpenseLimit" type="checkbox" checked disabled><span>Limit HSA withdrawals to qualified medical expenses</span><small>Qualified expense records gate tax-free HSA withdrawals; at 65+ the excess is distributable as ordinary income. Unsupported tax-free withdrawals cannot be enabled.</small></label>
 
+<details class="advanced"><summary>HSA eligibility and expense history</summary>
+                <div class="control-grid"><label><span>Opening qualified medical receipt total</span><input id="hsaOpeningReceiptTotal" type="number" min="0" step="1000" value="0"></label>
+                  <label><span>Prior reimbursements from the opening receipt total</span><input id="hsaPriorReimbursements" type="number" min="0" step="1000" value="0"></label>
+                  <label><span>Opening receipts already deducted on Schedule A</span><input id="hsaPriorDeductedExpenses" type="number" min="0" step="1000" value="0"></label>
+                  <label><span>Annual qualifying insurance premium exception</span><input id="hsaEligibleInsurancePremiumAnnual" type="number" min="0" step="1000" value="0"></label>
+                  <label><span>Your HSA-eligible months each year</span><input id="hsaPrimaryEligibleMonths" type="number" min="0" max="12" step="1" value="12"></label>
+                  <label><span>Spouse HSA-eligible months each year</span><input id="hsaSpouseEligibleMonths" type="number" min="0" max="12" step="1" value="0"></label>
+                  <label><span>Your employer HSA contributions</span><input id="hsaPrimaryEmployerContribution" type="number" min="0" step="1000" value="0"></label>
+                  <label><span>Spouse employer HSA contributions</span><input id="hsaSpouseEmployerContribution" type="number" min="0" step="1000" value="0"></label>
+                  <label><span>Spouse share of family base limit %</span><input id="hsaSpouseBaseShare" type="number" min="0" max="100" step="1" value="0"></label>
+                </div>
+                <p class="assumption-note">Starting expense balance is the documented receipt total before the reimbursements/deductions entered here. Only expenses incurred after the HSA was established qualify. ACA premiums and Medigap are excluded by default; enter only a supported insurance exception such as COBRA or coverage while receiving unemployment compensation. Qualified out-of-pocket costs accrue to the receipt pool. Medicare B/D premiums accrue only when all living adults are 65+; mixed-age receipt ownership requires review. Contributions assume eligible HDHP coverage, no disqualifying coverage, and no Medicare enrollment; the model stops contributions at 65. Each spouse’s $1,000 age-55 catch-up goes into their own account and is not inflation-indexed. The last-month rule is not assumed.</p>
+              </details>
                 <label class="check-row"><input id="allocationAwareWithdrawals" type="checkbox"><span>Allocation-aware withdrawals</span></label>
                 <label class="check-row"><input id="taxAwareRebalancing" type="checkbox"><span>Tax-aware annual rebalancing</span></label>
                 <div class="control-grid strategy-option-controls" data-rebalance-controls hidden>
@@ -726,6 +769,19 @@
                   </div>
                 </div>
 
+                <details class="advanced" data-married-controls><summary>Survivor budgets</summary>
+                  <p class="assumption-note">Enter separate budgets in today's dollars for each surviving spouse. These replace the household spending strategy after the year of death and grow with inflation. Include healthcare and taxes only when your target-spend settings include them.</p>
+                  <label class="check-row"><input id="primarySurvivorBudgetEnabled" type="checkbox"><span>Use your budget if your spouse dies first</span></label>
+                  <div class="control-grid">
+                    <label><span>Your required survivor spending</span><input id="primarySurvivorRequired" type="number" min="0" step="1000" value="0"></label>
+                    <label><span>Your flexible survivor spending</span><input id="primarySurvivorFlexible" type="number" min="0" step="1000" value="0"></label>
+                  </div>
+                  <label class="check-row"><input id="spouseSurvivorBudgetEnabled" type="checkbox"><span>Use spouse budget if you die first</span></label>
+                  <div class="control-grid">
+                    <label><span>Spouse required survivor spending</span><input id="spouseSurvivorRequired" type="number" min="0" step="1000" value="0"></label>
+                    <label><span>Spouse flexible survivor spending</span><input id="spouseSurvivorFlexible" type="number" min="0" step="1000" value="0"></label>
+                  </div>
+                </details>
                 <label class="check-row" data-married-controls><input id="survivorStepUpEnabled" type="checkbox"><span>Survivor basis step-up at first death</span><small>Steps up taxable lots owned by the deceased to market value (joint lots by the configured share) at the first death of a married couple. Tag account owners in the portfolio table.</small></label>
                 <div class="control-grid strategy-option-controls" data-survivor-step-up-controls hidden>
                   <label><span>Joint basis step-up %</span><input id="survivorStepUpJointPercent" type="number" min="0" max="100" step="5" value="50"><small>Share of jointly-owned taxable gains stepped up at the first death (50 = common-law half step-up; 100 ≈ community property).</small></label>

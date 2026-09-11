@@ -140,6 +140,7 @@ function shrinkAcaCoverageForSurvivor({
     ...config,
     householdSize: survivorHouseholdSize,
     marketplaceMembers: survivorMarketplaceMembers,
+    coverageCalendar: config.coverageCalendar?.filter(row => row.member !== (deceasedIndex === 0 ? "primary" : "spouse")),
     memberAges: dropAcaCoveredMember(config.memberAges, deceasedIndex, originalMarketplaceMembers, survivorMarketplaceMembers),
     benchmarkPremium: scaleFiniteMoney(config.benchmarkPremium, benchmarkScale),
     planPremium: scaleFiniteMoney(config.planPremium, selectedPlanScale),

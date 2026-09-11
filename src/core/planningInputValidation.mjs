@@ -25,6 +25,13 @@ export function validateUserPlanningScenario(scenario = {}, options = {}) {
     if (scenario[statusField] === 'unclaimed' && Number(scenario[startField]) < Number(scenario[ageField])) errors.push({ field: startField, controlId: startField, message: 'For an unclaimed benefit, choose a start age at or after the current age. Past elections cannot be recreated.' });
     if (scenario[statusField] === 'claimed' && Number(scenario[startField]) > Number(scenario[ageField])) errors.push({ field: startField, controlId: startField, message: 'For an existing Social Security award, enter the actual past or current claim age.' });
   }
+  for (const field of ['traditionalIraBasis', 'spouseTraditionalIraBasis']) {
+    if (Number(scenario[field]) > 0) errors.push({ field, controlId: field, message: 'Nondeductible traditional IRA basis needs Form 8606 pro-rata modeling, which is not supported. Do not use this plan for withdrawal/conversion recommendations.' });
+  }
+  for (const owner of ['primary', 'spouse']) {
+    const budget = scenario.survivorBudgets?.[owner];
+    if (budget?.enabled && !(Number(budget.requiredSpend) + Number(budget.flexibleSpend) >= minAnnualSpend)) errors.push({field:'survivorBudgets',controlId:`${owner}SurvivorRequired`,message:`Enter at least $${minAnnualSpend.toLocaleString('en-US')}/year for the enabled survivor budget.`});
+  }
   const spendingMode = normalizeUserPlanningSpendingMode(scenario.spendingStrategy?.mode);
   for (const field of ["socialSecuritySurvivorStartAge", "spouseSocialSecuritySurvivorStartAge"]) {
     const value = scenario[field];

@@ -5,17 +5,19 @@ import { computeAca } from "../aca.mjs";
 import { getMedicareIrmaaConfig } from "../../data/taxData.mjs";
 import { round } from "../utils.mjs";
 import { clampIntegerLike, optionalFiniteNumber } from "./guards.mjs";
-import { mortalityStatus } from "./household.mjs";
+import { mortalityStatus, isMarriedFiling } from "./household.mjs";
 
 export function computeAcaForYear({ age, spouseAge, magi, config, filingStatus }) {
-  const married = filingStatus === "marriedFilingJointly" && Number.isFinite(spouseAge);
-  const both65Plus = married ? (age >= 65 && spouseAge >= 65) : (age >= 65);
-
+  const married = isMarriedFiling(filingStatus) && Number.isFinite(spouseAge);
+  const configuredAges = config?.currentMemberAges ?? config?.memberAges;
+  const hasCalendarCoverage = (config?.coverageCalendar ?? []).some(row => Number(row.year) === Number(config.coverageYear ?? config.year ?? 2026));
+  const hasCoveredDependent = Array.isArray(configuredAges) && configuredAges.some(memberAge => Number(memberAge) < 65);
+  const both65Plus = (married ? age >= 65 && spouseAge >= 65 : age >= 65) && !hasCoveredDependent && !hasCalendarCoverage;
+  const medicareMembers = (age >= 65 ? 1 : 0) + (married && spouseAge >= 65 ? 1 : 0);
+  const ptcAllowedByFiling = filingStatus !== "marriedFilingSeparately" || config?.mfsPtcException === true;
+  config = { ...config, ptcAllowedByFiling };
   if (both65Plus) {
-    // Whole household is Medicare-eligible: marketplace coverage ends. The
-    // marker lets medical-cost logic switch from the ACA-plan OOP proxy to the
-    // household's Medicare OOP input (scenario.medicare.annualOopBase).
-    return { ...computeAca({ magi, config: { ...config, enabled: false } }), medicareEligibleHousehold: true };
+    return { ...computeAca({ magi, config: { ...config, enabled: false } }), medicareEligibleHousehold: true, medicareMembers };
   }
   // ZIP-path fallback ages: when the ACA config carries no member ages, derive
   // them from the modeled primary/spouse ages so the rating-area SLCSP prices
@@ -28,11 +30,11 @@ export function computeAcaForYear({ age, spouseAge, magi, config, filingStatus }
   const fallbackHouseholdAges = !hasConfigMemberAges && Number.isFinite(age)
     ? (married ? [age, spouseAge] : [age])
     : null;
-  return computeAca({
+  return { ...computeAca({
     magi,
     config,
     ...(fallbackHouseholdAges ? { householdAges: fallbackHouseholdAges } : {})
-  });
+  }), medicareMembers, medicareEligibleHousehold: false };
 }
 
 export function medicalCostForYear({
@@ -65,6 +67,10 @@ export function medicalCostForYear({
   return {
     total: round(baseMedical + (aca?.netPremium ?? 0) + medicare.totalAnnualPremium + ltcCost, 6),
     medicare,
+    qualifiedHsaExpenses: round(baseMedical + (age >= 65 && (!Number.isFinite(spouseAge) || spouseAge >= 65)
+      ? medicare.partBAnnualPremium + medicare.partDAnnualPremium : 0)
+      + Math.min(aca?.netPremium ?? 0, Math.max(0, Number(scenario.taxEfficiencyStrategy?.hsaEligibleInsurancePremiumAnnual) || 0) * medIndex)
+      + (scenario.ltcStress?.hsaQualified === true ? ltcCost : 0), 6),
     ltcCost
   };
 }
@@ -103,28 +109,24 @@ function computeMedicareCostForYear({
   medicalInflationIndex = null
 }) {
   const medicare = scenario.medicare ?? {};
-  const autoEnrollees = filingStatus === "marriedFilingJointly"
+  const autoEnrollees = isMarriedFiling(filingStatus)
     ? (age >= 65 ? 1 : 0) + (Number.isFinite(spouseAge) && spouseAge >= 65 ? 1 : 0)
     : (age >= 65 ? 1 : 0);
 
-  if (medicare.irmaaEnabled === false || autoEnrollees === 0) return emptyMedicareCost();
+  if (medicare.premiumsEnabled === false || autoEnrollees === 0) return emptyMedicareCost();
 
   const medIndex = medicalInflationIndex !== null && medicalInflationIndex !== undefined ? medicalInflationIndex : inflationIndex;
   const config = getMedicareIrmaaConfig({ taxYear: scenario.taxYear, inflationIndex, medicalInflationIndex: medIndex });
-  const lookbackMagi = medicareLookbackMagi({
-    scenario,
-    yearIndex,
-    currentMagi: irmaaMagi,
-    magiHistory
-  });
-  const bracket = medicareIrmaaBracket({
+  const lookback = medicareLookbackReturn({ scenario, yearIndex, currentMagi: irmaaMagi, magiHistory, filingStatus });
+  const lookbackMagi = lookback.magi;
+  const bracket = medicare.irmaaEnabled === false ? {} : medicareIrmaaBracket({
     config,
     magi: lookbackMagi,
-    filingStatus,
-    marriedFilingSeparatelyLivedTogether: medicare.marriedFilingSeparatelyLivedTogether
+    filingStatus: lookback.filingStatus,
+    marriedFilingSeparatelyLivedTogether: lookback.marriedFilingSeparatelyLivedTogether
   });
-  const partBEnrollees = clampIntegerLike(medicare.partBEnrollees, 0, 2, autoEnrollees);
-  const partDEnrollees = clampIntegerLike(medicare.partDEnrollees, 0, 2, partBEnrollees);
+  const partBEnrollees = clampIntegerLike(medicare.partBEnrollees, 0, autoEnrollees, autoEnrollees);
+  const partDEnrollees = clampIntegerLike(medicare.partDEnrollees, 0, autoEnrollees, partBEnrollees);
   const partDBaseMonthlyPremium = Math.max(0, Number(medicare.partDMonthlyPremium) || 0) * Math.max(0, medIndex);
   const partBMonthlyPremium = (config.partBStandardMonthlyPremium ?? 0) + (bracket.partBMonthlyAdjustment ?? 0);
   const partDMonthlyPremium = partDBaseMonthlyPremium + (bracket.partDMonthlyAdjustment ?? 0);
@@ -138,6 +140,8 @@ function computeMedicareCostForYear({
   return {
     enabled: true,
     lookbackMagi: round(lookbackMagi, 6),
+    lookbackFilingStatus: lookback.filingStatus,
+    lookbackSource: lookback.source,
     partBEnrollees,
     partDEnrollees,
     partBMonthlyPremium: round(partBMonthlyPremium, 6),
@@ -152,14 +156,23 @@ function computeMedicareCostForYear({
   };
 }
 
-function medicareLookbackMagi({ scenario, yearIndex, currentMagi, magiHistory }) {
+export function medicareLookbackReturn({ scenario, yearIndex, currentMagi, magiHistory, filingStatus }) {
   const medicare = scenario.medicare ?? {};
-  if (yearIndex >= 2 && Number.isFinite(magiHistory?.[yearIndex - 2])) return magiHistory[yearIndex - 2];
-  const priorYearMagi = optionalFiniteNumber(medicare.priorYearMagi);
-  const twoYearsPriorMagi = optionalFiniteNumber(medicare.twoYearsPriorMagi);
-  if (yearIndex === 1 && priorYearMagi !== null) return priorYearMagi;
-  if (yearIndex === 0 && twoYearsPriorMagi !== null) return twoYearsPriorMagi;
-  return Math.max(0, Number(currentMagi) || 0);
+  const defaults = { filingStatus, marriedFilingSeparatelyLivedTogether: medicare.marriedFilingSeparatelyLivedTogether };
+  const override = (medicare.irmaaOverrides ?? []).find(row => Number(row.year) === Number(scenario.startYear ?? scenario.taxYear ?? 2026) + yearIndex);
+  if (override && Number.isFinite(Number(override.magi)) && Number(override.magi) >= 0) {
+    return { ...defaults, ...override, magi: Number(override.magi), source: 'explicit-redetermination' };
+  }
+  const historical = yearIndex >= 2 ? magiHistory?.[yearIndex - 2] : null;
+  if (historical && typeof historical === 'object' && Number.isFinite(historical.magi)) return { ...defaults, ...historical, source: 'modeled-return' };
+  if (Number.isFinite(historical)) return { ...defaults, magi: historical, source: 'legacy-magi-only' };
+  const key = yearIndex === 0 ? 'twoYearsPrior' : yearIndex === 1 ? 'priorYear' : null;
+  const entered = key ? optionalFiniteNumber(medicare[`${key}Magi`]) : null;
+  if (entered !== null) return { ...defaults, magi: Math.max(0, entered),
+    filingStatus: medicare[`${key}FilingStatus`] || filingStatus,
+    marriedFilingSeparatelyLivedTogether: medicare[`${key}MfsLivedTogether`] ?? medicare.marriedFilingSeparatelyLivedTogether,
+    source: 'entered-return' };
+  return { ...defaults, magi: Math.max(0, Number(currentMagi) || 0), source: 'current-income-fallback' };
 }
 
 function medicareIrmaaBracket({
@@ -202,7 +215,9 @@ export function emptyMedicareCost() {
 }
 
 function medicalCostForScenario(scenario, acaConfig, inflationIndex, aca = null) {
-  const base = (scenario.medicalExpensesBase ?? 0) * inflationIndex;
+  const medicareOop = aca?.medicareMembers > 0 && scenario.medicare?.premiumsEnabled !== false
+    ? Math.max(0, Number(scenario.medicare?.annualOopBase) || 0) * inflationIndex : 0;
+  const base = (scenario.medicalExpensesBase ?? 0) * inflationIndex + medicareOop;
   // Once the whole household is Medicare-eligible, the ACA plan's OOP maximum
   // is the wrong anchor for expected out-of-pocket spending. Honor the
   // explicit Medicare OOP input when provided (today's dollars, inflated with
@@ -212,7 +227,7 @@ function medicalCostForScenario(scenario, acaConfig, inflationIndex, aca = null)
   // non-premium OOP) and the confidence layer flags it as input-limited.
   const medicareOopBase = optionalFiniteNumber(scenario.medicare?.annualOopBase);
   if (aca?.medicareEligibleHousehold === true && medicareOopBase !== null) {
-    return round(base + Math.max(0, medicareOopBase) * inflationIndex, 6);
+    return round(base + (aca?.medicareMembers > 0 ? 0 : Math.max(0, medicareOopBase) * inflationIndex), 6);
   }
   const rawOopOverride = optionalFiniteNumber(scenario.oopMaxOverride);
   const hasScenarioOopOverride = rawOopOverride !== null;

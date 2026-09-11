@@ -1,3 +1,6 @@
+import { conversionIncomeDetails } from "./withdrawalExecution.mjs";
+import { socialSecurityEarningsForYear } from "./socialSecurityEarnings.mjs";
+import { annualAdvisoryFees, applyFundExpenses } from "./fees.mjs";
 import { copyRothLedger, ensureRothLedger } from "../rothLedger.mjs";
 // Extracted from simulation.mjs during the modular refactor.
 // Single responsibility: yearEngine. No behavior changes — pure code movement.
@@ -43,6 +46,7 @@ export function simulateYear({
   rothBasisRemaining,
   hsaQualifiedExpenseBalance = 0,
   magiHistory = [],
+  socialSecurityEarningsCredits = { primary: 0, spouse: 0 },
   passedBaseSpend = null,
   conditionalAssetSaleState = null
 }) {
@@ -97,6 +101,7 @@ export function simulateYear({
     spouseAge
   });
   const yearTaxProfile = taxProfileContext.profile;
+  if (yearTaxProfile.state && primaryDeceased !== spouseDeceased) yearTaxProfile.state.poolRetirementOwners = true;
   const yearAcaBaseConfig = acaConfigForSimulationYear({
     config: scenario.aca,
     scenario,
@@ -104,7 +109,8 @@ export function simulateYear({
     primaryDeceased,
     spouseDeceased
   });
-  const yearAcaConfig = inflateAcaConfig(yearAcaBaseConfig, inflationIndex, { age, yearIndex }, medicalInflationIndex);
+  const yearAcaConfig = { ...inflateAcaConfig(yearAcaBaseConfig, inflationIndex, { age, yearIndex, calendarYear }, medicalInflationIndex),
+    ptcAllowedByFiling: yearTaxProfile.filingStatus !== "marriedFilingSeparately" || yearAcaBaseConfig?.mfsPtcException === true };
   // Promote any prior-year-harvested "short" lots back to "long" once a
   // full simulation year has elapsed since the reset, before we compute
   // beginning-of-year snapshots and run any sales/harvests.
@@ -116,6 +122,7 @@ export function simulateYear({
   // the surviving holder, so both owners resolve to the surviving age.
   const ownerAges = { primary: age, spouse: Number.isFinite(spouseAge) ? spouseAge : age };
   const beginningAssets = assetSnapshot(portfolio);
+  const advisoryFees = annualAdvisoryFees(portfolio, scenario);
   const dividends = applyTotalReturnsWithIncome(portfolio, returnByAssetClass);
   // Deterministic repricing for TIPS ladder rungs (skipped by the sampled growth
   // pass above): rungs are PAR coupon bonds tracking the inflation-adjusted
@@ -127,6 +134,7 @@ export function simulateYear({
   // are deposited as cash inside their own account (tax-deferred, usable there).
   const tipsLadderCoupons = payTipsLadderCoupons(portfolio, { scenario, inflationIndex });
   const tipsLadderCouponCash = round(tipsLadderCoupons?.taxableCouponCash ?? 0, 6);
+  const fundExpenses = applyFundExpenses(portfolio, scenario);
   const afterReturnPortfolioValue = portfolioValue(portfolio);
 
   const flows = [...dividends.flows, ...(tipsLadderCoupons?.flows ?? [])];
@@ -137,6 +145,10 @@ export function simulateYear({
     saleState: conditionalAssetSaleState
   });
   const oneOffCashFlows = oneOffCashFlowsForYear(scenario, yearIndex + 1, inflationIndex);
+  if (advisoryFees > 0) {
+    oneOffCashFlows.expenses = round(oneOffCashFlows.expenses + advisoryFees, 6);
+    oneOffCashFlows.expenseDetails.push({ name: 'Annual advisory/account fees', amount: advisoryFees });
+  }
   const recurringEarnedIncome = earnedIncomeForYear(scenario, inflationIndex, { primaryDeceased, spouseDeceased });
   const earnedIncome = mergeEarnedIncome(recurringEarnedIncome, oneOffCashFlows.earnedIncome);
   // Recurring income streams (pension/annuity/rent/other): owner-age gated,
@@ -155,11 +167,11 @@ export function simulateYear({
   // interest are ordinary income that is ALSO net investment income for NIIT —
   // the same channel threaded wherever `ordinaryInvestmentIncome` is used. (Both
   // TIPS amounts are clamped at the source so they never go negative.)
-  const ordinaryInvestmentIncome = round(dividends.ordinaryDividends + tipsLadderPhantomIncome + tipsLadderCouponCash, 6);
+  const ordinaryInvestmentIncome = round(dividends.ordinaryDividends + tipsLadderPhantomIncome + tipsLadderCouponCash + streamIncome.ordinaryInvestmentIncome, 6);
   const hsaContribution = hsaContributionForYear({
     scenario,
-    age,
-    spouseAge,
+    age: primaryDeceased ? null : rawPrimaryAge,
+    spouseAge: spouseDeceased ? null : rawSpouseAge,
     inflationIndex
   });
   const adjustmentsToIncome = hsaContribution.amount;
@@ -364,12 +376,27 @@ export function simulateYear({
   rothBasisRemaining = rmdWithdrawal.rothBasisRemaining;
 
   let socialSecurityBenefits = 0;
+  const socialSecurityEarningsTest = {};
+  const nextSocialSecurityCredits = { ...socialSecurityEarningsCredits };
+  const applyEarnings = (owner, ownerAge, annualBenefit, survivor = false) => {
+    const spouse = owner === 'spouse';
+    const wages = Math.max(0, spouse ? earnedIncome.spouseMedicareWages ?? 0 : earnedIncome.medicareWages ?? 0);
+    const selfEmployment = Math.max(0, spouse ? earnedIncome.spouseSelfEmploymentIncome ?? 0 : earnedIncome.selfEmploymentIncome ?? 0);
+    const result = socialSecurityEarningsForYear({ scenario, owner, age: ownerAge, annualBenefit,
+      earnedIncome: wages + selfEmployment, yearIndex, inflationIndex, creditedMonths: socialSecurityEarningsCredits[owner], survivor });
+    socialSecurityEarningsTest[owner] = result;
+    nextSocialSecurityCredits[owner] = result.creditedMonths;
+    return result.payable;
+  };
   if (customSocialSecurityBenefits !== null) {
-    socialSecurityBenefits = customSocialSecurityBenefits;
+    socialSecurityBenefits = applyEarnings(primaryDeceased ? 'spouse' : 'primary', age, customSocialSecurityBenefits, true);
   } else {
-    const primarySS = socialSecurityBenefitsForYear(scenario, age, inflationIndex, yearTaxProfile);
-    const spouseSS = spouseSocialSecurityBenefitsForYear(scenario, spouseAge, inflationIndex, yearTaxProfile, { primaryAge: age });
-    socialSecurityBenefits = primarySS + spouseSS;
+    const primaryStart = Number(scenario.socialSecurityStartAge ?? 67);
+    const spouseStart = Number(scenario.spouseSocialSecurityStartAge ?? 67);
+    const primarySS = socialSecurityBenefitsForYear(scenario, primaryStart < age + 1 ? Math.max(age, primaryStart) : age, inflationIndex, yearTaxProfile);
+    const spouseSS = spouseSocialSecurityBenefitsForYear(scenario, spouseAge == null ? null : spouseStart < spouseAge + 1 ? Math.max(spouseAge, spouseStart) : spouseAge, inflationIndex, yearTaxProfile, { primaryAge: age });
+    socialSecurityBenefits = applyEarnings('primary', age, primarySS)
+      + (spouseAge == null ? 0 : applyEarnings('spouse', spouseAge, spouseSS));
   }
 
   // Spending-aware conversion sizing (rothConversion.spendingAware, default
@@ -386,6 +413,8 @@ export function simulateYear({
     && conversionConfig.spendingAware !== false;
   const sizeConversionAgainst = (baseWithdrawal) => rothConversionAmountForYear({
     portfolio,
+    retirementOrdinaryIncome: streamIncome.retirementOrdinaryIncome,
+    retirementIncomeDetails: streamIncome.retirementIncomeDetails,
     scenario,
     taxProfile: yearTaxProfile,
     acaConfig: yearAcaConfig,
@@ -481,6 +510,7 @@ export function simulateYear({
         ordinaryIncome: ordinaryIncome + passOneConversion,
         earnedIncome,
         retirementOrdinaryIncome: passOneConversion + streamIncome.retirementOrdinaryIncome,
+        retirementIncomeDetails: [...streamIncome.retirementIncomeDetails, ...conversionIncomeDetails(portfolio, passOneConversion)],
         ordinaryInvestmentIncome,
         qualifiedDividends,
         adjustmentsToIncome,
@@ -532,13 +562,16 @@ export function simulateYear({
       estimateSpendingWithdrawal(Math.max(0, baseSpendingGap + provisionalTaxes + provisionalMedical))
     );
   }
+  const convertedByOwner = { primary: 0, spouse: 0 };
   const rothConversionAmount = scenario.rothConversion?.enabled
-    ? convertTraditionalToRoth(portfolio, sizeConversionAgainst(conversionBaseWithdrawal), calendarYear)
+    ? convertTraditionalToRoth(portfolio, sizeConversionAgainst(conversionBaseWithdrawal), calendarYear, convertedByOwner)
     : 0;
   ordinaryIncome += rothConversionAmount;
   // Retirement-character ordinary income for state exclusions: conversions
   // plus state-retirement-eligible income streams (withdrawal ordinary income
   // is added downstream by incomeForYear).
+  const retirementIncomeDetailsBase = [...streamIncome.retirementIncomeDetails,
+    ...Object.entries(convertedByOwner).map(([owner, amount]) => ({ owner: survivorOwner ?? owner, amount, type: 'conversion' }))];
   const retirementOrdinaryIncomeBase = round(rothConversionAmount + streamIncome.retirementOrdinaryIncome, 6);
   if (rothConversionAmount > 0) {
     flows.push({
@@ -570,6 +603,7 @@ export function simulateYear({
   let finalPortfolio = null;
   let finalRothBasisOptimization = null;
   let medicalEstimate = 0;
+  let qualifiedHsaExpenses = 0;
   let taxEstimate = 0;
 
   // Around ACA / IRMAA cliffs the withdrawal can oscillate between two states.
@@ -620,7 +654,7 @@ export function simulateYear({
         hsaQualifiedExpenseAvailable: hsaQualifiedExpenseAvailableForWithdrawal({
           scenario,
           hsaQualifiedExpenseBalance,
-          medicalEstimate
+          medicalEstimate: qualifiedHsaExpenses
         })
       },
       evaluationContext: {
@@ -632,6 +666,7 @@ export function simulateYear({
         ordinaryIncome,
         earnedIncome,
         retirementOrdinaryIncome: retirementOrdinaryIncomeBase,
+        retirementIncomeDetails: retirementIncomeDetailsBase,
         ordinaryInvestmentIncome,
         qualifiedDividends,
         adjustmentsToIncome,
@@ -658,6 +693,7 @@ export function simulateYear({
     }
 
     medicalEstimate = nextMedical;
+    qualifiedHsaExpenses = chosenPlan.qualifiedHsaExpenses;
     taxEstimate = nextTax;
 
     finalWithdrawal = chosenPlan.withdrawal;
@@ -686,6 +722,7 @@ export function simulateYear({
     finalPortfolio = highestCostPlan.portfolio;
     finalRothBasisOptimization = highestCostPlan.rothBasisOptimization;
     medicalEstimate = scenario.targetSpendIncludesMedical ? 0 : highestCostPlan.medicalTotal;
+    qualifiedHsaExpenses = highestCostPlan.qualifiedHsaExpenses;
     taxEstimate = highestCostPlan.taxes.totalTax;
   }
 
@@ -698,6 +735,7 @@ export function simulateYear({
         ordinaryIncome,
         earnedIncome,
         retirementOrdinaryIncome: retirementOrdinaryIncomeBase,
+        retirementIncomeDetails: retirementIncomeDetailsBase,
         ordinaryInvestmentIncome,
         qualifiedDividends,
         strategyShortTermGains,
@@ -725,6 +763,7 @@ export function simulateYear({
       ordinaryIncome,
       earnedIncome,
       retirementOrdinaryIncome: retirementOrdinaryIncomeBase,
+      retirementIncomeDetails: retirementIncomeDetailsBase,
       ordinaryInvestmentIncome,
       qualifiedDividends,
       adjustmentsToIncome,
@@ -750,6 +789,7 @@ export function simulateYear({
         ordinaryIncome,
         earnedIncome,
         retirementOrdinaryIncome: retirementOrdinaryIncomeBase,
+        retirementIncomeDetails: retirementIncomeDetailsBase,
         ordinaryInvestmentIncome,
         qualifiedDividends,
         adjustmentsToIncome,
@@ -788,6 +828,7 @@ export function simulateYear({
           magiHistory
         });
         medicalEstimate = medical.total;
+        qualifiedHsaExpenses = medical.qualifiedHsaExpenses;
         finalMedicare = medical.medicare;
       }
       finalTaxableSocialSecurity = taxableSocialSecurity;
@@ -802,6 +843,7 @@ export function simulateYear({
     medicare: finalMedicare,
     taxableSocialSecurity: finalTaxableSocialSecurity,
     medicalEstimate,
+    qualifiedHsaExpenses,
     scenario,
     yearTaxProfile,
     yearAcaConfig,
@@ -814,6 +856,7 @@ export function simulateYear({
     ordinaryIncome,
     earnedIncome,
     retirementOrdinaryIncome: retirementOrdinaryIncomeBase,
+    retirementIncomeDetails: retirementIncomeDetailsBase,
     ordinaryInvestmentIncome,
     qualifiedDividends,
     adjustmentsToIncome,
@@ -841,6 +884,7 @@ export function simulateYear({
   finalTaxableSocialSecurity = reconciled.taxableSocialSecurity;
   finalRothBasisOptimization = reconciled.rothBasisOptimization ?? finalRothBasisOptimization;
   medicalEstimate = reconciled.medicalEstimate;
+  qualifiedHsaExpenses = reconciled.qualifiedHsaExpenses;
 
   const totalCashRequired = plannedSpending
     + (scenario.targetSpendIncludesMedical ? 0 : medicalEstimate)
@@ -850,6 +894,7 @@ export function simulateYear({
     ordinaryIncome,
     earnedIncome,
     retirementOrdinaryIncome: retirementOrdinaryIncomeBase,
+    retirementIncomeDetails: retirementIncomeDetailsBase,
     ordinaryInvestmentIncome,
     qualifiedDividends,
     adjustmentsToIncome,
@@ -1035,7 +1080,7 @@ export function simulateYear({
   // at 65+ the engine may sell beyond it (taxed as ordinary income), and that
   // excess must not double-debit the qualified-expense balance.
   const finalHsaQualifiedExpenseBalance = hsaStrategyConfig(scenario).useForQualifiedExpenses
-    ? round(Math.max(0, hsaQualifiedExpenseBalance + medicalEstimate - (finalWithdrawal.hsaQualifiedExpenseUsed ?? finalWithdrawal.hsaProceeds ?? 0)), 6)
+    ? round(Math.max(0, hsaQualifiedExpenseBalance + qualifiedHsaExpenses - (finalWithdrawal.hsaQualifiedExpenseUsed ?? finalWithdrawal.hsaProceeds ?? 0)), 6)
     : hsaQualifiedExpenseBalance;
 
   return {
@@ -1059,7 +1104,10 @@ export function simulateYear({
     discretionarySpending: round(plannedSpendingDetail.discretionarySpend, 6),
     discretionarySpendingBudget: round(plannedSpendingDetail.discretionaryBudget, 6),
     spendingGuardrail: plannedSpendingDetail.guardrail,
+    advisoryFees,
+    fundExpenses,
     medicalCost: round(medicalEstimate, 6),
+    qualifiedHsaExpenses: round(qualifiedHsaExpenses, 6),
     medicare: finalMedicare,
     // LTC stress reaches cash flow only through medicalCostForYear, which
     // every spending path skips under targetSpendIncludesMedical — report 0
@@ -1095,6 +1143,8 @@ export function simulateYear({
     selfEmploymentIncome: round(earnedIncome.selfEmploymentIncome, 6),
     rrtaCompensation: round(earnedIncome.rrtaCompensation, 6),
     socialSecurityBenefits: round(socialSecurityBenefits, 6),
+    socialSecurityEarningsTest,
+    socialSecurityEarningsCredits: nextSocialSecurityCredits,
     survivorSocialSecurity,
     taxableSocialSecurity: round(finalTaxableSocialSecurity, 6),
     // Forced RMD sales only — TIPS ladder maturities (which credit against
@@ -1223,6 +1273,7 @@ function reconcileCashRequirement({
   medicare,
   taxableSocialSecurity,
   medicalEstimate,
+  qualifiedHsaExpenses = 0,
   scenario,
   yearTaxProfile,
   yearAcaConfig,
@@ -1235,6 +1286,7 @@ function reconcileCashRequirement({
   ordinaryIncome,
   earnedIncome = emptyEarnedIncome(),
   retirementOrdinaryIncome = 0,
+  retirementIncomeDetails = [],
   ordinaryInvestmentIncome = 0,
   qualifiedDividends = 0,
   adjustmentsToIncome = 0,
@@ -1261,6 +1313,7 @@ function reconcileCashRequirement({
   let currentMedicare = medicare ?? emptyMedicareCost();
   let currentTaxableSocialSecurity = taxableSocialSecurity ?? 0;
   let currentMedicalEstimate = medicalEstimate;
+  let currentQualifiedHsaExpenses = qualifiedHsaExpenses;
   let currentRothBasisOptimization = null;
 
   for (let iteration = 0; iteration < 10; iteration += 1) {
@@ -1303,7 +1356,7 @@ function reconcileCashRequirement({
         hsaQualifiedExpenseAvailable: hsaQualifiedExpenseAvailableForWithdrawal({
           scenario,
           hsaQualifiedExpenseBalance,
-          medicalEstimate: currentMedicalEstimate
+          medicalEstimate: currentQualifiedHsaExpenses
         }) - (currentWithdrawal.hsaQualifiedExpenseUsed ?? currentWithdrawal.hsaProceeds ?? 0)
       },
       evaluationContext: {
@@ -1315,6 +1368,7 @@ function reconcileCashRequirement({
         ordinaryIncome,
         earnedIncome,
         retirementOrdinaryIncome,
+        retirementIncomeDetails,
         ordinaryInvestmentIncome,
         qualifiedDividends,
         adjustmentsToIncome,
@@ -1340,6 +1394,7 @@ function reconcileCashRequirement({
     currentTaxes = chosenTopUp.taxes;
     currentAca = chosenTopUp.aca;
     currentMedicalEstimate = scenario.targetSpendIncludesMedical ? 0 : chosenTopUp.medicalTotal;
+    currentQualifiedHsaExpenses = chosenTopUp.qualifiedHsaExpenses;
     currentMedicare = chosenTopUp.medicare;
     currentRothBasisOptimization = chosenTopUp.rothBasisOptimization;
   }
@@ -1377,7 +1432,7 @@ function reconcileCashRequirement({
         hsaQualifiedExpenseAvailable: hsaQualifiedExpenseAvailableForWithdrawal({
           scenario,
           hsaQualifiedExpenseBalance,
-          medicalEstimate: currentMedicalEstimate
+          medicalEstimate: currentQualifiedHsaExpenses
         }) - (currentWithdrawal.hsaQualifiedExpenseUsed ?? currentWithdrawal.hsaProceeds ?? 0)
       },
       evaluationContext: {
@@ -1389,6 +1444,7 @@ function reconcileCashRequirement({
         ordinaryIncome,
         earnedIncome,
         retirementOrdinaryIncome,
+        retirementIncomeDetails,
         ordinaryInvestmentIncome,
         qualifiedDividends,
         adjustmentsToIncome,
@@ -1414,6 +1470,7 @@ function reconcileCashRequirement({
     currentTaxes = forcedTopUp.taxes;
     currentAca = forcedTopUp.aca;
     currentMedicalEstimate = scenario.targetSpendIncludesMedical ? 0 : forcedTopUp.medicalTotal;
+    currentQualifiedHsaExpenses = forcedTopUp.qualifiedHsaExpenses;
     currentMedicare = forcedTopUp.medicare;
   }
 
@@ -1424,6 +1481,7 @@ function reconcileCashRequirement({
     medicare: currentMedicare,
     taxableSocialSecurity: currentTaxableSocialSecurity,
     medicalEstimate: currentMedicalEstimate,
+    qualifiedHsaExpenses: currentQualifiedHsaExpenses,
     rothBasisOptimization: currentRothBasisOptimization
   };
 }

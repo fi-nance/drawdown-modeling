@@ -230,7 +230,7 @@ function addAccountScopeFlags(flags, scenario, assets, horizon) {
     flags.push({
       id: "hsa-expense-qualification", level: CONFIDENCE_LEVELS.CPA_REVIEW, lens: "cpa",
       title: "HSA tax-free expense eligibility is not fully classified",
-      detail: "The HSA expense pool includes all modeled medical costs. Ordinary ACA and Medigap premiums are not generally HSA-qualified; household-specific insurance exceptions, eligible expenses, reimbursements and contribution eligibility are not fully modeled. Disabling the qualified-expense limit further assumes unlimited tax-free withdrawals.",
+      detail: "HSA withdrawals require unreimbursed, undeducted qualified expenses. Ordinary ACA and Medigap premiums are excluded. Medicare premiums are conservatively excluded while either living spouse is under 65 because receipt ownership is not recorded. Verify HDHP eligibility months, separate catch-up accounts, insurance exceptions, and receipts.",
       action: "Have a tax or benefits professional verify the eligible expense pool and any HSA withdrawals before relying on tax-free funding recommendations."
     });
   }
@@ -301,7 +301,7 @@ function addHealthcareFlags(flags, scenario, decision) {
 // input-limited so households nearing or in Medicare years fill it in.
 function addMedicareOopFlags(flags, scenario) {
   const medicare = scenario?.medicare ?? {};
-  if (medicare.irmaaEnabled === false) return;
+  if (medicare.premiumsEnabled === false) return;
   if (optionalFiniteNumber(medicare.annualOopBase) !== null) return;
 
   const planYears = Math.max(0, Number(scenario?.planYears) || 0);
@@ -479,13 +479,13 @@ function addStateTaxFlags(flags, taxProfile, plan) {
   const state = taxProfile?.state;
   if (!state) return;
   const source = String(state.retirementRulesSource ?? "");
-  if (state.source !== "Manual override" && (source.includes("Best-effort") || source.includes("verify"))) {
+  if (state.source !== "Manual override" && (source && !source.includes("No broad individual income tax"))) {
     flags.push({
       id: "state-retirement-tax-review",
       level: CONFIDENCE_LEVELS.CPA_REVIEW,
       lens: "cpa",
       title: "State retirement-tax rules need state-form review",
-      detail: "The model uses broad state retirement-income and Social Security rules. Public pensions, military, railroad, disability, local taxes, credits, and part-year residency can differ.",
+      detail: `The model uses broad state retirement-income and Social Security rules; it is not a complete state-return engine. ${source} Public pensions, military, railroad, disability, local taxes, credits, and part-year residency can differ.`,
       action: "Use state overrides or CPA review before treating state-tax outputs as filing-grade."
     });
   }
@@ -934,7 +934,7 @@ function addSocialSecurityFlags(flags, scenario) {
     level: CONFIDENCE_LEVELS.INPUT_LIMITED,
     lens: "cpa",
     title: "Social Security claiming uses entered benefit timing",
-    detail: "Entered benefits are quoted at the chosen claiming age. Worker and spousal factors use inferred birth-year cohorts. Aged survivor benefits default to the first eligible modeled year unless a survivor claim age is entered; disability, child-in-care, remarriage and exact birth-date eligibility are outside this model.",
+    detail: "Entered benefits are quoted at the chosen claiming age. Worker and spousal factors use inferred birth-year cohorts. Working before FRA triggers the earnings test; a complete monthly work calendar enables the first-year rule and accurate pre-FRA earnings. Auxiliary-family withholding and survivor reduction-factor recomputation require SSA review. Aged survivor benefits default to the first eligible modeled year unless a survivor claim age is entered; disability, child-in-care, remarriage and exact birth-date eligibility are outside this model.",
     action: "Use verified SSA benefit estimates and review claiming-date recommendations before acting, especially for survivor or spousal benefit cases."
   });
 }

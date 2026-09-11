@@ -28,7 +28,7 @@ const taxProfile = buildTaxProfile({ filingStatus: "marriedFilingJointly", state
 const scenario = (overrides = {}) => ({
   ...DEFAULT_SCENARIO, planYears: 3, currentAge: 60, spouseAge: 60, targetSpend: 30000,
   rothBasis: 0, returnAssumptions: returns(), aca: { enabled: false },
-  medicare: { irmaaEnabled: false }, rothConversion: { enabled: false },
+  medicare: { premiumsEnabled: false, irmaaEnabled: false }, rothConversion: { enabled: false },
   taxLossHarvesting: { enabled: false }, taxGainHarvesting: { enabled: false }, ...overrides
 });
 const asset = (overrides = {}) => ({

@@ -1,4 +1,4 @@
-export const STATE_RETIREMENT_TAX_RULES_VERSION = "2026.1";
+export const STATE_RETIREMENT_TAX_RULES_VERSION = "2026.2";
 
 const DEFAULT_RULE = Object.freeze({
   socialSecurity: { type: "excluded" },
@@ -96,13 +96,9 @@ export const STATE_RETIREMENT_TAX_RULES_2026 = Object.freeze({
     source: "Iowa excludes retirement income for taxpayers age 55 or older."
   },
   Kansas: {
-    socialSecurity: {
-      type: "thresholdRate",
-      thresholds: { single: 75000, marriedFilingJointly: 75000, marriedFilingSeparately: 75000, headOfHousehold: 75000 },
-      rateAbove: 1
-    },
+    socialSecurity: { type: "excluded" },
     retirementIncome: { type: "none" },
-    source: "Kansas exempts Social Security below the state AGI threshold; private retirement income is generally taxable."
+    source: "Kansas exempts federally taxable Social Security without an income cap for tax years after 2023; private retirement income is generally taxable."
   },
   Kentucky: {
     socialSecurity: { type: "excluded" },
@@ -111,18 +107,18 @@ export const STATE_RETIREMENT_TAX_RULES_2026 = Object.freeze({
   },
   Louisiana: {
     socialSecurity: { type: "excluded" },
-    retirementIncome: { type: "fixed", amount: 6000, minAge: 65 },
-    source: "Louisiana age-65 retirement-income exclusion; public pension treatment is plan-specific."
+    retirementIncome: { type: "fixed", amount: 12000, minAge: 65 },
+    source: "Louisiana age-65 exclusion uses the $12,000 statutory base; the 2026 indexed increment and plan-specific public benefits require override review."
   },
   Maine: {
     socialSecurity: { type: "excluded" },
-    retirementIncome: { type: "fixed", amount: 45000 },
-    source: "Maine pension-income deduction, reduced by Social Security in some cases; modeled as a best-effort fixed 2026 deduction."
+    retirementIncome: { type: "mainePension", amount: 49824, minAge: 59.5 },
+    source: "Maine 2026 pension maximum $49,824, reduced by Social Security and phased out. Household Social Security offsets each owner cap conservatively until owner benefit records are supplied; phaseout uses the statutory base pending indexed thresholds."
   },
   Maryland: {
     socialSecurity: { type: "excluded" },
-    retirementIncome: { type: "fixed", amount: 39500, minAge: 65 },
-    source: "Maryland pension exclusion for older taxpayers, subject to annual limits."
+    retirementIncome: { type: "none" },
+    source: "Maryland pension exclusion is not inferred from generic traditional accounts: IRAs are ineligible, employer-plan eligibility and Social Security offsets require a verified manual exclusion."
   },
   Massachusetts: {
     socialSecurity: { type: "excluded" },
@@ -131,8 +127,8 @@ export const STATE_RETIREMENT_TAX_RULES_2026 = Object.freeze({
   },
   Michigan: {
     socialSecurity: { type: "excluded" },
-    retirementIncome: { type: "all", minAge: 59.5 },
-    source: "Michigan retirement-income phaseout is modeled as fully exempt for 2026 and later qualified retirement distributions."
+    retirementIncome: { type: "fixed", scope: "joint", minAge: 59.5, amounts: { single: 67610, headOfHousehold: 67610, marriedFilingSeparately: 67610, marriedFilingJointly: 135220 } },
+    source: "Michigan 2026 qualified private retirement-income maximum: $67,610 single/$135,220 joint. Public-plan, early-retirement, and alternate standard-deduction exceptions require review."
   },
   Minnesota: {
     socialSecurity: { type: "federal" },
@@ -146,8 +142,8 @@ export const STATE_RETIREMENT_TAX_RULES_2026 = Object.freeze({
   },
   Missouri: {
     socialSecurity: { type: "excluded" },
-    retirementIncome: { type: "fixed", amount: 6000, minAge: 62 },
-    source: "Missouri Social Security is exempt; private pension deduction is modeled conservatively as $6,000."
+    retirementIncome: { type: "fixedPhaseout", amount: 6000, phaseoutStart: { single: 25000, marriedFilingJointly: 32000, marriedFilingSeparately: 16000, headOfHousehold: 25000 } },
+    source: "Missouri private pension deduction is capped at $6,000 per recipient, reduced dollar-for-dollar above filing-status income limits. Public-plan and disability rules require review."
   },
   Montana: {
     socialSecurity: { type: "federal" },
@@ -164,10 +160,10 @@ export const STATE_RETIREMENT_TAX_RULES_2026 = Object.freeze({
   "New Jersey": {
     socialSecurity: { type: "excluded" },
     retirementIncome: {
-      type: "fixedWithIncomeLimit",
+      type: "newJerseyPension", scope: "joint",
       minAge: 62,
       thresholds: { single: 150000, marriedFilingJointly: 150000, marriedFilingSeparately: 150000, headOfHousehold: 150000 },
-      amounts: { single: 75000, marriedFilingJointly: 100000, marriedFilingSeparately: 50000, headOfHousehold: 100000 }
+      amounts: { single: 75000, marriedFilingJointly: 100000, marriedFilingSeparately: 50000, headOfHousehold: 75000 }
     },
     source: "New Jersey retirement-income exclusion for taxpayers age 62 or older with income at or below the gross-income cap."
   },
@@ -235,7 +231,7 @@ export const STATE_RETIREMENT_TAX_RULES_2026 = Object.freeze({
     retirementIncome: {
       type: "ageBand",
       bands: [
-        { minAge: 0, maxAge: 64, amount: 10000 },
+        { minAge: 0, maxAge: 64, amount: 3000 },
         { minAge: 65, amount: 15000 }
       ]
     },
@@ -281,13 +277,8 @@ export const STATE_RETIREMENT_TAX_RULES_2026 = Object.freeze({
   },
   Wisconsin: {
     socialSecurity: { type: "excluded" },
-    retirementIncome: {
-      type: "fixedWithIncomeLimit",
-      minAge: 67,
-      amounts: { single: 24000, marriedFilingJointly: 48000, marriedFilingSeparately: 0, headOfHousehold: 24000 },
-      thresholds: { single: 15000, marriedFilingJointly: 30000, marriedFilingSeparately: 0, headOfHousehold: 15000 }
-    },
-    source: "Wisconsin age-67 retirement-income exclusion is income limited; certain public-plan exclusions are not inferred from generic account data."
+    retirementIncome: { type: "wisconsinPension" },
+    source: "Wisconsin: age 67+ $24,000 per qualifying person ($48,000 if both joint filers qualify), without an income cap; choosing it forfeits state credits. Age 65-66 $5,000 requires FAGI below $15,000/$30,000 married."
   },
   Wyoming: noIncomeTaxRule()
 });
@@ -329,7 +320,9 @@ export function stateRetirementIncomeExclusion({
   age,
   spouseAge,
   retirementIncome = 0,
+  retirementIncomeDetails = null,
   remainingTaxableSocialSecurity = 0,
+  totalSocialSecurity = 0,
   stateIncome = 0,
   manualExclusion = 0
 } = {}) {
@@ -338,14 +331,46 @@ export function stateRetirementIncomeExclusion({
     + (config.appliesToTaxableSocialSecurity ? Math.max(0, remainingTaxableSocialSecurity) : 0);
   if (eligibleIncome <= 0) return 0;
 
-  const defaultExclusion = retirementExclusionLimit({
-    config,
-    filingStatus,
-    age,
-    spouseAge,
-    stateIncome
-  });
+  const details = Array.isArray(retirementIncomeDetails) && retirementIncomeDetails.length
+    ? retirementIncomeDetails : [{ owner: 'primary', amount: retirementIncome, type: 'unspecified' }];
+  const ownerIncome = { primary: 0, spouse: 0 };
+  for (const row of details) ownerIncome[row.owner === 'spouse' ? 'spouse' : 'primary'] += Math.max(0, Number(row.amount) || 0);
+  // Preserve age ownership. Only a joint dollar cap may be shared; a younger
+  // spouse's distributions never become eligible because the other is older.
+  const ownerAge = { primary: age, spouse: spouseAge };
+  const qualifiedTotal = Object.entries(ownerIncome).reduce((sum, [owner, amount]) => sum
+    + (Number.isFinite(Number(ownerAge[owner])) && ownerAge[owner] != null && (config.minAge == null || Number(ownerAge[owner]) >= config.minAge) ? amount : 0), 0);
+  let defaultExclusion = 0;
+  if (config.type === 'wisconsinPension') {
+    const eligible67 = ['primary', 'spouse'].filter(owner => ownerAge[owner] != null && ownerAge[owner] >= 67);
+    if (eligible67.length === 2 && filingStatus === 'marriedFilingJointly') defaultExclusion = Math.min(retirementIncome, 48000);
+    else for (const owner of ['primary', 'spouse']) {
+      const ownerLimit = ownerAge[owner] >= 67 ? 24000 : ownerAge[owner] >= 65 && stateIncome < (filingStatus.startsWith('married') ? 30000 : 15000) ? 5000 : 0;
+      defaultExclusion += Math.min(ownerIncome[owner], ownerLimit);
+    }
+  } else if (config.type === 'mainePension') {
+    const threshold = filingStatus === 'marriedFilingJointly' ? 250000 : filingStatus === 'headOfHousehold' ? 187500 : 125000;
+    const phase = 1 - Math.min(1, Math.max(0, stateIncome - threshold) / (filingStatus === 'marriedFilingSeparately' ? 50000 : 100000));
+    for (const owner of ['primary', 'spouse']) if (ownerAge[owner] != null && ownerAge[owner] >= config.minAge) {
+      defaultExclusion += Math.min(ownerIncome[owner], Math.max(0, config.amount - totalSocialSecurity)) * phase;
+    }
+  } else if (config.type === 'newJerseyPension') {
+    const share = filingStatus === 'marriedFilingJointly' ? 0.5 : filingStatus === 'marriedFilingSeparately' ? 0.25 : 0.375;
+    defaultExclusion = stateIncome <= 100000 ? Math.min(qualifiedTotal, amountForStatus(config, filingStatus))
+      : stateIncome <= 125000 ? qualifiedTotal * share : stateIncome <= 150000 ? qualifiedTotal * share / 2 : 0;
+  } else if (config.scope === 'joint' || config.amounts) {
+    defaultExclusion = Math.min(qualifiedTotal, retirementExclusionLimit({ config, filingStatus, age, spouseAge, stateIncome }));
+  } else {
+    for (const owner of ['primary', 'spouse']) {
+      if (ownerAge[owner] == null && (config.minAge != null || config.type === "ageBand")) continue;
+      const limit = retirementExclusionLimit({ config, filingStatus, age: ownerAge[owner], spouseAge: null, stateIncome });
+      defaultExclusion += Math.min(ownerIncome[owner], limit);
+    }
+    if (config.appliesToTaxableSocialSecurity) defaultExclusion += Math.min(Math.max(0, remainingTaxableSocialSecurity), Math.max(0,
+      retirementExclusionLimit({ config, filingStatus, age, spouseAge, stateIncome }) - defaultExclusion));
+  }
   return Math.min(eligibleIncome, Math.max(defaultExclusion, Math.max(0, manualExclusion ?? 0)));
+
 }
 
 function retirementExclusionLimit({ config, filingStatus, age, spouseAge, stateIncome }) {

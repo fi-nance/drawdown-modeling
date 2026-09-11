@@ -33,10 +33,14 @@ export function simulatePlan({
   medicalInflationSequence
 }) {
   const mergedScenario = ensureReturnAssumptionsForAssets(mergeScenario(scenario), assets);
+  if (Number(mergedScenario.traditionalIraBasis) > 0 || Number(mergedScenario.spouseTraditionalIraBasis) > 0
+      || assets.some(asset => asset.accountType === 'traditional' && Number(asset.nondeductibleBasis) > 0)) {
+    throw new RangeError('Nondeductible traditional IRA basis requires Form 8606 pro-rata modeling, which is not supported. This scenario cannot produce executable withdrawal or conversion recommendations.');
+  }
   const portfolio = clonePortfolio(assets);
   ensureRothLedger(portfolio, mergedScenario);
   const years = [];
-  let lossCarryforward = { shortTerm: 0, longTerm: 0 };
+  let lossCarryforward = normalizeLossCarryforward(mergedScenario.openingCapitalLossCarryforward);
   let rothBasisRemaining = rothContributionBalance(portfolio.rothLedger);
   let hsaQualifiedExpenseBalance = hsaStrategyConfig(mergedScenario).startingQualifiedExpenseBalance;
   let success = true;
@@ -64,6 +68,7 @@ export function simulatePlan({
   let kitcesHighWaterMark = null;
   let riskBasedRealSpend = null;
   const irmaaMagiHistory = [];
+  let socialSecurityEarningsCredits = { primary: 0, spouse: 0 };
   let spendingGuardrailMarketState = initialSpendingGuardrailMarketState();
   const conditionalAssetSaleState = { soldIds: new Set() };
 
@@ -233,6 +238,7 @@ export function simulatePlan({
       lossCarryforward,
       rothBasisRemaining,
       hsaQualifiedExpenseBalance,
+      socialSecurityEarningsCredits,
       magiHistory: irmaaMagiHistory,
       passedBaseSpend,
       conditionalAssetSaleState
@@ -246,7 +252,8 @@ export function simulatePlan({
     lossCarryforward = result.lossCarryforwardDetail ?? normalizeLossCarryforward(result.lossCarryforward);
     rothBasisRemaining = result.rothBasisRemaining;
     hsaQualifiedExpenseBalance = result.hsaQualifiedExpenseBalance ?? hsaQualifiedExpenseBalance;
-    irmaaMagiHistory.push(result.irmaaMagi);
+    socialSecurityEarningsCredits = result.socialSecurityEarningsCredits ?? socialSecurityEarningsCredits;
+    irmaaMagiHistory.push({ magi: result.irmaaMagi, filingStatus: result.filingStatus, marriedFilingSeparatelyLivedTogether: mergedScenario.medicare?.marriedFilingSeparatelyLivedTogether });
     success = success && !isPortfolioDepleted(result);
     years.push(result);
     heirValuationInflationIndex = inflationIndex;

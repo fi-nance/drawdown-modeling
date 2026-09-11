@@ -16,7 +16,7 @@ import { medicalCostForYear, medicareIrmaaBracketKey } from "./medical.mjs";
 import { embeddedTaxableGains, traditionalAccountValue } from "./portfolioQueries.mjs";
 import { defaultRmdStartAge } from "./rmd.mjs";
 import { isLifetimeOptimizerEnabled, withdrawalStrategyConfig } from "./scenario.mjs";
-import { emptyWithdrawal } from "./withdrawalExecution.mjs";
+import { emptyWithdrawal, conversionIncomeDetails } from "./withdrawalExecution.mjs";
 
 export function addPenaltyTax(taxes, penaltyTax = 0) {
   const penalty = Math.max(0, penaltyTax);
@@ -203,6 +203,7 @@ export function gainHarvestingRoom({
   ordinaryIncome = 0,
   earnedIncome = emptyEarnedIncome(),
   retirementOrdinaryIncome = 0,
+  retirementIncomeDetails = [],
   ordinaryInvestmentIncome = 0,
   qualifiedDividends = 0,
   adjustmentsToIncome = 0,
@@ -289,6 +290,7 @@ export function gainHarvestingRoom({
       ordinaryIncome,
       earnedIncome,
       retirementOrdinaryIncome,
+      retirementIncomeDetails,
       ordinaryInvestmentIncome,
       qualifiedDividends,
       adjustmentsToIncome,
@@ -359,6 +361,7 @@ function marginalIncomeRoom({
   ordinaryIncome = 0,
   earnedIncome = emptyEarnedIncome(),
   retirementOrdinaryIncome = 0,
+  retirementIncomeDetails = [],
   ordinaryInvestmentIncome = 0,
   qualifiedDividends = 0,
   adjustmentsToIncome = 0,
@@ -373,6 +376,7 @@ function marginalIncomeRoom({
   age = null,
   spouseAge = null,
   yearIndex = 0,
+  conversionPortfolio = [],
   magiHistory = []
 }) {
   const cap = Math.max(0, Number(maxAmount) || 0);
@@ -384,6 +388,7 @@ function marginalIncomeRoom({
       ordinaryIncome: ordinaryIncome + (kind === "ordinary" ? extra : 0),
       earnedIncome,
       retirementOrdinaryIncome: retirementOrdinaryIncome + (kind === "ordinary" ? extra : 0),
+      retirementIncomeDetails: [...retirementIncomeDetails, ...(kind === "ordinary" ? conversionIncomeDetails(conversionPortfolio, extra) : [])],
       ordinaryInvestmentIncome,
       qualifiedDividends,
       adjustmentsToIncome,
@@ -558,6 +563,8 @@ export function rothConversionAmountForYear({
   acaConfig,
   ordinaryIncome,
   earnedIncome = emptyEarnedIncome(),
+  retirementOrdinaryIncome = 0,
+  retirementIncomeDetails = [],
   ordinaryInvestmentIncome = 0,
   qualifiedDividends = 0,
   adjustmentsToIncome = 0,
@@ -595,6 +602,8 @@ export function rothConversionAmountForYear({
         taxProfile,
         acaConfig,
         ordinaryIncome,
+        retirementOrdinaryIncome,
+        retirementIncomeDetails,
         earnedIncome,
         ordinaryInvestmentIncome,
         qualifiedDividends,
@@ -634,7 +643,8 @@ export function rothConversionAmountForYear({
     const { income } = incomeForYear({
       ordinaryIncome,
       earnedIncome,
-      retirementOrdinaryIncome: 0,
+      retirementOrdinaryIncome,
+      retirementIncomeDetails,
       ordinaryInvestmentIncome,
       qualifiedDividends,
       adjustmentsToIncome,
@@ -672,6 +682,7 @@ export function rothConversionAmountForYear({
     });
     const marginalRoom = marginalIncomeRoom({
       kind: "ordinary",
+      conversionPortfolio: portfolio,
       scenario,
       taxProfile,
       acaConfig: scenario.rothConversion?.optimizeForAca === false
@@ -689,7 +700,8 @@ export function rothConversionAmountForYear({
       maxAmount: Math.min(maxTraditional, acaRoom, irmaaRoom),
       ordinaryIncome,
       earnedIncome,
-      retirementOrdinaryIncome: 0,
+      retirementOrdinaryIncome,
+      retirementIncomeDetails,
       ordinaryInvestmentIncome,
       qualifiedDividends,
       adjustmentsToIncome,
@@ -714,7 +726,8 @@ export function rothConversionAmountForYear({
   const { income: incomeBeforeConversion } = incomeForYear({
     ordinaryIncome,
     earnedIncome,
-    retirementOrdinaryIncome: 0,
+    retirementOrdinaryIncome,
+    retirementIncomeDetails,
     ordinaryInvestmentIncome,
     qualifiedDividends,
     adjustmentsToIncome,
@@ -767,6 +780,8 @@ function rothConversionMagiGuardrailRoom({
   taxProfile,
   acaConfig,
   ordinaryIncome,
+  retirementOrdinaryIncome = 0,
+  retirementIncomeDetails = [],
   earnedIncome = emptyEarnedIncome(),
   ordinaryInvestmentIncome = 0,
   qualifiedDividends = 0,
@@ -792,7 +807,8 @@ function rothConversionMagiGuardrailRoom({
   const { income } = incomeForYear({
     ordinaryIncome,
     earnedIncome,
-    retirementOrdinaryIncome: 0,
+    retirementOrdinaryIncome,
+    retirementIncomeDetails,
     ordinaryInvestmentIncome,
     qualifiedDividends,
     adjustmentsToIncome,

@@ -259,3 +259,34 @@ The generator scrapes the two history tables on https://www.treasurydirect.gov/s
 - SSA claim withdrawal and suspension: https://www.ssa.gov/faqs/en/questions/KA-01993.html and https://www.ssa.gov/benefits/retirement/planner/suspend.html. Feeds `socialSecurityClaimStatus` / `spouseSocialSecurityClaimStatus` and prospective solver constraints. Existing elections cannot be freely reselected; the exceptional procedures are not simulated. Regression: `tests/claimingFeasibility.test.mjs`.
 - Calculation/cache version: `MODEL_VERSION = 2026-09-10-roth-claiming`.
 - Roth spousal rollover five-year clock: 26 CFR 1.408A-6 Q7(b), https://www.irs.gov/pub/irs-regs/td8816.pdf. The earlier of either spouse’s Roth clocks governs once the inherited IRA is treated as the survivor’s own.
+
+## September 2026 follow-up: retirement tax and planning rules
+
+Verified September 10–11, 2026. Regression coverage: `golden_tax_review`,
+`golden_healthcare_review`, and `golden_planning_extensions` tests.
+
+- [Kansas DOR individual FAQ](https://www.ksrevenue.gov/faqs-taxii.html): Social Security exemption no longer has the old $75,000 AGI gate.
+- [Michigan ORS Public Act 4 FAQ](https://www.michigan.gov/ors/public-act-4-of-2023-faq): 2026 qualified private retirement maximum $67,610 single/$135,220 joint. Eligibility exceptions are flagged.
+- [New Jersey pension exclusion](https://www.nj.gov/treasury/taxation/njit7.shtml): filing-status dollar caps, partial exclusion percentages in the $100,000–$150,000 income bands, and age eligibility by recipient. NJ excludes Social Security from these income bands.
+- [New York senior income guidance](https://www.tax.ny.gov/pit/file/information_for_seniors.htm): $20,000 pension/annuity exclusion per eligible recipient age 59½; unused spouse limits cannot be transferred.
+- [Wisconsin retired-person FAQ](https://www.revenue.wi.gov/Pages/FAQS/pcs-retired.aspx) and [Schedule SB instructions](https://www.revenue.wi.gov/TaxForms2025/2025-ScheduleSB-Inst.pdf): distinguish the age-65 $5,000 income-limited subtraction from the age-67 $24,000 subtraction. Both qualifying joint filers may share $48,000; choosing the latter forfeits state credits, which this model does not calculate.
+- [Louisiana retirement FAQ](https://revenue.louisiana.gov/tax-education-and-faqs/faqs/individual-income-tax/is-there-a-list-of-retirement-system-benefits-that-may-be-excluded-from-louisiana-income-tax/) and [R.S. 47:44.1](https://legis.la.gov/Legis/Law.aspx?d=102133): $12,000 age-65 statutory base replaces $6,000. The model conservatively omits the indexed increment until verified.
+- [Maine 2026 estimated-tax instructions](https://www.maine.gov/revenue/sites/maine.gov.revenue/files/inline-files/26_1040es_fillable.pdf), [pension FAQ](https://www.maine.gov/revenue/faq/individual-income-tax), and [36 M.R.S. §5122](https://legislature.maine.gov/statutes/36/title36sec5122.html): $49,824 maximum, Social Security offset and income phaseout. See the explicit conservative household-offset and threshold assumptions in known limitations.
+- [Missouri pension FAQ](https://dor.mo.gov/faq/taxation/individual/pension.html): private pension $6,000 maximum phases out dollar-for-dollar above $25,000 single/HOH, $32,000 joint, $16,000 separate.
+- [South Carolina income-tax FAQ](https://www.dor.sc.gov/iit/prepare-you-file/iit-faqs): under-65 retirement deduction $3,000; age-65 retirement/age deduction interaction remains a scoped approximation.
+- [IRS PTC questions and answers](https://www.irs.gov/affordable-care-act/individuals-and-families/questions-and-answers-on-the-premium-tax-credit): MFS generally ineligible except qualifying domestic abuse/abandonment; dependency and other coverage matter. The optional per-member calendar computes monthly eligible premiums against annual household income.
+- [CMS 2026 Medicare premiums](https://www.cms.gov/newsroom/fact-sheets/2026-medicare-parts-b-premiums-deductibles), [SSA handbook 2504](https://www.ssa.gov/OP_Home/handbook/handbook.25/handbook-2504.html), and [SSA-44](https://www.ssa.gov/forms/ssa-44.pdf): base premiums are separate from IRMAA; retain the lookback return's filing status; an explicit premium-year redetermination input can replace that return.
+- [IRS Publication 969](https://www.irs.gov/publications/p969): HSA qualified expense/reimbursement restrictions, insurance exceptions, owner age-65 rule, monthly contribution eligibility, and separate catch-ups. 2026 base limits $4,400 self/$8,750 family; catch-up $1,000 remains nominal.
+- [SSA earnings limits](https://www.ssa.gov/OACT/COLA/rtea.html), [working while claiming](https://www.ssa.gov/benefits/retirement/planner/whileworking.html), and [special first-year rule](https://www.ssa.gov/benefits/retirement/planner/rule.html): 2026 limits $24,480/$65,160, $1-for-$2/$1-for-$3 withholding, and reduction-factor adjustment at FRA. Future limits use projected inflation, not announced future SSA values.
+- [IRS Topic 559](https://www.irs.gov/taxtopics/tc559), [1040 instructions](https://www.irs.gov/instructions/i1040gi), and [Topic 409](https://www.irs.gov/taxtopics/tc409): passive rent NII, the preferential-tax all-ordinary ceiling, and capital-loss carryforwards retaining character.
+
+Advisory fees are modeled as annual cash expenses on beginning portfolio value.
+Fund fees reduce end-of-return prices only if returns are entered gross; individual
+TIPS ladder securities are excluded. Survivor budgets and five-year longevity
+extensions are user-selected planning assumptions, not tax facts or forecasts.
+
+[Maryland Comptroller pension-exclusion guidance](https://services.marylandcomptroller.gov/taxes/en/maryland-pension-exclusion?id=kb_article_view&sysparm_article=KB0010012)
+confirms traditional/Roth IRAs, SEP and Keogh accounts do not qualify and all
+Social Security must offset the eligible exclusion. Generic account tags cannot
+establish employer-plan qualification, so no automatic exclusion is assumed.
+HSA 2026 contribution limits also appear in [IRS Revenue Procedure 2025-19](https://www.irs.gov/irb/2025-21_IRB).

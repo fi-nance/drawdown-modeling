@@ -80,7 +80,7 @@ test("ZIP-mode ACA without member ages prices [age, spouseAge] and drops the 65+
   const single60Benchmark = slcspMonthlyFor({ zip: "33101", householdAges: [60] }).monthlyPremium * 12;
   assert.equal(mixed.benchmarkPremium, Math.round(single60Benchmark * 1e6) / 1e6);
   assert.equal(mixed.benchmarkMedicareExcludedMembers, 1);
-  assert.equal(mixed.medicareEligibleHousehold, undefined);
+  assert.equal(mixed.medicareEligibleHousehold, false);
 
   // 60/59 couple: both members are rated.
   const bothUnder65 = computeAcaForYear({ age: 60, spouseAge: 59, magi: 40000, config, filingStatus: "marriedFilingJointly" });
@@ -215,6 +215,6 @@ test("medicare-oop-inputs confidence flag fires for plans reaching Medicare year
     .includes("medicare-oop-inputs"));
 
   // IRMAA disabled (Medicare modeling off) → no flag.
-  assert.ok(!flagIds({ currentAge: 60, planYears: 10, state: "Florida", aca: { enabled: true }, medicare: { irmaaEnabled: false } })
+  assert.ok(!flagIds({ currentAge: 60, planYears: 10, state: "Florida", aca: { enabled: true }, medicare: { premiumsEnabled: false, irmaaEnabled: false } })
     .includes("medicare-oop-inputs"));
 });

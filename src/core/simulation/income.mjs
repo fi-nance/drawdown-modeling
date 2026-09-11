@@ -28,6 +28,7 @@ function combineIncome({
   ordinaryIncome,
   earnedIncome = emptyEarnedIncome(),
   retirementOrdinaryIncome = 0,
+  retirementIncomeDetails = [],
   ordinaryInvestmentIncome = 0,
   qualifiedDividends = 0,
   adjustmentsToIncome = 0,
@@ -52,6 +53,7 @@ function combineIncome({
   return {
     ordinaryIncome: ordinaryIncome + withdrawal.ordinaryIncome + taxableSocialSecurityAmount,
     retirementOrdinaryIncome: Math.max(0, retirementOrdinaryIncome) + Math.max(0, withdrawal.ordinaryIncome - hsaOrdinaryIncome),
+    retirementIncomeDetails: [...retirementIncomeDetails, ...(withdrawal.sales ?? []).filter(sale => ['traditional', 'roth'].includes(sale.accountType)).map(sale => ({ owner: sale.owner ?? 'primary', amount: sale.ordinaryIncome ?? 0, type: sale.accountType === 'traditional' ? 'ira' : 'rothEarnings' }))],
     ordinaryInvestmentIncome,
     adjustmentsToIncome: Math.max(0, adjustmentsToIncome),
     medicareWages: earnedIncome.medicareWages,
@@ -76,6 +78,7 @@ export function incomeForYear({
   ordinaryIncome,
   earnedIncome = emptyEarnedIncome(),
   retirementOrdinaryIncome = 0,
+  retirementIncomeDetails = [],
   ordinaryInvestmentIncome = 0,
   qualifiedDividends = 0,
   adjustmentsToIncome = 0,
@@ -93,6 +96,7 @@ export function incomeForYear({
   const incomeBeforeSocialSecurity = combineIncome({
     ordinaryIncome,
     retirementOrdinaryIncome,
+    retirementIncomeDetails,
     ordinaryInvestmentIncome,
     earnedIncome,
     qualifiedDividends,
@@ -118,6 +122,7 @@ export function incomeForYear({
     income: combineIncome({
       ordinaryIncome,
       retirementOrdinaryIncome,
+    retirementIncomeDetails,
       ordinaryInvestmentIncome,
       earnedIncome,
       qualifiedDividends,

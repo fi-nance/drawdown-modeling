@@ -84,7 +84,7 @@ const quietScenario = (overrides = {}) => ({
   targetSpendIncludesTaxes: false,
   targetSpendIncludesMedical: false,
   aca: { enabled: false },
-  medicare: { irmaaEnabled: false },
+  medicare: { premiumsEnabled: false, irmaaEnabled: false },
   rothConversion: { enabled: false },
   taxLossHarvesting: { enabled: false },
   taxGainHarvesting: { enabled: false },

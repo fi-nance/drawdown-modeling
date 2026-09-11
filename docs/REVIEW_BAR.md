@@ -109,6 +109,9 @@ Current seed coverage:
   2025-25 applicable percentages.
 - `tests/golden_ss_taxation.test.mjs` — Social Security benefit taxation,
   IRS Publication 915 worksheet.
+- `tests/golden_roth_ordering.test.mjs` — Per-owner Roth IRA contribution and
+  conversion ordering, five-year conversion recapture, and spousal rollover
+  clock handling, IRS Publication 590-B and 26 CFR §1.408A-6.
 - `tests/golden_ltcg_stacking.test.mjs` — Long-term capital gains stacking
   above ordinary income, IRS Schedule D Qualified Dividends and Capital Gain
   Tax Worksheet with 2026 MFJ brackets.
@@ -154,3 +157,11 @@ The bar grows over time. Add a check here when:
   readability problem.
 
 Bar additions go in a PR alongside the test or rubric that enforces them.
+
+Follow-up golden coverage: `golden_tax_review.test.mjs` checks state ownership,
+state-rule boundaries, passive rent NIIT and the preferential-tax ceiling;
+`golden_healthcare_review.test.mjs` checks mixed coverage, MFS, IRMAA lookback
+returns and HSA qualification; `golden_planning_extensions.test.mjs` checks SSA
+earnings rules, opening losses, fees, survivor budgets, longevity and setup
+round-trips. Sources and remaining approximations are in DATA_SOURCES and
+KNOWN_LIMITATIONS.

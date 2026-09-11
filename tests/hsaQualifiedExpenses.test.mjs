@@ -10,8 +10,7 @@
 // - At 65+ the excess IS distributable, taxed as ordinary income with no
 //   additional tax (IRC §223(f)(4)(C)) — the standard "HSA behaves like a
 //   traditional IRA after 65" planning treatment.
-// - Explicit `hsaUseForQualifiedExpenses: false` keeps the legacy unlimited
-//   tax-free behavior as a documented escape hatch.
+// - Legacy flags or missing/nonfinite receipt caps cannot waive qualification.
 
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -27,12 +26,12 @@ const hsaLot = () => [
 
 // ─── strategy config defaults ────────────────────────────────────────────────
 
-test("qualified-expense tracking is the default; explicit false is the legacy opt-out", () => {
+test("qualified-expense tracking is the default; legacy false cannot waive eligibility", () => {
   assert.equal(hsaStrategyConfig({}).useForQualifiedExpenses, true);
   assert.equal(DEFAULT_SCENARIO.taxEfficiencyStrategy.hsaUseForQualifiedExpenses, true);
   assert.equal(
     hsaStrategyConfig({ taxEfficiencyStrategy: { hsaUseForQualifiedExpenses: false } }).useForQualifiedExpenses,
-    false
+    true
   );
   // Contribution strategy still forces tracking on even with the opt-out.
   assert.equal(
@@ -41,7 +40,7 @@ test("qualified-expense tracking is the default; explicit false is the legacy op
   );
 });
 
-test("hsaQualifiedExpenseAvailableForWithdrawal caps by default and is unlimited only on opt-out", () => {
+test("hsaQualifiedExpenseAvailableForWithdrawal requires expense support even for legacy opt-out setups", () => {
   assert.equal(
     hsaQualifiedExpenseAvailableForWithdrawal({ scenario: {}, hsaQualifiedExpenseBalance: 1000, medicalEstimate: 500 }),
     1500
@@ -52,7 +51,7 @@ test("hsaQualifiedExpenseAvailableForWithdrawal caps by default and is unlimited
       hsaQualifiedExpenseBalance: 1000,
       medicalEstimate: 500
     }),
-    Infinity
+    1500
   );
 });
 
@@ -98,13 +97,13 @@ test("at 65+ with no qualified pool, the whole distribution is ordinary income",
   assert.equal(withdrawal.penaltyTax, 0);
 });
 
-test("legacy opt-out (unlimited availability) stays tax-free at any age", () => {
+test("nonfinite expense availability cannot authorize an HSA distribution", () => {
   const withdrawal = withdrawForCash(hsaLot(), 5000, ["hsa"], {
     age: 60,
     calendarYear: 2026,
     hsaQualifiedExpenseAvailable: Infinity
   });
-  assert.equal(withdrawal.cashRaised, 5000);
+  assert.equal(withdrawal.cashRaised, 0);
   assert.equal(withdrawal.ordinaryIncome, 0);
   assert.equal(withdrawal.penaltyTax, 0);
 });
@@ -133,7 +132,7 @@ const hsaOnlyScenario = (overrides = {}) => ({
   taxLossHarvesting: { enabled: false },
   taxGainHarvesting: { enabled: false },
   aca: { enabled: false },
-  medicare: { irmaaEnabled: false },
+  medicare: { premiumsEnabled: false, irmaaEnabled: false },
   ...overrides
 });
 
@@ -205,7 +204,7 @@ test("65+ nonqualified HSA income is NOT state retirement income (Illinois still
   assert.ok(year.taxes.stateTax > 0, `Illinois must tax HSA ordinary income (stateTax ${year.taxes.stateTax})`);
 });
 
-test("legacy opt-out scenario flag preserves unlimited tax-free HSA spending", () => {
+test("legacy opt-out scenario flag no longer permits unsupported tax-free HSA spending", () => {
   const plan = simulatePlan({
     assets: hsaCash(),
     scenario: hsaOnlyScenario({
@@ -217,9 +216,9 @@ test("legacy opt-out scenario flag preserves unlimited tax-free HSA spending", (
     inflationSequence: [0]
   });
   const year = plan.years[0];
-  assert.equal(year.hsaWithdrawals, 10000);
+  assert.equal(year.hsaWithdrawals, 0);
   assert.equal(year.taxes.totalTax, 0);
-  assert.equal(year.unfunded, 0);
+  assert.equal(year.unfunded, 10000);
 });
 
 test("the qualified-expense pool accrues modeled medical costs and is drawn down by qualified use", () => {

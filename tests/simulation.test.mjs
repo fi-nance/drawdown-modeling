@@ -33,6 +33,7 @@ const flatOrdinaryTaxProfile = {
 
 const flatCapitalGainsTaxProfile = {
   ...noTaxProfile,
+  ordinaryBrackets: [{ upTo: Infinity, rate: 0.15 }],
   capitalGainsBrackets: [{ upTo: Infinity, rate: 0.15 }]
 };
 
@@ -1563,6 +1564,7 @@ test("Roth basis can replace taxable sales when taxable room is too expensive", 
     },
     taxProfile: {
       ...noTaxProfile,
+      ordinaryBrackets: [{ upTo: Infinity, rate: 1 }],
       capitalGainsBrackets: [{ upTo: Infinity, rate: 1 }]
     },
     returnSequence: [{ stock: 0, cash: 0 }],
@@ -1831,6 +1833,7 @@ test("lifetime optimizer does not preserve Roth basis by taking avoidable early 
 test("lifetime optimizer can harvest gains beyond the zero percent bracket", () => {
   const gainProfile = {
     ...noTaxProfile,
+    ordinaryBrackets: [{ upTo: Infinity, rate: 0.2 }],
     capitalGainsBrackets: [
       { upTo: 0, rate: 0 },
       { upTo: 10000, rate: 0.15 },

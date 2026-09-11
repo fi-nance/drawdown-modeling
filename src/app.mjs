@@ -1,3 +1,4 @@
+import { EXTENSION_CONTROL_DEFAULTS, applyPlanningExtensionControls, planningExtensionControlsForScenario } from "./core/planningExtensions.mjs";
 import { parseRothConversionHistory } from "./core/rothLedger.mjs";
 import {
   ensureUniqueAssetIds,
@@ -119,6 +120,7 @@ const REDESIGN_STORAGE_KEYS = Object.freeze([
   "psl:redesign:collapsedModules"
 ]);
 const CONTROL_IDS = [
+  ...Object.keys(EXTENSION_CONTROL_DEFAULTS),
   "viewMode",
   "planYears",
   "runs",
@@ -509,6 +511,7 @@ const els = {
   incomeStreamSurvivorPercent: document.querySelector("#incomeStreamSurvivorPercent"),
   incomeStreamTaxCharacter: document.querySelector("#incomeStreamTaxCharacter"),
   incomeStreamCola: document.querySelector("#incomeStreamCola"),
+  incomeStreamNiitException: document.querySelector("#incomeStreamNiitException"),
   incomeStreamStateRetirement: document.querySelector("#incomeStreamStateRetirement"),
   addIncomeStream: document.querySelector("#addIncomeStream"),
   incomeStreamList: document.querySelector("#incomeStreamList"),
@@ -1173,7 +1176,8 @@ function bindEvents() {
       survivorPercent: numberOrNull(els.incomeStreamSurvivorPercent?.value) ?? 0,
       taxCharacter: els.incomeStreamTaxCharacter?.value === "taxFree" ? "taxFree" : "ordinary",
       inflationAdjusted: els.incomeStreamCola?.checked !== false,
-      stateRetirementIncome: els.incomeStreamStateRetirement?.checked === true
+      netInvestmentIncome: els.incomeStreamType?.value === "rent" && els.incomeStreamNiitException?.checked !== true,
+      stateRetirementIncome: ["pension", "annuity"].includes(els.incomeStreamType?.value) && els.incomeStreamStateRetirement?.checked === true
     };
     try { normalizeIncomeStream(stream, incomeStreams.length); }
     catch (error) { setStatus(error.message, true); return; }
@@ -1942,6 +1946,7 @@ function applySetupState(stored) {
   }
 
   const controlsWithHistoryDefaults = {
+    ...EXTENSION_CONTROL_DEFAULTS,
     spouseRothBasis: 0,
     spouseRothFiveYearRuleSatisfied: stored.controls?.rothFiveYearRuleSatisfied !== false,
     useRothConversionHistory: false,
@@ -2012,6 +2017,13 @@ function applyRescueScenarioToWorkspace(scenario = {}, { label = "rescue scenari
 }
 
 function applyScenarioControls(scenario) {
+  for (const [id, value] of Object.entries(planningExtensionControlsForScenario(scenario))) {
+    const control = document.getElementById(id);
+    if (!control) continue;
+    if (control.type === 'checkbox') control.checked = Boolean(value);
+    else control.value = String(value);
+  }
+
   setNumberControl("targetSpend", scenario.targetSpend);
   setCheckedControl("includeTaxes", scenario.targetSpendIncludesTaxes);
   setCheckedControl("includeMedical", scenario.targetSpendIncludesMedical);
@@ -5404,7 +5416,7 @@ function readScenario() {
     },
     aca
   };
-  return applyRescueScenarioOverride(scenario);
+  return applyRescueScenarioOverride(applyPlanningExtensionControls(scenario, readControlState()));
 }
 
 function readWithdrawalOrder() {
@@ -6000,3 +6012,43 @@ const numericAssetFields = new Set([
   "dividendYield",
   "qualifiedDividendShare"
 ]);
+
+
+// Separate worker keeps this optional comparison independent of the main run.
+let longevityWorker = null;
+document.querySelector('#runLongevityStress')?.addEventListener('click', () => {
+  const output = document.querySelector('#longevityStressResults');
+  const button = document.querySelector('#runLongevityStress');
+  const cancel = document.querySelector('#cancelLongevityStress');
+  const finish = () => { longevityWorker?.terminate(); longevityWorker = null; button.disabled = false; cancel.hidden = true; };
+  try {
+    const scenario = readScenario();
+    const validation = validateUserPlanningScenario(scenario);
+    if (!validation.ok) throw new Error(validation.errors[0].message);
+    if (!assets.length) throw new Error('Add a holding before comparing longer lives.');
+    scenario.requiredSpendingFloor = normalizeDecisionProfile(readDecisionProfile(scenario), scenario).requiredSpend;
+    const runs = clampInteger(Number(els.runs.value), 10, 5000);
+    button.disabled = true; cancel.hidden = false;
+    output.textContent = 'Comparing lifetimes…';
+    longevityWorker = new Worker(new URL('./core/longevityStress.worker.mjs', import.meta.url), { type: 'module' });
+    longevityWorker.onmessage = ({ data }) => {
+      if (data.type === 'progress') output.textContent = `${data.progress.variant}: ${data.progress.done} of ${data.progress.total} paths`;
+      if (data.type === 'error') { output.textContent = data.message; finish(); }
+      if (data.type === 'result') {
+        output.replaceChildren();
+        const note = document.createElement('p');
+        note.textContent = `${runs} paths per case. Full-lifetime comparison from this setup snapshot; your saved inputs are unchanged. Rerun after editing inputs.`;
+        output.append(note);
+        for (const row of data.results) {
+          const paragraph = document.createElement('p');
+          paragraph.textContent = `${row.label}: ${(100 * row.summary.planningSuccessRate).toFixed(1)}% planning success; ${(100 * row.summary.essentialSpendingSuccessRate).toFixed(1)}% cover required spending; median ending portfolio ${money(row.summary.medianEndingValue)}.`;
+          output.append(paragraph);
+        }
+        finish();
+      }
+    };
+    longevityWorker.onerror = event => { output.textContent = event.message || 'Comparison failed.'; finish(); };
+    cancel.onclick = () => { finish(); output.textContent = 'Comparison canceled.'; };
+    longevityWorker.postMessage({ assets, scenario, taxProfile: readTaxProfile(), runs, seed: Number(els.seed.value) || 42 });
+  } catch (error) { output.textContent = error.message; finish(); }
+});

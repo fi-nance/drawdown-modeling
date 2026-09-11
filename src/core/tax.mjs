@@ -157,11 +157,13 @@ function capitalLossCarryforwardForNextYear({
 export function computeIncomeTax({
   ordinaryIncome = 0,
   retirementOrdinaryIncome = 0,
+  retirementIncomeDetails = null,
   shortTermCapitalGains = 0,
   longTermCapitalGains = 0,
   qualifiedDividends = 0,
   ordinaryInvestmentIncome = 0,
   taxableSocialSecurity = 0,
+  nonTaxableSocialSecurity = 0,
   adjustmentsToIncome = 0,
   medicareWages = 0,
   socialSecurityWages = null,
@@ -268,12 +270,18 @@ export function computeIncomeTax({
 
   const federalOrdinaryBracketDetails = taxBracketDetails(taxableOrdinaryIncome, profile.ordinaryBrackets);
   const federalOrdinaryTax = round(federalOrdinaryBracketDetails.reduce((total, bracket) => total + bracket.tax, 0), 6);
-  const federalPreferentialBracketDetails = preferentialTaxBracketDetails({
+  let federalPreferentialBracketDetails = preferentialTaxBracketDetails({
     ordinaryTaxableIncome: taxableOrdinaryIncome,
     preferentialIncome: taxablePreferentialIncome,
     brackets: profile.capitalGainsBrackets
   });
-  const federalPreferentialTax = round(federalPreferentialBracketDetails.reduce((total, bracket) => total + bracket.tax, 0), 6);
+  let federalPreferentialTax = round(federalPreferentialBracketDetails.reduce((total, bracket) => total + bracket.tax, 0), 6);
+  const allOrdinaryTax = taxFromBrackets(taxableOrdinaryIncome + taxablePreferentialIncome, profile.ordinaryBrackets);
+  if (allOrdinaryTax < federalOrdinaryTax + federalPreferentialTax) {
+    federalPreferentialBracketDetails = preferentialTaxBracketDetails({ ordinaryTaxableIncome: taxableOrdinaryIncome,
+      preferentialIncome: taxablePreferentialIncome, brackets: profile.ordinaryBrackets });
+    federalPreferentialTax = round(Math.max(0, allOrdinaryTax - federalOrdinaryTax), 6);
+  }
   const federalIncomeTaxBeforeCredits = round(federalOrdinaryTax + federalPreferentialTax, 6);
   const niitTax = computeNiit({
     magi,
@@ -316,9 +324,11 @@ export function computeIncomeTax({
   const stateTaxBreakdown = computeStateTax({
     ordinaryIncome: ordinaryAfterLossOffset,
     retirementOrdinaryIncome: Math.max(0, retirementOrdinaryIncome),
+    retirementIncomeDetails,
     taxableSocialSecurity: Math.max(0, taxableSocialSecurity),
     longTermCapitalGains: longGains,
     qualifiedDividends: dividendPreferentialIncome,
+    totalSocialSecurity: Math.max(0, taxableSocialSecurity) + Math.max(0, nonTaxableSocialSecurity),
     federalCapitalLossDeduction: ordinaryLossOffset,
     federalCapitalLossCarryforward: lossPool,
     federalCapitalLossCarryforwardShort: shortLossPool,
@@ -934,9 +944,11 @@ export function computeTaxableSocialSecurityBenefits({
 function computeStateTax({
   ordinaryIncome,
   retirementOrdinaryIncome = 0,
+  retirementIncomeDetails = null,
   taxableSocialSecurity = 0,
   longTermCapitalGains,
   qualifiedDividends,
+  totalSocialSecurity = 0,
   federalCapitalLossDeduction = 0,
   federalCapitalLossCarryforward = 0,
   federalCapitalLossCarryforwardShort = 0,
@@ -965,8 +977,10 @@ function computeStateTax({
     age: profile.primaryAge,
     spouseAge: profile.spouseAge,
     retirementIncome: retirementOrdinaryIncome,
+    retirementIncomeDetails: profile.poolRetirementOwners ? retirementIncomeDetails?.map(row => ({ ...row, owner: "primary" })) : retirementIncomeDetails,
     remainingTaxableSocialSecurity,
-    stateIncome: stateIncomeBeforeDeduction,
+    totalSocialSecurity,
+    stateIncome: profile.state === "New Jersey" ? stateIncomeBeforeDeduction - socialSecurityExclusion : stateIncomeBeforeDeduction,
     manualExclusion: profile.retirementIncomeExclusion
   });
   const stateOrdinaryIncome = Math.max(0, ordinaryIncome - retirementExclusion - socialSecurityExclusion);

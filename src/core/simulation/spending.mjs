@@ -1,6 +1,7 @@
 // Extracted from simulation.mjs during the modular refactor.
 // Single responsibility: spending. No behavior changes — pure code movement.
 
+import { mortalityStatus } from "./household.mjs";
 import { round } from "../utils.mjs";
 import { oneOffCashFlowsForYear } from "./cashFlows.mjs";
 import { nonNegativeNumber, normalizedPercent, optionalFiniteNumber } from "./guards.mjs";
@@ -108,6 +109,11 @@ function plannedSpendingForYear(scenario, planYear, inflationIndex, oneOffCashFl
 }
 
 export function plannedSpendingDetailForYear(scenario, planYear, inflationIndex, oneOffCashFlows = null, spendingGuardrail = null, passedBaseSpend = null) {
+  const survivorBudget = survivorBudgetForYear(scenario, planYear);
+  if (survivorBudget) {
+    scenario = scenarioWithSurvivorBudget(scenario, survivorBudget);
+    passedBaseSpend = null;
+  }
   const scheduled = oneOffCashFlows ?? oneOffCashFlowsForYear(scenario, planYear, inflationIndex);
   const strategy = spendingStrategyConfig(scenario);
   const oneOffExpenses = round(scheduled.expenses, 6);
@@ -182,6 +188,8 @@ export function plannedSpendingDetailForYear(scenario, planYear, inflationIndex,
 }
 
 export function requiredSpendingForYear(scenario, planYear, inflationIndex) {
+  const survivorBudget = survivorBudgetForYear(scenario, planYear);
+  if (survivorBudget) scenario = scenarioWithSurvivorBudget(scenario, survivorBudget);
   const strategy = spendingStrategyConfig(scenario);
   const explicitFloor = optionalFiniteNumber(scenario.requiredSpendingFloor);
   const floor = Math.max(0, explicitFloor ?? (strategy.mode === "fixed"
@@ -233,4 +241,21 @@ function boundedPhasePercent(value, fallback) {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return fallback;
   return Math.max(0, Math.min(200, numeric));
+}
+
+export function survivorBudgetForYear(scenario, planYear) {
+  const life = mortalityStatus(scenario, planYear - 1);
+  if (life.spouseAge == null || life.primaryDeceased === life.spouseDeceased) return null;
+  const budget = scenario.survivorBudgets?.[life.primaryDeceased ? 'spouse' : 'primary'];
+  return budget?.enabled === true ? budget : null;
+}
+
+function scenarioWithSurvivorBudget(scenario, budget) {
+  const requiredSpend = Math.max(0, Number(budget.requiredSpend) || 0);
+  const flexibleSpend = Math.max(0, Number(budget.flexibleSpend) || 0);
+  return { ...scenario, requiredSpendingFloor: requiredSpend, requiredSpendingInflationAdjusted: budget.inflationAdjusted !== false, targetSpend: requiredSpend + flexibleSpend,
+    agePhasedSpending: { enabled: false },
+    spendingStrategy: { ...scenario.spendingStrategy, mode: 'discretionaryGuardrails', essentialSpend: requiredSpend,
+      discretionarySpend: flexibleSpend, essentialInflationAdjusted: budget.inflationAdjusted !== false,
+      discretionaryInflationAdjusted: budget.inflationAdjusted !== false } };
 }

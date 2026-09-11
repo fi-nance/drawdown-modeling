@@ -23,7 +23,7 @@ import { optionalFiniteNumber } from "./guards.mjs";
 export const INCOME_STREAM_TYPES = Object.freeze(["pension", "annuity", "rent", "other"]);
 
 export function emptyStreamIncome() {
-  return { cash: 0, ordinaryIncome: 0, retirementOrdinaryIncome: 0, taxFreeIncome: 0, details: [] };
+  return { cash: 0, ordinaryIncome: 0, retirementOrdinaryIncome: 0, ordinaryInvestmentIncome: 0, retirementIncomeDetails: [], taxFreeIncome: 0, details: [] };
 }
 
 export function normalizeIncomeStream(raw = {}, index = 0) {
@@ -48,6 +48,7 @@ export function normalizeIncomeStream(raw = {}, index = 0) {
     annualAmount: Math.max(0, Number(raw.annualAmount) || 0),
     inflationAdjusted: raw.inflationAdjusted !== false,
     survivorPercent: Math.max(0, Math.min(100, Number(raw.survivorPercent) || 0)),
+    netInvestmentIncome: raw.netInvestmentIncome === true || (raw.netInvestmentIncome !== false && type === "rent"),
     taxCharacter: raw.taxCharacter === "taxFree" ? "taxFree" : "ordinary",
     // Pensions and annuities default to state retirement-income exclusion
     // eligibility; rent/other default out. Explicit true/false always wins.
@@ -73,6 +74,8 @@ export function incomeStreamsForYear({ scenario, yearIndex, inflationIndex = 1 }
   let cash = 0;
   let ordinaryIncome = 0;
   let retirementOrdinaryIncome = 0;
+  let ordinaryInvestmentIncome = 0;
+  const retirementIncomeDetails = [];
   let taxFreeIncome = 0;
   const details = [];
 
@@ -105,7 +108,11 @@ export function incomeStreamsForYear({ scenario, yearIndex, inflationIndex = 1 }
       taxFreeIncome += amount;
     } else {
       ordinaryIncome += amount;
-      if (stream.stateRetirementIncome) retirementOrdinaryIncome += amount;
+      if (stream.netInvestmentIncome) ordinaryInvestmentIncome += amount;
+      if (stream.stateRetirementIncome) {
+        retirementOrdinaryIncome += amount;
+        retirementIncomeDetails.push({ owner: survivorShare ? (stream.owner === 'primary' ? 'spouse' : 'primary') : stream.owner, amount, type: stream.type });
+      }
     }
     details.push({
       id: stream.id,
@@ -123,6 +130,8 @@ export function incomeStreamsForYear({ scenario, yearIndex, inflationIndex = 1 }
     cash: round(cash, 6),
     ordinaryIncome: round(ordinaryIncome, 6),
     retirementOrdinaryIncome: round(retirementOrdinaryIncome, 6),
+    ordinaryInvestmentIncome: round(ordinaryInvestmentIncome, 6),
+    retirementIncomeDetails,
     taxFreeIncome: round(taxFreeIncome, 6),
     details
   };
