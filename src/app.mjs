@@ -3648,7 +3648,9 @@ function renderActionPlan() {
       money(year.taxGainHarvested, year),
       "Taxable lots",
       `${money(taxAttributionFor(year, "Tax gain harvesting"), year)} estimated tax share`,
-      "Steps up basis while staying inside the federal and ACA room the model found."
+      year.taxGainHarvestingTarget
+        ? `Builds basis under a ${year.taxGainHarvestingTarget.fplPercent}% FPL ceiling selected by the multi-year tax and healthcare comparison.`
+        : "Steps up basis while staying inside the federal and ACA room the model found."
     ]);
   }
 

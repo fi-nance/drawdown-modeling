@@ -9,6 +9,7 @@ import { DEFAULT_MONTE_CARLO_RUNS, MONTE_CARLO_ASSUMPTION_PRESETS } from "./cons
 import { estimateHeirValueBreakdown, inheritanceTaxStateForScenario } from "./heirEstate.mjs?v=20260613-rescue-precision";
 import { buildSurvivorTaxProfile, isMarriedFiling, mortalityStatus, lifetimeHorizonForScenario } from "./household.mjs";
 import { hsaStrategyConfig } from "./hsa.mjs";
+import { selectGainHarvestingPolicy } from "./gainHarvestingPolicy.mjs";
 import { normalizeLossCarryforward } from "./income.mjs?v=20260613-rescue-precision";
 import {
   annualInflation,
@@ -30,13 +31,15 @@ export function simulatePlan({
   taxProfile = DEFAULT_TAX_PROFILE,
   returnSequence,
   inflationSequence,
-  medicalInflationSequence
+  medicalInflationSequence,
+  gainHarvestingPolicy = null
 }) {
   const mergedScenario = ensureReturnAssumptionsForAssets(mergeScenario(scenario), assets);
   if (Number(mergedScenario.traditionalIraBasis) > 0 || Number(mergedScenario.spouseTraditionalIraBasis) > 0
       || assets.some(asset => asset.accountType === 'traditional' && Number(asset.nondeductibleBasis) > 0)) {
     throw new RangeError('Nondeductible traditional IRA basis requires Form 8606 pro-rata modeling, which is not supported. This scenario cannot produce executable withdrawal or conversion recommendations.');
   }
+  const harvestPolicy = gainHarvestingPolicy ?? prepareGainHarvestingPolicy(assets, mergedScenario, taxProfile);
   const portfolio = clonePortfolio(assets);
   ensureRothLedger(portfolio, mergedScenario);
   const years = [];
@@ -226,7 +229,10 @@ export function simulatePlan({
     });
     const result = simulateYear({
       portfolio,
-      scenario: mergedScenario,
+      scenario: harvestPolicy.targets?.[yearIndex] == null ? mergedScenario : {
+        ...mergedScenario, taxGainHarvesting: { ...mergedScenario.taxGainHarvesting,
+          acaTargetFplPercent: harvestPolicy.targets[yearIndex] }
+      },
       taxProfile,
       survivorTaxProfile,
       yearIndex,
@@ -278,6 +284,7 @@ export function simulatePlan({
   const spendingOutcome = summarizeSpendingOutcome(years);
   return {
     success,
+    gainHarvestingOptimization: harvestPolicy.summary ?? null,
     planningSuccess: success && spendingOutcome.essentialSatisfied,
     lifetimeHorizon: lifetimeHorizonForScenario(mergedScenario, taxProfile.filingStatus),
     spendingOutcome,
@@ -305,6 +312,7 @@ export function runMonteCarlo({
   scenarioTimelineLimit = Number.POSITIVE_INFINITY
 }) {
   const mergedScenario = ensureReturnAssumptionsForAssets(mergeScenario(scenario), assets);
+  const harvestPolicy = prepareGainHarvestingPolicy(assets, mergedScenario, taxProfile);
   const rng = createRng(seed);
   // Note: medical inflation is sampled from the same seeded `rng` below.
   // Reproducibility is version-scoped — same seed + same code version always
@@ -325,6 +333,7 @@ export function runMonteCarlo({
       assets,
       scenario: mergedScenario,
       taxProfile,
+      gainHarvestingPolicy: harvestPolicy,
       returnSequence,
       inflationSequence,
       medicalInflationSequence
@@ -357,6 +366,7 @@ export function runMonteCarlo({
   const heirValues = scenarios.map((scenarioResult) => scenarioResult.heirValue);
   return {
     scenarios,
+    gainHarvestingOptimization: harvestPolicy.summary ?? null,
     summary: {
       runs,
       successRate: round(scenarios.filter((scenarioResult) => scenarioResult.success).length / runs, 4),
@@ -585,6 +595,8 @@ export function runHistoricalBacktests({
   sequences = []
 }) {
   const medicalPremium = medicalInflationPremium(scenario);
+  const harvestPolicy = prepareGainHarvestingPolicy(assets,
+    ensureReturnAssumptionsForAssets(mergeScenario(scenario), assets), taxProfile);
   return sequences.map((sequence, index) => {
     // Project a medical-inflation series onto each historical general-inflation
     // path by adding the scenario's configured medical premium, so the
@@ -594,6 +606,7 @@ export function runHistoricalBacktests({
       assets,
       scenario,
       taxProfile,
+      gainHarvestingPolicy: harvestPolicy,
       returnSequence: sequence.returns,
       inflationSequence: sequence.inflation,
       medicalInflationSequence
@@ -610,6 +623,11 @@ export function runHistoricalBacktests({
       ...annotatedPlan
     };
   });
+}
+
+function prepareGainHarvestingPolicy(assets, scenario, taxProfile) {
+  return selectGainHarvestingPolicy({ assets, scenario,
+    evaluate: gainHarvestingPolicy => simulatePlan({ assets, scenario, taxProfile, gainHarvestingPolicy }) });
 }
 
 function withHistoricalSourceYears(plan, sourceYears = [], paddedYears = 0) {

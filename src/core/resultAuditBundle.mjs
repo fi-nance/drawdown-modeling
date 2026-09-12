@@ -79,6 +79,7 @@ export function createResultAuditSummary({
       historicalRange: sourceVersions.historicalRange ?? latest.historicalRange ?? null
     },
     tax: summarizeTaxForReview(latest),
+    gainHarvestingOptimization: copyJsonObject(latest.plan?.gainHarvestingOptimization),
     sourceVersions: copyJsonObject(sourceVersions),
     confidence: {
       headline: confidence.headline ?? null,

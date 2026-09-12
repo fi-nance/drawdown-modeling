@@ -86,6 +86,8 @@ The results Decision panel compares the base plan against ranked rescue choices:
 
 Intermediate solver probes use a bounded Monte Carlo search so the UI can remain responsive. The final displayed rescue options are rerun with the user's selected Monte Carlo count and historical backtest settings, so the percentages shown in the panel are comparable with the base plan.
 
+Automatic gain harvesting in **Lifetime optimizer** mode compares complete expected-return plans: the current-year heuristic, deferral, 200–400% FPL ceilings, and front-loaded harvesting followed by deferral. This can accept higher near-term taxes/premiums to preserve larger later premium tax credits. The action card explains the selected policy, its first-three-year cost and projected after-tax benefit. The same policy is tested in Monte Carlo and historical paths without access to future sampled returns. Manual limits remain authoritative; this bounded policy search does not prove a global optimum.
+
 ## Portfolio Import Columns
 
 CSV upload is the primary file-import path in the UI. JSON accepts either an array of assets or an object with an `assets` array.
@@ -95,7 +97,9 @@ Google Sheets import expects a published CSV, or private Sheets values through O
 name,symbol,accountType,assetClass,units,price,costBasisPerUnit,dividendYield,qualifiedDividendShare,holdingPeriod,beneficiaryType
 ```
 
-CSV uploads and Google Sheets imports also accept common spreadsheet headers such as `Account Type`, `Asset Class`, `Shares`, `Current Price`, and `Cost Basis / Share`. Only account type, units/shares, and price are required. Missing or non-numeric cost basis defaults to the current price, which keeps retirement accounts easy to import.
+Total-basis headers (`Cost Basis`, `Total Cost Basis`, `Total Basis`) are divided by shares/units. Per-share headers (`Cost Basis / Share`, `costBasisPerUnit`) are used directly. JSON `costBasis` and `totalCostBasis` mean total basis. Conflicting total/per-share amounts are rejected; previously imported generic basis columns should be re-imported from the original statement.
+
+CSV uploads and Google Sheets imports also accept common spreadsheet headers such as `Account Type`, `Asset Class`, `Shares`, `Current Price`, and `Cost Basis / Share`. Only account type, units/shares, and price are required. When total basis is absent, missing or non-numeric per-share basis defaults to the current price. Verify actual taxable basis before using tax-sensitive recommendations; invalid supplied total basis is rejected.
 
 The optional `symbol` column (aliases: `Ticker Symbol`, `CUSIP`, `Identifier`, `Purchase Month`) is the **Symbol / ID** used by the **↻ Refresh prices** action. It accepts a stock/ETF/fund ticker (live quote or previous close), a Treasury TIPS CUSIP (inflation-adjusted principal per $100 face at par; set units to face ÷ 100), or an I-bond purchase month like `2021-11` (official redemption value per $1 face computed locally; set units to the face value in dollars). Leave it blank to keep a holding's price manual. Note: `ticker` on its own still maps to the holding **name** for backward compatibility — use `symbol` for the price identifier.
 
@@ -145,5 +149,6 @@ Monte Carlo defaults use the 2026 market-neutral preset: 1000 correlated annual 
 - [Data sources and annual update runbook](docs/DATA_SOURCES.md)
 - [Known modeling limitations](docs/KNOWN_LIMITATIONS.md)
 - [September 8 retirement audit fixes and verification](docs/RETIREMENT_AUDIT_FIXES.md)
+- [September 11 CPA / planner / early-retiree follow-up](docs/reviews/2026-09-11/review.md)
 - [September 9 review findings](docs/reviews/2026-09-09/review.md) and [follow-up delivery status](docs/RETIREMENT_REVIEW_FIXES.md)
 - [Product design review for the post-job decision engine](docs/PRODUCT_DESIGN_REVIEW.md)

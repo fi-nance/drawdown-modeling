@@ -694,6 +694,7 @@
                   <label><span>Gain harvest MAGI buffer</span><input id="taxGainMagiBuffer" type="number" min="0" step="100" value="0"></label>
                   <label><span>Max annual gain override</span><input id="tghMax" type="number" min="0" step="1000" placeholder="Auto"></label>
                 </div>
+                <p class="assumption-note" data-tax-gain-controls>In lifetime mode, automatic harvesting compares projected plans through your full horizon. It may accept higher taxes or premiums now to build cost basis and preserve larger premium tax credits later. The MAGI buffer and annual override still apply.</p>
 
                 <label class="check-row"><input id="rothConversion" type="checkbox" checked><span>Roth conversions</span></label>
                 <div class="strategy-option-stack" data-roth-conversion-controls>
@@ -1211,6 +1212,7 @@
               </div>
             </div>
             <ol class="action-list" id="actionList"></ol>
+            <div id="gainHarvestingComparison" class="harvest-comparison" hidden></div>
           </section>
 
           <!-- Portfolio path (span 2) -->

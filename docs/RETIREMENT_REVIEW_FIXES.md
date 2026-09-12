@@ -26,3 +26,16 @@ horizontal overflow. See KNOWN_LIMITATIONS for conservative mixed-age HSA,
 state-exclusion, auxiliary-benefit and annual timing assumptions.
 
 The original review and defect reproductions are archived under `docs/reviews/2026-09-09/`; their assertions intentionally describe the pre-fix commit. Current behavior is verified by the regression suite.
+
+## September 11 follow-up submission
+
+- Added complete-plan gain-harvesting policy comparisons, including 400% FPL ceilings and front-loaded harvesting. The ranking includes future basis, actual tax and medical cash funding, usable spending and after-tax ending wealth. Annual reconciliation reduces optional harvesting when its funding sales would exceed the buffered MAGI ceiling.
+- Added the policy comparison to the action card and audit export. Monte Carlo and historical paths test the policy selected from expected returns, without knowing future sampled returns. Manual controls remain authoritative.
+- Fixed broker total-basis imports, the shared family HSA cap with both employers, and preservation of a surviving worker's own Social Security earnings-test credits. TIPS replenishment gains no longer appear as optional gain harvesting.
+- Improved phone controls with 44px button targets and 16px input text. The policy table fits all three columns at 320px and 375px.
+
+Validation: **762 tests passed**, zero failures or skipped tests (`npm test`, approximately 42 seconds). Syntax checks and `git diff --check` passed. The saved financial reproduction JSON reports safe results for all four observations (HSA, import, and both survivor orders).
+
+Chromium checks covered onboarding, workspace and results at 320px/375px phone widths and results at 1440px desktop width. A representative eight-year plan completed 100 Monte Carlo runs and 91 historical paths. Year navigation changed the displayed year; all visible phone buttons/summaries measured at least 44px high; phone fields measured 16px. No page-level horizontal overflow or browser console errors were observed. The expanded harvesting comparison measured 262px/317px including all columns on the two phone widths. These are viewport checks, not physical iOS/Android certification.
+
+The full findings, sources, synthetic multi-year PTC regression and remaining household-specific feature priorities are in [the September 11 review](reviews/2026-09-11/review.md). This submission does not claim a globally optimal tax schedule or automatic CSR variant repricing.

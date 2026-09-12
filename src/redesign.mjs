@@ -1649,6 +1649,7 @@ function renderActionList() {
   const root = document.getElementById("actionList");
   if (!root) return;
   const latest = window.__pslLatest;
+  renderGainHarvestingComparison(latest?.plan?.gainHarvestingOptimization);
   const years = planYears(latest);
   // Track the page-level year scrubber instead of always pinning year 1, so the
   // "This year" card matches the cash-flow, ledger, and asset panels.
@@ -1668,7 +1669,8 @@ function renderActionList() {
   if (rothW > 0) items.push({ kind: "withdraw", confidenceKind: "withdrawal", title: "Sell from Roth", sub: "Tax-free draws", amt: rothW });
   if (year.rothConversionAmount > 0) items.push({ kind: "convert", confidenceKind: "rothConversion", title: "Convert Trad → Roth", sub: `In ${(Number(document.getElementById("rothTargetRate")?.value) || 12)}% bracket target`, amt: year.rothConversionAmount });
   if (year.aca?.subsidy > 0) items.push({ kind: "aca", confidenceKind: "magiManagement", title: "Cap MAGI for PTC", sub: `+${formatYearCurrencyShort(year.aca.subsidy, year)} PTC`, amt: year.magi });
-  if (year.taxGainHarvested > 0) items.push({ kind: "harvest", confidenceKind: "taxGainHarvesting", title: "Realize gains", sub: "Use favorable gain room", amt: year.taxGainHarvested });
+  if (year.taxGainHarvested > 0) items.push({ kind: "harvest", confidenceKind: "taxGainHarvesting", title: "Realize gains", sub: year.taxGainHarvestingTarget
+    ? `Build basis within ${year.taxGainHarvestingTarget.fplPercent}% FPL ceiling` : "Use favorable gain room", amt: year.taxGainHarvested });
   if (year.realizedCapitalLosses > 0) items.push({ kind: "harvest", confidenceKind: "taxLossHarvesting", title: "Tax-loss harvest", sub: "$3k ordinary offset + carryforward", amt: year.realizedCapitalLosses });
   if ((year.assetLocation?.relocatedAmount ?? 0) > 0) items.push({ kind: "rebalance", confidenceKind: "assetLocation", title: "Relocate assets", sub: "Move income assets into sheltered accounts", amt: year.assetLocation.relocatedAmount });
   if ((year.allocationStrategy?.rebalancedAmount ?? 0) > 0) items.push({ kind: "rebalance", confidenceKind: "assetAllocation", title: "Rebalance allocation", sub: `Target ${Math.round(year.allocationStrategy.targetStockPercent ?? 70)}% stock sleeve`, amt: year.allocationStrategy.rebalancedAmount });
@@ -1685,6 +1687,32 @@ function renderActionList() {
       </div>
       <span class="action-amt">${formatYearCurrencyShort(it.amt, year)}</span>
     </li>`).join("") : `<li><div class="action-text"><span class="action-sub">No actions for year ${yearOrdinal}.</span></div></li>`;
+}
+
+function renderGainHarvestingComparison(comparison) {
+  const root = document.getElementById('gainHarvestingComparison');
+  if (!root) return;
+  root.hidden = !comparison;
+  if (!comparison) { root.innerHTML = ''; return; }
+  const baseline = comparison.baseline;
+  const selected = comparison.selected;
+  const upfront = selected.years.slice(0, 3).reduce((sum, year, index) => {
+    const prior = baseline.years[index];
+    return sum + year.taxes + year.netPremium - prior.taxes - prior.netPremium;
+  }, 0);
+  const ptcChange = comparison.projectedPtcYearsChange;
+  root.innerHTML = `<details>
+    <summary>Why this gain-harvesting policy</summary>
+    <p><strong>${escapeHtml(comparison.selectedPolicy)}</strong>. ${formatCurrencyShort(comparison.projectedRealBenefit)} more projected after-tax ending wealth in today's dollars versus the current-year heuristic.</p>
+    ${comparison.projectedRealSpendingBenefit > 1 ? `<p>${formatCurrencyShort(comparison.projectedRealSpendingBenefit)} more projected spending available after included taxes and healthcare, in today's dollars.</p>` : ''}
+    <p>First ${Math.min(3, selected.years.length)} years: ${formatCurrencyShort(Math.abs(upfront))} ${upfront >= 0 ? 'more' : 'less'} in combined taxes and net premiums (future dollars). ${ptcChange > 0 ? `${ptcChange} additional projected years with a premium tax credit.` : ptcChange < 0 ? `${Math.abs(ptcChange)} fewer projected years with a premium tax credit.` : 'The same number of projected subsidy years.'}</p>
+    <div class="harvest-comparison-table" tabindex="0" role="region" aria-label="Gain harvesting policy comparison">
+      <table><thead><tr><th>Projected policy</th><th>PTC years</th><th>After-tax ending wealth (today's $)</th></tr></thead><tbody>
+      ${comparison.candidates.map(candidate => `<tr${candidate.label === comparison.selectedPolicy ? ' aria-current="true"' : ''}><td>${escapeHtml(candidate.label)}${candidate.admissible === false ? '<br><small>Rejected: weaker spending outcome</small>' : ''}</td><td>${candidate.ptcYears}</td><td>${formatCurrencyShort(candidate.realHeirValue)}</td></tr>`).join('')}
+      </tbody></table>
+    </div>
+    <p>Compared using expected returns, the full plan horizon, and funded spending. Future returns and subsidy rules can change. Monte Carlo and historical paths test the selected policy; this is a comparison of tested policies, not a guaranteed optimum.</p>
+  </details>`;
 }
 
 function actionListConfidenceHtml(confidence = {}) {

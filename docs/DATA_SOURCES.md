@@ -290,3 +290,9 @@ confirms traditional/Roth IRAs, SEP and Keogh accounts do not qualify and all
 Social Security must offset the eligible exclusion. Generic account tags cannot
 establish employer-plan qualification, so no automatic exclusion is assumed.
 HSA 2026 contribution limits also appear in [IRS Revenue Procedure 2025-19](https://www.irs.gov/irb/2025-21_IRB).
+
+## September 11 financial regression and harvesting review
+
+- `tests/golden_followup_financial_review.test.mjs`: [IRS stock-basis guidance](https://www.irs.gov/faqs/capital-gains-losses-and-sale-of-home/stocks-options-splits-traders/stocks-options-splits-traders-1) supports total acquisition basis divided across shares; [Pub 969](https://www.irs.gov/publications/p969) and [Rev Proc 2025-19](https://www.irs.gov/irb/2025-21_IRB) support employer deposits consuming the shared family HSA limit; [SSA earnings-test guidance](https://www.ssa.gov/benefits/retirement/planner/whileworking.html) supports retaining own-worker benefit adjustments at FRA after a spouse's death.
+- `tests/golden_multiyear_gain_harvesting.test.mjs`: the [IRS PTC FAQs](https://www.irs.gov/affordable-care-act/individuals-and-families/questions-and-answers-on-the-premium-tax-credit) support the model's 2026 400% FPL eligibility ceiling. Policy ranking is an economic simulation comparison, not an IRS-prescribed optimization method. Zero-return examples isolate basis, taxes and subsidies; stochastic paths cannot influence the ex-ante policy selection.
+- [2026 Pub 505](https://www.irs.gov/publications/p505) identifies charitable/itemized deduction changes recorded as outstanding scope in the September 11 review; no new Schedule A law engine is claimed.

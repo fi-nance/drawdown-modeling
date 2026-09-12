@@ -31,7 +31,43 @@ import { convertTraditionalToRoth, earlyWithdrawalPenaltyExceptionAmountForYear,
 import { forcedWithdrawalOrder, isBeforePenaltyAge, normalizedWithdrawalOrder, optimizedRothProceedsLimit, rothFirstWithdrawalOrder } from "./withdrawalOrders.mjs";
 import { chooseWithdrawalPlan, evaluateWithdrawalPlan } from "./withdrawalPlanning.mjs?v=20260613-rescue-precision";
 
-export function simulateYear({
+export function simulateYear(input) {
+  const target = input.scenario.taxGainHarvesting?.acaTargetFplPercent;
+  if (!Number.isFinite(target) || target <= 0) return simulateYearOnce(input);
+  // Harvesting has no cash proceeds. Paying its tax and PTC cost may require
+  // additional taxable sales. Check the reconciled year before committing the
+  // sale so those funding gains cannot accidentally push it over the ceiling.
+  const run = limit => {
+    const portfolio = clonePortfolio(input.portfolio);
+    const saleState = input.conditionalAssetSaleState
+      ? { soldIds: new Set(input.conditionalAssetSaleState.soldIds) } : null;
+    const result = simulateYearOnce({ ...input, portfolio,
+      conditionalAssetSaleState: saleState, maximumHarvestGain: limit });
+    return { result, portfolio, saleState };
+  };
+  let chosen = run(Infinity);
+  const ceiling = chosen.result.taxGainHarvestingTarget?.magiCeiling;
+  if (chosen.result.taxGainHarvested > 0 && chosen.result.acaMagi > ceiling + 0.000001) {
+    let upper = chosen.result.taxGainHarvested;
+    chosen = run(0);
+    let lower = 0;
+    // If unavoidable income already exceeds the target, defer harvesting.
+    if (chosen.result.acaMagi <= ceiling) {
+      for (let iteration = 0; iteration < 12 && upper - lower > 1; iteration++) {
+        const mid = (lower + upper) / 2;
+        const trial = run(mid);
+        if (trial.result.acaMagi <= ceiling) { lower = mid; chosen = trial; }
+        else upper = mid;
+      }
+    }
+  }
+  input.portfolio.splice(0, input.portfolio.length, ...chosen.portfolio);
+  copyRothLedger(input.portfolio, chosen.portfolio);
+  if (input.conditionalAssetSaleState) input.conditionalAssetSaleState.soldIds = chosen.saleState.soldIds;
+  return chosen.result;
+}
+
+function simulateYearOnce({
   portfolio,
   scenario,
   taxProfile,
@@ -48,7 +84,8 @@ export function simulateYear({
   magiHistory = [],
   socialSecurityEarningsCredits = { primary: 0, spouse: 0 },
   passedBaseSpend = null,
-  conditionalAssetSaleState = null
+  conditionalAssetSaleState = null,
+  maximumHarvestGain = Infinity
 }) {
   // Accept either a number (legacy: treated as long-term) or
   // { shortTerm, longTerm } object so callers can preserve §1212(b) character.
@@ -389,7 +426,18 @@ export function simulateYear({
     return result.payable;
   };
   if (customSocialSecurityBenefits !== null) {
-    socialSecurityBenefits = applyEarnings(primaryDeceased ? 'spouse' : 'primary', age, customSocialSecurityBenefits, true);
+    const owner = primaryDeceased ? 'spouse' : 'primary';
+    const ownPayable = applyEarnings(owner, age, survivorSocialSecurity.ownBenefit);
+    const ownTest = socialSecurityEarningsTest[owner];
+    const survivorPayable = applyEarnings(owner, age, survivorSocialSecurity.survivorBenefit, true);
+    const survivorTest = socialSecurityEarningsTest[owner];
+    // Death does not erase credits earned by withholding the survivor's own
+    // retirement benefit. Compare cash benefits after that FRA adjustment.
+    socialSecurityBenefits = Math.max(ownPayable, survivorPayable);
+    socialSecurityEarningsTest[owner] = ownPayable >= survivorPayable ? ownTest : survivorTest;
+    nextSocialSecurityCredits[owner] = ownTest.creditedMonths;
+    survivorSocialSecurity = { ...survivorSocialSecurity, ownPayable, survivorPayable,
+      total: socialSecurityBenefits };
   } else {
     const primaryStart = Number(scenario.socialSecurityStartAge ?? 67);
     const spouseStart = Number(scenario.spouseSocialSecurityStartAge ?? 67);
@@ -780,7 +828,7 @@ export function simulateYear({
       yearIndex,
       magiHistory
     });
-    const gainHarvest = harvestTaxGains(finalPortfolio, gainHarvestLimit, { calendarYear });
+    const gainHarvest = harvestTaxGains(finalPortfolio, Math.min(gainHarvestLimit, maximumHarvestGain), { calendarYear });
     strategyLongTermGains += gainHarvest.realizedGains;
     flows.push(...gainHarvest.flows);
 
@@ -1107,6 +1155,14 @@ export function simulateYear({
     advisoryFees,
     fundExpenses,
     medicalCost: round(medicalEstimate, 6),
+    // An all-in budget still pays healthcare. Expose its included portion so
+    // policy comparisons cannot turn lost PTC into an invisible lifestyle cut.
+    medicalCostIncludedInSpending: scenario.targetSpendIncludesMedical ? medicalCostForYear({
+      scenario, aca: finalAca, yearAcaConfig, inflationIndex,
+      medicalInflationIndex: medicalInflationIndex ?? inflationIndex,
+      age, spouseAge, yearIndex, filingStatus: yearTaxProfile.filingStatus,
+      irmaaMagi: finalIrmaaMagi, magiHistory
+    }).total : 0,
     qualifiedHsaExpenses: round(qualifiedHsaExpenses, 6),
     medicare: finalMedicare,
     // LTC stress reaches cash flow only through medicalCostForYear, which
@@ -1179,6 +1235,12 @@ export function simulateYear({
     acaMagiCeilingFplPercent: Number.isFinite(finalAcaMagiTarget.fplPercent) ? finalAcaMagiTarget.fplPercent : null,
     federalAgi: finalFederalAgi,
     acaMagi: finalAcaMagi,
+    taxGainHarvestingTarget: Number.isFinite(scenario.taxGainHarvesting?.acaTargetFplPercent) ? {
+      fplPercent: scenario.taxGainHarvesting.acaTargetFplPercent,
+      magiCeiling: yearAcaConfig.fpl * Math.min(scenario.taxGainHarvesting.acaTargetFplPercent,
+        yearAcaConfig.maxEligibleFplPercent ?? 400) / 100 - Math.max(0,
+        Number(scenario.taxGainHarvesting.magiBuffer ?? scenario.aca?.magiBuffer) || 0)
+    } : null,
     irmaaMagi: finalIrmaaMagi,
     magi: finalMagi,
     realizedLongTermGains: round(strategyLongTermGains + finalWithdrawal.longTermCapitalGains, 6),
@@ -1188,6 +1250,7 @@ export function simulateYear({
         - allocationStrategy.longTermCapitalGains
         - assetLocation.longTermCapitalGains
         - (tipsLadderBuild?.longTermCapitalGains ?? 0)
+        - (tipsLadderMaintenance?.longTermCapitalGains ?? 0)
         - conditionalAssetSales.taxableLongTermGain
     ), 6),
     realizedShortTermGains: round(strategyShortTermGains + finalWithdrawal.shortTermCapitalGains, 6),

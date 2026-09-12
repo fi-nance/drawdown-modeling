@@ -32,10 +32,9 @@ const HEADER_ALIASES = buildAliasMap({
     "cost basis per share",
     "cost basis/share",
     "basis per unit",
-    "basis/share",
-    "cost basis",
-    "basis"
+    "basis/share"
   ],
+  totalCostBasis: ["totalCostBasis", "total cost basis", "cost basis total", "total basis", "cost basis", "basis"],
   dividendYield: ["dividendYield", "dividend yield", "annual dividend yield", "yield", "income yield"],
   qualifiedDividendShare: [
     "qualifiedDividendShare",
@@ -264,6 +263,17 @@ export function normalizeImportedAsset(asset, index = 0) {
 
   const name = asset.name ?? `${accountType} ${assetClass} ${index + 1}`;
   const symbol = String(asset.symbol ?? "").trim();
+  const units = numberOrNull(asset.units);
+  const totalBasisInput = asset.totalCostBasis ?? asset.costBasis;
+  const hasTotalBasis = totalBasisInput != null && String(totalBasisInput).trim() !== '';
+  const totalBasis = numberOrNull(totalBasisInput);
+  const perUnitBasis = numberOrNull(asset.costBasisPerUnit);
+  if (hasTotalBasis && (totalBasis === null || totalBasis < 0 || units <= 0)) {
+    throw new Error(`Asset ${index + 1}: total cost basis requires a nonnegative amount and positive shares/units.`);
+  }
+  if (hasTotalBasis && perUnitBasis !== null && Math.abs(perUnitBasis * units - totalBasis) > 0.01) {
+    throw new Error(`Asset ${index + 1}: total cost basis and cost basis per share disagree.`);
+  }
   return {
     id: asset.id ?? slugify(name),
     name,
@@ -272,7 +282,7 @@ export function normalizeImportedAsset(asset, index = 0) {
     assetClass,
     units: numberOrNull(asset.units),
     price: numberOrNull(asset.price),
-    costBasisPerUnit: firstFiniteNumber(asset.costBasisPerUnit, asset.costBasis, asset.price),
+    costBasisPerUnit: hasTotalBasis ? totalBasis / units : firstFiniteNumber(asset.costBasisPerUnit, asset.price),
     dividendYield: firstFiniteNumber(asset.dividendYield, 0),
     qualifiedDividendShare: firstFiniteNumber(asset.qualifiedDividendShare, defaultQualifiedDividendShare(assetClass)),
     holdingPeriod: canonicalHoldingPeriod(asset.holdingPeriod ?? "long"),

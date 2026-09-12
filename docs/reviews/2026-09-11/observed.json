@@ -1,0 +1,73 @@
+[
+  {
+    "finding": "HSA family limit must include BOTH employers",
+    "sources": [
+      "https://www.irs.gov/publications/p969",
+      "https://www.irs.gov/irb/2025-21_IRB"
+    ],
+    "personalContribution": 5750,
+    "employerContribution": 3000,
+    "combined": 8750,
+    "expectedMaximumCombined": 8750,
+    "safe": true
+  },
+  {
+    "finding": "Broker total Cost Basis cannot silently mean per-share basis",
+    "source": "https://www.irs.gov/faqs/capital-gains-losses-and-sale-of-home/stocks-options-splits-traders/stocks-options-splits-traders-1",
+    "observedGain": 5000,
+    "observedCostBasisSold": 5000,
+    "expectedGainIfTotalBasis": 5000,
+    "expectedCostBasisSoldIfTotalBasis": 5000,
+    "safe": true
+  },
+  {
+    "finding": "Own-record FRA earnings credit must survive spouse death",
+    "survivor": "primary",
+    "source": "https://www.ssa.gov/benefits/retirement/planner/whileworking.html",
+    "bothLiving": {
+      "benefit": 34285.714286,
+      "earningsTest": {
+        "payable": 34285.714286,
+        "withheld": 0,
+        "creditedMonths": 60,
+        "method": "no-earnings-test"
+      }
+    },
+    "otherSpouseDied": {
+      "benefit": 34285.714286,
+      "earningsTest": {
+        "payable": 34285.714286,
+        "withheld": 0,
+        "creditedMonths": 60,
+        "method": "no-earnings-test"
+      }
+    },
+    "annualUnderstatement": 0,
+    "safe": true
+  },
+  {
+    "finding": "Own-record FRA earnings credit must survive spouse death",
+    "survivor": "spouse",
+    "source": "https://www.ssa.gov/benefits/retirement/planner/whileworking.html",
+    "bothLiving": {
+      "benefit": 34285.714286,
+      "earningsTest": {
+        "payable": 34285.714286,
+        "withheld": 0,
+        "creditedMonths": 60,
+        "method": "no-earnings-test"
+      }
+    },
+    "otherSpouseDied": {
+      "benefit": 34285.714286,
+      "earningsTest": {
+        "payable": 34285.714286,
+        "withheld": 0,
+        "creditedMonths": 60,
+        "method": "no-earnings-test"
+      }
+    },
+    "annualUnderstatement": 0,
+    "safe": true
+  }
+]

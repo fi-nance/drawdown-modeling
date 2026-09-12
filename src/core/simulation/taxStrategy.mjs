@@ -221,6 +221,15 @@ export function gainHarvestingRoom({
 } = {}) {
   const zeroBracket = taxProfile.capitalGainsBrackets?.find((bracket) => bracket.rate === 0);
   if (!zeroBracket) return 0;
+  const plannedFplTarget = scenario.taxGainHarvesting?.acaTargetFplPercent;
+  if (Number.isFinite(plannedFplTarget) && acaConfig?.enabled && acaConfig.fpl > 0) {
+    // A complete-plan comparison selected this ceiling, including cases where
+    // paying current capital-gain tax/PTC clawback preserves later subsidies.
+    const ceiling = acaConfig.fpl * Math.min(plannedFplTarget,
+      acaConfig.maxEligibleFplPercent ?? 400) / 100 - taxGainHarvestingMagiBuffer(scenario);
+    return round(Math.max(0, Math.min(configuredMaxGain ?? Infinity,
+      ceiling - currentMagi, embeddedTaxableGains(portfolio))), 6);
+  }
   const taxableIncomeAlreadyStacked = taxes.taxableOrdinaryIncome + taxes.taxablePreferentialIncome;
   const federalRoom = Math.max(0, zeroBracket.upTo - taxableIncomeAlreadyStacked);
   const acaTarget = acaMagiCeiling({

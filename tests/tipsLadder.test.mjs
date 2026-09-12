@@ -944,6 +944,21 @@ test("replenishment after an up year harvests stock first", () => {
   assertClose(flow.amount, maintenance.replenishedCost, 0.01);
 });
 
+test("taxable TIPS replenishment gains are not labeled optional gain harvesting", () => {
+  const plan = runMaintenance({
+    ladder: { maintenanceMode: "always" },
+    assets: [{ id: 'taxable-stock', accountType: 'taxable', assetClass: 'stock',
+      units: 1800000, price: 1, costBasisPerUnit: 0.2 }],
+    overrides: { targetSpend: 0, taxGainHarvesting: { enabled: false } },
+    stockFor: () => 0.10,
+    years: 3
+  });
+  const year = plan.years[1];
+  assert.ok(year.tipsLadder.maintenance.replenishedCost > 0);
+  assert.ok(year.realizedLongTermGains > 0, 'funding sales still enter taxable gains');
+  assert.equal(year.taxGainHarvested, 0, 'required ladder funding is not an optional harvest');
+});
+
 // ─── deep-review regression pins ─────────────────────────────────────────────
 
 const reviewTaxProfile = (filingStatus = "single") => ({

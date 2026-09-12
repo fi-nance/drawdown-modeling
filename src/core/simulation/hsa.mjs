@@ -59,6 +59,14 @@ export function hsaContributionForYear({ scenario, age, spouseAge, inflationInde
   const primaryRoom = Math.max(0, primaryBase + primaryCatchUp - Math.max(0, Number(raw.hsaPrimaryEmployerContribution) || 0));
   const spouseRoom = Math.max(0, spouseBase + spouseCatchUp - Math.max(0, Number(raw.hsaSpouseEmployerContribution) || 0));
   let remaining = config.hsaAnnualContribution == null ? primaryRoom + spouseRoom : Math.max(0, config.hsaAnnualContribution) * index;
+  if (coverage === 'family') {
+    // Employer deposits consume the shared family limit even when that owner
+    // received no base allocation. Per-owner rooms still protect catch-ups.
+    const familyRoom = Math.max(0, primaryBase + spouseBase + primaryCatchUp + spouseCatchUp
+      - Math.max(0, Number(raw.hsaPrimaryEmployerContribution) || 0)
+      - Math.max(0, Number(raw.hsaSpouseEmployerContribution) || 0));
+    remaining = Math.min(remaining, familyRoom);
+  }
   const primaryAmount = Math.min(remaining, primaryRoom);
   remaining -= primaryAmount;
   const spouseAmount = Math.min(remaining, spouseRoom);
