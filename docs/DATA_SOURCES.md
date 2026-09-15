@@ -4,6 +4,12 @@ This file documents where the app's versioned tax, ACA, and historical return da
 
 ## Current Data Versions
 
+The September 14 model update uses [IRS Form 8606](https://www.irs.gov/pub/irs-pdf/f8606.pdf) and [its instructions](https://www.irs.gov/instructions/i8606) for per-taxpayer IRA aggregation, basis recovery and conversion taxation. [Publication 590-B](https://www.irs.gov/publications/p590b) supports Roth ordering and five-tax-year qualification. The annual ledger is a planning approximation, not a completed return.
+
+Silver CSR enrollment and cost treatment follow [HealthCare.gov](https://www.healthcare.gov/lower-costs/save-on-out-of-pocket-costs/) and [42 USC 18071](https://uscode.house.gov/view.xhtml?req=granuleid:USC-prelim-title42-section18071&num=0&edition=prelim). Plan-variant OOP maxima and expected spending are explicit user inputs; no actuarial-value-to-household-cost conversion is assumed. Consult the actual Summary of Benefits and Coverage and enrollment determination.
+
+Owner-specific carryovers follow [26 CFR 1.1212-1(c)](https://www.govinfo.gov/content/pkg/CFR-2013-title26-vol11/pdf/CFR-2013-title26-vol11-sec1-1212-1.pdf) and [IRS Publication 550](https://www.irs.gov/publications/p550). [SSA Handbook 728](https://www.ssa.gov/OP_Home/handbook/handbook.07/handbook-0728.html) supports applying the original reduction formula separately to each benefit type when adjusting at FRA. Employer HSA deposits and contribution-room treatment follow [IRS Publication 969](https://www.irs.gov/publications/p969). These assumptions were checked in September 2026; future dollar amounts remain projections unless independently updated.
+
 | Dataset | App location | Current version | Current coverage |
 | --- | --- | --- | --- |
 | Federal tax, ACA, FPL, ACA premium defaults | `src/data/taxData.mjs` | `TAX_DATA_VERSION = "2026.11"` | 2026 tax-law year |
@@ -296,3 +302,17 @@ HSA 2026 contribution limits also appear in [IRS Revenue Procedure 2025-19](http
 - `tests/golden_followup_financial_review.test.mjs`: [IRS stock-basis guidance](https://www.irs.gov/faqs/capital-gains-losses-and-sale-of-home/stocks-options-splits-traders/stocks-options-splits-traders-1) supports total acquisition basis divided across shares; [Pub 969](https://www.irs.gov/publications/p969) and [Rev Proc 2025-19](https://www.irs.gov/irb/2025-21_IRB) support employer deposits consuming the shared family HSA limit; [SSA earnings-test guidance](https://www.ssa.gov/benefits/retirement/planner/whileworking.html) supports retaining own-worker benefit adjustments at FRA after a spouse's death.
 - `tests/golden_multiyear_gain_harvesting.test.mjs`: the [IRS PTC FAQs](https://www.irs.gov/affordable-care-act/individuals-and-families/questions-and-answers-on-the-premium-tax-credit) support the model's 2026 400% FPL eligibility ceiling. Policy ranking is an economic simulation comparison, not an IRS-prescribed optimization method. Zero-return examples isolate basis, taxes and subsidies; stochastic paths cannot influence the ex-ante policy selection.
 - [2026 Pub 505](https://www.irs.gov/publications/p505) identifies charitable/itemized deduction changes recorded as outstanding scope in the September 11 review; no new Schedule A law engine is claimed.
+
+## September 14 pasted-audit verification
+
+- [Form 8960 instructions](https://www.irs.gov/instructions/i8960): investment capital losses allowed on the income-tax return reduce NII; excess carryovers do not all become current deductions.
+- [Schedule 8812 instructions](https://www.irs.gov/instructions/i1040s8): Credit Limit Worksheets A/B determine priority. The new pre-CTC input is a verified priority amount, not automatic eligibility for every Schedule 3 credit.
+- [2026 Publication 505](https://www.irs.gov/pub/irs-prior/p505--2026.pdf): the $400 minimum for at least $1,000 active QBI is real 2026 law. The model now requires material-participation confirmation.
+- [Publication 559](https://www.irs.gov/publications/p559): estate tax attributable to taxable IRD is estimated by comparing estate tax with/without that IRD, allocated as income is received, and used as an itemized deduction. Spousal rollovers and IRA basis are excluded from taxable IRD.
+- [California Schedule CA instructions](https://www.ftb.ca.gov/forms/2025/2025-540-ca-instructions.html): HSA contribution/earnings nonconformity and Treasury interest subtraction. The model retains separate CA investment-loss history but not all state basis/return differences.
+- [NJ Division of Taxation deductions](https://www.nj.gov/treasury/taxation/njit13.shtml) and [NJ Legislature A1311 statement](https://pub.njleg.state.nj.us/Bills/2024/A1500/1311_I1.HTM): current deductions differ from federal HSA treatment. A1311 is a proposal to extend conformity, not enacted authority to grant an HSA deduction.
+- [TreasuryDirect TIPS](https://www.treasurydirect.gov/marketable-securities/tips/): federally taxable annual interest/OID is state/local income-tax exempt. Generic bond funds require a verified qualifying-interest fraction; sale gains are not classified as interest.
+
+Regression cases: `tests/pasted_audit_regressions.test.mjs`, plus existing QBI,
+heir, state, healthcare and workspace tests. These are planning-engine checks,
+not certification of an actual return or a particular household's eligibility.

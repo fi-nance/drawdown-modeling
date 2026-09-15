@@ -39,3 +39,36 @@ Validation: **762 tests passed**, zero failures or skipped tests (`npm test`, ap
 Chromium checks covered onboarding, workspace and results at 320px/375px phone widths and results at 1440px desktop width. A representative eight-year plan completed 100 Monte Carlo runs and 91 historical paths. Year navigation changed the displayed year; all visible phone buttons/summaries measured at least 44px high; phone fields measured 16px. No page-level horizontal overflow or browser console errors were observed. The expanded harvesting comparison measured 262px/317px including all columns on the two phone widths. These are viewport checks, not physical iOS/Android certification.
 
 The full findings, sources, synthetic multi-year PTC regression and remaining household-specific feature priorities are in [the September 11 review](reviews/2026-09-11/review.md). This submission does not claim a globally optimal tax schedule or automatic CSR variant repricing.
+
+## September 14 IRA, CSR and CPA audit batch
+
+- Added per-owner Form 8606-style IRA basis aggregation, taxable/nontaxable conversions and distributions, separate employer-plan subtypes, explicit completed rollovers, outside-IRA entry forms and annual basis audit rows.
+- Added confirmed-Silver CSR variant inputs, exact income-band selection, expected out-of-pocket costs in withdrawal/conversion/harvesting comparisons, validation and persistence.
+- Corrected NIIT capital-loss deductions, manual credit priority before/after CTC, LTC cash funding with all-in budgets, and estate-tax IRD deduction treatment. Retained the valid 2026 QBI minimum and added material-participation confirmation.
+- Added CA/NJ HSA investment/contribution/distribution adjustments, Treasury interest exemptions, separate California loss history, owner carryforward survival, employer HSA deposits and catch-up allocation. Corrected Roth qualification clocks, employment end years and separate worker/spousal earnings-test adjustments.
+- Clarified spouse SS own-worker inputs and unsupported plan-access assumptions. Corrected a browser-discovered fixed-budget verdict bug caused by inactive guardrail defaults; explicit required-spending choices remain authoritative.
+
+All 12 supplied audit findings have an evidence-based disposition in the
+[September 14 audit report](reviews/2026-09-14/audit-disposition.md). Several were
+stale or partly incorrect; their proposed changes were not applied blindly.
+
+Verification: **805 tests passed**, zero failures, skips or cancellations, both
+normally and under `npm run test:coverage`. This is 43 more tests than the 762-test
+starting revision. Reported whole-suite coverage is **85.65% lines, 76.93%
+branches and 68.28% functions**; the four new financial helper modules each have
+100% line coverage. Coverage is not proof of filing-grade correctness, and the
+browser-only application remains less automated than the core engine.
+
+Chromium verification covered IRA entry, CSR forms, save/refresh persistence of
+basis, credits, QBI confirmation, California loss history and security interest
+exemption inputs. The synthetic three-year run completed 10 Monte Carlo paths,
+96 historical paths and rescue comparisons. Its $40,000 required floor was fully
+funded, with the limited-lifetime-horizon warning preserved. IRA/CSR forms and
+results were visually inspected at 1440px desktop and 390px phone widths, with
+no page-level horizontal overflow or console errors. These are browser viewport
+checks, not physical-device certification or statistical confidence estimates.
+
+JavaScript syntax checks and `git diff --check` passed. Financial source links,
+annual timing assumptions and remaining professional-review requirements are in
+`DATA_SOURCES.md`, `KNOWN_LIMITATIONS.md` and the audit disposition. No full tax
+return, estate administration or globally optimal withdrawal schedule is claimed.
