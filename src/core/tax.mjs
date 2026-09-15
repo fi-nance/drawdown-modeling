@@ -1,4 +1,5 @@
 import { EPSILON, round } from "./utils.mjs";
+import { stateTaxesHsa } from './stateInvestmentIncome.mjs';
 import { buildTaxProfile } from "../data/taxData.mjs?v=20260613-rescue-precision";
 import {
   stateRetirementIncomeExclusion,
@@ -162,6 +163,8 @@ export function computeIncomeTax({
   longTermCapitalGains = 0,
   qualifiedDividends = 0,
   ordinaryInvestmentIncome = 0,
+  hsaOrdinaryIncome = 0,
+  hsaCapitalGains = {shortTerm:0,longTerm:0},
   taxableSocialSecurity = 0,
   nonTaxableSocialSecurity = 0,
   adjustmentsToIncome = 0,
@@ -289,6 +292,7 @@ export function computeIncomeTax({
     qualifiedDividends: dividendPreferentialIncome,
     netShortGains,
     longTermCapitalGains: longGains,
+    ordinaryLossOffset,
     profile
   });
   const additionalMedicare = computeAdditionalMedicareTax({
@@ -321,12 +325,37 @@ export function computeIncomeTax({
   // state retirement-income exclusions and taxable-SS adjustments operate on
   // the raw retirement components, not on a federal-loss-offset prorated
   // amount. The state computation will apply its own deductions/exclusions.
+  const nonconformingHsa = stateTaxesHsa(profile.state?.state);
+  const newJersey = ['New Jersey', 'NJ'].includes(profile.state?.state);
+  const stateExemptInterest = Math.max(0, Number(profile.state?.stateExemptInterest) || 0);
+  const hsaStateIncomeAdjustment = nonconformingHsa
+    ? Math.max(0, Number(profile.state?.hsaPersonalContribution) || 0)
+      + Math.max(0, Number(profile.state?.hsaEmployerContribution) || 0)
+      + Math.max(0, Number(profile.state?.hsaInvestmentIncome) || 0) - Math.max(0, hsaOrdinaryIncome)
+    : 0;
+  let stateNetting = netting;
+  if (nonconformingHsa) {
+    const short = (Number(hsaCapitalGains.shortTerm) || 0) + (Number(profile.state.hsaCapitalGains?.shortTerm) || 0);
+    const long = (Number(hsaCapitalGains.longTerm) || 0) + (Number(profile.state.hsaCapitalGains?.longTerm) || 0);
+    const prior = profile.state.capitalLossCarryforward ?? {shortTerm:carryforwardShort,longTerm:carryforwardLong};
+    stateNetting = netCapitalGainsAndLosses({
+      shortTermCapitalGains: Math.max(0, shortTermCapitalGains) + Math.max(0, short),
+      longTermCapitalGains: Math.max(0, longTermCapitalGains) + Math.max(0, long),
+      shortTermCapitalLosses: Math.max(0, shortTermCapitalLosses ?? 0) + Math.max(0, -short),
+      longTermCapitalLosses: Math.max(0, longTermCapitalLosses ?? (shortTermCapitalLosses == null ? capitalLosses : 0)) + Math.max(0, -long),
+      carryforwardShort: newJersey ? 0 : prior.shortTerm,
+      carryforwardLong: newJersey ? 0 : prior.longTerm,
+      ordinaryOffsetCap: newJersey ? 0 : profile.capitalLossOrdinaryIncomeOffset ?? 3000
+    });
+  }
+  const stateOrdinaryBeforeDeduction = ordinaryIncome - adjustments + hsaStateIncomeAdjustment - stateExemptInterest
+    + stateNetting.netShortGains - stateNetting.ordinaryLossOffset;
   const stateTaxBreakdown = computeStateTax({
-    ordinaryIncome: ordinaryAfterLossOffset,
+    ordinaryIncome: stateOrdinaryBeforeDeduction,
     retirementOrdinaryIncome: Math.max(0, retirementOrdinaryIncome),
     retirementIncomeDetails,
     taxableSocialSecurity: Math.max(0, taxableSocialSecurity),
-    longTermCapitalGains: longGains,
+    longTermCapitalGains: stateNetting.netLongGains,
     qualifiedDividends: dividendPreferentialIncome,
     totalSocialSecurity: Math.max(0, taxableSocialSecurity) + Math.max(0, nonTaxableSocialSecurity),
     federalCapitalLossDeduction: ordinaryLossOffset,
@@ -335,6 +364,30 @@ export function computeIncomeTax({
     federalCapitalLossCarryforwardLong: longLossPool,
     profile: profile.state
   });
+  stateTaxBreakdown.stateExemptInterest = round(stateExemptInterest, 6);
+  stateTaxBreakdown.hsaIncomeAdjustment = round(hsaStateIncomeAdjustment, 6);
+  if (nonconformingHsa) {
+    stateTaxBreakdown.capitalLossCarryforward = newJersey ? {shortTerm:0,longTerm:0} : capitalLossCarryforwardForNextYear({
+      ...stateNetting,
+      taxableIncomeBeforeZeroFloor: stateOrdinaryBeforeDeduction + stateNetting.netLongGains + dividendPreferentialIncome
+        - stateTaxBreakdown.socialSecurityExclusion - stateTaxBreakdown.retirementExclusion - stateTaxBreakdown.deduction
+    });
+    stateTaxBreakdown.hsaCapitalGains = {
+      shortTerm: (Number(hsaCapitalGains.shortTerm) || 0) + (Number(profile.state.hsaCapitalGains?.shortTerm) || 0),
+      longTerm: (Number(hsaCapitalGains.longTerm) || 0) + (Number(profile.state.hsaCapitalGains?.longTerm) || 0)
+    };
+    stateTaxBreakdown.capitalLossTreatment = {
+      ...stateTaxBreakdown.capitalLossTreatment,
+      assumption: newJersey ? 'new-jersey-current-year-gains-only' : 'separate-california-capital-loss-ledger',
+      ordinaryLossOffsetIncluded: stateNetting.ordinaryLossOffset,
+      stateCarryforwardForNextYear: stateTaxBreakdown.capitalLossCarryforward,
+      reviewRequired: stateTaxBreakdown.capitalLossTreatment.reviewRequired || stateNetting.ordinaryLossOffset > 0
+        || stateTaxBreakdown.capitalLossCarryforward.shortTerm + stateTaxBreakdown.capitalLossCarryforward.longTerm > 0,
+      note: newJersey
+        ? 'Current-year taxable-account and HSA gains and losses are netted; no ordinary-income loss deduction or loss carryforward. Verify New Jersey income categories.'
+        : 'California taxable-account and HSA gains and losses use separate opening history and carryforwards. Verify California basis and Schedule D adjustments.'
+    };
+  }
   const stateTax = stateTaxBreakdown.tax;
 
   return {
@@ -509,6 +562,7 @@ export function computeQualifiedBusinessIncomeDeduction({
   const minimumActiveQbi = Math.max(0, Number(config.minimumActiveQbi) || 0);
   const minimumDeduction = Math.max(0, Number(config.minimumDeduction) || 0);
   const qualifiesForMinimum = qualifiedBusinessIncome >= minimumActiveQbi
+    && qbiInput.materialParticipation === true
     && minimumDeduction > 0
     && (!specifiedServiceBusiness || phaseRatio < 1);
   if (qualifiesForMinimum) {
@@ -700,6 +754,7 @@ function computeNiit({
   qualifiedDividends = 0,
   netShortGains = 0,
   longTermCapitalGains = 0,
+  ordinaryLossOffset = 0,
   profile
 }) {
   const config = profile.niit;
@@ -712,6 +767,7 @@ function computeNiit({
       + qualifiedDividends
       + Math.max(0, netShortGains)
       + Math.max(0, longTermCapitalGains)
+      - Math.max(0, ordinaryLossOffset)
   );
   return round(Math.min(netInvestmentIncome, excessMagi) * (config.rate ?? 0), 6);
 }
@@ -867,10 +923,12 @@ export function computeChildTaxCreditBreakdown({
   const allowableCredit = computeChildTaxCredit({ magi, profile });
   const taxBeforeCredits = Math.max(0, Number(federalIncomeTaxBeforeCredits) || 0);
   const manualAdditionalCredits = Math.max(0, Number(additionalCredits) || 0);
-  const nonrefundableChildTaxCredit = round(Math.min(taxBeforeCredits, allowableCredit), 6);
-  const taxAfterChildCredit = Math.max(0, taxBeforeCredits - nonrefundableChildTaxCredit);
+  const creditsBeforeChildTaxCreditUsed = Math.min(taxBeforeCredits, Math.max(0, Number(profile.creditsBeforeChildTaxCredit) || 0));
+  const childCreditTaxLimit = Math.max(0, taxBeforeCredits - creditsBeforeChildTaxCreditUsed);
+  const nonrefundableChildTaxCredit = round(Math.min(childCreditTaxLimit, allowableCredit), 6);
+  const taxAfterChildCredit = Math.max(0, childCreditTaxLimit - nonrefundableChildTaxCredit);
   const additionalCreditsUsed = round(Math.min(taxAfterChildCredit, manualAdditionalCredits), 6);
-  const federalCreditsUsed = round(nonrefundableChildTaxCredit + additionalCreditsUsed, 6);
+  const federalCreditsUsed = round(creditsBeforeChildTaxCreditUsed + nonrefundableChildTaxCredit + additionalCreditsUsed, 6);
   const unusedChildTaxCredit = round(Math.max(0, allowableCredit - nonrefundableChildTaxCredit), 6);
   const refundablePerChildLimit = round(qualifyingChildren * Math.max(0, Number(config?.refundablePerChild) || 0), 6);
   const earnedIncomeThreshold = Math.max(0, Number(config?.refundableEarnedIncomeThreshold) || 0);
@@ -883,6 +941,8 @@ export function computeChildTaxCreditBreakdown({
 
   return {
     qualifyingChildren,
+    creditsBeforeChildTaxCreditUsed,
+    childCreditTaxLimit,
     allowableCredit: round(allowableCredit, 6),
     nonrefundableChildTaxCredit,
     unusedChildTaxCredit,
@@ -1093,6 +1153,7 @@ export function inflateTaxProfile(profile = DEFAULT_TAX_PROFILE, inflationIndex 
     standardDeduction: round((profile.standardDeduction ?? 0) * index, 6),
     additionalDeduction: round((profile.additionalDeduction ?? 0) * index, 6),
     additionalCredits: round((profile.additionalCredits ?? 0) * index, 6),
+    creditsBeforeChildTaxCredit: round((profile.creditsBeforeChildTaxCredit ?? 0) * index, 6),
     ordinaryBrackets: scaleBracketLimits(profile.ordinaryBrackets, index),
     capitalGainsBrackets: scaleBracketLimits(profile.capitalGainsBrackets, index),
     additionalStandardDeduction65: profile.additionalStandardDeduction65 ? {

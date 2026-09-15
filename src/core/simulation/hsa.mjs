@@ -7,6 +7,7 @@ import { CASH_RAISED_EPSILON, DEFENSIVE_ASSET_CLASSES, GROWTH_ASSET_CLASSES } fr
 import { optionalFiniteNumber } from "./guards.mjs";
 import { assetClassLabel } from "./portfolioQueries.mjs";
 import { expectedReturnForAsset } from "./scenario.mjs";
+import { recurringEmploymentActive } from './cashFlows.mjs';
 
 const HSA_LIMITS_2026 = Object.freeze({
   selfOnly: 4400,
@@ -36,16 +37,18 @@ export function hsaStrategyConfig(scenario) {
   };
 }
 
-export function hsaContributionForYear({ scenario, age, spouseAge, inflationIndex }) {
+export function hsaContributionForYear({ scenario, age, spouseAge, inflationIndex, yearIndex = 0 }) {
   const config = hsaStrategyConfig(scenario);
   if (!config.hsaContributionEnabled) return emptyHsaContribution(config);
-  const raw = scenario.taxEfficiencyStrategy ?? {};
+  validateHsaCoverage(scenario);
+  const raw = { ...scenario.taxEfficiencyStrategy };
+  if (!Number.isFinite(age) || age >= 65 || !recurringEmploymentActive(scenario, 'primary', yearIndex)) raw.hsaPrimaryEmployerContribution = 0;
+  if (!Number.isFinite(spouseAge) || spouseAge >= 65 || !recurringEmploymentActive(scenario, 'spouse', yearIndex)) raw.hsaSpouseEmployerContribution = 0;
   const months = (value, ownerAge, fallback) => Number.isFinite(ownerAge) && ownerAge < 65
     ? Math.max(0, Math.min(12, Math.trunc(Number(value ?? fallback) || 0))) : 0;
   const primaryMonths = months(raw.hsaPrimaryEligibleMonths, age, 12);
   const spouseMonths = months(raw.hsaSpouseEligibleMonths, spouseAge, 0);
-  const coverage = config.hsaCoverage === 'auto'
-    ? (Number(scenario.aca?.marketplaceMembers) || 1) > 1 ? 'family' : 'self' : config.hsaCoverage;
+  const coverage = config.hsaCoverage;
   const index = config.hsaContributionInflationAdjusted ? Math.max(0, inflationIndex) : 1;
   const limit = (coverage === 'family' ? HSA_LIMITS_2026.family : HSA_LIMITS_2026.selfOnly) * index;
   const spouseShare = !primaryMonths ? 1 : !spouseMonths ? 0 : Math.max(0, Math.min(1, Number(raw.hsaSpouseBaseShare) || 0));
@@ -67,12 +70,30 @@ export function hsaContributionForYear({ scenario, age, spouseAge, inflationInde
       - Math.max(0, Number(raw.hsaSpouseEmployerContribution) || 0));
     remaining = Math.min(remaining, familyRoom);
   }
-  const primaryAmount = Math.min(remaining, primaryRoom);
+  // Prefer funding each eligible owner's catch-up before the shared base.
+  // This is an allocation preference, not an obligation to maximize deposits.
+  let primaryAmount = Math.min(remaining, primaryRoom, primaryCatchUp);
   remaining -= primaryAmount;
-  const spouseAmount = Math.min(remaining, spouseRoom);
-  return { enabled: true, amount: round(primaryAmount + spouseAmount, 6),
+  let spouseAmount = Math.min(remaining, spouseRoom, spouseCatchUp);
+  remaining -= spouseAmount;
+  const primaryBaseAmount = Math.min(remaining, primaryRoom - primaryAmount);
+  primaryAmount += primaryBaseAmount;
+  remaining -= primaryBaseAmount;
+  spouseAmount += Math.min(remaining, spouseRoom - spouseAmount);
+  const alreadyIncluded = yearIndex === 0 && raw.hsaEmployerContributionsInOpeningBalance === true;
+  const employerByOwner = {primary: alreadyIncluded ? 0 : Math.max(0, Number(raw.hsaPrimaryEmployerContribution) || 0), spouse: alreadyIncluded ? 0 : Math.max(0, Number(raw.hsaSpouseEmployerContribution) || 0)};
+  return { enabled: true, amount: round(primaryAmount + spouseAmount, 6), employerByOwner,
+    employerLimitContributions: {primary: Math.max(0, Number(raw.hsaPrimaryEmployerContribution) || 0), spouse: Math.max(0, Number(raw.hsaSpouseEmployerContribution) || 0)},
+    employerAmount: employerByOwner.primary + employerByOwner.spouse,
     byOwner: { primary: round(primaryAmount, 6), spouse: round(spouseAmount, 6) },
     coverage, baseLimit: round(primaryBase + spouseBase, 6), catchUpLimit: round(primaryCatchUp + spouseCatchUp, 6), assetClass: config.hsaInvestmentAssetClass };
+}
+
+export function validateHsaCoverage(scenario = {}) {
+  const config = scenario.taxEfficiencyStrategy ?? {};
+  if (config.hsaContributionEnabled && !['self', 'family'].includes(config.hsaCoverage)) {
+    throw new RangeError('Select actual self-only or family HDHP coverage for HSA contributions. Filing status and ACA enrollment do not determine HSA coverage.');
+  }
 }
 
 export function emptyHsaContribution(config = hsaStrategyConfig({})) {

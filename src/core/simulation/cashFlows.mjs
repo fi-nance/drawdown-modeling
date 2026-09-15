@@ -4,7 +4,16 @@
 import { round } from "../utils.mjs";
 import { CASH_RAISED_EPSILON } from "./constants.mjs";
 
-export function earnedIncomeForYear(scenario, inflationIndex, { primaryDeceased = false, spouseDeceased = false } = {}) {
+export function recurringEmploymentActive(scenario, owner, yearIndex = 0) {
+  const end = scenario[owner === 'spouse' ? 'spouseEarnedIncomeEndYear' : 'earnedIncomeEndYear'];
+  if (end == null || String(end).trim() === '') return true;
+  if (!Number.isInteger(Number(end)) || Number(end) < 1900 || Number(end) > 2200) throw new RangeError('Final earned-income year must be a calendar year or blank.');
+  return Number(scenario.startYear ?? 2026) + yearIndex <= Number(end);
+}
+
+export function earnedIncomeForYear(scenario, inflationIndex, { primaryDeceased = false, spouseDeceased = false, yearIndex = 0 } = {}) {
+  primaryDeceased ||= !recurringEmploymentActive(scenario, 'primary', yearIndex);
+  spouseDeceased ||= !recurringEmploymentActive(scenario, 'spouse', yearIndex);
   const index = scenario.earnedIncomeInflationAdjusted === false ? 1 : inflationIndex;
   // Earned income is life-gated per earner: a deceased earner's wages and SE
   // income stop in the first survivor year (the same owner gating

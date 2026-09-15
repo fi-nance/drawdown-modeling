@@ -64,8 +64,11 @@ export function medicalCostForYear({
     medicalInflationIndex: medIndex
   });
   const ltcCost = ltcStressCostForYear({ scenario, yearIndex, medicalInflationIndex: medIndex });
+  const ordinaryMedical = baseMedical + (aca?.netPremium ?? 0) + medicare.totalAnnualPremium;
   return {
-    total: round(baseMedical + (aca?.netPremium ?? 0) + medicare.totalAnnualPremium + ltcCost, 6),
+    total: round(ordinaryMedical + ltcCost, 6),
+    additionalCash: round((scenario.targetSpendIncludesMedical ? 0 : ordinaryMedical) + ltcCost, 6),
+    includedInSpending: scenario.targetSpendIncludesMedical ? round(ordinaryMedical, 6) : 0,
     medicare,
     qualifiedHsaExpenses: round(baseMedical + (age >= 65 && (!Number.isFinite(spouseAge) || spouseAge >= 65)
       ? medicare.partBAnnualPremium + medicare.partDAnnualPremium : 0)
@@ -229,6 +232,7 @@ function medicalCostForScenario(scenario, acaConfig, inflationIndex, aca = null)
   if (aca?.medicareEligibleHousehold === true && medicareOopBase !== null) {
     return round(base + (aca?.medicareMembers > 0 ? 0 : Math.max(0, medicareOopBase) * inflationIndex), 6);
   }
+  if (aca?.costSharing && aca?.medicareEligibleHousehold !== true) return round(base + aca.costSharing.expectedOop, 6);
   const rawOopOverride = optionalFiniteNumber(scenario.oopMaxOverride);
   const hasScenarioOopOverride = rawOopOverride !== null;
   const scenarioOopOverride = Math.max(0, rawOopOverride ?? 0);

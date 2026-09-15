@@ -1,6 +1,7 @@
 import { clamp, round } from "./utils.mjs";
 import { buildAcaConfig } from "../data/taxData.mjs";
 import { slcspMonthlyFor } from "../data/acaRatingArea.mjs";
+import { acaCostSharing } from './acaCostSharing.mjs';
 
 export const DEFAULT_ACA_CONFIG = buildAcaConfig();
 
@@ -58,7 +59,13 @@ export const FEDERAL_DEFAULT_ACA_AGE_RATING_CURVE = Object.freeze([
   { minAge: 64, maxAge: Infinity, factor: 3.000 }
 ]);
 
-export function computeAca({
+export function computeAca(options = {}) {
+  const result = computeAcaBase(options);
+  const costSharing = acaCostSharing(options.config, result, options.magi);
+  return costSharing ? { ...result, costSharing, oopMaximum: round(costSharing.oopMaximum, 6) } : result;
+}
+
+function computeAcaBase({
   magi = 0,
   config = DEFAULT_ACA_CONFIG,
   zip = null,

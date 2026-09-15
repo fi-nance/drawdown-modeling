@@ -2,6 +2,7 @@
 // Single responsibility: heirEstate. No behavior changes — pure code movement.
 
 import { marketValue } from "../portfolio.mjs";
+import { remainingIraBasisByAsset } from '../iraBasis.mjs';
 import { taxFromBrackets } from "../tax.mjs?v=20260613-rescue-precision";
 import { FEDERAL_TAX_2026, buildTaxProfile } from "../../data/taxData.mjs";
 import { STATE_ABBREVIATIONS } from "../../data/geo.mjs";
@@ -84,9 +85,11 @@ function getSingleLifeExpectancy(age) {
   return 1.0;
 }
 
-function calculateHeirOrdinaryTax(amount, baseIncome, standardDeduction, brackets) {
+function calculateHeirOrdinaryTax(amount, baseIncome, standardDeduction, brackets, irdDeduction = 0) {
   const baseTaxable = Math.max(0, baseIncome - standardDeduction);
-  const totalTaxable = Math.max(0, baseIncome + amount - standardDeduction);
+  // Section 691(c) is itemized, not an extra above-the-line deduction.
+  // No other heir itemized deductions are assumed by this estimate.
+  const totalTaxable = Math.max(0, baseIncome + amount - Math.max(standardDeduction, irdDeduction));
   const baseTax = taxFromBrackets(baseTaxable, brackets);
   const totalTax = taxFromBrackets(totalTaxable, brackets);
   return Math.max(0, totalTax - baseTax);
@@ -140,7 +143,7 @@ export function estimateHeirValueBreakdown(portfolio, ordinaryTaxRate = 0.24, op
   const inheritanceBeneficiaries = new Map();
 
   const inheritedAccountsByType = Object.fromEntries(
-    BENEFICIARY_TYPES.map((type) => [type, { traditionalValue: 0, hsaValue: 0 }])
+    BENEFICIARY_TYPES.map((type) => [type, { traditionalValue: 0, iraBasis: 0, hsaValue: 0 }])
   );
 
   // The household-level default an account inherits when it does not set its
@@ -148,6 +151,7 @@ export function estimateHeirValueBreakdown(portfolio, ordinaryTaxRate = 0.24, op
   // scenario heirType (e.g. an imported "child") does not make every
   // default-beneficiary account look like a per-account override.
   const householdDefaultBeneficiaryType = resolveHouseholdDefaultBeneficiaryType(heirType);
+  const iraBasisByAsset = remainingIraBasisByAsset(portfolio);
 
   for (const asset of portfolio) {
     const value = marketValue(asset);
@@ -184,6 +188,7 @@ export function estimateHeirValueBreakdown(portfolio, ordinaryTaxRate = 0.24, op
     } else if (asset.accountType === "traditional") {
       traditionalValue += value;
       inheritedAccountsByType[assetBeneficiaryType].traditionalValue += value;
+      inheritedAccountsByType[assetBeneficiaryType].iraBasis += iraBasisByAsset.get(asset) ?? 0;
     } else if (asset.accountType === "hsa") {
       hsaValue += value;
       inheritedAccountsByType[assetBeneficiaryType].hsaValue += value;
@@ -198,11 +203,23 @@ export function estimateHeirValueBreakdown(portfolio, ordinaryTaxRate = 0.24, op
   let hsaIncomeTaxEstimate = 0;
   let spouseRolloverValue = 0;
 
+  const nonSpouseBeneficiaryValue = nonSpouse10YrBeneficiaryValue + eligibleDesignatedBeneficiaryValue;
+  const federalEstateTax = Math.max(0, nonSpouseBeneficiaryValue - federalEstateExclusion) * FEDERAL_ESTATE_TAX_RATE;
+  const taxableIrdValue = ['nonSpouse10Yr', 'eligibleDesignated'].reduce((sum, type) => {
+    const bucket = inheritedAccountsByType[type];
+    return sum + Math.max(0, bucket.traditionalValue - bucket.iraBasis) + bucket.hsaValue;
+  }, 0);
+  // Pub. 559: estate tax with IRD less estate tax without the taxable IRD.
+  // State inheritance tax and nondeductible IRA basis do not qualify.
+  const estateTaxWithoutIrd = Math.max(0, nonSpouseBeneficiaryValue - taxableIrdValue - federalEstateExclusion) * FEDERAL_ESTATE_TAX_RATE;
+  const federalEstateTaxAttributableToIrd = Math.max(0, federalEstateTax - estateTaxWithoutIrd);
+  const irdDeductionRate = taxableIrdValue > 0 ? federalEstateTaxAttributableToIrd / taxableIrdValue : 0;
+
   for (const beneficiaryType of BENEFICIARY_TYPES) {
     const bucket = inheritedAccountsByType[beneficiaryType];
     const taxed = inheritedAccountTaxEstimate({
       beneficiaryType,
-      traditionalValue: bucket.traditionalValue,
+      traditionalValue: bucket.traditionalValue - (beneficiaryType === 'spouse' ? 0 : bucket.iraBasis),
       hsaValue: bucket.hsaValue,
       assumedOrdinaryTaxRate,
       drag,
@@ -210,22 +227,13 @@ export function estimateHeirValueBreakdown(portfolio, ordinaryTaxRate = 0.24, op
       heirBaseIncome: indexedHeirBaseIncome,
       heirAge,
       singleDeduction,
-      singleBrackets
+      singleBrackets,
+      irdDeductionRate
     });
     traditionalIncomeTaxEstimate += taxed.traditionalIncomeTaxEstimate;
     hsaIncomeTaxEstimate += taxed.hsaIncomeTaxEstimate;
     spouseRolloverValue += taxed.spouseRolloverValue;
   }
-
-  // Federal estate tax: 40% above the 2026 $15M exclusion, indexed to the
-  // valuation-year price level (IRC §2010(c)(3)(B)). Transfers to a surviving
-  // spouse are estate-tax-free under the unlimited marital deduction.
-  const nonSpouseBeneficiaryValue = nonSpouse10YrBeneficiaryValue + eligibleDesignatedBeneficiaryValue;
-  const federalEstateTax = nonSpouseBeneficiaryValue <= 0
-    ? 0
-    : (nonSpouseBeneficiaryValue > federalEstateExclusion
-        ? (nonSpouseBeneficiaryValue - federalEstateExclusion) * FEDERAL_ESTATE_TAX_RATE
-        : 0);
 
   // State inheritance tax assuming a lineal-descendant (child) heir. Spouses
   // are exempt in every inheritance-tax state; among the rest, only PA (4.5%)
@@ -275,6 +283,8 @@ export function estimateHeirValueBreakdown(portfolio, ordinaryTaxRate = 0.24, op
     otherValue,
     totalIncomeTaxEstimate,
     federalEstateTax,
+    taxableIrdValue,
+    federalEstateTaxAttributableToIrd,
     federalEstateExclusion,
     stateInheritanceTax,
     inheritanceBeneficiaryCount: inheritanceBeneficiaries.size,
@@ -375,7 +385,8 @@ function inheritedAccountTaxEstimate({
   heirBaseIncome,
   heirAge,
   singleDeduction,
-  singleBrackets
+  singleBrackets,
+  irdDeductionRate = 0
 }) {
   if (!(traditionalValue > 0) && !(hsaValue > 0)) {
     return { traditionalIncomeTaxEstimate: 0, hsaIncomeTaxEstimate: 0, spouseRolloverValue: 0 };
@@ -394,8 +405,8 @@ function inheritedAccountTaxEstimate({
       ? Math.max(0, Math.min(1, assumedOrdinaryTaxRate + drag))
       : Math.max(0, Math.min(1, assumedOrdinaryTaxRate - discount));
     return {
-      traditionalIncomeTaxEstimate: traditionalValue * effectiveTraditionalTaxRate,
-      hsaIncomeTaxEstimate: hsaValue * effectiveTraditionalTaxRate,
+      traditionalIncomeTaxEstimate: traditionalValue * (1 - irdDeductionRate) * effectiveTraditionalTaxRate,
+      hsaIncomeTaxEstimate: hsaValue * (1 - irdDeductionRate) * effectiveTraditionalTaxRate,
       spouseRolloverValue: 0
     };
   }
@@ -412,7 +423,8 @@ function inheritedAccountTaxEstimate({
       hsaValue,
       heirBaseIncome,
       singleDeduction,
-      adjustedBrackets
+      adjustedBrackets,
+      irdDeductionRate
     });
   }
 
@@ -422,7 +434,8 @@ function inheritedAccountTaxEstimate({
     heirBaseIncome,
     heirAge,
     singleDeduction,
-    adjustedBrackets
+    adjustedBrackets,
+    irdDeductionRate
   });
 }
 
@@ -431,20 +444,21 @@ function nonSpouseTenYearTaxEstimate({
   hsaValue,
   heirBaseIncome,
   singleDeduction,
-  adjustedBrackets
+  adjustedBrackets,
+  irdDeductionRate = 0
 }) {
   let traditionalIncomeTaxEstimate = 0;
   let hsaIncomeTaxEstimate = 0;
   const traditional10th = traditionalValue / 10;
   const year1Dist = traditional10th + hsaValue;
-  const year1TaxDrag = calculateHeirOrdinaryTax(year1Dist, heirBaseIncome, singleDeduction, adjustedBrackets);
+  const year1TaxDrag = calculateHeirOrdinaryTax(year1Dist, heirBaseIncome, singleDeduction, adjustedBrackets, year1Dist * irdDeductionRate);
 
   if (year1Dist > 0) {
     traditionalIncomeTaxEstimate += year1TaxDrag * (traditional10th / year1Dist);
     hsaIncomeTaxEstimate += year1TaxDrag * (hsaValue / year1Dist);
   }
 
-  const yearOtherTaxDrag = calculateHeirOrdinaryTax(traditional10th, heirBaseIncome, singleDeduction, adjustedBrackets);
+  const yearOtherTaxDrag = calculateHeirOrdinaryTax(traditional10th, heirBaseIncome, singleDeduction, adjustedBrackets, traditional10th * irdDeductionRate);
   traditionalIncomeTaxEstimate += 9 * yearOtherTaxDrag;
   return { traditionalIncomeTaxEstimate, hsaIncomeTaxEstimate, spouseRolloverValue: 0 };
 }
@@ -455,7 +469,8 @@ function eligibleDesignatedTaxEstimate({
   heirBaseIncome,
   heirAge,
   singleDeduction,
-  adjustedBrackets
+  adjustedBrackets,
+  irdDeductionRate = 0
 }) {
   const expectancy = getSingleLifeExpectancy(heirAge);
   const N = Math.max(1, Math.min(30, Math.ceil(expectancy)));
@@ -465,7 +480,7 @@ function eligibleDesignatedTaxEstimate({
 
   const d1 = expectancy > 0 ? remainingTraditional / expectancy : remainingTraditional;
   const year1Dist = d1 + hsaValue;
-  const year1TaxDrag = calculateHeirOrdinaryTax(year1Dist, heirBaseIncome, singleDeduction, adjustedBrackets);
+  const year1TaxDrag = calculateHeirOrdinaryTax(year1Dist, heirBaseIncome, singleDeduction, adjustedBrackets, year1Dist * irdDeductionRate);
 
   if (year1Dist > 0) {
     traditionalIncomeTaxEstimate += year1TaxDrag * (d1 / year1Dist);
@@ -476,7 +491,7 @@ function eligibleDesignatedTaxEstimate({
   for (let t = 2; t <= N; t++) {
     const ft = getSingleLifeExpectancy(heirAge + t - 1);
     const dt = t === N ? remainingTraditional : (ft > 0 ? remainingTraditional / ft : remainingTraditional);
-    traditionalIncomeTaxEstimate += calculateHeirOrdinaryTax(dt, heirBaseIncome, singleDeduction, adjustedBrackets);
+    traditionalIncomeTaxEstimate += calculateHeirOrdinaryTax(dt, heirBaseIncome, singleDeduction, adjustedBrackets, dt * irdDeductionRate);
     remainingTraditional = Math.max(0, remainingTraditional - dt);
   }
 

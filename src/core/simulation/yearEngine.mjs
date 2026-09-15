@@ -1,7 +1,10 @@
 import { conversionIncomeDetails } from "./withdrawalExecution.mjs";
+import { hsaCapitalTotals, hsaCapitalEvents } from '../stateInvestmentIncome.mjs';
 import { socialSecurityEarningsForYear } from "./socialSecurityEarnings.mjs";
 import { annualAdvisoryFees, applyFundExpenses } from "./fees.mjs";
 import { copyRothLedger, ensureRothLedger } from "../rothLedger.mjs";
+import { beginIraTaxYear, copyIraLedger, ensureIraLedger, iraYearSummary } from '../iraBasis.mjs';
+import { conversionTaxableAmount } from './withdrawalExecution.mjs';
 // Extracted from simulation.mjs during the modular refactor.
 // Single responsibility: yearEngine. No behavior changes — pure code movement.
 
@@ -63,6 +66,7 @@ export function simulateYear(input) {
   }
   input.portfolio.splice(0, input.portfolio.length, ...chosen.portfolio);
   copyRothLedger(input.portfolio, chosen.portfolio);
+  copyIraLedger(input.portfolio, chosen.portfolio);
   if (input.conditionalAssetSaleState) input.conditionalAssetSaleState.soldIds = chosen.saleState.soldIds;
   return chosen.result;
 }
@@ -79,6 +83,7 @@ function simulateYearOnce({
   annualInflationRate,
   spendingGuardrail = null,
   lossCarryforward,
+  stateLossCarryforward = null,
   rothBasisRemaining,
   hsaQualifiedExpenseBalance = 0,
   magiHistory = [],
@@ -91,6 +96,7 @@ function simulateYearOnce({
   // { shortTerm, longTerm } object so callers can preserve §1212(b) character.
   lossCarryforward = normalizeLossCarryforward(lossCarryforward);
   ensureRothLedger(portfolio, { ...scenario, rothBasisRemaining });
+  ensureIraLedger(portfolio, scenario);
   const calendarYear = scenario.startYear + yearIndex;
 
   const { primaryAge: rawPrimaryAge, spouseAge: rawSpouseAge, primaryDeceased, spouseDeceased }
@@ -172,6 +178,7 @@ function simulateYearOnce({
   const tipsLadderCoupons = payTipsLadderCoupons(portfolio, { scenario, inflationIndex });
   const tipsLadderCouponCash = round(tipsLadderCoupons?.taxableCouponCash ?? 0, 6);
   const fundExpenses = applyFundExpenses(portfolio, scenario);
+  beginIraTaxYear(portfolio);
   const afterReturnPortfolioValue = portfolioValue(portfolio);
 
   const flows = [...dividends.flows, ...(tipsLadderCoupons?.flows ?? [])];
@@ -186,7 +193,7 @@ function simulateYearOnce({
     oneOffCashFlows.expenses = round(oneOffCashFlows.expenses + advisoryFees, 6);
     oneOffCashFlows.expenseDetails.push({ name: 'Annual advisory/account fees', amount: advisoryFees });
   }
-  const recurringEarnedIncome = earnedIncomeForYear(scenario, inflationIndex, { primaryDeceased, spouseDeceased });
+  const recurringEarnedIncome = earnedIncomeForYear(scenario, inflationIndex, { primaryDeceased, spouseDeceased, yearIndex });
   const earnedIncome = mergeEarnedIncome(recurringEarnedIncome, oneOffCashFlows.earnedIncome);
   // Recurring income streams (pension/annuity/rent/other): owner-age gated,
   // optional COLA, survivor share, ordinary or tax-free character. The
@@ -207,12 +214,20 @@ function simulateYearOnce({
   const ordinaryInvestmentIncome = round(dividends.ordinaryDividends + tipsLadderPhantomIncome + tipsLadderCouponCash + streamIncome.ordinaryInvestmentIncome, 6);
   const hsaContribution = hsaContributionForYear({
     scenario,
+    yearIndex,
     age: primaryDeceased ? null : rawPrimaryAge,
     spouseAge: spouseDeceased ? null : rawSpouseAge,
     inflationIndex
   });
   const adjustmentsToIncome = hsaContribution.amount;
+  if (yearTaxProfile.state) yearTaxProfile.state = {...yearTaxProfile.state,
+    capitalLossCarryforward: stateLossCarryforward,
+    hsaPersonalContribution: hsaContribution.amount,
+    hsaEmployerContribution: Object.values(hsaContribution.employerLimitContributions ?? hsaContribution.employerByOwner ?? {}).reduce((sum, value) => sum + value, 0),
+    hsaInvestmentIncome: dividends.hsaInvestmentIncome ?? 0,
+    stateExemptInterest: (dividends.stateExemptInterest ?? 0) + tipsLadderPhantomIncome + tipsLadderCouponCash};
   let strategyCapitalLosses = 0;
+  const capitalEvents = [{owner:'primary',accountType:'taxable',gain:conditionalAssetSales.taxableLongTermGain,taxType:'long'}];
   let strategyShortTermLosses = 0;
   let strategyLongTermLosses = 0;
   let strategyShortTermGains = 0;
@@ -322,6 +337,10 @@ function simulateYearOnce({
   strategyShortTermLosses += allocationStrategy.shortTermCapitalLosses;
   strategyLongTermLosses += allocationStrategy.longTermCapitalLosses;
   flows.push(...allocationStrategy.flows);
+  if (yearTaxProfile.state) yearTaxProfile.state.hsaCapitalGains = hsaCapitalTotals([
+    ...assetLocation.sales, ...allocationStrategy.sales,
+    ...(tipsLadderBuild?.sales ?? []), ...(tipsLadderMaintenance?.sales ?? [])
+  ]);
 
   // Per-owner RMDs: spouse-owned traditional accounts use the spouse's age,
   // factor, and SECURE 2.0 start age; each bucket withdraws only from that
@@ -375,6 +394,7 @@ function simulateYearOnce({
   for (const bucket of rmdBuckets) {
     if (!(bucket.amount > 0)) continue;
     const bucketContext = {
+      iraLedger: portfolio.iraLedger,
       age,
       ownerAges,
       calendarYear,
@@ -415,14 +435,16 @@ function simulateYearOnce({
   let socialSecurityBenefits = 0;
   const socialSecurityEarningsTest = {};
   const nextSocialSecurityCredits = { ...socialSecurityEarningsCredits };
-  const applyEarnings = (owner, ownerAge, annualBenefit, survivor = false) => {
+  const applyEarnings = (owner, ownerAge, annualBenefit, survivor = false, components = null) => {
     const spouse = owner === 'spouse';
     const wages = Math.max(0, spouse ? earnedIncome.spouseMedicareWages ?? 0 : earnedIncome.medicareWages ?? 0);
     const selfEmployment = Math.max(0, spouse ? earnedIncome.spouseSelfEmploymentIncome ?? 0 : earnedIncome.selfEmploymentIncome ?? 0);
     const result = socialSecurityEarningsForYear({ scenario, owner, age: ownerAge, annualBenefit,
+      components, spousalCreditedMonths:socialSecurityEarningsCredits.spousal ?? 0,
       earnedIncome: wages + selfEmployment, yearIndex, inflationIndex, creditedMonths: socialSecurityEarningsCredits[owner], survivor });
     socialSecurityEarningsTest[owner] = result;
     nextSocialSecurityCredits[owner] = result.creditedMonths;
+    if (components) nextSocialSecurityCredits.spousal = result.spousalCreditedMonths;
     return result.payable;
   };
   if (customSocialSecurityBenefits !== null) {
@@ -442,9 +464,9 @@ function simulateYearOnce({
     const primaryStart = Number(scenario.socialSecurityStartAge ?? 67);
     const spouseStart = Number(scenario.spouseSocialSecurityStartAge ?? 67);
     const primarySS = socialSecurityBenefitsForYear(scenario, primaryStart < age + 1 ? Math.max(age, primaryStart) : age, inflationIndex, yearTaxProfile);
-    const spouseSS = spouseSocialSecurityBenefitsForYear(scenario, spouseAge == null ? null : spouseStart < spouseAge + 1 ? Math.max(spouseAge, spouseStart) : spouseAge, inflationIndex, yearTaxProfile, { primaryAge: age });
+    const spouseComponents = spouseSocialSecurityBenefitsForYear(scenario, spouseAge == null ? null : spouseStart < spouseAge + 1 ? Math.max(spouseAge, spouseStart) : spouseAge, inflationIndex, yearTaxProfile, { primaryAge: age, components:true });
     socialSecurityBenefits = applyEarnings('primary', age, primarySS)
-      + (spouseAge == null ? 0 : applyEarnings('spouse', spouseAge, spouseSS));
+      + (spouseAge == null || !Array.isArray(spouseComponents) ? 0 : applyEarnings('spouse', spouseAge, 0, false, spouseComponents));
   }
 
   // Spending-aware conversion sizing (rothConversion.spendingAware, default
@@ -555,9 +577,9 @@ function simulateYearOnce({
     let provisionalMedical = 0;
     {
       const { income } = incomeForYear({
-        ordinaryIncome: ordinaryIncome + passOneConversion,
+        ordinaryIncome: ordinaryIncome + conversionTaxableAmount(portfolio, passOneConversion),
         earnedIncome,
-        retirementOrdinaryIncome: passOneConversion + streamIncome.retirementOrdinaryIncome,
+        retirementOrdinaryIncome: conversionTaxableAmount(portfolio, passOneConversion) + streamIncome.retirementOrdinaryIncome,
         retirementIncomeDetails: [...streamIncome.retirementIncomeDetails, ...conversionIncomeDetails(portfolio, passOneConversion)],
         ordinaryInvestmentIncome,
         qualifiedDividends,
@@ -581,7 +603,7 @@ function simulateYearOnce({
         });
         provisionalTaxes = taxes.totalTax + Math.max(0, passOneBase.penaltyTax ?? 0);
       }
-      if (!scenario.targetSpendIncludesMedical) {
+      {
         const offsetCap = yearTaxProfile?.capitalLossOrdinaryIncomeOffset ?? 3000;
         const provisionalAca = computeAcaForYear({
           age,
@@ -602,7 +624,7 @@ function simulateYearOnce({
           filingStatus: yearTaxProfile.filingStatus,
           irmaaMagi: irmaaMagiForIncome(income, lossCarryforward, offsetCap, yearTaxProfile),
           magiHistory
-        }).total;
+        }).additionalCash;
       }
     }
     conversionBaseWithdrawal = mergeWithdrawals(
@@ -614,13 +636,14 @@ function simulateYearOnce({
   const rothConversionAmount = scenario.rothConversion?.enabled
     ? convertTraditionalToRoth(portfolio, sizeConversionAgainst(conversionBaseWithdrawal), calendarYear, convertedByOwner)
     : 0;
-  ordinaryIncome += rothConversionAmount;
+  const rothConversionTaxableAmount = round(convertedByOwner.primary + convertedByOwner.spouse, 6);
+  ordinaryIncome += rothConversionTaxableAmount;
   // Retirement-character ordinary income for state exclusions: conversions
   // plus state-retirement-eligible income streams (withdrawal ordinary income
   // is added downstream by incomeForYear).
   const retirementIncomeDetailsBase = [...streamIncome.retirementIncomeDetails,
     ...Object.entries(convertedByOwner).map(([owner, amount]) => ({ owner: survivorOwner ?? owner, amount, type: 'conversion' }))];
-  const retirementOrdinaryIncomeBase = round(rothConversionAmount + streamIncome.retirementOrdinaryIncome, 6);
+  const retirementOrdinaryIncomeBase = round(rothConversionTaxableAmount + streamIncome.retirementOrdinaryIncome, 6);
   if (rothConversionAmount > 0) {
     flows.push({
       from: "Traditional accounts",
@@ -668,7 +691,7 @@ function simulateYearOnce({
 
   for (let iteration = 0; iteration < MAX_FIXED_POINT_ITERATIONS; iteration += 1) {
     const cashRequired = plannedSpending
-      + (scenario.targetSpendIncludesMedical ? 0 : medicalEstimate)
+      + medicalEstimate
       + (scenario.targetSpendIncludesTaxes ? 0 : taxEstimate)
       + hsaContribution.amount;
     const chosenPlan = chooseWithdrawalPlan({
@@ -732,7 +755,7 @@ function simulateYearOnce({
       }
     });
 
-    const nextMedical = scenario.targetSpendIncludesMedical ? 0 : chosenPlan.medicalTotal;
+    const nextMedical = chosenPlan.medicalTotal;
     const nextTax = chosenPlan.taxes.totalTax;
     const totalCost = nextMedical + nextTax;
     if (totalCost > highestCostTotal) {
@@ -769,7 +792,7 @@ function simulateYearOnce({
     finalTaxableSocialSecurity = highestCostPlan.taxableSocialSecurity;
     finalPortfolio = highestCostPlan.portfolio;
     finalRothBasisOptimization = highestCostPlan.rothBasisOptimization;
-    medicalEstimate = scenario.targetSpendIncludesMedical ? 0 : highestCostPlan.medicalTotal;
+    medicalEstimate = highestCostPlan.medicalTotal;
     qualifiedHsaExpenses = highestCostPlan.qualifiedHsaExpenses;
     taxEstimate = highestCostPlan.taxes.totalTax;
   }
@@ -829,6 +852,7 @@ function simulateYearOnce({
       magiHistory
     });
     const gainHarvest = harvestTaxGains(finalPortfolio, Math.min(gainHarvestLimit, maximumHarvestGain), { calendarYear });
+    capitalEvents.push(...gainHarvest.flows);
     strategyLongTermGains += gainHarvest.realizedGains;
     flows.push(...gainHarvest.flows);
 
@@ -861,7 +885,7 @@ function simulateYearOnce({
       const acaMagi = acaMagiForIncome(income, lossCarryforward, yearTaxProfile?.capitalLossOrdinaryIncomeOffset ?? 3000, yearTaxProfile);
       const irmaaMagi = irmaaMagiForIncome(income, lossCarryforward, yearTaxProfile?.capitalLossOrdinaryIncomeOffset ?? 3000, yearTaxProfile);
       finalAca = computeAcaForYear({ age, spouseAge, magi: acaMagi, config: yearAcaConfig, filingStatus: yearTaxProfile.filingStatus });
-      if (!scenario.targetSpendIncludesMedical) {
+      {
         const medical = medicalCostForYear({
           scenario,
           aca: finalAca,
@@ -875,7 +899,7 @@ function simulateYearOnce({
           irmaaMagi,
           magiHistory
         });
-        medicalEstimate = medical.total;
+        medicalEstimate = medical.additionalCash;
         qualifiedHsaExpenses = medical.qualifiedHsaExpenses;
         finalMedicare = medical.medicare;
       }
@@ -935,7 +959,7 @@ function simulateYearOnce({
   qualifiedHsaExpenses = reconciled.qualifiedHsaExpenses;
 
   const totalCashRequired = plannedSpending
-    + (scenario.targetSpendIncludesMedical ? 0 : medicalEstimate)
+    + medicalEstimate
     + (scenario.targetSpendIncludesTaxes ? 0 : finalTaxes.totalTax)
     + hsaContribution.amount;
   const { income: finalIncome, taxableSocialSecurity: reconciledTaxableSocialSecurity } = incomeForYear({
@@ -987,7 +1011,7 @@ function simulateYearOnce({
     earnedIncome: recurringEarnedIncome,
     oneOffCashFlows,
     dividends,
-    rothConversionAmount,
+    rothConversionAmount: rothConversionTaxableAmount,
     withdrawal: finalWithdrawal,
     hsaContribution,
     strategyShortTermGains,
@@ -1063,6 +1087,10 @@ function simulateYearOnce({
   if (medicalEstimate > 0) {
     flows.push({ from: "Spending reserve", to: "Medical", amount: medicalEstimate, type: "medical" });
   }
+  if (hsaContribution.employerAmount > 0) {
+    addHsaContributionLot(finalPortfolio, { ...hsaContribution, byOwner: hsaContribution.employerByOwner }, { calendarYear, returnAssumptions: scenario.returnAssumptions });
+    flows.push({from:'Employer',to:'HSA contribution',amount:hsaContribution.employerAmount,type:'contribution'});
+  }
   if (hsaContribution.amount > 0) {
     addHsaContributionLot(finalPortfolio, hsaContribution, {
       calendarYear,
@@ -1113,6 +1141,7 @@ function simulateYearOnce({
 
   portfolio.splice(0, portfolio.length, ...finalPortfolio);
   copyRothLedger(portfolio, finalPortfolio);
+  copyIraLedger(portfolio, finalPortfolio);
   removeEmptyLots(portfolio);
   const endingAssets = assetSnapshot(portfolio);
   const rothBasisSummary = rothBasisSummaryForYear(finalPortfolio, {
@@ -1133,6 +1162,9 @@ function simulateYearOnce({
 
   return {
     year: calendarYear,
+    iraBasis: iraYearSummary(portfolio),
+    rothConversionTaxableAmount,
+    rothConversionNontaxableAmount: round(rothConversionAmount - rothConversionTaxableAmount, 6),
     yearIndex: yearIndex + 1,
     age: round(age, 2),
     inflationIndex: round(inflationIndex, 6),
@@ -1162,16 +1194,10 @@ function simulateYearOnce({
       medicalInflationIndex: medicalInflationIndex ?? inflationIndex,
       age, spouseAge, yearIndex, filingStatus: yearTaxProfile.filingStatus,
       irmaaMagi: finalIrmaaMagi, magiHistory
-    }).total : 0,
+    }).includedInSpending : 0,
     qualifiedHsaExpenses: round(qualifiedHsaExpenses, 6),
     medicare: finalMedicare,
-    // LTC stress reaches cash flow only through medicalCostForYear, which
-    // every spending path skips under targetSpendIncludesMedical — report 0
-    // there rather than a charge that was never applied (the combination is
-    // documented in KNOWN_LIMITATIONS).
-    ltcCost: scenario.targetSpendIncludesMedical
-      ? 0
-      : round(ltcStressCostForYear({ scenario, yearIndex, medicalInflationIndex: medicalInflationIndex ?? inflationIndex }), 6),
+    ltcCost: round(ltcStressCostForYear({ scenario, yearIndex, medicalInflationIndex: medicalInflationIndex ?? inflationIndex }), 6),
     spendingPhase: plannedSpendingDetail.spendingPhase ?? null,
     age65AdditionalDeduction: round(taxProfileContext.age65AdditionalDeduction, 6),
     enhancedSeniorDeduction: round(finalTaxes.enhancedSeniorDeduction ?? 0, 6),
@@ -1255,7 +1281,14 @@ function simulateYearOnce({
     ), 6),
     realizedShortTermGains: round(strategyShortTermGains + finalWithdrawal.shortTermCapitalGains, 6),
     realizedCapitalLosses: round(strategyCapitalLosses + finalWithdrawal.capitalLosses, 6),
+    capitalEvents: [...capitalEvents, ...lossHarvest.flows, ...assetLocation.sales, ...allocationStrategy.sales,
+      ...(tipsLadderBuild?.sales ?? []), ...(tipsLadderMaintenance?.sales ?? []), ...finalWithdrawal.sales]
+      .filter(event => event.accountType === 'taxable' && Number.isFinite(event.gain) && event.gain !== 0)
+      .map(({owner,gain,taxType})=>({owner,gain,taxType})),
     lossCarryforward: finalTaxes.lossCarryforward,
+    stateHsaCapitalEvents: hsaCapitalEvents([...assetLocation.sales, ...allocationStrategy.sales,
+      ...(tipsLadderBuild?.sales ?? []), ...(tipsLadderMaintenance?.sales ?? []), ...finalWithdrawal.sales]),
+    stateLossCarryforward: finalTaxes.stateTaxBreakdown?.capitalLossCarryforward ?? null,
     lossCarryforwardDetail: {
       shortTerm: finalTaxes.lossCarryforwardShort ?? 0,
       longTerm: finalTaxes.lossCarryforwardLong ?? finalTaxes.lossCarryforward ?? 0
@@ -1381,7 +1414,7 @@ function reconcileCashRequirement({
 
   for (let iteration = 0; iteration < 10; iteration += 1) {
     const totalCashRequired = plannedSpending
-      + (scenario.targetSpendIncludesMedical ? 0 : currentMedicalEstimate)
+      + currentMedicalEstimate
       + (scenario.targetSpendIncludesTaxes ? 0 : currentTaxes.totalTax)
       + hsaContributionAmount;
     const cashAvailable = dividends.cash + incomeCashAvailable + socialSecurityBenefits + currentWithdrawal.cashRaised;
@@ -1456,7 +1489,7 @@ function reconcileCashRequirement({
     currentTaxableSocialSecurity = chosenTopUp.taxableSocialSecurity;
     currentTaxes = chosenTopUp.taxes;
     currentAca = chosenTopUp.aca;
-    currentMedicalEstimate = scenario.targetSpendIncludesMedical ? 0 : chosenTopUp.medicalTotal;
+    currentMedicalEstimate = chosenTopUp.medicalTotal;
     currentQualifiedHsaExpenses = chosenTopUp.qualifiedHsaExpenses;
     currentMedicare = chosenTopUp.medicare;
     currentRothBasisOptimization = chosenTopUp.rothBasisOptimization;
@@ -1464,7 +1497,7 @@ function reconcileCashRequirement({
 
   for (let iteration = 0; iteration < 20; iteration += 1) {
     const totalCashRequired = plannedSpending
-      + (scenario.targetSpendIncludesMedical ? 0 : currentMedicalEstimate)
+      + currentMedicalEstimate
       + (scenario.targetSpendIncludesTaxes ? 0 : currentTaxes.totalTax)
       + hsaContributionAmount;
     const cashAvailable = dividends.cash + incomeCashAvailable + socialSecurityBenefits + currentWithdrawal.cashRaised;
@@ -1532,7 +1565,7 @@ function reconcileCashRequirement({
     currentTaxableSocialSecurity = forcedTopUp.taxableSocialSecurity;
     currentTaxes = forcedTopUp.taxes;
     currentAca = forcedTopUp.aca;
-    currentMedicalEstimate = scenario.targetSpendIncludesMedical ? 0 : forcedTopUp.medicalTotal;
+    currentMedicalEstimate = forcedTopUp.medicalTotal;
     currentQualifiedHsaExpenses = forcedTopUp.qualifiedHsaExpenses;
     currentMedicare = forcedTopUp.medicare;
   }

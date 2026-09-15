@@ -1,4 +1,6 @@
 import { normalizeIncomeStream } from "./simulation/incomeStreams.mjs";
+import { validateAcaCostSharing } from './acaCostSharing.mjs';
+import { validateHsaCoverage } from './simulation/hsa.mjs';
 
 export const MIN_USER_PLANNING_ANNUAL_SPEND = 1000;
 
@@ -18,6 +20,10 @@ export function normalizeUserPlanningSpendingMode(value) {
 export function validateUserPlanningScenario(scenario = {}, options = {}) {
   const minAnnualSpend = Math.max(1, Number(options.minAnnualSpend) || MIN_USER_PLANNING_ANNUAL_SPEND);
   const errors = [];
+  try { validateHsaCoverage(scenario); }
+  catch (error) { errors.push({field:'taxEfficiencyStrategy.hsaCoverage',controlId:'hsaCoverage',message:error.message}); }
+  try { validateAcaCostSharing(scenario.aca); }
+  catch (error) { errors.push({field:'aca.csr',controlId:'acaCsrEnabled',message:error.message}); }
   for (const [ageField, startField, statusField] of [
     ['currentAge', 'socialSecurityStartAge', 'socialSecurityClaimStatus'],
     ['spouseAge', 'spouseSocialSecurityStartAge', 'spouseSocialSecurityClaimStatus']
@@ -26,7 +32,7 @@ export function validateUserPlanningScenario(scenario = {}, options = {}) {
     if (scenario[statusField] === 'claimed' && Number(scenario[startField]) > Number(scenario[ageField])) errors.push({ field: startField, controlId: startField, message: 'For an existing Social Security award, enter the actual past or current claim age.' });
   }
   for (const field of ['traditionalIraBasis', 'spouseTraditionalIraBasis']) {
-    if (Number(scenario[field]) > 0) errors.push({ field, controlId: field, message: 'Nondeductible traditional IRA basis needs Form 8606 pro-rata modeling, which is not supported. Do not use this plan for withdrawal/conversion recommendations.' });
+    if (scenario[field] != null && (!Number.isFinite(Number(scenario[field])) || Number(scenario[field]) < 0)) errors.push({ field, controlId: field, message: 'Enter finite, nonnegative nondeductible IRA basis.' });
   }
   for (const owner of ['primary', 'spouse']) {
     const budget = scenario.survivorBudgets?.[owner];

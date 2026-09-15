@@ -16,8 +16,8 @@ export function copyRothLedger(target, source) {
   if (source.rothLedger) {
     const ledger = source.rothLedger;
     attachRothLedger(target, {
-      primary: { contributions: ledger.primary.contributions, conversions: ledger.primary.conversions.map(entry => ({ ...entry })) },
-      spouse: { contributions: ledger.spouse.contributions, conversions: ledger.spouse.conversions.map(entry => ({ ...entry })) },
+      primary: { ...ledger.primary, conversions: ledger.primary.conversions.map(entry => ({ ...entry })) },
+      spouse: { ...ledger.spouse, conversions: ledger.spouse.conversions.map(entry => ({ ...entry })) },
       ownerAliases: { ...ledger.ownerAliases }
     });
   }
@@ -32,6 +32,16 @@ export function ensureRothLedger(portfolio, options = {}) {
     ownerAliases: {}
   };
   attachRothLedger(portfolio, ledger);
+  for (const owner of ['primary', 'spouse']) {
+    const year = options[owner === 'spouse' ? 'spouseRothFirstContributionYear' : 'rothFirstContributionYear'];
+    if (year != null && String(year).trim() !== '') {
+      if (!Number.isInteger(Number(year)) || Number(year) < 1998 || Number(year) > Number(options.startYear ?? 2200)) throw new RangeError('First Roth IRA contribution tax year must be 1998 or later and no later than the plan start.');
+      ledger[owner].firstContributionYear = Number(year);
+    }
+    ledger[owner].hasOpeningRoth = portfolio.some(asset => asset.accountType === 'roth' && ownerKey(asset.owner) === owner);
+    const confirmation = owner === 'spouse' ? options.spouseRothFiveYearRuleSatisfied ?? options.rothFiveYearRuleSatisfied : options.rothFiveYearRuleSatisfied;
+    ledger[owner].qualifiedAtStart = ledger[owner].hasOpeningRoth && ledger[owner].firstContributionYear == null && confirmation === true;
+  }
   const history = options.rothConversionHistory;
   if (Array.isArray(history)) {
     for (const entry of history) recordRothConversion(portfolio, entry.owner, entry.year, entry.taxableAmount, entry.nontaxableAmount);
@@ -53,6 +63,7 @@ export function recordRothConversion(portfolio, owner, year, taxableAmount, nont
   const conversions = ledger[key].conversions;
   // Unknown dates are conservatively unseasoned until corrected by the user.
   const normalizedYear = Number.isFinite(Number(year)) && year != null ? Number(year) : null;
+  if (!ledger[key].hasOpeningRoth && normalizedYear != null) ledger[key].firstContributionYear = Math.min(ledger[key].firstContributionYear ?? Infinity, normalizedYear);
   let entry = conversions.find(item => item.year === normalizedYear);
   if (!entry) conversions.push(entry = { year: normalizedYear, taxableAmount: 0, nontaxableAmount: 0 });
   entry.taxableAmount = round(entry.taxableAmount + dollars(taxableAmount), 6);
@@ -67,6 +78,8 @@ export function rothContributionBalance(ledger) {
 export function consumeRothDistribution(ledger, owner, amount, { calendarYear, isEarly, qualified }) {
   const key = ledger.ownerAliases[ownerKey(owner)] ?? ownerKey(owner);
   const history = ledger[key];
+  if (history.qualifiedAtStart) qualified = !isEarly;
+  else if (history.firstContributionYear != null) qualified = !isEarly && calendarYear - history.firstContributionYear >= 5;
   const contributions = Math.min(dollars(amount), history.contributions);
   history.contributions = round(history.contributions - contributions, 6);
   let remaining = dollars(amount) - contributions;
@@ -93,6 +106,10 @@ export function rolloverRothLedger(portfolio, deceasedOwner) {
   const ledger = ensureRothLedger(portfolio);
   if (ledger.ownerAliases[deceasedOwner]) return;
   const survivor = deceasedOwner === 'spouse' ? 'primary' : 'spouse';
+  ledger[survivor].qualifiedAtStart ||= ledger[deceasedOwner].qualifiedAtStart;
+  const years = [ledger[survivor].firstContributionYear, ledger[deceasedOwner].firstContributionYear].filter(Number.isFinite);
+  if (years.length) ledger[survivor].firstContributionYear = Math.min(...years);
+  ledger[survivor].hasOpeningRoth ||= ledger[deceasedOwner].hasOpeningRoth;
   ledger[survivor].contributions += ledger[deceasedOwner].contributions;
   for (const entry of [...ledger[deceasedOwner].conversions]) recordRothConversion(portfolio, survivor, entry.year, entry.taxableAmount, entry.nontaxableAmount);
   ledger[deceasedOwner] = emptyOwner(0);
@@ -122,8 +139,8 @@ export function rothLedgerSummary(portfolio, options) {
       }
     }
     const value = portfolio.reduce((sum, asset) => sum + (asset.accountType === 'roth' && (ledger.ownerAliases[ownerKey(asset.owner)] ?? ownerKey(asset.owner)) === owner ? dollars(asset.units) * dollars(asset.price) : 0), 0);
-    const fiveYears = Object.keys(ledger.ownerAliases).length ? options.rothFiveYearRuleSatisfied !== false || (options.spouseRothFiveYearRuleSatisfied ?? options.rothFiveYearRuleSatisfied) !== false : owner === 'spouse' ? options.spouseRothFiveYearRuleSatisfied ?? options.rothFiveYearRuleSatisfied : options.rothFiveYearRuleSatisfied;
-    ownerAvailable[owner] = Math.min(value, !early && fiveYears !== false ? value : safe);
+    const fiveYears = history.firstContributionYear != null ? options.calendarYear - history.firstContributionYear >= 5 : Object.keys(ledger.ownerAliases).length ? options.rothFiveYearRuleSatisfied !== false || (options.spouseRothFiveYearRuleSatisfied ?? options.rothFiveYearRuleSatisfied) !== false : owner === 'spouse' ? options.spouseRothFiveYearRuleSatisfied ?? options.rothFiveYearRuleSatisfied : options.rothFiveYearRuleSatisfied;
+    ownerAvailable[owner] = Math.min(value, !early && (history.qualifiedAtStart || fiveYears !== false) ? value : safe);
     available += ownerAvailable[owner];
   }
   return { conversionPrincipal: round(conversionPrincipal, 6), penaltyFreeConversionPrincipal: round(penaltyFreeConversionPrincipal, 6), available: round(available, 6), ownerAvailable };

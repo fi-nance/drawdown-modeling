@@ -18,7 +18,7 @@ export function selectGainHarvestingPolicy({ assets, scenario, evaluate }) {
   if (!coverageYears.some(Boolean)) return disabled;
   const candidates = [{ label: 'Current-year heuristic', targets: null, admissible: true, ...baseline }];
   let selected = candidates[0];
-  const patterns = [0, 200, 250, 300, 350, 400].map(target => ({
+  const patterns = (scenario.aca?.csr?.enabled ? [0, 150, 200, 250, 300, 350, 400] : [0, 200, 250, 300, 350, 400]).map(target => ({
     label: target ? `Up to ${target}% FPL` : 'Defer ACA-year harvesting',
     targets: coverageYears.map(covered => covered ? target : null)
   }));
@@ -75,6 +75,7 @@ function summarize(plan, scenario) {
     ptcYears: years.filter(year => year.aca?.subsidy > 1).length,
     years: years.map(year => ({ year: year.year, magi: year.acaMagi,
       harvested: year.taxGainHarvested, taxes: year.taxes.totalTax,
-      netPremium: year.aca?.netPremium ?? 0, ptc: year.aca?.subsidy ?? 0 }))
+      netPremium: year.aca?.netPremium ?? 0, ptc: year.aca?.subsidy ?? 0,
+      csrBand: year.aca?.costSharing?.band ?? null, expectedOop: year.aca?.costSharing?.expectedOop ?? null }))
   };
 }

@@ -4,10 +4,25 @@ import { socialSecurityBirthYear, socialSecurityClaimFactor, socialSecurityFullR
 // SSA 2026 annual retirement earnings-test limits. Future limits use the plan's
 // inflation assumption; this is a projection, not a future SSA announcement.
 export function socialSecurityEarningsForYear({ scenario, owner = 'primary', age, annualBenefit, earnedIncome,
-  yearIndex, inflationIndex = 1, creditedMonths = 0, survivor = false }) {
+  yearIndex, inflationIndex = 1, creditedMonths = 0, survivor = false, components = null, spousalCreditedMonths = 0,
+  benefitType = 'retirement', claimAge = null, withholdingOverride = null }) {
+  if (Array.isArray(components)) {
+    // The earnings limit applies once to the combined payment. Each component
+    // then gets its own original reduction formula and entitlement clock.
+    const total = components.reduce((sum, component) => sum + component.annualBenefit, 0);
+    const args = { scenario, owner, age, annualBenefit: total, earnedIncome, yearIndex, inflationIndex, creditedMonths };
+    const combined = socialSecurityEarningsForYear(args);
+    const details = components.map(component => ({ type:component.type, ...socialSecurityEarningsForYear({ ...args,
+      annualBenefit:component.annualBenefit, benefitType:component.type, claimAge:component.startAge,
+      creditedMonths:component.type === 'spousal' ? spousalCreditedMonths : creditedMonths,
+      withholdingOverride:total > 0 ? combined.withheld * component.annualBenefit / total : 0 }) }));
+    return { ...combined, payable:round(details.reduce((sum,row)=>sum+row.payable,0),6), components:details,
+      creditedMonths:details.find(row=>row.type==='retirement')?.creditedMonths ?? creditedMonths,
+      spousalCreditedMonths:details.find(row=>row.type==='spousal')?.creditedMonths ?? spousalCreditedMonths };
+  }
   const birthYear = socialSecurityBirthYear(scenario, owner);
   const fra = socialSecurityFullRetirementAge(birthYear); // retirement FRA also governs survivor earnings test
-  const startAge = Number((owner === 'spouse' ? scenario.spouseSocialSecurityStartAge : scenario.socialSecurityStartAge) ?? 67);
+  const startAge = Number(claimAge ?? (owner === 'spouse' ? scenario.spouseSocialSecurityStartAge : scenario.socialSecurityStartAge) ?? 67);
   const maxCredits = Math.max(0, Math.round((fra - startAge) * 12));
   const credits = Math.min(maxCredits, Math.max(0, creditedMonths));
   const monthsBeforeFra = Math.max(0, Math.min(12, Math.ceil((fra - age) * 12 - 1e-8)));
@@ -15,7 +30,7 @@ export function socialSecurityEarningsForYear({ scenario, owner = 'primary', age
   const explicitClaimMonth = Number(owner === 'spouse' ? scenario.spouseSocialSecurityClaimMonth : scenario.socialSecurityClaimMonth) || 1;
   const firstMonth = firstYear ? Math.max(1, Math.min(12, Math.max(explicitClaimMonth, Math.ceil((startAge - age) * 12) + 1))) : 1;
   const payableMonths = Math.max(0, 13 - firstMonth);
-  const adjustment = !survivor && credits > 0 ? socialSecurityClaimFactor(startAge + credits / 12, birthYear) / socialSecurityClaimFactor(startAge, birthYear) : 1;
+  const adjustment = !survivor && credits > 0 ? socialSecurityClaimFactor(startAge + credits / 12, birthYear, benefitType) / socialSecurityClaimFactor(startAge, birthYear, benefitType) : 1;
   const afterFraMonths = Math.max(0, 12 - Math.max(monthsBeforeFra, firstMonth - 1));
   let gross = annualBenefit * (payableMonths + afterFraMonths * (adjustment - 1)) / 12;
   if (!(gross > 0) || monthsBeforeFra === 0) return { payable: round(gross, 6), withheld: 0, creditedMonths: credits, method: 'no-earnings-test' };
@@ -43,9 +58,10 @@ export function socialSecurityEarningsForYear({ scenario, owner = 'primary', age
     withheld = Math.min(annualWithheld, monthlyWithheld);
     method = 'first-year-monthly';
   }
+  if (withholdingOverride != null) withheld = Math.min(testedBenefit, Math.max(0, withholdingOverride));
   const newCredits = survivor ? credits : Math.min(maxCredits, credits + Math.min(payableMonths, Math.ceil(withheld / (annualBenefit / 12) - 1e-8)));
   if (!survivor && afterFraMonths > 0 && newCredits > credits) {
-    const updatedAdjustment = socialSecurityClaimFactor(startAge + newCredits / 12, birthYear) / socialSecurityClaimFactor(startAge, birthYear);
+    const updatedAdjustment = socialSecurityClaimFactor(startAge + newCredits / 12, birthYear, benefitType) / socialSecurityClaimFactor(startAge, birthYear, benefitType);
     gross += annualBenefit * afterFraMonths * (updatedAdjustment - adjustment) / 12;
   }
   return { payable: round(Math.max(0, gross - withheld), 6), withheld: round(withheld, 6), creditedMonths: newCredits, method,

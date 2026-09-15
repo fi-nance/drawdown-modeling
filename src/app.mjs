@@ -1,4 +1,5 @@
 import { EXTENSION_CONTROL_DEFAULTS, applyPlanningExtensionControls, planningExtensionControlsForScenario } from "./core/planningExtensions.mjs";
+import { ACCOUNT_SUBTYPES, accountSubtype, isTraditionalIra, prepareRetirementAccounts } from './core/iraBasis.mjs';
 import { parseRothConversionHistory } from "./core/rothLedger.mjs";
 import {
   ensureUniqueAssetIds,
@@ -301,6 +302,7 @@ const CONTROL_IDS = [
   "childAges",
   "additionalFederalDeduction",
   "additionalFederalCredits",
+  "federalCreditsBeforeCtc",
   "itemizedDeductionMode",
   "itemizedStateLocalTaxes",
   "itemizedMortgageInterest",
@@ -310,6 +312,7 @@ const CONTROL_IDS = [
   "qbiSourceMode",
   "qbiAmount",
   "qbiSpecifiedServiceBusiness",
+  "qbiMaterialParticipation",
   "qbiW2Wages",
   "qbiUbiaQualifiedProperty",
   "stateTaxRate",
@@ -561,6 +564,7 @@ const els = {
   childAges: document.querySelector("#childAges"),
   additionalFederalDeduction: document.querySelector("#additionalFederalDeduction"),
   additionalFederalCredits: document.querySelector("#additionalFederalCredits"),
+  federalCreditsBeforeCtc: document.querySelector("#federalCreditsBeforeCtc"),
   itemizedDeductionMode: document.querySelector("#itemizedDeductionMode"),
   itemizedStateLocalTaxes: document.querySelector("#itemizedStateLocalTaxes"),
   itemizedMortgageInterest: document.querySelector("#itemizedMortgageInterest"),
@@ -570,6 +574,7 @@ const els = {
   qbiSourceMode: document.querySelector("#qbiSourceMode"),
   qbiAmount: document.querySelector("#qbiAmount"),
   qbiSpecifiedServiceBusiness: document.querySelector("#qbiSpecifiedServiceBusiness"),
+  qbiMaterialParticipation: document.querySelector("#qbiMaterialParticipation"),
   qbiW2Wages: document.querySelector("#qbiW2Wages"),
   qbiUbiaQualifiedProperty: document.querySelector("#qbiUbiaQualifiedProperty"),
   stateTaxRate: document.querySelector("#stateTaxRate"),
@@ -940,6 +945,18 @@ function initialize() {
 }
 
 function bindEvents() {
+  document.querySelector('#addAdditionalIra').addEventListener('click', () => {
+    const value = Number(document.querySelector('#additionalIraBalance').value);
+    const error = document.querySelector('#additionalIraError');
+    if (!Number.isFinite(value) || value <= 0) { error.textContent = 'Enter a positive IRA balance.'; return; }
+    error.textContent = '';
+    const id = `ira-${crypto.randomUUID()}`;
+    assets.push({id, accountId: id, name: document.querySelector('#additionalIraName').value.trim() || 'Other IRA',
+      accountType: 'traditional', accountSubtype: document.querySelector('#additionalIraSubtype').value,
+      owner: document.querySelector('#additionalIraOwner').value, assetClass: document.querySelector('#additionalIraClass').value,
+      units: value, price: 1, costBasisPerUnit: 1, dividendYield: 0, qualifiedDividendShare: 0, holdingPeriod: 'long'});
+    renderAssetTable(); syncJsonFromAssets(); saveStoredState();
+  });
   els.rememberSetup?.addEventListener("change", handleRememberSetupChange);
   els.clearLocalData?.addEventListener("click", handleClearLocalData);
   els.fillMassConnectorCare.addEventListener("click", applyMassachusettsConnectorCarePreset);
@@ -2021,7 +2038,7 @@ function applyScenarioControls(scenario) {
     const control = document.getElementById(id);
     if (!control) continue;
     if (control.type === 'checkbox') control.checked = Boolean(value);
-    else control.value = String(value);
+    else control.value = value == null ? '' : String(value);
   }
 
   setNumberControl("targetSpend", scenario.targetSpend);
@@ -2381,6 +2398,8 @@ async function runModels(opts = {}) {
     const started = performance.now();
     const scenario = readScenario();
     const planningValidation = validateUserPlanningScenario(scenario);
+    try { prepareRetirementAccounts(assets); }
+    catch (error) { planningValidation.ok = false; planningValidation.errors.push({controlId:'assetTable',message:error.message}); }
     if (!planningValidation.ok) {
       const validationError = planningValidation.errors[0];
       setStatus(validationError.message, true);
@@ -3576,7 +3595,7 @@ function renderActionPlan() {
       "Convert traditional to Roth",
       money(year.rothConversionAmount, year),
       "Traditional accounts",
-      `${money(taxAttributionFor(year, "Roth conversion"), year)} estimated tax share`,
+      `${money(year.rothConversionTaxableAmount ?? year.rothConversionAmount, year)} taxable; ${money(year.rothConversionNontaxableAmount ?? 0, year)} basis recovered; ${money(taxAttributionFor(year, "Roth conversion"), year)} estimated tax share`,
       "Fills low ordinary brackets without crossing the selected ACA MAGI target."
     ]);
   }
@@ -3716,7 +3735,7 @@ function renderActionPlan() {
       money(year.medicalCost, year),
       "Spending reserve",
       `${money(year.aca?.grossPremium ?? 0, year)} gross ACA premium; ${money(year.aca?.subsidy ?? 0, year)} subsidy; ${money(year.aca?.netPremium ?? 0, year)} net`,
-      `${money(medicarePremium, year)} Medicare/IRMAA after age 65.`
+      `${money(medicarePremium, year)} Medicare/IRMAA after age 65.${year.aca?.costSharing ? ` ${escapeHtml(year.aca.costSharing.band)}: ${money(year.aca.costSharing.expectedOop, year)} expected OOP; ${money(year.aca.costSharing.oopMaximum, year)} limit.` : ''}`
     ]);
   }
 
@@ -4147,7 +4166,15 @@ function bindPinnedOffsetRefresh(container) {
   };
 }
 
+function renderIraBalanceSummary() {
+  const summary = document.querySelector('#iraBalanceSummary');
+  if (!summary) return;
+  const total = owner => assets.reduce((sum, asset) => sum + ((isTraditionalIra(asset) || (asset.accountType === 'traditional' && asset.rolloverToIraAtStart)) && (asset.owner ?? 'primary') === owner ? Number(asset.units) * Number(asset.price) : 0), 0);
+  summary.textContent = `Entered IRA balances: you ${moneyFormatter.format(total('primary'))}; spouse ${moneyFormatter.format(total('spouse'))}.`;
+}
+
 function renderAssetTable() {
+  renderIraBalanceSummary();
   const accountOptions = ["taxable", "traditional", "roth", "hsa"];
   const assetClassOptions = ["stock", "bond", "cash", "realEstate", "tips", "crypto"];
   const holdingOptions = ["long", "short"];
@@ -4175,12 +4202,15 @@ function renderAssetTable() {
     <tr>
       <td data-label="Name"><input data-index="${index}" data-field="name" value="${escapeAttr(asset.name)}"></td>
       <td data-label="Symbol / ID"><input data-index="${index}" data-field="symbol" placeholder="VTI / CUSIP / 2021-11" value="${escapeAttr(asset.symbol ?? "")}"></td>
-      <td data-label="Account">${selectHtml(index, "accountType", accountOptions, asset.accountType)}</td>
+      <td data-label="Account">${selectHtml(index, "accountType", accountOptions, asset.accountType)}
+        ${selectHtml(index, 'accountSubtype', (ACCOUNT_SUBTYPES[asset.accountType] ?? []).map(value => ({ value, label: ({traditionalIra:'Traditional IRA',sepIra:'SEP IRA',simpleIra:'SIMPLE IRA (over 2 years)',rothIra:'Roth IRA',roth401k:'Roth 401(k)',roth403b:'Roth 403(b)',governmental457b:'Governmental 457(b)'})[value] ?? value })), accountSubtype(asset))}
+        ${['traditional','roth'].includes(asset.accountType) ? `<label><input data-index="${index}" data-field="rolloverToIraAtStart" type="checkbox" ${asset.rolloverToIraAtStart ? 'checked' : ''}>Completed IRA rollover</label>` : ''}</td>
       <td data-label="Class">${selectHtml(index, "assetClass", assetClassOptions, asset.assetClass)}</td>
       <td data-label="Units"><input data-index="${index}" data-field="units" type="number" step="0.0001" value="${asset.units}"></td>
       <td data-label="Price" class="price-cell${refreshClass}"${refreshTitle}><input data-index="${index}" data-field="price" type="number" step="0.01" value="${asset.price}"></td>
       <td data-label="Basis"><input data-index="${index}" data-field="costBasisPerUnit" type="number" step="0.01" value="${asset.costBasisPerUnit}"></td>
-      <td data-label="Yield"><input data-index="${index}" data-field="dividendYield" type="number" step="0.001" value="${asset.dividendYield ?? 0}"></td>
+      <td data-label="Yield"><input aria-label="Income yield" data-index="${index}" data-field="dividendYield" type="number" step="0.001" value="${asset.dividendYield ?? 0}">
+        ${['taxable','hsa'].includes(asset.accountType) ? `<label>State-exempt interest share (0-1)<input data-index="${index}" data-field="stateExemptInterestShare" type="number" min="0" max="1" step="0.01" value="${asset.stateExemptInterestShare ?? 0}"></label>` : ''}</td>
       <td data-label="Qualified"><input data-index="${index}" data-field="qualifiedDividendShare" type="number" step="0.05" min="0" max="1" value="${asset.qualifiedDividendShare ?? 0}"></td>
       <td data-label="Term">${selectHtml(index, "holdingPeriod", holdingOptions, asset.holdingPeriod ?? "long")}</td>
       <td data-label="Owner">${selectHtml(index, "owner", ownerOptions, asset.owner ?? "primary")}</td>
@@ -4219,7 +4249,9 @@ function renderAssetTable() {
     input.addEventListener("change", () => {
       const index = Number(input.dataset.index);
       const field = input.dataset.field;
-      assets[index][field] = numericAssetFields.has(field) ? Number(input.value) : input.value;
+      assets[index][field] = input.type === 'checkbox' ? input.checked : numericAssetFields.has(field) ? Number(input.value) : input.value;
+      if (field === 'accountType') { delete assets[index].accountSubtype; delete assets[index].rolloverToIraAtStart; renderAssetTable(); }
+      renderIraBalanceSummary();
       // A manual price/symbol edit makes the last refresh outcome stale for
       // this row — drop its highlight rather than mislabel the new value.
       // (No re-render: that would steal focus mid-edit.)
@@ -5509,6 +5541,7 @@ function readTaxProfile() {
     childAges,
     additionalDeduction: Number(els.additionalFederalDeduction.value) || 0,
     additionalCredits: Number(els.additionalFederalCredits.value) || 0,
+    creditsBeforeChildTaxCredit: Number(els.federalCreditsBeforeCtc.value) || 0,
     itemizedDeductionMode: els.itemizedDeductionMode?.value || "auto",
     itemizedStateLocalTaxes: Number(els.itemizedStateLocalTaxes?.value) || 0,
     itemizedMortgageInterest: Number(els.itemizedMortgageInterest?.value) || 0,
@@ -5518,6 +5551,7 @@ function readTaxProfile() {
     qbiSourceMode: els.qbiSourceMode?.value || "none",
     qbiAmount: Number(els.qbiAmount?.value) || 0,
     qbiSpecifiedServiceBusiness: els.qbiSpecifiedServiceBusiness?.checked === true,
+    qbiMaterialParticipation: els.qbiMaterialParticipation?.checked === true,
     qbiW2Wages: Number(els.qbiW2Wages?.value) || 0,
     qbiUbiaQualifiedProperty: Number(els.qbiUbiaQualifiedProperty?.value) || 0,
     overrideRate: percentOrNull(els.stateTaxRate.value),
@@ -6011,6 +6045,7 @@ const numericAssetFields = new Set([
   "units",
   "price",
   "costBasisPerUnit",
+  "stateExemptInterestShare",
   "dividendYield",
   "qualifiedDividendShare"
 ]);

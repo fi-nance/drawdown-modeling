@@ -115,6 +115,10 @@ export function repriceTipsLadderRungs(portfolio, { yearIndex, inflationIndex })
         asset.costBasisPerUnit = newPrice;
       }
     }
+    if (asset.accountType === 'hsa') {
+      // TIPS OID is state-exempt as well; keep it out of later HSA sale gains.
+      asset.costBasisPerUnit = Math.max(asset.costBasisPerUnit ?? asset.price ?? 0, newPrice);
+    }
     asset.price = newPrice;
   }
   return round(taxablePhantomIncome, 6);
@@ -556,6 +560,7 @@ export function matureTipsLadderRungs({ portfolio, yearIndex, context }) {
   const ownerByAssetId = new Map(maturing.map((asset) => [asset.id, assetOwner(asset)]));
   const total = maturing.reduce((sum, asset) => sum + marketValue(asset), 0);
   const withdrawal = withdrawForCash(maturing, total * 1.000001, ["taxable", "traditional", "roth", "hsa"], {
+    iraLedger: portfolio.iraLedger,
     ...context,
     includeTipsLadderRungs: true,
     rothLedger: ensureRothLedger(portfolio, context)

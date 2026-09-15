@@ -646,7 +646,7 @@ function evaluateWithdrawalState({
     taxes: taxesWithPenalties,
     aca,
     medicare: medical.medicare,
-    medicalTotal: medical.total,
+    medicalTotal: medical.additionalCash,
     qualifiedHsaExpenses: medical.qualifiedHsaExpenses,
     modeledCost: round(taxesWithPenalties.totalTax + medical.total, 6),
     federalAgi,

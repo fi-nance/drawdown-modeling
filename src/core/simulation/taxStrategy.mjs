@@ -16,7 +16,7 @@ import { medicalCostForYear, medicareIrmaaBracketKey } from "./medical.mjs";
 import { embeddedTaxableGains, traditionalAccountValue } from "./portfolioQueries.mjs";
 import { defaultRmdStartAge } from "./rmd.mjs";
 import { isLifetimeOptimizerEnabled, withdrawalStrategyConfig } from "./scenario.mjs";
-import { emptyWithdrawal, conversionIncomeDetails } from "./withdrawalExecution.mjs";
+import { emptyWithdrawal, conversionIncomeDetails, conversionTaxableAmount, conversionGrossForTaxableLimit } from "./withdrawalExecution.mjs";
 
 export function addPenaltyTax(taxes, penaltyTax = 0) {
   const penalty = Math.max(0, penaltyTax);
@@ -393,10 +393,11 @@ function marginalIncomeRoom({
 
   const costFor = (additionalIncome) => {
     const extra = Math.max(0, additionalIncome);
+    const taxableExtra = kind === 'ordinary' && conversionPortfolio.length ? conversionTaxableAmount(conversionPortfolio, extra) : extra;
     const { income } = incomeForYear({
-      ordinaryIncome: ordinaryIncome + (kind === "ordinary" ? extra : 0),
+      ordinaryIncome: ordinaryIncome + (kind === "ordinary" ? taxableExtra : 0),
       earnedIncome,
-      retirementOrdinaryIncome: retirementOrdinaryIncome + (kind === "ordinary" ? extra : 0),
+      retirementOrdinaryIncome: retirementOrdinaryIncome + (kind === "ordinary" ? taxableExtra : 0),
       retirementIncomeDetails: [...retirementIncomeDetails, ...(kind === "ordinary" ? conversionIncomeDetails(conversionPortfolio, extra) : [])],
       ordinaryInvestmentIncome,
       qualifiedDividends,
@@ -445,6 +446,7 @@ function marginalIncomeRoom({
   const base = costFor(0);
   const points = marginalIncomeCandidateAmounts({
     kind,
+    conversionPortfolio,
     maxAmount: cap,
     taxProfile,
     acaConfig,
@@ -477,6 +479,7 @@ function marginalIncomeRoom({
 
 function marginalIncomeCandidateAmounts({
   kind,
+  conversionPortfolio = [],
   maxAmount,
   taxProfile,
   acaConfig,
@@ -487,6 +490,7 @@ function marginalIncomeCandidateAmounts({
 }) {
   const points = new Set([round(maxAmount, 6)]);
   const addPoint = (amount) => {
+    if (kind === 'ordinary' && conversionPortfolio.length) amount = conversionGrossForTaxableLimit(conversionPortfolio, amount);
     if (Number.isFinite(amount) && amount > CASH_RAISED_EPSILON && amount <= maxAmount + CASH_RAISED_EPSILON) {
       points.add(round(Math.min(maxAmount, amount), 6));
     }
@@ -506,6 +510,10 @@ function marginalIncomeCandidateAmounts({
   }
 
   if (acaConfig?.enabled && acaConfig.fpl > 0) {
+    if (acaConfig.csr?.enabled) for (const percent of [100,150,200,250]) {
+      addPoint(acaConfig.fpl * percent / 100 - base.acaMagi);
+      addPoint(acaConfig.fpl * percent / 100 - base.acaMagi + 0.01);
+    }
     for (const row of acaConfig.applicablePercentageTable ?? []) {
       addPoint(acaConfig.fpl * (row.maxFplPercent ?? 0) / 100 - base.acaMagi);
     }
@@ -635,7 +643,7 @@ export function rothConversionAmountForYear({
         qualifiedDividends,
         adjustmentsToIncome
       });
-      return round(Math.min(requested, room, directAcaRoom, traditionalAccountValue(portfolio)), 6);
+      return round(Math.min(requested, room, conversionGrossForTaxableLimit(portfolio, directAcaRoom), traditionalAccountValue(portfolio)), 6);
     }
     return requested;
   }
@@ -706,7 +714,7 @@ export function rothConversionAmountForYear({
         taxProfile,
         ordinaryIncome
       }),
-      maxAmount: Math.min(maxTraditional, acaRoom, irmaaRoom),
+      maxAmount: Math.min(maxTraditional, conversionGrossForTaxableLimit(portfolio, Math.min(acaRoom, irmaaRoom))),
       ordinaryIncome,
       earnedIncome,
       retirementOrdinaryIncome,
@@ -727,7 +735,7 @@ export function rothConversionAmountForYear({
       yearIndex,
       magiHistory
     });
-    return round(Math.min(marginalRoom, irmaaRoom, maxTraditional), 6);
+    return round(Math.min(marginalRoom, conversionGrossForTaxableLimit(portfolio, irmaaRoom), maxTraditional), 6);
   }
   const targetCeiling = bracketCeilingForRate(taxProfile.ordinaryBrackets, targetRate);
   const withdrawalOrdinaryIncome = Math.max(0, baseWithdrawal?.ordinaryIncome ?? 0);
@@ -776,9 +784,7 @@ export function rothConversionAmountForYear({
   });
 
   return round(Math.min(
-    finiteRoom(federalRoom),
-    finiteRoom(acaRoom),
-    finiteRoom(irmaaRoom),
+    conversionGrossForTaxableLimit(portfolio, Math.min(finiteRoom(federalRoom), finiteRoom(acaRoom), finiteRoom(irmaaRoom))),
     traditionalAccountValue(portfolio)
   ), 6);
 }
@@ -853,7 +859,7 @@ function rothConversionMagiGuardrailRoom({
     magiBeforeConversion: irmaaMagiForIncome(income, lossCarryforward, taxProfile?.capitalLossOrdinaryIncomeOffset ?? 3000, taxProfile),
     targetRate
   });
-  return Math.min(finiteRoom(acaRoom), finiteRoom(irmaaRoom), traditionalAccountValue(portfolio));
+  return Math.min(conversionGrossForTaxableLimit(portfolio, Math.min(finiteRoom(acaRoom), finiteRoom(irmaaRoom))), traditionalAccountValue(portfolio));
 }
 
 function rothConversionDirectAcaRoom({

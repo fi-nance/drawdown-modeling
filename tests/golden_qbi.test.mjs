@@ -29,6 +29,7 @@ function qbiProfile({ amount, specifiedServiceBusiness = false, w2Wages = 0 }) {
     state: "Florida",
     qbiSourceMode: "manual",
     qbiAmount: amount,
+    qbiMaterialParticipation: true,
     qbiSpecifiedServiceBusiness: specifiedServiceBusiness,
     qbiW2Wages: w2Wages
   });

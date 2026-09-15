@@ -1,5 +1,7 @@
 import { copyRothLedger } from "./rothLedger.mjs";
+import { copyIraLedger } from "./iraBasis.mjs";
 import { EPSILON, round, sumBy } from "./utils.mjs";
+import { stateExemptInterestShare } from './stateInvestmentIncome.mjs';
 
 const MIN_PRICE_FACTOR_AFTER_INCOME_SPLIT = 1e-8;
 
@@ -7,6 +9,9 @@ const MIN_PRICE_FACTOR_AFTER_INCOME_SPLIT = 1e-8;
 export function accountMetadata(asset = {}) {
   return {
     owner: asset.owner ?? "primary",
+    ...(asset.accountSubtype != null ? { accountSubtype: asset.accountSubtype } : {}),
+    ...(asset.accountId != null ? { accountId: asset.accountId } : {}),
+    ...(asset.rolloverToIraAtStart != null ? { rolloverToIraAtStart: asset.rolloverToIraAtStart } : {}),
     beneficiaryType: asset.beneficiaryType ?? "default",
     ...(asset.beneficiaryId != null ? { beneficiaryId: asset.beneficiaryId } : {}),
     ...(asset.beneficiaryAge != null ? { beneficiaryAge: asset.beneficiaryAge } : {}),
@@ -16,7 +21,7 @@ export function accountMetadata(asset = {}) {
 }
 
 export function clonePortfolio(assets = []) {
-  return copyRothLedger(assets.map((asset) => ({ ...asset })), assets);
+  return copyIraLedger(copyRothLedger(assets.map((asset) => ({ ...asset })), assets), assets);
 }
 
 export function portfolioValue(assets = []) {
@@ -68,6 +73,11 @@ export function applyTotalReturnsWithIncome(assets = [], returnsByAssetClass = {
     if (asset.accountType === "taxable") {
       addTaxableDividend(result, asset, dividend);
     } else if (asset.price > EPSILON) {
+      if (asset.accountType === 'hsa') {
+        result.hsaInvestmentIncome += dividend * (1 - stateExemptInterestShare(asset));
+        const basis = startingUnits * (asset.costBasisPerUnit ?? startingPrice);
+        asset.costBasisPerUnit = (basis + dividend) / (startingUnits + dividend / asset.price);
+      }
       asset.units = round(asset.units + dividend / asset.price, 8);
     }
   }
@@ -105,6 +115,7 @@ export function sellFromLot(lot, requestedProceeds) {
     proceeds: round(proceeds, 6),
     unitsSold: round(unitsSold, 8),
     costBasisSold: round(costBasisSold, 6),
+    ...(lot.accountType === 'hsa' ? {hsaCapitalGain: round(taxableGain, 6), holdingPeriod: lot.holdingPeriod ?? 'long'} : {}),
     gain: round(gain, 6),
     taxType,
     rothSource: lot.rothSource,
@@ -122,6 +133,11 @@ export function dividendIncome(assets = []) {
     if (asset.accountType === "taxable") {
       addTaxableDividend(result, asset, dividend);
     } else if ((asset.price ?? 0) > EPSILON) {
+      if (asset.accountType === 'hsa') {
+        result.hsaInvestmentIncome += dividend * (1 - stateExemptInterestShare(asset));
+        const basis = asset.units * (asset.costBasisPerUnit ?? asset.price);
+        asset.costBasisPerUnit = (basis + dividend) / (asset.units + dividend / asset.price);
+      }
       asset.units += dividend / asset.price;
     }
   }
@@ -149,6 +165,8 @@ function emptyDividendResult() {
     cash: 0,
     ordinaryDividends: 0,
     qualifiedDividends: 0,
+    hsaInvestmentIncome: 0,
+    stateExemptInterest: 0,
     flows: [],
     details: []
   };
@@ -159,6 +177,7 @@ function addTaxableDividend(result, asset, dividend) {
   const ordinary = dividend - qualified;
   result.cash += dividend;
   result.ordinaryDividends += ordinary;
+  result.stateExemptInterest += ordinary * stateExemptInterestShare(asset);
   result.qualifiedDividends += qualified;
   result.details.push({
     assetId: asset.id,
@@ -216,6 +235,7 @@ export function harvestTaxLosses(assets = [], maxLoss = Infinity, { calendarYear
     flows.push({
       from: asset.name ?? asset.id,
       to: "Tax loss harvesting",
+      owner: asset.owner ?? 'primary', accountType: 'taxable', gain: -lossToHarvest, taxType: isShort ? 'capital-loss-short' : 'capital-loss-long',
       amount: round(lossToHarvest, 6),
       type: "tax"
     });
@@ -252,6 +272,7 @@ export function harvestTaxGains(assets = [], maxGain = Infinity, { calendarYear 
     flows.push({
       from: asset.name ?? asset.id,
       to: "Tax gain harvesting",
+      owner: asset.owner ?? 'primary', accountType: 'taxable', gain: gainToHarvest, taxType: 'long',
       amount: round(gainToHarvest, 6),
       type: "tax"
     });

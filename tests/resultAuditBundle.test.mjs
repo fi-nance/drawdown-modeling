@@ -243,8 +243,22 @@ test("result audit summary includes capital-loss carryforward and state-review y
     stateTax: 135,
     stateReviewRequired: true,
     stateCapitalLossAssumption: "federal-agi-approximation",
+    stateLossCarryforward: null,
+    stateLossCarryforwardByOwner: null,
+    stateHsaIncomeAdjustment: null,
+    stateExemptInterest: null,
     stateOrdinaryTaxableBase: 2700
   });
+});
+
+test('state-only HSA losses remain visible in the audit without a federal capital loss', () => {
+  const summary = createResultAuditSummary({latest:{...latest,plan:{years:[{year:2026,
+    stateLossCarryforward:{shortTerm:0,longTerm:7000},
+    stateLossCarryforwardByOwner:{primary:{shortTerm:0,longTerm:7000},spouse:{shortTerm:0,longTerm:0}},
+    taxes:{ordinaryLossOffset:0,lossCarryforward:0,stateTaxBreakdown:{hsaIncomeAdjustment:1000,stateExemptInterest:500}}}]}}});
+  assert.equal(summary.tax.capitalLosses.years.length,1);
+  assert.equal(summary.tax.capitalLosses.years[0].stateLossCarryforward.longTerm,7000);
+  assert.equal(summary.tax.capitalLosses.years[0].stateHsaIncomeAdjustment,1000);
 });
 
 test("result audit summary includes compact risk-based guardrail assumptions", () => {

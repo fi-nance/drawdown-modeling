@@ -4,6 +4,7 @@
 import { DEFAULT_TAX_PROFILE, computeSelfEmploymentTax, computeTaxableSocialSecurityBenefits, federalAgiFromNetting, netCapitalGainsAndLosses } from "../tax.mjs?v=20260613-rescue-precision";
 import { round } from "../utils.mjs";
 import { emptyEarnedIncome } from "./cashFlows.mjs";
+import { hsaCapitalTotals } from '../stateInvestmentIncome.mjs';
 
 export function normalizeLossCarryforward(value) {
   if (typeof value === "object" && value !== null) {
@@ -55,6 +56,8 @@ function combineIncome({
     retirementOrdinaryIncome: Math.max(0, retirementOrdinaryIncome) + Math.max(0, withdrawal.ordinaryIncome - hsaOrdinaryIncome),
     retirementIncomeDetails: [...retirementIncomeDetails, ...(withdrawal.sales ?? []).filter(sale => ['traditional', 'roth'].includes(sale.accountType)).map(sale => ({ owner: sale.owner ?? 'primary', amount: sale.ordinaryIncome ?? 0, type: sale.accountType === 'traditional' ? 'ira' : 'rothEarnings' }))],
     ordinaryInvestmentIncome,
+    hsaOrdinaryIncome,
+    hsaCapitalGains: hsaCapitalTotals(withdrawal.sales),
     adjustmentsToIncome: Math.max(0, adjustmentsToIncome),
     medicareWages: earnedIncome.medicareWages,
     socialSecurityWages: earnedIncome.socialSecurityWages,

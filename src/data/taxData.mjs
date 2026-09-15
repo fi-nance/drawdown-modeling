@@ -368,6 +368,7 @@ export function buildFederalTaxProfile({
   childAges = [],
   additionalDeduction = 0,
   additionalCredits = 0,
+  creditsBeforeChildTaxCredit = 0,
   itemizedDeductionMode = "auto",
   itemizedStateLocalTaxes = 0,
   itemizedMortgageInterest = 0,
@@ -377,6 +378,7 @@ export function buildFederalTaxProfile({
   qbiSourceMode = "none",
   qbiAmount = 0,
   qbiSpecifiedServiceBusiness = false,
+  qbiMaterialParticipation = false,
   qbiW2Wages = 0,
   qbiUbiaQualifiedProperty = 0
 } = {}) {
@@ -405,6 +407,7 @@ export function buildFederalTaxProfile({
       sourceMode: normalizeQbiSourceMode(qbiSourceMode),
       amount: Math.max(0, Number(qbiAmount) || 0),
       specifiedServiceBusiness: qbiSpecifiedServiceBusiness === true,
+      materialParticipation: qbiMaterialParticipation === true,
       w2Wages: Math.max(0, Number(qbiW2Wages) || 0),
       ubiaQualifiedProperty: Math.max(0, Number(qbiUbiaQualifiedProperty) || 0)
     },
@@ -417,6 +420,7 @@ export function buildFederalTaxProfile({
     childAges: normalizedChildAges,
     additionalDeduction: Math.max(0, Number(additionalDeduction) || 0),
     additionalCredits: Math.max(0, Number(additionalCredits) || 0),
+    creditsBeforeChildTaxCredit: Math.max(0, Number(creditsBeforeChildTaxCredit) || 0),
     itemizedDeductions: {
       mode: normalizeItemizedDeductionMode(itemizedDeductionMode),
       stateLocalTaxes: Math.max(0, Number(itemizedStateLocalTaxes) || 0),

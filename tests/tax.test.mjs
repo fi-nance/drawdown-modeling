@@ -535,7 +535,8 @@ test("2026 QBI deduction applies the active-QBI minimum when larger than the per
     filingStatus: "single",
     state: "Florida",
     qbiSourceMode: "manual",
-    qbiAmount: 1_000
+    qbiAmount: 1_000,
+    qbiMaterialParticipation: true
   });
   const tax = computeIncomeTax({
     ordinaryIncome: taxProfile.standardDeduction + 5_000,

@@ -33,7 +33,7 @@ test('working while claiming flows through actual Social Security cash and tax i
 test('opening capital losses retain character and feed year-one tax netting',()=>{
  const result=simulatePlan({assets,scenario:{...scenario,medicareWages:40000,openingCapitalLossCarryforward:{shortTerm:4000,longTerm:5000}},taxProfile:profile});
  assert.equal(result.years[0].taxes.ordinaryLossOffset,3000);assert.deepEqual(result.years[0].lossCarryforwardDetail,{shortTerm:1000,longTerm:5000});
- assert.throws(()=>simulatePlan({assets,scenario:{...scenario,traditionalIraBasis:1000},taxProfile:profile}),/8606/);
+ assert.throws(()=>simulatePlan({assets,scenario:{...scenario,traditionalIraBasis:-1000},taxProfile:profile}),/basis/i);
 });
 test('advisory cash fees and gross-return fund expenses affect deterministic and stochastic balances',()=>{
  const input={assets,scenario:{...scenario,fees:{advisoryRate:0.01,fundExpenseRate:0.02,returnsNetOfFundExpenses:false}},taxProfile:profile};

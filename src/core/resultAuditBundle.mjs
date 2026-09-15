@@ -79,6 +79,9 @@ export function createResultAuditSummary({
       historicalRange: sourceVersions.historicalRange ?? latest.historicalRange ?? null
     },
     tax: summarizeTaxForReview(latest),
+    iraBasis: (latest.plan?.years ?? []).filter(year => year.iraBasis).map(year => ({ year: year.year,
+      owners: year.iraBasis, grossConversion: year.rothConversionAmount,
+      taxableConversion: year.rothConversionTaxableAmount, nontaxableConversion: year.rothConversionNontaxableAmount })),
     gainHarvestingOptimization: copyJsonObject(latest.plan?.gainHarvestingOptimization),
     sourceVersions: copyJsonObject(sourceVersions),
     confidence: {
@@ -132,7 +135,8 @@ function summarizeTaxForReview(latest = {}) {
       finalCarryforward: finiteOrNull(finalYearTaxes.lossCarryforward),
       finalCarryforwardShortTerm: finiteOrNull(finalYearTaxes.lossCarryforwardShort ?? latest.plan?.years?.at?.(-1)?.lossCarryforwardDetail?.shortTerm),
       finalCarryforwardLongTerm: finiteOrNull(finalYearTaxes.lossCarryforwardLong ?? latest.plan?.years?.at?.(-1)?.lossCarryforwardDetail?.longTerm),
-      years: capitalLossYears
+      years: capitalLossYears,
+      byOwner: years.map(year=>({year:year.year,carryforward:year.lossCarryforwardByOwner ?? null}))
     }
   };
 }
@@ -146,6 +150,7 @@ function summarizeCapitalLossYearForReview(year = {}) {
   const lossCarryforwardLong = finiteOrNull(taxes.lossCarryforwardLong ?? year?.lossCarryforwardDetail?.longTerm);
   const hasActivity = [ordinaryLossOffset, lossCarryforward, lossCarryforwardShort, lossCarryforwardLong]
     .some((value) => Number(value) > 0)
+    || Number(year.stateLossCarryforward?.shortTerm) > 0 || Number(year.stateLossCarryforward?.longTerm) > 0
     || stateTreatment?.reviewRequired === true;
   if (!hasActivity) return null;
 
@@ -161,6 +166,10 @@ function summarizeCapitalLossYearForReview(year = {}) {
     stateTax: finiteOrNull(taxes.stateTax),
     stateReviewRequired: stateTreatment?.reviewRequired === true,
     stateCapitalLossAssumption: stateTreatment?.assumption ?? null,
+    stateLossCarryforward: year.stateLossCarryforward ?? null,
+    stateLossCarryforwardByOwner: year.stateLossCarryforwardByOwner ?? null,
+    stateHsaIncomeAdjustment: finiteOrNull(taxes.stateTaxBreakdown?.hsaIncomeAdjustment),
+    stateExemptInterest: finiteOrNull(taxes.stateTaxBreakdown?.stateExemptInterest),
     stateOrdinaryTaxableBase: finiteOrNull(taxes.stateTaxBreakdown?.ordinaryTaxableBase)
   };
 }

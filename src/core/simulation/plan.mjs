@@ -2,6 +2,10 @@
 // Single responsibility: plan. No behavior changes — pure code movement.
 
 import { ensureRothLedger, rothContributionBalance, rolloverRothLedger } from "../rothLedger.mjs";
+import { ensureIraLedger, prepareRetirementAccounts, rolloverIraLedger } from '../iraBasis.mjs';
+import { openingLossLedger, totalLossLedger, advanceLossLedger } from '../capitalLossLedger.mjs';
+import { validateAcaCostSharing } from '../acaCostSharing.mjs';
+import { validateHsaCoverage } from './hsa.mjs';
 import { accountBreakdown, applySurvivorBasisStepUp, clonePortfolio, portfolioValue } from "../portfolio.mjs";
 import { DEFAULT_TAX_PROFILE } from "../tax.mjs?v=20260613-rescue-precision";
 import { createRng, normalRandom, percentile, round } from "../utils.mjs";
@@ -35,15 +39,20 @@ export function simulatePlan({
   gainHarvestingPolicy = null
 }) {
   const mergedScenario = ensureReturnAssumptionsForAssets(mergeScenario(scenario), assets);
-  if (Number(mergedScenario.traditionalIraBasis) > 0 || Number(mergedScenario.spouseTraditionalIraBasis) > 0
-      || assets.some(asset => asset.accountType === 'traditional' && Number(asset.nondeductibleBasis) > 0)) {
-    throw new RangeError('Nondeductible traditional IRA basis requires Form 8606 pro-rata modeling, which is not supported. This scenario cannot produce executable withdrawal or conversion recommendations.');
-  }
+  validateAcaCostSharing(mergedScenario.aca);
+  validateHsaCoverage(mergedScenario);
+  assets = prepareRetirementAccounts(assets);
   const harvestPolicy = gainHarvestingPolicy ?? prepareGainHarvestingPolicy(assets, mergedScenario, taxProfile);
   const portfolio = clonePortfolio(assets);
   ensureRothLedger(portfolio, mergedScenario);
+  ensureIraLedger(portfolio, mergedScenario);
   const years = [];
-  let lossCarryforward = normalizeLossCarryforward(mergedScenario.openingCapitalLossCarryforward);
+  let lossLedger = openingLossLedger(mergedScenario);
+  let lossCarryforward = totalLossLedger(lossLedger);
+  let stateLossLedger = {
+    primary: normalizeLossCarryforward(mergedScenario.openingStateCapitalLossCarryforward ?? mergedScenario.openingCapitalLossCarryforward),
+    spouse: normalizeLossCarryforward(mergedScenario.spouseOpeningStateCapitalLossCarryforward ?? mergedScenario.spouseOpeningCapitalLossCarryforward)
+  };
   let rothBasisRemaining = rothContributionBalance(portfolio.rothLedger);
   let hsaQualifiedExpenseBalance = hsaStrategyConfig(mergedScenario).startingQualifiedExpenseBalance;
   let success = true;
@@ -127,7 +136,11 @@ export function simulatePlan({
     }
 
     if (wasMarried && spouseAge !== null && primaryDeceased !== spouseDeceased) {
+      lossLedger[primaryDeceased ? 'primary' : 'spouse'] = {shortTerm:0,longTerm:0};
+      stateLossLedger[primaryDeceased ? 'primary' : 'spouse'] = {shortTerm:0,longTerm:0};
+      lossCarryforward = totalLossLedger(lossLedger);
       rolloverRothLedger(portfolio, primaryDeceased ? "primary" : "spouse");
+      rolloverIraLedger(portfolio, primaryDeceased ? "primary" : "spouse");
     }
 
     const beginningPortfolioVal = portfolioValue(portfolio);
@@ -242,6 +255,7 @@ export function simulatePlan({
       annualInflationRate: currentInflationRate,
       spendingGuardrail,
       lossCarryforward,
+      stateLossCarryforward: totalLossLedger(stateLossLedger),
       rothBasisRemaining,
       hsaQualifiedExpenseBalance,
       socialSecurityEarningsCredits,
@@ -256,6 +270,13 @@ export function simulatePlan({
     });
 
     lossCarryforward = result.lossCarryforwardDetail ?? normalizeLossCarryforward(result.lossCarryforward);
+    lossLedger = advanceLossLedger(lossLedger, result.capitalEvents ?? [], lossCarryforward,
+      wasMarried && spouseAge !== null && primaryDeceased !== spouseDeceased ? primaryDeceased ? 'spouse' : 'primary' : null);
+    result.lossCarryforwardByOwner = structuredClone(lossLedger);
+    if (result.stateLossCarryforward) stateLossLedger = advanceLossLedger(stateLossLedger,
+      [...(result.capitalEvents ?? []), ...(result.stateHsaCapitalEvents ?? [])], result.stateLossCarryforward,
+      wasMarried && spouseAge !== null && primaryDeceased !== spouseDeceased ? primaryDeceased ? 'spouse' : 'primary' : null);
+    result.stateLossCarryforwardByOwner = structuredClone(stateLossLedger);
     rothBasisRemaining = result.rothBasisRemaining;
     hsaQualifiedExpenseBalance = result.hsaQualifiedExpenseBalance ?? hsaQualifiedExpenseBalance;
     socialSecurityEarningsCredits = result.socialSecurityEarningsCredits ?? socialSecurityEarningsCredits;
@@ -296,6 +317,7 @@ export function simulatePlan({
     rothBasisRemaining,
     hsaQualifiedExpenseBalance,
     rothLedger: structuredClone(portfolio.rothLedger),
+    iraLedger: structuredClone(portfolio.iraLedger),
     finalPortfolio: clonePortfolio(portfolio)
   };
 }

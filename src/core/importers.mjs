@@ -36,6 +36,7 @@ const HEADER_ALIASES = buildAliasMap({
   ],
   totalCostBasis: ["totalCostBasis", "total cost basis", "cost basis total", "total basis", "cost basis", "basis"],
   dividendYield: ["dividendYield", "dividend yield", "annual dividend yield", "yield", "income yield"],
+  stateExemptInterestShare: ['stateExemptInterestShare', 'state exempt interest share'],
   qualifiedDividendShare: [
     "qualifiedDividendShare",
     "qualified dividend share",
@@ -52,7 +53,11 @@ const HEADER_ALIASES = buildAliasMap({
   beneficiaryAge: ["beneficiaryAge", "beneficiary age", "heir age"],
   rothSource: ["rothSource", "roth source"],
   conversionYear: ["conversionYear", "conversion year"],
-  owner: ["owner", "account owner", "owned by", "registration", "account registration", "titling"]
+  owner: ["owner", "account owner", "owned by", "registration", "account registration", "titling"],
+  accountSubtype: ['accountSubtype', 'account subtype', 'plan type'],
+  accountId: ['accountId', 'account id', 'account number'],
+  nondeductibleBasis: ['nondeductibleBasis', 'nondeductible basis', 'ira tax basis'],
+  rolloverToIraAtStart: ['rolloverToIraAtStart', 'completed ira rollover']
 });
 
 const ACCOUNT_TYPE_ALIASES = buildAliasMap({
@@ -75,13 +80,13 @@ const ACCOUNT_TYPE_ALIASES = buildAliasMap({
     "401k",
     "401(k)",
     "403b",
-    "403(b)"
+    "403(b)", 'sep ira', 'simple ira', 'governmental 457b', 'governmental 457(b)'
   ],
   roth: [
     "roth",
     "roth ira",
     "roth 401k",
-    "roth 401(k)"
+    "roth 401(k)", "roth 403b", "roth 403(b)"
   ],
   hsa: ["hsa", "health savings account"]
 });
@@ -229,9 +234,16 @@ export function toGoogleCsvUrl(rawUrl = "") {
 }
 
 export function normalizeImportedAsset(asset, index = 0) {
-  if (!asset || typeof asset !== "object") {
-    throw new Error(`Asset ${index + 1} must be an object.`);
-  }
+  if (!asset || typeof asset !== 'object') throw new Error(`Asset ${index + 1} must be an object.`);
+  const planLabel = String(asset.accountType ?? '').toLowerCase().replace(/[()\s-]/g, '');
+  const inferredSubtype = planLabel.includes('401k') ? planLabel.includes('roth') ? 'roth401k' : '401k'
+    : planLabel.includes('403b') ? planLabel.includes('roth') ? 'roth403b' : '403b'
+      : planLabel.includes('457') ? 'governmental457b' : planLabel.includes('simple') ? 'simpleIra'
+        : planLabel.includes('sep') ? 'sepIra' : null;
+  const nondeductibleBasis = numberOrNull(asset.nondeductibleBasis);
+  const stateExemptInterestShare = numberOrNull(asset.stateExemptInterestShare);
+  if (asset.stateExemptInterestShare != null && (stateExemptInterestShare === null || stateExemptInterestShare < 0 || stateExemptInterestShare > 1)) throw new Error('State-exempt interest share must be a fraction from 0 to 1.');
+  if (asset.nondeductibleBasis != null && (nondeductibleBasis === null || nondeductibleBasis < 0)) throw new Error('IRA nondeductible basis must be finite and nonnegative.');
   const accountType = canonicalAccountType(asset.accountType);
   if (!VALID_ACCOUNT_TYPES.has(accountType)) {
     if (/after[\s-]*tax/i.test(String(asset.accountType))) {
@@ -279,11 +291,16 @@ export function normalizeImportedAsset(asset, index = 0) {
     name,
     ...(symbol ? { symbol } : {}),
     accountType,
+    ...(asset.accountSubtype || inferredSubtype ? { accountSubtype: asset.accountSubtype || inferredSubtype } : {}),
+    ...(String(asset.accountId ?? '').trim() ? { accountId: String(asset.accountId).trim() } : {}),
+    ...(nondeductibleBasis !== null ? { nondeductibleBasis } : {}),
+    ...(asset.rolloverToIraAtStart != null ? { rolloverToIraAtStart: asset.rolloverToIraAtStart === true || String(asset.rolloverToIraAtStart).toLowerCase() === 'true' } : {}),
     assetClass,
     units: numberOrNull(asset.units),
     price: numberOrNull(asset.price),
     costBasisPerUnit: hasTotalBasis ? totalBasis / units : firstFiniteNumber(asset.costBasisPerUnit, asset.price),
     dividendYield: firstFiniteNumber(asset.dividendYield, 0),
+    ...(stateExemptInterestShare !== null ? {stateExemptInterestShare} : {}),
     qualifiedDividendShare: firstFiniteNumber(asset.qualifiedDividendShare, defaultQualifiedDividendShare(assetClass)),
     holdingPeriod: canonicalHoldingPeriod(asset.holdingPeriod ?? "long"),
     beneficiaryType: canonicalBeneficiaryType(asset.beneficiaryType ?? "default"),

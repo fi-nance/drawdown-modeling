@@ -35,7 +35,7 @@ export function actionConfidenceFor(actionKind, confidenceReport = {}) {
   const find = (ids) => findFlagByPriority(flags, ids);
 
   if (["legacy", "traditionalWithdrawal", "rothConversion", "taxReserve"].includes(actionKind)) {
-    const flag = find(["household-beneficiary-lifecycle"]);
+    const flag = find(["ira-pro-rata-basis", "employer-plan-access", "household-beneficiary-lifecycle"]);
     if (flag) return actionConfidenceFromFlag(flag);
   }
   if (["hsaWithdrawal", "hsaContribution", "medicalReserve"].includes(actionKind)) {
@@ -226,11 +226,26 @@ export function buildConfidenceReport({
 
 function addAccountScopeFlags(flags, scenario, assets, horizon) {
   const active = assets.filter((asset) => Number(asset.units) * Number(asset.price) > 0);
+  if (Number(scenario.traditionalIraBasis) > 0 || Number(scenario.spouseTraditionalIraBasis) > 0 || active.some(asset => Number(asset.nondeductibleBasis) > 0)) flags.push({
+    id:'ira-pro-rata-basis',level:CONFIDENCE_LEVELS.CPA_REVIEW,lens:'cpa',title:'Confirm all IRA balances and Form 8606 basis',
+    detail:'Pro-rata taxation aggregates each person\'s traditional, SEP and SIMPLE IRAs. Untyped traditional holdings default to traditional IRAs. Missing outside IRAs or employer plans entered as IRAs change the taxable fraction. Annual timing and state basis can differ from an actual return.',
+    action:'Verify account subtypes, all open IRA balances and remaining basis with the prior Form 8606 before making a conversion.'
+  });
+  if (active.some(asset => ['401k','403b','governmental457b','simpleIra','roth401k','roth403b'].includes(asset.accountSubtype))) flags.push({
+    id:'employer-plan-access',level:CONFIDENCE_LEVELS.CPA_REVIEW,lens:'cpa',title:'Confirm plan distribution and rollover eligibility',
+    detail:'Employer-plan assets are assumed distributable. SIMPLE IRAs must be beyond their first two participation years; governmental 457(b) balances exclude rolled-in qualified-plan/IRA funds. Designated Roth plans require a completed IRA rollover.',
+    action:'Confirm access rules, rollover eligibility and any special penalties with the plan administrator.'
+  });
+  if (scenario.aca?.csr?.enabled) flags.push({
+    id:'aca-csr-plan-inputs',level:CONFIDENCE_LEVELS.INPUT_LIMITED,lens:'financial-planner',title:'Silver CSR costs depend on enrollment and plan details',
+    detail:'Expected household OOP and variant maxima are entered plan assumptions. Annual MAGI selects the variant as if income were reported before enrollment; midyear changes and mixed-coverage costs are not automatically reconciled.',
+    action:'Verify all four Silver variants and expected spending against the insurer and Marketplace enrollment determination.'
+  });
   if (active.some((asset) => asset.accountType === "hsa") || scenario.taxEfficiencyStrategy?.hsaContributionEnabled === true) {
     flags.push({
       id: "hsa-expense-qualification", level: CONFIDENCE_LEVELS.CPA_REVIEW, lens: "cpa",
       title: "HSA tax-free expense eligibility is not fully classified",
-      detail: "HSA withdrawals require unreimbursed, undeducted qualified expenses. Ordinary ACA and Medigap premiums are excluded. Medicare premiums are conservatively excluded while either living spouse is under 65 because receipt ownership is not recorded. Verify HDHP eligibility months, separate catch-up accounts, insurance exceptions, and receipts.",
+      detail: "HSA withdrawals require unreimbursed, undeducted qualified expenses. Ordinary ACA and Medigap premiums are excluded. Medicare premiums are conservatively excluded while either living spouse is under 65 because receipt ownership is not recorded. Verify actual HDHP coverage, eligible months, separate catch-up accounts and receipts. CA/NJ also require accurate security basis, state-taxable earnings and any separate opening state losses.",
       action: "Have a tax or benefits professional verify the eligible expense pool and any HSA withdrawals before relying on tax-free funding recommendations."
     });
   }
@@ -832,7 +847,7 @@ function additionalChildTaxCreditSummaryText(summary = {}) {
 
 function manualFederalTaxOverrideSummary(taxProfile = {}) {
   const additionalDeduction = Math.max(0, Number(taxProfile?.additionalDeduction) || 0);
-  const additionalCredits = Math.max(0, Number(taxProfile?.additionalCredits) || 0);
+  const additionalCredits = Math.max(0, Number(taxProfile?.additionalCredits) || 0) + Math.max(0, Number(taxProfile?.creditsBeforeChildTaxCredit) || 0);
   return {
     hasManualFederalTaxOverride: additionalDeduction > 0 || additionalCredits > 0,
     additionalDeduction,

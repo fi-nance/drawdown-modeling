@@ -145,6 +145,7 @@ export function spouseSocialSecurityBenefitsForYear(scenario, spouseAge, inflati
   let benefitAtStart = 0;
   let ownPia = 0;
   let receivesPureSpousalBenefit = false;
+  let spousalBenefit = 0;
   const enteredBenefit = Math.max(0, Number(scenario.spouseSocialSecurityAnnualBenefit) || 0);
   if (enteredBenefit > 0) {
     // Used as-is at the chosen start age (optimizer pre-scales its candidates).
@@ -178,6 +179,7 @@ export function spouseSocialSecurityBenefitsForYear(scenario, spouseAge, inflati
     const factor = socialSecurityClaimFactor(isSpousalBenefit ? entitlementAge : startAge,
       socialSecurityBirthYear(scenario, "spouse"), isSpousalBenefit ? "spousal" : "retirement");
     benefitAtStart = basePia * factor;
+    if (receivesPureSpousalBenefit) spousalBenefit = benefitAtStart;
   }
 
   if (primaryHasFiled && !receivesPureSpousalBenefit) {
@@ -187,11 +189,17 @@ export function spouseSocialSecurityBenefitsForYear(scenario, spouseAge, inflati
     if (excessSpousalPia > 0) {
       const entitlementAge = spousalEntitlementAge(startAge, spouseAge, primaryAge, primaryStartAge);
       const spousalFactor = socialSecurityClaimFactor(entitlementAge, socialSecurityBirthYear(scenario, "spouse"), "spousal");
-      benefitAtStart += excessSpousalPia * spousalFactor;
+      spousalBenefit = excessSpousalPia * spousalFactor;
+      benefitAtStart += spousalBenefit;
     }
   }
 
-  return round(benefitAtStart * (scenario.spouseSocialSecurityInflationAdjusted === false ? 1 : inflationIndex), 6);
+  const index = scenario.spouseSocialSecurityInflationAdjusted === false ? 1 : inflationIndex;
+  if (options.components) return [
+    {type:'retirement',annualBenefit:round((benefitAtStart - spousalBenefit) * index,6),startAge},
+    {type:'spousal',annualBenefit:round(spousalBenefit * index,6),startAge:spousalEntitlementAge(startAge,spouseAge,primaryAge,primaryStartAge)}
+  ];
+  return round(benefitAtStart * index, 6);
 }
 
 function ownRecordScenario(scenario, owner) {

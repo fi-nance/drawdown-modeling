@@ -2613,10 +2613,18 @@ function spendingSplit(profile, scenario) {
     ? Math.max(0, Number(profile.flexibleSpend))
     : scenarioDiscretionary;
 
+  // Inactive guardrail defaults must not replace the active fixed budget.
+  // Explicit needs can exceed that budget and must still expose a shortfall.
+  if (scenarioStrategy.mode === 'fixed' && totalSpend > 0) {
+    if (profile.requiredSpend == null) requiredSpend = scenarioEssential > 0
+      ? Math.min(totalSpend, scenarioEssential) : round(totalSpend * 0.75, 2);
+    if (profile.flexibleSpend == null) flexibleSpend = Math.max(0, totalSpend - requiredSpend);
+  }
+
   if (!(requiredSpend + flexibleSpend > 0) && totalSpend > 0) {
     requiredSpend = round(totalSpend * 0.75, 2);
     flexibleSpend = round(totalSpend - requiredSpend, 2);
-  } else if (totalSpend > 0 && !(flexibleSpend > 0)) {
+  } else if (profile.flexibleSpend == null && totalSpend > 0 && !(flexibleSpend > 0)) {
     flexibleSpend = Math.max(0, totalSpend - requiredSpend);
   }
 

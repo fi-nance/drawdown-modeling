@@ -345,6 +345,10 @@
                   <label><span>Your remaining Roth contribution basis</span><input id="rothBasis" type="number" min="0" step="1000" value="60000"></label>
                 </div>
                 <label class="check-row" style="margin-bottom: 1rem;"><input id="rothFiveYearRuleSatisfied" type="checkbox" checked><span>Roth five-year rule satisfied</span></label>
+                <div class="control-grid">
+                  <label><span>Your first Roth IRA contribution tax year</span><input id="rothFirstContributionYear" type="number" min="1998" max="2200" placeholder="Unknown: use confirmation above"></label>
+                  <label><span>Spouse first Roth IRA contribution tax year</span><input id="spouseRothFirstContributionYear" type="number" min="1998" max="2200" placeholder="Unknown: use spouse confirmation"></label>
+                </div>
                 <div class="control-grid" data-married-controls>
                   <label><span>Spouse remaining Roth contribution basis</span><input id="spouseRothBasis" type="number" min="0" step="1000" value="0"></label>
                   <label class="check-row"><input id="spouseRothFiveYearRuleSatisfied" type="checkbox" checked><span>Spouse Roth five-year rule satisfied</span></label>
@@ -356,12 +360,29 @@
                   <p class="assumption-note">Enter amounts remaining after past withdrawals, without thousands separators. Owner is primary or spouse. Regular contributions go in the fields above. A checked box with no lines means no remaining conversions. Otherwise, legacy conversion-tagged account rows supply the opening principal once. Securities traded inside a Roth do not change these balances. Roth IRA ordering is modeled; inherited beneficiary IRAs and designated Roth employer accounts require separate treatment.</p>
                 </details>
 <details class="advanced"><summary>Opening tax history</summary>
-                <div class="control-grid"><label><span>Prior-year short-term capital loss carryforward</span><input id="openingShortTermLoss" type="number" min="0" step="1000" value="0"></label>
-                  <label><span>Prior-year long-term capital loss carryforward</span><input id="openingLongTermLoss" type="number" min="0" step="1000" value="0"></label>
+                <div class="control-grid"><label><span>Your prior-year short-term loss carryforward</span><input id="openingShortTermLoss" type="number" min="0" step="1000" value="0"></label>
+                  <label><span>Your prior-year long-term loss carryforward</span><input id="openingLongTermLoss" type="number" min="0" step="1000" value="0"></label>
+                  <label><span>Spouse prior-year short-term loss carryforward</span><input id="spouseOpeningShortTermLoss" type="number" min="0" step="1000" value="0"></label>
+                  <label><span>Spouse prior-year long-term loss carryforward</span><input id="spouseOpeningLongTermLoss" type="number" min="0" step="1000" value="0"></label>
+                  <label class="check-row"><input id="useStateLossHistory" type="checkbox"><span>Separate California loss carryforwards (otherwise same as federal)</span></label>
+                  <label><span>Your California short-term loss carryforward</span><input id="openingStateShortTermLoss" type="number" min="0" step="1000" value="0"></label>
+                  <label><span>Your California long-term loss carryforward</span><input id="openingStateLongTermLoss" type="number" min="0" step="1000" value="0"></label>
+                  <label><span>Spouse California short-term loss carryforward</span><input id="spouseOpeningStateShortTermLoss" type="number" min="0" step="1000" value="0"></label>
+                  <label><span>Spouse California long-term loss carryforward</span><input id="spouseOpeningStateLongTermLoss" type="number" min="0" step="1000" value="0"></label>
                   <label><span>Your nondeductible traditional IRA basis</span><input id="traditionalIraBasis" type="number" min="0" step="1000" value="0"></label>
                   <label><span>Spouse nondeductible traditional IRA basis</span><input id="spouseTraditionalIraBasis" type="number" min="0" step="1000" value="0"></label>
                 </div>
-                <p class="assumption-note">Use remaining carryforwards from the prior return. A positive nondeductible traditional IRA basis stops the calculation because Form 8606 pro-rata treatment is not supported.</p>
+                <p class="assumption-note">IRA basis is the remaining total for each person, not security purchase cost. Include all traditional, SEP, and SIMPLE IRAs, including accounts held elsewhere, in the holdings above. Employer plans and your spouse's IRAs are separate. Opening balances must already include contributions made before the plan starts. Confirm remaining basis against Form 8606.</p>
+                <p id="iraBalanceSummary" class="assumption-note"></p>
+                <div class="control-grid">
+                  <label><span>Additional IRA name</span><input id="additionalIraName" value="Other traditional IRA"></label>
+                  <label><span>IRA owner</span><select id="additionalIraOwner"><option value="primary">You</option><option value="spouse">Spouse</option></select></label>
+                  <label><span>IRA type</span><select id="additionalIraSubtype"><option value="traditionalIra">Traditional IRA</option><option value="sepIra">SEP IRA</option><option value="simpleIra">SIMPLE IRA (over two years)</option></select></label>
+                  <label><span>Current IRA balance</span><input id="additionalIraBalance" type="number" min="0" step="1000" value="0"></label>
+                  <label><span>Investment class</span><select id="additionalIraClass"><option value="stock">Stocks</option><option value="bond">Bonds</option><option value="cash">Cash</option></select></label>
+                </div>
+                <button id="addAdditionalIra" type="button" class="ghost-button">Add IRA holding</button>
+                <p id="additionalIraError" role="alert"></p>
               </details>
               <details class="advanced"><summary>Investment fees</summary>
                 <div class="control-grid"><label><span>Annual advisory/account fee %</span><input id="advisoryFeePercent" type="number" min="0" max="10" step="0.05" value="0"></label>
@@ -421,6 +442,20 @@
 <label><span>Premium tax credit eligibility</span><select id="acaPtcEligibility"><option value="unknown">Not yet confirmed — no subsidy assumed</option><option value="eligible">Confirmed eligible for the modeled years</option><option value="ineligible">Ineligible — pay full premium</option></select></label><label class="check-row"><input id="acaMfsPtcException" type="checkbox"><span>MFS: qualifying domestic abuse / spousal abandonment exception</span></label><p class="assumption-note">Confirm tax-dependent status, employer coverage affordability/minimum value, Medicaid/CHIP and other coverage eligibility before choosing eligible. The MFS exception must meet IRS requirements; living apart alone does not establish it.</p><details class="advanced"><summary>Member coverage calendar</summary><label><span>One coverage period per line: member, year, first month, last month, eligibility, monthly benchmark, monthly plan premium</span><textarea id="acaCoverageCalendar" rows="5" placeholder="primary, 2026, 1, 6, eligible, 700, 650&#10;child1, 2026, 1, 12, eligible, 300, 280"></textarea></label><p class="assumption-note">Use primary, spouse, or a dependent name. Eligibility is eligible, employer, medicaid, dependent (claimed by another tax family), or unknown. Only eligible months receive a modeled credit. Enter Marketplace premiums in today’s dollars, before tax credits, without thousands separators. All members and months need their own records; unspecified future years receive no subsidy until confirmed. A dependent you claim can be eligible. The calendar overrides household premium quotes for its specified years.</p>
               </details>
                 <label class="check-row"><input id="acaEnabled" type="checkbox" checked><span>ACA marketplace coverage</span></label>
+                <details class="advanced"><summary>Silver plan cost-sharing reductions</summary>
+                  <label class="check-row"><input id="acaCsrEnabled" type="checkbox"><span>Primary plan is Silver; use these plan-variant costs</span></label>
+                  <div class="control-grid">
+                  <label><span>Standard Silver annual OOP maximum</span><input id="acastandardMaximum" type="number" min="0" step="100" value="0"></label>
+                  <label><span>Standard Silver expected annual OOP</span><input id="acastandardExpected" type="number" min="0" step="100" value="0"></label>
+                  <label><span>Silver 94: 100-150% FPL annual OOP maximum</span><input id="acasilver94Maximum" type="number" min="0" step="100" value="0"></label>
+                  <label><span>Silver 94 expected annual OOP</span><input id="acasilver94Expected" type="number" min="0" step="100" value="0"></label>
+                  <label><span>Silver 87: over 150-200% FPL annual OOP maximum</span><input id="acasilver87Maximum" type="number" min="0" step="100" value="0"></label>
+                  <label><span>Silver 87 expected annual OOP</span><input id="acasilver87Expected" type="number" min="0" step="100" value="0"></label>
+                  <label><span>Silver 73: over 200-250% FPL annual OOP maximum</span><input id="acasilver73Maximum" type="number" min="0" step="100" value="0"></label>
+                  <label><span>Silver 73 expected annual OOP</span><input id="acasilver73Expected" type="number" min="0" step="100" value="0"></label>
+                  </div>
+                  <p class="assumption-note">Household annual amounts in today's dollars, excluding premiums. Enter each variant's actual plan limit and expected covered spending. These replace the OOP-use percentage for the primary plan. Annual MAGI is assumed reported to the Marketplace before enrollment; mixed eligibility uses standard costs. Backup plans retain their separate OOP assumptions. American Indian/Alaska Native and other special CSR variants are not included.</p>
+                </details>
                 <p class="assumption-note">Assumption: ACA subsidy math uses coverage-year household size, marketplace member ages, and prior-year FPL guidelines for the selected tax year.</p>
                 <div class="control-grid">
                   <label><span>Marketplace members</span><input id="marketplaceMembers" type="number" min="1" max="12" value="2"></label>
@@ -568,11 +603,13 @@
                   <label data-married-controls><span>Spouse Social Security claim status</span><select id="spouseSocialSecurityClaimStatus"><option value="auto">Infer from start age</option><option value="claimed">Already receiving benefits</option><option value="unclaimed">Not yet claimed</option></select></label>
                   <label><span>SS annual benefit</span>    <input id="socialSecurityAnnualBenefit" type="number" min="0" step="1000" value="0"></label>
                   <label><span>SS start age</span>         <input id="socialSecurityStartAge" type="number" min="0" max="120" step="0.5" value="67"></label>
-                  <label data-married-controls><span>Spouse SS annual benefit</span><input id="spouseSocialSecurityAnnualBenefit" type="number" min="0" step="1000" value="0"></label>
+                  <label data-married-controls><span>Spouse SS own-worker annual benefit (excluding spousal supplement)</span><input id="spouseSocialSecurityAnnualBenefit" type="number" min="0" step="1000" value="0"></label>
                   <label data-married-controls><span>Spouse SS start age</span>     <input id="spouseSocialSecurityStartAge" type="number" min="0" max="120" step="0.5" value="67"></label>
                   <label data-married-controls><span>Your survivor SS start age</span><input id="socialSecuritySurvivorStartAge" type="number" min="60" max="120" step="0.5" placeholder="First eligible year"></label>
                   <label data-married-controls><span>Spouse survivor SS start age</span><input id="spouseSocialSecuritySurvivorStartAge" type="number" min="60" max="120" step="0.5" placeholder="First eligible year"></label>
                   <label><span>Medicare wages</span>       <input id="medicareWages" type="number" min="0" step="1000" value="0"></label>
+                  <label><span>Your final recurring earned-income year</span><input id="earnedIncomeEndYear" type="number" min="1900" max="2200" placeholder="Blank: continues while alive"></label>
+                  <label><span>Spouse final recurring earned-income year</span><input id="spouseEarnedIncomeEndYear" type="number" min="1900" max="2200" placeholder="Blank: continues while alive"></label>
                   <label><span>W-2 SS wages</span>         <input id="socialSecurityWages" type="number" min="0" step="1000" placeholder="Auto"></label>
                   <label><span>Self-employment income</span><input id="selfEmploymentIncome" type="number" min="0" step="1000" value="0"></label>
                   <label><span>RRTA compensation</span>    <input id="rrtaCompensation" type="number" min="0" step="1000" value="0"></label>
@@ -731,7 +768,7 @@
                   <label>
                     <span>HSA coverage</span>
                     <select id="hsaCoverage">
-                      <option value="auto">Auto</option>
+                      <option value="auto">Select HDHP coverage</option>
                       <option value="self">Self-only</option>
                       <option value="family">Family</option>
                     </select>
@@ -747,6 +784,7 @@
                   <label><span>Your HSA-eligible months each year</span><input id="hsaPrimaryEligibleMonths" type="number" min="0" max="12" step="1" value="12"></label>
                   <label><span>Spouse HSA-eligible months each year</span><input id="hsaSpouseEligibleMonths" type="number" min="0" max="12" step="1" value="0"></label>
                   <label><span>Your employer HSA contributions</span><input id="hsaPrimaryEmployerContribution" type="number" min="0" step="1000" value="0"></label>
+                  <label class="check-row"><input id="hsaEmployerContributionsInOpeningBalance" type="checkbox"><span>First-year employer deposits already included in opening balances</span></label>
                   <label><span>Spouse employer HSA contributions</span><input id="hsaSpouseEmployerContribution" type="number" min="0" step="1000" value="0"></label>
                   <label><span>Spouse share of family base limit %</span><input id="hsaSpouseBaseShare" type="number" min="0" max="100" step="1" value="0"></label>
                 </div>
@@ -1072,7 +1110,8 @@
                     <small>When filled, CTC counts only children under 17 each year.</small>
                   </label>
                   <label><span>Additional federal deductions</span><input id="additionalFederalDeduction" type="number" min="0" step="500" value="0"></label>
-                  <label><span>Additional federal credits</span>   <input id="additionalFederalCredits"   type="number" min="0" step="500" value="0"></label>
+                  <label><span>Nonrefundable credits before child credit (8812 Worksheet A)</span><input id="federalCreditsBeforeCtc" type="number" min="0" step="500" value="0"></label>
+                  <label><span>Other nonrefundable federal credits (after child credit)</span><input id="additionalFederalCredits" type="number" min="0" step="500" value="0"></label>
                   <label>
                     <span>Deduction choice</span>
                     <select id="itemizedDeductionMode">
@@ -1108,6 +1147,7 @@
                   <label><span>Manual state taxable SS %</span>    <input id="stateSocialSecurityTaxablePercent" type="number" min="0" max="100" step="5" placeholder="Auto"></label>
                 </div>
                 <label class="check-row"><input id="qbiSpecifiedServiceBusiness" type="checkbox"><span>QBI trade is a specified service trade or business</span></label>
+                <label class="check-row"><input id="qbiMaterialParticipation" type="checkbox"><span>Material participation confirmed for the entered QBI</span></label>
                 <label class="check-row"><input id="separateStateGains" type="checkbox"><span>Separate state capital gains</span></label>
               </div>
             </section>

@@ -145,7 +145,7 @@ test("LTC stress applies the medical-inflated cost only inside the member's age 
   assert.deepEqual(spouse.map((year) => year.ltcCost), [0, 50000, 50000, 0]);
 });
 
-test("LTC stress reports no cost when targetSpendIncludesMedical bypasses medical cash flow", () => {
+test("LTC stress remains additional to an all-in medical budget", () => {
   const run = (scenario) => simulatePlan({
     assets: [cashAsset()],
     scenario,
@@ -155,12 +155,10 @@ test("LTC stress reports no cost when targetSpendIncludesMedical bypasses medica
   const base = quietScenario({ planYears: 2, currentAge: 85, targetSpend: 10000, targetSpendIncludesMedical: true });
   const off = run(base);
   const on = run({ ...base, ltcStress: { enabled: true, startAge: 85, years: 2, annualCost: 50000 } });
-  // The stress cost never reaches spending under targetSpendIncludesMedical
-  // (see KNOWN_LIMITATIONS), so the year rows must not report a phantom charge.
-  assert.deepEqual(on.map((year) => year.ltcCost), [0, 0]);
+  assert.deepEqual(on.map((year) => year.ltcCost), [50000, 50000]);
   assert.deepEqual(
     on.map((year) => year.endingPortfolioValue),
-    off.map((year) => year.endingPortfolioValue)
+    off.map((year, index) => year.endingPortfolioValue - 50000 * (index + 1))
   );
 });
 

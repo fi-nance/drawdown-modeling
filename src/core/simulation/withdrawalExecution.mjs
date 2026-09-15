@@ -2,6 +2,7 @@
 // Single responsibility: withdrawalExecution. No behavior changes — pure code movement.
 
 import { ensureRothLedger, consumeRothDistribution, recordRothConversion, rothContributionBalance, rothLedgerSummary } from "../rothLedger.mjs";
+import { accountSubtype, iraDistributionTax } from '../iraBasis.mjs';
 import { marketValue, removeEmptyLots, sellFromLot } from "../portfolio.mjs";
 import { round } from "../utils.mjs";
 import { allocationWithdrawalStateForPortfolio } from "./allocation.mjs";
@@ -182,8 +183,9 @@ export function withdrawForCash(portfolio, amount, withdrawalOrder = [], context
         result.hsaQualifiedExpenseUsed += qualified;
       }
       applyRetirementDistributionTax(sale, {
+        iraPortfolio: portfolio.iraLedger ? portfolio : { iraLedger: context.iraLedger },
         result,
-        isEarly: assetIsEarly,
+        isEarly: assetIsEarly && accountSubtype(asset) !== 'governmental457b',
         hsaOrdinaryEligible: assetHsaOrdinaryEligible,
         penaltyRate,
         calendarYear,
@@ -278,12 +280,14 @@ function withdrawalFlowsForSale(sale) {
 
 function applyRetirementDistributionTax(sale, context) {
   if (sale.accountType === "traditional") {
-    const penalty = applyPenaltyException(context, context.isEarly ? sale.proceeds : 0);
-    sale.ordinaryIncome = sale.proceeds;
+    const distribution = iraDistributionTax(context.iraPortfolio, sale, sale.proceeds, { consume: true });
+    const penalty = applyPenaltyException(context, context.isEarly ? distribution.taxable : 0);
+    sale.ordinaryIncome = distribution.taxable;
+    sale.iraBasisUsed = distribution.nontaxable;
     sale.penaltyBase = penalty.penaltyBase;
     sale.penaltyExceptionUsed = penalty.exceptionUsed;
     sale.penaltyTax = sale.penaltyBase * context.penaltyRate;
-    context.result.ordinaryIncome += sale.proceeds;
+    context.result.ordinaryIncome += distribution.taxable;
     context.result.penaltyBase += sale.penaltyBase;
     context.result.penaltyTax += sale.penaltyTax;
     return;
@@ -355,11 +359,31 @@ export function conversionIncomeDetails(portfolio, requestedAmount) {
   for (const asset of portfolio) {
     if (asset.accountType !== 'traditional' || asset.tipsLadderYear != null || !(marketValue(asset) > 0)) continue;
     const amount = Math.min(remaining, marketValue(asset));
-    details.push({ owner: asset.owner === 'spouse' ? 'spouse' : 'primary', type: 'conversion', amount });
+    details.push({ owner: asset.owner === 'spouse' ? 'spouse' : 'primary', type: 'conversion',
+      amount: iraDistributionTax(portfolio, asset, amount).taxable, grossAmount: amount });
     remaining -= amount;
     if (remaining <= 0) break;
   }
   return details;
+}
+
+export function conversionTaxableAmount(portfolio, amount) {
+  return round(conversionIncomeDetails(portfolio, amount).reduce((sum, row) => sum + row.amount, 0), 6);
+}
+
+export function conversionGrossForTaxableLimit(portfolio, limit) {
+  let remaining = Math.max(0, limit);
+  let gross = 0;
+  for (const asset of portfolio) {
+    if (asset.accountType !== 'traditional' || asset.tipsLadderYear != null) continue;
+    const value = marketValue(asset);
+    const taxable = iraDistributionTax(portfolio, asset, value).taxable;
+    const amount = taxable <= 0 ? value : Math.min(value, remaining * value / taxable);
+    gross += amount;
+    remaining = Math.max(0, remaining - (value > 0 ? amount * taxable / value : 0));
+    if (amount < value - 0.000001) break;
+  }
+  return round(gross, 6);
 }
 
 export function convertTraditionalToRoth(portfolio, requestedAmount, calendarYear, convertedByOwner = null) {
@@ -375,6 +399,7 @@ export function convertTraditionalToRoth(portfolio, requestedAmount, calendarYea
     if (asset.tipsLadderYear != null) continue;
 
     const amount = Math.min(remaining, marketValue(asset));
+    const distribution = iraDistributionTax(portfolio, asset, amount, { consume: true, conversion: true });
     const units = amount / asset.price;
     asset.units = Math.max(0, asset.units - units);
     portfolio.push({
@@ -382,14 +407,15 @@ export function convertTraditionalToRoth(portfolio, requestedAmount, calendarYea
       id: `${asset.id}-roth-${portfolio.length + 1}`,
       name: `${asset.name ?? asset.id} Roth`,
       accountType: "roth",
+      accountSubtype: 'rothIra',
       units,
       costBasisPerUnit: asset.price,
       holdingPeriod: "long",
       rothSource: "conversion",
       conversionYear: calendarYear
     });
-    recordRothConversion(portfolio, asset.owner, calendarYear, amount);
-    if (convertedByOwner) convertedByOwner[asset.owner === "spouse" ? "spouse" : "primary"] += amount;
+    recordRothConversion(portfolio, asset.owner, calendarYear, distribution.taxable, distribution.nontaxable);
+    if (convertedByOwner) convertedByOwner[asset.owner === "spouse" ? "spouse" : "primary"] += distribution.taxable;
     remaining -= amount;
     converted += amount;
   }
