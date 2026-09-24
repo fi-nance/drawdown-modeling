@@ -39,6 +39,24 @@ A browser-based, tax-aware retirement decumulation planner with Monte Carlo simu
 - Sankey-style yearly cash-flow and portfolio-flow visualizations
 - Year-by-year, scenario-by-scenario, backtest, and current-year sale breakdowns
 
+## Import a reviewed Monarch portfolio
+
+The companion `monarch-sheets` project now exports a validated, credential-free JSON. Follow its **Send reviewed holdings to the drawdown project** instructions: `prepare-drawdown`, fill/review its spreadsheet inputs, `check-drawdown`, then `export-drawdown`. This requires no additional Google OAuth scope or broker credentials.
+
+In this app's **Portfolio** module, select **Import Monarch export**. The preview shows included account totals, exclusions and added/changed/removed holdings. Applying it **replaces the whole portfolio**, while preserving spending, healthcare, income streams and retirement-history controls. Matching account IDs retain planner beneficiary/IRA-basis settings; conflicting assumptions and legacy conversion-tagged holdings require reconciliation first. Review your owner-level Roth conversion/contribution history, IRA basis and HSA receipts separately; they are not inferred from securities.
+
+This dedicated importer rejects missing taxable/HSA basis, incomplete dates/assumptions, mixed currency, duplicate IDs, stale exports and account reconciliation failures. It does not use the generic CSV importer's fallback defaults. Sheltered security purchase basis can stay unknown. Source export identity/dates persist in saved setups and scenario/audit metadata; subsequent scenario edits remain possible. Import does not rerun the model. After importing/editing, rerun before exporting an audit bundle.
+
+Portfolio-only imports age ordinary-purchase lots at annual valuation-date anniversaries. With YTD enabled, terms use the day after the cutoff for the first period and January 1 for later years. The model cannot select a sale day within the year. Harvested lots use the existing harvest-year reset; special inherited/gift holding periods remain outside this bridge.
+
+Version 2 exports optionally include reviewed **year-to-date investment tax history**, household income/payments, and **remaining-year budgets** from the spreadsheet's Drawdown YTD tab. Preview/cancel/apply covers the history and assets together. The first forecast year must match the cutoff year. Uncheck **Use imported YTD history and remaining-year budgets** to run the prior annual mode; saved setups retain this choice and the source history.
+
+Past receipts and sale proceeds never create new portfolio cash. Full-year tax/MAGI and capital-loss carryovers include YTD once; IRA/Roth internal trading stays outside federal taxable income and HSA activity remains separate for state treatment. The first year uses explicit remaining wages (separate taxable/FICA bases), Social Security, living spend, healthcare and RMDs. Returns compound over remaining days; dividends, streams and fees are prorated. Scheduled one-offs and tax strategies are future activity only. Later years resume annual controls; carryovers begin with January 1 balances. The yearly table distinguishes full-year liability, taxes paid and remaining tax cash. Federal/state/employee-payroll overpayments are not cross-applied or reinvested as refund cash.
+
+The bridge requires complete reviewed coverage and explicit zero amounts, and rejects incomplete classification or sale basis. Estimated dividend qualification stays provisional. Remaining-year mode currently excludes past retirement/HSA withdrawals or contributions, completed conversions, tax-exempt interest, railroad wages, special-rate gains and TIPS ladders. First-year healthcare uses an explicit remaining budget, without ACA credit reconciliation; annual healthcare modeling resumes in year two. The optional reviewed quarterly inputs below add federal regular-installment planning; penalty amounts remain outside the model. [Dividend treatment](https://www.irs.gov/taxtopics/tc404), [tax payments](https://www.irs.gov/publications/p505).
+
+The browser reads the selected file locally, including in Privacy mode. Remember setup governs browser persistence. Export files and setup/audit backups contain financial data; keep them private. No credentials are included. The upstream Google sync and this import do not run in the background or create snapshots automatically.
+
 ## Commands
 
 ```bash
@@ -160,3 +178,13 @@ Monte Carlo defaults use the 2026 market-neutral preset: 1000 correlated annual 
 - [September 11 CPA / planner / early-retiree follow-up](docs/reviews/2026-09-11/review.md)
 - [September 9 review findings](docs/reviews/2026-09-09/review.md) and [follow-up delivery status](docs/RETIREMENT_REVIEW_FIXES.md)
 - [Product design review for the post-job decision engine](docs/PRODUCT_DESIGN_REVIEW.md)
+
+## Federal quarterly estimates from Monarch YTD
+
+Run `prepare-quarterly` in the sibling monarch-sheets project and complete its **Quarterly tax settings** and **Tax payments** tabs. Export with reviewed YTD history, preview/apply, then run the model. The **2026 federal quarterly estimates** panel above the year-by-year ledger shows the current simulation path's projected federal liability, 90% current-year and eligible 100%/110% prior-year targets, four cumulative installment targets, recorded versus forecast payment coverage, catch-up, next-due additional payment, and projected filing balance. The original spreadsheet tax forecast is displayed for comparison. To reuse the model projection in Google Sheets, copy it to Projected full-year federal tax and request a new `quarterly-report`.
+
+Only paid ledger entries reconcile to YTD totals. State payments and regular employee FICA never cover federal installments. Planned estimates and remaining withholding are forecasts; withholding is spread evenly over four due dates. Late estimates do not erase earlier timing gaps. Catch-up and next-payment amounts overlap, and safe-harbor funding can still leave tax due at filing. The planner does not debit cash again or relax the simulation's full remaining-tax reserve. It includes modeled federal income tax after refundable credits, NIIT, SE, Additional Medicare and additional distribution taxes; state and regular FICA remain separate.
+
+Current filing status must match the reviewed quarterly input. Modeled first-year filing-status changes suppress the quarterly result with a review message. Saving/loading a setup preserves the source, input ledger, reviews and YTD mode. Disabling YTD disables the quarterly result. Inputs are local JSON; no provider credentials, network calls or automatic payments are added.
+
+Only the verified 2026 federal calendar-year regular schedule is supported. No state/local safe-harbor, Schedule AI annualization, disaster extensions, withholding actual-date election, early-filing exception, or underpayment-penalty amount is calculated. The 90% target depends on the final actual liability; prior-year eligibility depends on the reviewed return inputs. [2026 IRS Form 1040-ES](https://www.irs.gov/pub/irs-pdf/f1040es.pdf), [IRS Publication 505](https://www.irs.gov/publications/p505).
