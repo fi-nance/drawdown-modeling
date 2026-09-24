@@ -1,6 +1,9 @@
 import { EXTENSION_CONTROL_DEFAULTS, applyPlanningExtensionControls, planningExtensionControlsForScenario } from "./core/planningExtensions.mjs";
 import { ACCOUNT_SUBTYPES, accountSubtype, isTraditionalIra, prepareRetirementAccounts } from './core/iraBasis.mjs';
 import { parseRothConversionHistory } from "./core/rothLedger.mjs";
+import { isMonarchPortfolio } from './core/monarchImport.mjs';
+import { attachMonarchImport } from './monarchImportUI.mjs';
+import { quarterlyTaxHtml } from './quarterlyTaxUI.mjs';
 import {
   ensureUniqueAssetIds,
   googleSpreadsheetIdFromInput,
@@ -643,6 +646,8 @@ const els = {
 // their real holdings (or they can opt into the sample via __pslLoadSampleData).
 // Returning users get their saved assets restored by applySetupState/loadStoredState.
 let assets = [];
+let portfolioImport = null;
+let monarchImportUI = null;
 // Outcome of the latest "Refresh prices" click, keyed by asset id; drives the
 // per-row highlight in renderAssetTable. In-memory only — a reload clears it.
 let priceRefreshState = new Map();
@@ -687,6 +692,7 @@ const PINNED_ASSET_STORAGE_KEY = "portfolio-success-lab:pinned-asset-columns";
 // discards pre-v2 cap values once so they aren't reinterpreted as fixed heights.
 const TABLE_HEIGHT_STORAGE_KEY = "portfolio-success-lab:table-heights-v2";
 const ASSET_SORT_STORAGE_KEY = "portfolio-success-lab:asset-sort";
+const PINNED_ASSET_ROW_STORAGE_KEY = "portfolio-success-lab:pinned-asset-row";
 const ALWAYS_PINNED_YEAR = ["Year", "Age"];
 const ALWAYS_PINNED_ASSET = ["Asset", "Account"];
 const ASSET_COLUMN_META = {
@@ -705,6 +711,7 @@ const RUN_CANCELED_MESSAGE = "Simulation run canceled.";
 let pinnedYearColumns = loadPinnedColumns(PINNED_YEAR_STORAGE_KEY);
 let pinnedAssetColumns = loadPinnedColumns(PINNED_ASSET_STORAGE_KEY);
 let assetSortState = loadAssetSortState();
+let pinnedAssetRowKey = loadPinnedAssetRowKey();
 
 function loadPinnedColumns(key) {
   try {
@@ -735,6 +742,20 @@ function saveAssetSortState(state) {
     } else {
       localStorage.setItem(ASSET_SORT_STORAGE_KEY, JSON.stringify(state));
     }
+  } catch { /* ignore */ }
+}
+
+function loadPinnedAssetRowKey() {
+  try {
+    const stored = localStorage.getItem(PINNED_ASSET_ROW_STORAGE_KEY);
+    return typeof stored === "string" && stored.length ? stored : null;
+  } catch { return null; }
+}
+
+function savePinnedAssetRowKey(key) {
+  try {
+    if (key) localStorage.setItem(PINNED_ASSET_ROW_STORAGE_KEY, key);
+    else localStorage.removeItem(PINNED_ASSET_ROW_STORAGE_KEY);
   } catch { /* ignore */ }
 }
 
@@ -856,6 +877,7 @@ function clearLocalData() {
     PINNED_ASSET_STORAGE_KEY,
     TABLE_HEIGHT_STORAGE_KEY,
     ASSET_SORT_STORAGE_KEY,
+    PINNED_ASSET_ROW_STORAGE_KEY,
     ...REDESIGN_STORAGE_KEYS
   ].forEach((key) => {
     try { localStorage.removeItem(key); } catch { /* ignore */ }
@@ -865,6 +887,7 @@ function clearLocalData() {
   pinnedYearColumns = new Set();
   pinnedAssetColumns = new Set();
   assetSortState = { column: null, direction: "desc" };
+  pinnedAssetRowKey = null;
 
   if (typeof window !== "undefined") {
     window.dispatchEvent(new CustomEvent("psl:local-data-cleared"));
@@ -1049,10 +1072,28 @@ function bindEvents() {
 
   els.loadJson.addEventListener("click", () => {
     try {
-      importAssets(parsePortfolioJson(els.assetJson.value), "Loaded JSON.");
+      if (isMonarchPortfolio(els.assetJson.value)) monarchImportUI.stage(els.assetJson.value);
+      else importAssets(parsePortfolioJson(els.assetJson.value), "Loaded JSON.");
     } catch (error) {
       reportImportError(error);
     }
+  });
+
+  monarchImportUI = attachMonarchImport({
+    readAssets:()=>assets,
+    isBusy:()=>runModelsBusy || refreshPricesRunning,
+    reportError:reportImportError,
+    apply:(rows,provenance)=>{
+      clearCachedLatest();
+      priceRefreshState = new Map();
+      importAssets(rows, 'Reviewed Monarch portfolio applied. Rerun the model for updated results.', provenance);
+    }
+  });
+  document.querySelector('#monarchYtdEnabled')?.addEventListener('change',event=>{
+    if(!portfolioImport?.yearToDate) return;
+    portfolioImport.yearToDateEnabled=event.target.checked;
+    clearCachedLatest();renderPortfolioImportSource();saveStoredState();
+    setStatus('First-year mode changed. Rerun the model for updated results.');
   });
 
   els.downloadJson.addEventListener("click", () => {
@@ -1904,6 +1945,7 @@ function setupStateSnapshot() {
     controls: readControlState(),
     decisionProfile: decisionProfileStateSnapshot(),
     assets,
+    ...(portfolioImport ? { portfolioImport } : {}),
     oneOffExpenses,
     conditionalAssetSales,
     incomeStreams,
@@ -1951,6 +1993,8 @@ function readControlState() {
 }
 
 function applySetupState(stored) {
+  portfolioImport = stored.portfolioImport && typeof stored.portfolioImport === 'object' ? structuredClone(stored.portfolioImport) : null;
+  renderPortfolioImportSource();
   if (Array.isArray(stored.assets)) assets = ensureUniqueAssetIds(stored.assets.map((asset) => ({ ...asset })));
   if (Array.isArray(stored.oneOffExpenses)) {
     oneOffExpenses = stored.oneOffExpenses.map((expense) => ({ ...expense }));
@@ -2866,6 +2910,10 @@ async function downloadSetupBackup() {
 }
 
 async function downloadResultAuditBundle() {
+  if (workspaceDirty) {
+    setStatus('Run the model with the current inputs before exporting an audit bundle.', true);
+    return;
+  }
   if (!latest?.plan || !latest?.monteCarlo) {
     setStatus("Run a completed model before exporting an audit bundle.", true);
     return;
@@ -2933,6 +2981,7 @@ function confirmDialog({ title, body, confirmLabel = "Confirm", cancelLabel = "C
 
 function resultAuditSourceVersions() {
   return {
+    portfolioImport: latest?.scenario?.portfolioImport ?? null,
     taxDataVersion: TAX_DATA_VERSION,
     historicalReturnDataVersion: HISTORICAL_RETURN_DATA_VERSION,
     historicalDataSource: latest?.historicalDataSource ?? readHistoricalDataSource(),
@@ -3284,6 +3333,14 @@ function renderYearTable() {
     headers, rows, pinnedYearColumns, ALWAYS_PINNED_YEAR,
     (index) => `data-year-index="${index}" class="${index === selectedYearIndex ? "selected-row" : ""}"`
   );
+  const partial=years.find(year=>year.yearToDate);
+  const quarterlyPanel=document.querySelector('#quarterlyTaxPlan');
+  if(quarterlyPanel) { quarterlyPanel.innerHTML=quarterlyTaxHtml(partial?.quarterlyTax); quarterlyPanel.hidden=!partial?.quarterlyTax; }
+  if(partial) {
+    const note=document.createElement('p');note.className='assumption-note';
+    note.textContent=`${partial.year} starts after ${partial.yearToDate.through}. Income/cash/spending columns show the remaining period; tax, MAGI and realized-gain totals include YTD. Full-year tax: ${moneyFormatter.format(partial.yearToDate.fullYearTaxLiability)}; already paid: ${moneyFormatter.format(partial.yearToDate.taxPaid)}; additional tax cash reserved: ${moneyFormatter.format(partial.yearToDate.remainingTaxCash)}; overpayment/refund not reinvested: ${moneyFormatter.format(partial.yearToDate.unspentTaxCredit)}. First-year healthcare uses the reviewed budget.`;
+    els.yearTable.prepend(note);
+  }
   applyPinnedColumnOffsets(els.yearTable);
   els.yearTable.querySelectorAll("[data-year-index]").forEach((row) => {
     row.addEventListener("click", () => {
@@ -3320,6 +3377,10 @@ function yearDisplayLabel(year) {
 }
 
 function renderAssetBreakdown() {
+  const scrollPosition = {
+    top: els.assetBreakdownTable.scrollTop,
+    left: els.assetBreakdownTable.scrollLeft
+  };
   const years = activeVisibleYears();
   const year = years[selectedYearIndex] ?? years[0];
   if (!year) {
@@ -3334,13 +3395,16 @@ function renderAssetBreakdown() {
     ? years[selectedYearIndex - 1]?.assets
     : year.beginningAssets);
   const keys = new Set([...current.keys(), ...previous.keys()]);
+  if (pinnedAssetRowKey && assetKeyAppearsInYears(years, pinnedAssetRowKey)) {
+    keys.add(pinnedAssetRowKey);
+  }
   const assetHeaders = ["Asset", "Account", "Class", "Units", "Price", "Ending value", "Change", "Change %", "Basis", "Unrealized"];
   const rowData = [...keys].map((key) => {
     const currentAsset = current.get(key) ?? emptyAssetFromKey(key);
     const previousAsset = previous.get(key) ?? emptyAssetFromKey(key);
     const change = currentAsset.value - previousAsset.value;
     const changePercent = previousAsset.value > 0 ? change / previousAsset.value : null;
-    return { currentAsset, change, changePercent };
+    return { key, currentAsset, change, changePercent };
   });
 
   const activeSort = assetSortState.column && ASSET_COLUMN_META[assetSortState.column]
@@ -3354,30 +3418,71 @@ function renderAssetBreakdown() {
     rowData.sort((a, b) => Math.abs(b.currentAsset.value) - Math.abs(a.currentAsset.value));
   }
 
-  const rows = rowData.map(({ currentAsset, change, changePercent }) => [
-    escapeHtml(currentAsset.name),
-    escapeHtml(currentAsset.accountType),
-    escapeHtml(currentAsset.assetClass),
-    unitFormatter.format(currentAsset.units),
-    money(currentAsset.price, year),
-    money(currentAsset.value, year),
-    signedMoney(change, year),
-    changePercent == null ? "n/a" : signedPercent(changePercent),
-    money(currentAsset.costBasis, year),
-    signedMoney(currentAsset.unrealizedGain, year)
-  ]);
+  const pinnedIndex = rowData.findIndex((row) => row.key === pinnedAssetRowKey);
+  if (pinnedIndex > 0) rowData.unshift(rowData.splice(pinnedIndex, 1)[0]);
+
+  const rows = rowData.map(({ key, currentAsset, change, changePercent }) => {
+    const isPinned = key === pinnedAssetRowKey;
+    const pinAction = isPinned ? `Unpin ${currentAsset.name}` : `Pin ${currentAsset.name} to the top`;
+    const pinButton = `<button type="button" class="asset-row-pin${isPinned ? " is-pinned" : ""}" data-pin-asset-row="${escapeAttr(key)}" aria-label="${escapeAttr(pinAction)}" aria-pressed="${isPinned}" title="${escapeAttr(pinAction)}">&#128204;</button>`;
+    return [
+      `<span class="asset-row-label">${pinButton}<span>${escapeHtml(currentAsset.name)}</span></span>`,
+      escapeHtml(currentAsset.accountType),
+      escapeHtml(currentAsset.assetClass),
+      unitFormatter.format(currentAsset.units),
+      money(currentAsset.price, year),
+      money(currentAsset.value, year),
+      signedMoney(change, year),
+      changePercent == null ? "n/a" : signedPercent(changePercent),
+      money(currentAsset.costBasis, year),
+      signedMoney(currentAsset.unrealizedGain, year)
+    ];
+  });
 
   els.assetBreakdownTable.className = "pinnable-table-wrap";
   els.assetBreakdownTable.innerHTML = pinnableTableHtml(
-    assetHeaders, rows, pinnedAssetColumns, ALWAYS_PINNED_ASSET
+    assetHeaders, rows, pinnedAssetColumns, ALWAYS_PINNED_ASSET,
+    (index) => {
+      const key = rowData[index]?.key ?? "";
+      return `data-asset-row-key="${escapeAttr(key)}" class="${key === pinnedAssetRowKey ? "pinned-asset-row" : ""}"`;
+    }
   );
   applyPinnedColumnOffsets(els.assetBreakdownTable);
   bindPinToggles(els.assetBreakdownTable, pinnedAssetColumns, ALWAYS_PINNED_ASSET, PINNED_ASSET_STORAGE_KEY, () => renderAssetBreakdown());
+  bindAssetRowPinHandlers(els.assetBreakdownTable);
   bindAssetSortHandlers(els.assetBreakdownTable);
   bindResizeObserver(els.assetBreakdownTable, "assetBreakdown");
-  bindPinnedOffsetRefresh(els.assetBreakdownTable);
+  applyPinnedAssetRowOffset(els.assetBreakdownTable);
+  bindPinnedOffsetRefresh(els.assetBreakdownTable, () => applyPinnedAssetRowOffset(els.assetBreakdownTable));
   addStickyHorizontalScrollbar(els.assetBreakdownTable);
   capTableToContent(els.assetBreakdownTable, "assetBreakdown");
+  restoreTableScrollPosition(els.assetBreakdownTable, scrollPosition);
+}
+
+function bindAssetRowPinHandlers(container) {
+  container.querySelectorAll("[data-pin-asset-row]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const key = button.dataset.pinAssetRow;
+      pinnedAssetRowKey = key === pinnedAssetRowKey ? null : key;
+      savePinnedAssetRowKey(pinnedAssetRowKey);
+      renderAssetBreakdown();
+    });
+  });
+}
+
+function applyPinnedAssetRowOffset(container) {
+  const header = container.querySelector("thead");
+  container.style.setProperty("--pinned-asset-row-top", `${header?.offsetHeight ?? 0}px`);
+}
+
+function restoreTableScrollPosition(container, position) {
+  const top = Math.max(0, Number(position?.top) || 0);
+  const left = Math.max(0, Number(position?.left) || 0);
+  container.scrollTop = Math.min(top, Math.max(0, container.scrollHeight - container.clientHeight));
+  container.scrollLeft = Math.min(left, Math.max(0, container.scrollWidth - container.clientWidth));
+  const proxy = container.querySelector(":scope > .sticky-x-scroll .sticky-x-scroll-track");
+  if (proxy) proxy.scrollLeft = container.scrollLeft;
 }
 
 function compareSortValues(a, b, numeric) {
@@ -4144,7 +4249,7 @@ if (typeof window !== "undefined") {
 // shift (the Google-Fonts swap, window or panel resizes, the vertical resize
 // handle revealing a scrollbar) invalidates them, which visibly slides the
 // second pinned column over its neighbor. Re-apply on every size change.
-function bindPinnedOffsetRefresh(container) {
+function bindPinnedOffsetRefresh(container, afterRefresh = null) {
   container._pinnedOffsetCleanup?.();
   const table = container.querySelector("table");
   if (!table) return;
@@ -4154,6 +4259,7 @@ function bindPinnedOffsetRefresh(container) {
     frame = requestAnimationFrame(() => {
       frame = null;
       applyPinnedColumnOffsets(container);
+      afterRefresh?.();
     });
   };
   const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(refresh);
@@ -4208,11 +4314,11 @@ function renderAssetTable() {
       <td data-label="Class">${selectHtml(index, "assetClass", assetClassOptions, asset.assetClass)}</td>
       <td data-label="Units"><input data-index="${index}" data-field="units" type="number" step="0.0001" value="${asset.units}"></td>
       <td data-label="Price" class="price-cell${refreshClass}"${refreshTitle}><input data-index="${index}" data-field="price" type="number" step="0.01" value="${asset.price}"></td>
-      <td data-label="Basis"><input data-index="${index}" data-field="costBasisPerUnit" type="number" step="0.01" value="${asset.costBasisPerUnit}"></td>
+      <td data-label="Basis"><input data-index="${index}" data-field="costBasisPerUnit" type="number" step="0.01" value="${asset.costBasisPerUnit ?? ''}"></td>
       <td data-label="Yield"><input aria-label="Income yield" data-index="${index}" data-field="dividendYield" type="number" step="0.001" value="${asset.dividendYield ?? 0}">
         ${['taxable','hsa'].includes(asset.accountType) ? `<label>State-exempt interest share (0-1)<input data-index="${index}" data-field="stateExemptInterestShare" type="number" min="0" max="1" step="0.01" value="${asset.stateExemptInterestShare ?? 0}"></label>` : ''}</td>
       <td data-label="Qualified"><input data-index="${index}" data-field="qualifiedDividendShare" type="number" step="0.05" min="0" max="1" value="${asset.qualifiedDividendShare ?? 0}"></td>
-      <td data-label="Term">${selectHtml(index, "holdingPeriod", holdingOptions, asset.holdingPeriod ?? "long")}</td>
+      <td data-label="Term">${asset.acquiredDate ? `${escapeHtml(asset.holdingPeriod)}<br><small>Acquired ${escapeHtml(asset.acquiredDate)}; dated from ${escapeHtml(asset.valuationDate)}</small>` : asset.holdingPeriod === 'unknown' ? 'Not used for retirement withdrawals' : selectHtml(index, "holdingPeriod", holdingOptions, asset.holdingPeriod ?? "long")}</td>
       <td data-label="Owner">${selectHtml(index, "owner", ownerOptions, asset.owner ?? "primary")}</td>
       <td data-label="Beneficiary">${selectHtml(index, "beneficiaryType", beneficiaryOptions, asset.beneficiaryType ?? "default")}</td>
       <td data-label="">${`<button type="button" data-remove="${index}">Remove</button>`}</td>
@@ -5263,6 +5369,7 @@ function readScenario() {
     : Number(els.targetSpend.value) || 0;
 
   const scenario = {
+    ...(portfolioImport ? { portfolioImport: structuredClone(portfolioImport) } : {}),
     ...DEFAULT_SCENARIO,
     taxYear,
     privacyMode: privacyModeEnabled(),
@@ -5732,6 +5839,11 @@ function assetGroupKey(asset) {
   return [asset.name ?? asset.id, asset.accountType, asset.assetClass].join("::");
 }
 
+function assetKeyAppearsInYears(years, key) {
+  return years.some((year) => [year?.beginningAssets, year?.assets]
+    .some((snapshot) => (snapshot ?? []).some((asset) => assetGroupKey(asset) === key)));
+}
+
 function emptyAssetFromKey(key) {
   const [name = "", accountType = "", assetClass = ""] = key.split("::");
   return {
@@ -5891,7 +6003,9 @@ function reportImportError(error) {
   setImportStatus(message, true);
 }
 
-function importAssets(importedAssets, message) {
+function importAssets(importedAssets, message, provenance = null) {
+  portfolioImport = provenance;
+  renderPortfolioImportSource();
   assets = importedAssets;
   renderAssetTable();
   syncJsonFromAssets();
@@ -5900,6 +6014,21 @@ function importAssets(importedAssets, message) {
   setStatus(statusMessage);
   setImportStatus(statusMessage);
   scrollImportedAssetsIntoView();
+}
+
+function renderPortfolioImportSource() {
+  const target=document.querySelector('#monarchProvenance');
+  if(!target) return;
+  target.hidden=!portfolioImport;
+  target.textContent=portfolioImport ? `Starting portfolio: Monarch export ${portfolioImport.exportId}, as of ${portfolioImport.asOfDate}. Later scenario edits are allowed; saved setups retain the source reference.` : '';
+  const control=document.querySelector('#monarchYtdControl'), toggle=document.querySelector('#monarchYtdEnabled'), summary=document.querySelector('#monarchYtdSummary');
+  const ytd=portfolioImport?.yearToDate;
+  if(control) control.hidden=!ytd;
+  if(toggle) toggle.checked=!!ytd&&portfolioImport.yearToDateEnabled!==false;
+  if(summary) {
+    summary.hidden=!ytd;
+    summary.textContent=ytd ? `Reviewed YTD through ${ytd.through}. Remaining living budget ${moneyFormatter.format(ytd.household.remainingSpending)}, healthcare ${moneyFormatter.format(ytd.household.remainingMedical)}. Update Drawdown YTD in the spreadsheet and re-export to revise these amounts. ${portfolioImport.yearToDateEnabled===false?'Disabled: the model uses annual opening-portfolio projections without YTD.':'Enabled: year-one wage, Social Security, spending, healthcare and RMD budgets replace annual controls; later years use annual controls. Review scheduled one-offs/strategies as future activity only. No year-one ACA credit reconciliation or assumed refund cash.'}` : '';
+  }
 }
 
 function scrollImportedAssetsIntoView() {

@@ -1,0 +1,1388 @@
+[
+  {
+    "plan": {
+      "version": 1,
+      "taxYear": 2026,
+      "through": "2026-09-22",
+      "reviewedSourceExportedAt": "2026-09-22T00:00:00Z",
+      "filingStatus": "single",
+      "priorYearMethod": "Full-year return",
+      "priorYearAgi": 160000.0,
+      "priorYearTax": 10000.0,
+      "projectedFederalTax": 20000.0,
+      "remainingWithholding": 2000.0,
+      "coverageReviewed": true,
+      "regularInstallmentsReviewed": true,
+      "payments": [
+        {
+          "id": "w1",
+          "jurisdiction": "Federal",
+          "kind": "Withholding",
+          "date": "2026-09-01",
+          "amount": 6000.0,
+          "status": "Paid"
+        },
+        {
+          "id": "e1",
+          "jurisdiction": "Federal",
+          "kind": "Estimated",
+          "date": "2026-04-15",
+          "amount": 1000.0,
+          "status": "Paid"
+        },
+        {
+          "id": "late",
+          "jurisdiction": "Federal",
+          "kind": "Estimated",
+          "date": "2026-09-20",
+          "amount": 1000.0,
+          "status": "Paid"
+        },
+        {
+          "id": "next",
+          "jurisdiction": "Federal",
+          "kind": "Estimated",
+          "date": "2027-01-15",
+          "amount": 500.0,
+          "status": "Planned"
+        },
+        {
+          "id": "state",
+          "jurisdiction": "State",
+          "kind": "Estimated",
+          "date": "2026-04-15",
+          "amount": 900.0,
+          "status": "Paid"
+        }
+      ]
+    },
+    "expected": {
+      "taxYear": 2026,
+      "through": "2026-09-22",
+      "projectedFederalTax": 20000.0,
+      "sheetProjectedFederalTax": 20000.0,
+      "currentYearTarget": 18000.0,
+      "priorYearTarget": 11000.0,
+      "priorYearMultiplier": 110,
+      "annualTarget": 11000.0,
+      "basis": "Prior-year 110%",
+      "recordedWithholding": 6000.0,
+      "projectedWithholding": 8000.0,
+      "paidEstimatesAndCredits": 2000.0,
+      "plannedEstimates": 500.0,
+      "balanceAfterRecordedPayments": 12000.0,
+      "balanceAfterPlannedPayments": 9500.0,
+      "remainingSafeHarbor": 500.0,
+      "catchUpRecorded": 1750.0,
+      "catchUpForecast": 250.0,
+      "nextDueDate": "2027-01-15",
+      "nextAdditionalPayment": 500.0,
+      "quarters": [
+        {
+          "quarter": 1,
+          "dueDate": "2026-04-15",
+          "pastDue": true,
+          "recordedCumulativeTarget": 2750.0,
+          "cumulativeTarget": 2750.0,
+          "recordedCoverage": 2500.0,
+          "forecastCoverage": 3000.0,
+          "recordedGap": 250.0,
+          "forecastGap": 0.0
+        },
+        {
+          "quarter": 2,
+          "dueDate": "2026-06-15",
+          "pastDue": true,
+          "recordedCumulativeTarget": 5500.0,
+          "cumulativeTarget": 5500.0,
+          "recordedCoverage": 4000.0,
+          "forecastCoverage": 5000.0,
+          "recordedGap": 1500.0,
+          "forecastGap": 500.0
+        },
+        {
+          "quarter": 3,
+          "dueDate": "2026-09-15",
+          "pastDue": true,
+          "recordedCumulativeTarget": 8250.0,
+          "cumulativeTarget": 8250.0,
+          "recordedCoverage": 5500.0,
+          "forecastCoverage": 7000.0,
+          "recordedGap": 2750.0,
+          "forecastGap": 1250.0
+        },
+        {
+          "quarter": 4,
+          "dueDate": "2027-01-15",
+          "pastDue": false,
+          "recordedCumulativeTarget": 11000.0,
+          "cumulativeTarget": 11000.0,
+          "recordedCoverage": 8000.0,
+          "forecastCoverage": 10500.0,
+          "recordedGap": 3000.0,
+          "forecastGap": 500.0
+        }
+      ]
+    }
+  },
+  {
+    "plan": {
+      "version": 1,
+      "taxYear": 2026,
+      "through": "2026-09-22",
+      "reviewedSourceExportedAt": "2026-09-22T00:00:00Z",
+      "filingStatus": "single",
+      "priorYearMethod": "Full-year return",
+      "priorYearAgi": 150000,
+      "priorYearTax": 10000.0,
+      "projectedFederalTax": 20000.0,
+      "remainingWithholding": 2000.0,
+      "coverageReviewed": true,
+      "regularInstallmentsReviewed": true,
+      "payments": [
+        {
+          "id": "w1",
+          "jurisdiction": "Federal",
+          "kind": "Withholding",
+          "date": "2026-09-01",
+          "amount": 6000.0,
+          "status": "Paid"
+        },
+        {
+          "id": "e1",
+          "jurisdiction": "Federal",
+          "kind": "Estimated",
+          "date": "2026-04-15",
+          "amount": 1000.0,
+          "status": "Paid"
+        },
+        {
+          "id": "late",
+          "jurisdiction": "Federal",
+          "kind": "Estimated",
+          "date": "2026-09-20",
+          "amount": 1000.0,
+          "status": "Paid"
+        },
+        {
+          "id": "next",
+          "jurisdiction": "Federal",
+          "kind": "Estimated",
+          "date": "2027-01-15",
+          "amount": 500.0,
+          "status": "Planned"
+        },
+        {
+          "id": "state",
+          "jurisdiction": "State",
+          "kind": "Estimated",
+          "date": "2026-04-15",
+          "amount": 900.0,
+          "status": "Paid"
+        }
+      ]
+    },
+    "expected": {
+      "taxYear": 2026,
+      "through": "2026-09-22",
+      "projectedFederalTax": 20000.0,
+      "sheetProjectedFederalTax": 20000.0,
+      "currentYearTarget": 18000.0,
+      "priorYearTarget": 10000.0,
+      "priorYearMultiplier": 100,
+      "annualTarget": 10000.0,
+      "basis": "Prior-year 100%",
+      "recordedWithholding": 6000.0,
+      "projectedWithholding": 8000.0,
+      "paidEstimatesAndCredits": 2000.0,
+      "plannedEstimates": 500.0,
+      "balanceAfterRecordedPayments": 12000.0,
+      "balanceAfterPlannedPayments": 9500.0,
+      "remainingSafeHarbor": 0.0,
+      "catchUpRecorded": 1000.0,
+      "catchUpForecast": 0.0,
+      "nextDueDate": "2027-01-15",
+      "nextAdditionalPayment": 0.0,
+      "quarters": [
+        {
+          "quarter": 1,
+          "dueDate": "2026-04-15",
+          "pastDue": true,
+          "recordedCumulativeTarget": 2500.0,
+          "cumulativeTarget": 2500.0,
+          "recordedCoverage": 2500.0,
+          "forecastCoverage": 3000.0,
+          "recordedGap": 0.0,
+          "forecastGap": 0.0
+        },
+        {
+          "quarter": 2,
+          "dueDate": "2026-06-15",
+          "pastDue": true,
+          "recordedCumulativeTarget": 5000.0,
+          "cumulativeTarget": 5000.0,
+          "recordedCoverage": 4000.0,
+          "forecastCoverage": 5000.0,
+          "recordedGap": 1000.0,
+          "forecastGap": 0.0
+        },
+        {
+          "quarter": 3,
+          "dueDate": "2026-09-15",
+          "pastDue": true,
+          "recordedCumulativeTarget": 7500.0,
+          "cumulativeTarget": 7500.0,
+          "recordedCoverage": 5500.0,
+          "forecastCoverage": 7000.0,
+          "recordedGap": 2000.0,
+          "forecastGap": 500.0
+        },
+        {
+          "quarter": 4,
+          "dueDate": "2027-01-15",
+          "pastDue": false,
+          "recordedCumulativeTarget": 10000.0,
+          "cumulativeTarget": 10000.0,
+          "recordedCoverage": 8000.0,
+          "forecastCoverage": 10500.0,
+          "recordedGap": 2000.0,
+          "forecastGap": 0.0
+        }
+      ]
+    }
+  },
+  {
+    "plan": {
+      "version": 1,
+      "taxYear": 2026,
+      "through": "2026-09-22",
+      "reviewedSourceExportedAt": "2026-09-22T00:00:00Z",
+      "filingStatus": "single",
+      "priorYearMethod": "Full-year return",
+      "priorYearAgi": 150000.01,
+      "priorYearTax": 10000.0,
+      "projectedFederalTax": 20000.0,
+      "remainingWithholding": 2000.0,
+      "coverageReviewed": true,
+      "regularInstallmentsReviewed": true,
+      "payments": [
+        {
+          "id": "w1",
+          "jurisdiction": "Federal",
+          "kind": "Withholding",
+          "date": "2026-09-01",
+          "amount": 6000.0,
+          "status": "Paid"
+        },
+        {
+          "id": "e1",
+          "jurisdiction": "Federal",
+          "kind": "Estimated",
+          "date": "2026-04-15",
+          "amount": 1000.0,
+          "status": "Paid"
+        },
+        {
+          "id": "late",
+          "jurisdiction": "Federal",
+          "kind": "Estimated",
+          "date": "2026-09-20",
+          "amount": 1000.0,
+          "status": "Paid"
+        },
+        {
+          "id": "next",
+          "jurisdiction": "Federal",
+          "kind": "Estimated",
+          "date": "2027-01-15",
+          "amount": 500.0,
+          "status": "Planned"
+        },
+        {
+          "id": "state",
+          "jurisdiction": "State",
+          "kind": "Estimated",
+          "date": "2026-04-15",
+          "amount": 900.0,
+          "status": "Paid"
+        }
+      ]
+    },
+    "expected": {
+      "taxYear": 2026,
+      "through": "2026-09-22",
+      "projectedFederalTax": 20000.0,
+      "sheetProjectedFederalTax": 20000.0,
+      "currentYearTarget": 18000.0,
+      "priorYearTarget": 11000.0,
+      "priorYearMultiplier": 110,
+      "annualTarget": 11000.0,
+      "basis": "Prior-year 110%",
+      "recordedWithholding": 6000.0,
+      "projectedWithholding": 8000.0,
+      "paidEstimatesAndCredits": 2000.0,
+      "plannedEstimates": 500.0,
+      "balanceAfterRecordedPayments": 12000.0,
+      "balanceAfterPlannedPayments": 9500.0,
+      "remainingSafeHarbor": 500.0,
+      "catchUpRecorded": 1750.0,
+      "catchUpForecast": 250.0,
+      "nextDueDate": "2027-01-15",
+      "nextAdditionalPayment": 500.0,
+      "quarters": [
+        {
+          "quarter": 1,
+          "dueDate": "2026-04-15",
+          "pastDue": true,
+          "recordedCumulativeTarget": 2750.0,
+          "cumulativeTarget": 2750.0,
+          "recordedCoverage": 2500.0,
+          "forecastCoverage": 3000.0,
+          "recordedGap": 250.0,
+          "forecastGap": 0.0
+        },
+        {
+          "quarter": 2,
+          "dueDate": "2026-06-15",
+          "pastDue": true,
+          "recordedCumulativeTarget": 5500.0,
+          "cumulativeTarget": 5500.0,
+          "recordedCoverage": 4000.0,
+          "forecastCoverage": 5000.0,
+          "recordedGap": 1500.0,
+          "forecastGap": 500.0
+        },
+        {
+          "quarter": 3,
+          "dueDate": "2026-09-15",
+          "pastDue": true,
+          "recordedCumulativeTarget": 8250.0,
+          "cumulativeTarget": 8250.0,
+          "recordedCoverage": 5500.0,
+          "forecastCoverage": 7000.0,
+          "recordedGap": 2750.0,
+          "forecastGap": 1250.0
+        },
+        {
+          "quarter": 4,
+          "dueDate": "2027-01-15",
+          "pastDue": false,
+          "recordedCumulativeTarget": 11000.0,
+          "cumulativeTarget": 11000.0,
+          "recordedCoverage": 8000.0,
+          "forecastCoverage": 10500.0,
+          "recordedGap": 3000.0,
+          "forecastGap": 500.0
+        }
+      ]
+    }
+  },
+  {
+    "plan": {
+      "version": 1,
+      "taxYear": 2026,
+      "through": "2026-09-22",
+      "reviewedSourceExportedAt": "2026-09-22T00:00:00Z",
+      "filingStatus": "marriedFilingSeparately",
+      "priorYearMethod": "Full-year return",
+      "priorYearAgi": 75000,
+      "priorYearTax": 10000.0,
+      "projectedFederalTax": 20000.0,
+      "remainingWithholding": 2000.0,
+      "coverageReviewed": true,
+      "regularInstallmentsReviewed": true,
+      "payments": [
+        {
+          "id": "w1",
+          "jurisdiction": "Federal",
+          "kind": "Withholding",
+          "date": "2026-09-01",
+          "amount": 6000.0,
+          "status": "Paid"
+        },
+        {
+          "id": "e1",
+          "jurisdiction": "Federal",
+          "kind": "Estimated",
+          "date": "2026-04-15",
+          "amount": 1000.0,
+          "status": "Paid"
+        },
+        {
+          "id": "late",
+          "jurisdiction": "Federal",
+          "kind": "Estimated",
+          "date": "2026-09-20",
+          "amount": 1000.0,
+          "status": "Paid"
+        },
+        {
+          "id": "next",
+          "jurisdiction": "Federal",
+          "kind": "Estimated",
+          "date": "2027-01-15",
+          "amount": 500.0,
+          "status": "Planned"
+        },
+        {
+          "id": "state",
+          "jurisdiction": "State",
+          "kind": "Estimated",
+          "date": "2026-04-15",
+          "amount": 900.0,
+          "status": "Paid"
+        }
+      ]
+    },
+    "expected": {
+      "taxYear": 2026,
+      "through": "2026-09-22",
+      "projectedFederalTax": 20000.0,
+      "sheetProjectedFederalTax": 20000.0,
+      "currentYearTarget": 18000.0,
+      "priorYearTarget": 10000.0,
+      "priorYearMultiplier": 100,
+      "annualTarget": 10000.0,
+      "basis": "Prior-year 100%",
+      "recordedWithholding": 6000.0,
+      "projectedWithholding": 8000.0,
+      "paidEstimatesAndCredits": 2000.0,
+      "plannedEstimates": 500.0,
+      "balanceAfterRecordedPayments": 12000.0,
+      "balanceAfterPlannedPayments": 9500.0,
+      "remainingSafeHarbor": 0.0,
+      "catchUpRecorded": 1000.0,
+      "catchUpForecast": 0.0,
+      "nextDueDate": "2027-01-15",
+      "nextAdditionalPayment": 0.0,
+      "quarters": [
+        {
+          "quarter": 1,
+          "dueDate": "2026-04-15",
+          "pastDue": true,
+          "recordedCumulativeTarget": 2500.0,
+          "cumulativeTarget": 2500.0,
+          "recordedCoverage": 2500.0,
+          "forecastCoverage": 3000.0,
+          "recordedGap": 0.0,
+          "forecastGap": 0.0
+        },
+        {
+          "quarter": 2,
+          "dueDate": "2026-06-15",
+          "pastDue": true,
+          "recordedCumulativeTarget": 5000.0,
+          "cumulativeTarget": 5000.0,
+          "recordedCoverage": 4000.0,
+          "forecastCoverage": 5000.0,
+          "recordedGap": 1000.0,
+          "forecastGap": 0.0
+        },
+        {
+          "quarter": 3,
+          "dueDate": "2026-09-15",
+          "pastDue": true,
+          "recordedCumulativeTarget": 7500.0,
+          "cumulativeTarget": 7500.0,
+          "recordedCoverage": 5500.0,
+          "forecastCoverage": 7000.0,
+          "recordedGap": 2000.0,
+          "forecastGap": 500.0
+        },
+        {
+          "quarter": 4,
+          "dueDate": "2027-01-15",
+          "pastDue": false,
+          "recordedCumulativeTarget": 10000.0,
+          "cumulativeTarget": 10000.0,
+          "recordedCoverage": 8000.0,
+          "forecastCoverage": 10500.0,
+          "recordedGap": 2000.0,
+          "forecastGap": 0.0
+        }
+      ]
+    }
+  },
+  {
+    "plan": {
+      "version": 1,
+      "taxYear": 2026,
+      "through": "2026-09-22",
+      "reviewedSourceExportedAt": "2026-09-22T00:00:00Z",
+      "filingStatus": "marriedFilingSeparately",
+      "priorYearMethod": "Full-year return",
+      "priorYearAgi": 75000.01,
+      "priorYearTax": 10000.0,
+      "projectedFederalTax": 20000.0,
+      "remainingWithholding": 2000.0,
+      "coverageReviewed": true,
+      "regularInstallmentsReviewed": true,
+      "payments": [
+        {
+          "id": "w1",
+          "jurisdiction": "Federal",
+          "kind": "Withholding",
+          "date": "2026-09-01",
+          "amount": 6000.0,
+          "status": "Paid"
+        },
+        {
+          "id": "e1",
+          "jurisdiction": "Federal",
+          "kind": "Estimated",
+          "date": "2026-04-15",
+          "amount": 1000.0,
+          "status": "Paid"
+        },
+        {
+          "id": "late",
+          "jurisdiction": "Federal",
+          "kind": "Estimated",
+          "date": "2026-09-20",
+          "amount": 1000.0,
+          "status": "Paid"
+        },
+        {
+          "id": "next",
+          "jurisdiction": "Federal",
+          "kind": "Estimated",
+          "date": "2027-01-15",
+          "amount": 500.0,
+          "status": "Planned"
+        },
+        {
+          "id": "state",
+          "jurisdiction": "State",
+          "kind": "Estimated",
+          "date": "2026-04-15",
+          "amount": 900.0,
+          "status": "Paid"
+        }
+      ]
+    },
+    "expected": {
+      "taxYear": 2026,
+      "through": "2026-09-22",
+      "projectedFederalTax": 20000.0,
+      "sheetProjectedFederalTax": 20000.0,
+      "currentYearTarget": 18000.0,
+      "priorYearTarget": 11000.0,
+      "priorYearMultiplier": 110,
+      "annualTarget": 11000.0,
+      "basis": "Prior-year 110%",
+      "recordedWithholding": 6000.0,
+      "projectedWithholding": 8000.0,
+      "paidEstimatesAndCredits": 2000.0,
+      "plannedEstimates": 500.0,
+      "balanceAfterRecordedPayments": 12000.0,
+      "balanceAfterPlannedPayments": 9500.0,
+      "remainingSafeHarbor": 500.0,
+      "catchUpRecorded": 1750.0,
+      "catchUpForecast": 250.0,
+      "nextDueDate": "2027-01-15",
+      "nextAdditionalPayment": 500.0,
+      "quarters": [
+        {
+          "quarter": 1,
+          "dueDate": "2026-04-15",
+          "pastDue": true,
+          "recordedCumulativeTarget": 2750.0,
+          "cumulativeTarget": 2750.0,
+          "recordedCoverage": 2500.0,
+          "forecastCoverage": 3000.0,
+          "recordedGap": 250.0,
+          "forecastGap": 0.0
+        },
+        {
+          "quarter": 2,
+          "dueDate": "2026-06-15",
+          "pastDue": true,
+          "recordedCumulativeTarget": 5500.0,
+          "cumulativeTarget": 5500.0,
+          "recordedCoverage": 4000.0,
+          "forecastCoverage": 5000.0,
+          "recordedGap": 1500.0,
+          "forecastGap": 500.0
+        },
+        {
+          "quarter": 3,
+          "dueDate": "2026-09-15",
+          "pastDue": true,
+          "recordedCumulativeTarget": 8250.0,
+          "cumulativeTarget": 8250.0,
+          "recordedCoverage": 5500.0,
+          "forecastCoverage": 7000.0,
+          "recordedGap": 2750.0,
+          "forecastGap": 1250.0
+        },
+        {
+          "quarter": 4,
+          "dueDate": "2027-01-15",
+          "pastDue": false,
+          "recordedCumulativeTarget": 11000.0,
+          "cumulativeTarget": 11000.0,
+          "recordedCoverage": 8000.0,
+          "forecastCoverage": 10500.0,
+          "recordedGap": 3000.0,
+          "forecastGap": 500.0
+        }
+      ]
+    }
+  },
+  {
+    "plan": {
+      "version": 1,
+      "taxYear": 2026,
+      "through": "2026-09-22",
+      "reviewedSourceExportedAt": "2026-09-22T00:00:00Z",
+      "filingStatus": "single",
+      "priorYearMethod": "Unavailable",
+      "priorYearAgi": null,
+      "priorYearTax": null,
+      "projectedFederalTax": 20000.0,
+      "remainingWithholding": 2000.0,
+      "coverageReviewed": true,
+      "regularInstallmentsReviewed": true,
+      "payments": [
+        {
+          "id": "w1",
+          "jurisdiction": "Federal",
+          "kind": "Withholding",
+          "date": "2026-09-01",
+          "amount": 6000.0,
+          "status": "Paid"
+        },
+        {
+          "id": "e1",
+          "jurisdiction": "Federal",
+          "kind": "Estimated",
+          "date": "2026-04-15",
+          "amount": 1000.0,
+          "status": "Paid"
+        },
+        {
+          "id": "late",
+          "jurisdiction": "Federal",
+          "kind": "Estimated",
+          "date": "2026-09-20",
+          "amount": 1000.0,
+          "status": "Paid"
+        },
+        {
+          "id": "next",
+          "jurisdiction": "Federal",
+          "kind": "Estimated",
+          "date": "2027-01-15",
+          "amount": 500.0,
+          "status": "Planned"
+        },
+        {
+          "id": "state",
+          "jurisdiction": "State",
+          "kind": "Estimated",
+          "date": "2026-04-15",
+          "amount": 900.0,
+          "status": "Paid"
+        }
+      ]
+    },
+    "expected": {
+      "taxYear": 2026,
+      "through": "2026-09-22",
+      "projectedFederalTax": 20000.0,
+      "sheetProjectedFederalTax": 20000.0,
+      "currentYearTarget": 18000.0,
+      "priorYearTarget": null,
+      "priorYearMultiplier": 100,
+      "annualTarget": 18000.0,
+      "basis": "Projected current-year 90%",
+      "recordedWithholding": 6000.0,
+      "projectedWithholding": 8000.0,
+      "paidEstimatesAndCredits": 2000.0,
+      "plannedEstimates": 500.0,
+      "balanceAfterRecordedPayments": 12000.0,
+      "balanceAfterPlannedPayments": 9500.0,
+      "remainingSafeHarbor": 7500.0,
+      "catchUpRecorded": 7000.0,
+      "catchUpForecast": 5500.0,
+      "nextDueDate": "2027-01-15",
+      "nextAdditionalPayment": 7500.0,
+      "quarters": [
+        {
+          "quarter": 1,
+          "dueDate": "2026-04-15",
+          "pastDue": true,
+          "recordedCumulativeTarget": 4500.0,
+          "cumulativeTarget": 4500.0,
+          "recordedCoverage": 2500.0,
+          "forecastCoverage": 3000.0,
+          "recordedGap": 2000.0,
+          "forecastGap": 1500.0
+        },
+        {
+          "quarter": 2,
+          "dueDate": "2026-06-15",
+          "pastDue": true,
+          "recordedCumulativeTarget": 9000.0,
+          "cumulativeTarget": 9000.0,
+          "recordedCoverage": 4000.0,
+          "forecastCoverage": 5000.0,
+          "recordedGap": 5000.0,
+          "forecastGap": 4000.0
+        },
+        {
+          "quarter": 3,
+          "dueDate": "2026-09-15",
+          "pastDue": true,
+          "recordedCumulativeTarget": 13500.0,
+          "cumulativeTarget": 13500.0,
+          "recordedCoverage": 5500.0,
+          "forecastCoverage": 7000.0,
+          "recordedGap": 8000.0,
+          "forecastGap": 6500.0
+        },
+        {
+          "quarter": 4,
+          "dueDate": "2027-01-15",
+          "pastDue": false,
+          "recordedCumulativeTarget": 18000.0,
+          "cumulativeTarget": 18000.0,
+          "recordedCoverage": 8000.0,
+          "forecastCoverage": 10500.0,
+          "recordedGap": 10000.0,
+          "forecastGap": 7500.0
+        }
+      ]
+    }
+  },
+  {
+    "plan": {
+      "version": 1,
+      "taxYear": 2026,
+      "through": "2026-09-22",
+      "reviewedSourceExportedAt": "2026-09-22T00:00:00Z",
+      "filingStatus": "single",
+      "priorYearMethod": "No-tax exception",
+      "priorYearAgi": null,
+      "priorYearTax": 0,
+      "projectedFederalTax": 20000.0,
+      "remainingWithholding": 2000.0,
+      "coverageReviewed": true,
+      "regularInstallmentsReviewed": true,
+      "payments": [
+        {
+          "id": "w1",
+          "jurisdiction": "Federal",
+          "kind": "Withholding",
+          "date": "2026-09-01",
+          "amount": 6000.0,
+          "status": "Paid"
+        },
+        {
+          "id": "e1",
+          "jurisdiction": "Federal",
+          "kind": "Estimated",
+          "date": "2026-04-15",
+          "amount": 1000.0,
+          "status": "Paid"
+        },
+        {
+          "id": "late",
+          "jurisdiction": "Federal",
+          "kind": "Estimated",
+          "date": "2026-09-20",
+          "amount": 1000.0,
+          "status": "Paid"
+        },
+        {
+          "id": "next",
+          "jurisdiction": "Federal",
+          "kind": "Estimated",
+          "date": "2027-01-15",
+          "amount": 500.0,
+          "status": "Planned"
+        },
+        {
+          "id": "state",
+          "jurisdiction": "State",
+          "kind": "Estimated",
+          "date": "2026-04-15",
+          "amount": 900.0,
+          "status": "Paid"
+        }
+      ]
+    },
+    "expected": {
+      "taxYear": 2026,
+      "through": "2026-09-22",
+      "projectedFederalTax": 20000.0,
+      "sheetProjectedFederalTax": 20000.0,
+      "currentYearTarget": 18000.0,
+      "priorYearTarget": 0.0,
+      "priorYearMultiplier": 100,
+      "annualTarget": 0.0,
+      "basis": "Reviewed prior-year no-tax exception",
+      "recordedWithholding": 6000.0,
+      "projectedWithholding": 8000.0,
+      "paidEstimatesAndCredits": 2000.0,
+      "plannedEstimates": 500.0,
+      "balanceAfterRecordedPayments": 12000.0,
+      "balanceAfterPlannedPayments": 9500.0,
+      "remainingSafeHarbor": 0.0,
+      "catchUpRecorded": 0.0,
+      "catchUpForecast": 0.0,
+      "nextDueDate": "2027-01-15",
+      "nextAdditionalPayment": 0.0,
+      "quarters": [
+        {
+          "quarter": 1,
+          "dueDate": "2026-04-15",
+          "pastDue": true,
+          "recordedCumulativeTarget": 0.0,
+          "cumulativeTarget": 0.0,
+          "recordedCoverage": 2500.0,
+          "forecastCoverage": 3000.0,
+          "recordedGap": 0.0,
+          "forecastGap": 0.0
+        },
+        {
+          "quarter": 2,
+          "dueDate": "2026-06-15",
+          "pastDue": true,
+          "recordedCumulativeTarget": 0.0,
+          "cumulativeTarget": 0.0,
+          "recordedCoverage": 4000.0,
+          "forecastCoverage": 5000.0,
+          "recordedGap": 0.0,
+          "forecastGap": 0.0
+        },
+        {
+          "quarter": 3,
+          "dueDate": "2026-09-15",
+          "pastDue": true,
+          "recordedCumulativeTarget": 0.0,
+          "cumulativeTarget": 0.0,
+          "recordedCoverage": 5500.0,
+          "forecastCoverage": 7000.0,
+          "recordedGap": 0.0,
+          "forecastGap": 0.0
+        },
+        {
+          "quarter": 4,
+          "dueDate": "2027-01-15",
+          "pastDue": false,
+          "recordedCumulativeTarget": 0.0,
+          "cumulativeTarget": 0.0,
+          "recordedCoverage": 8000.0,
+          "forecastCoverage": 10500.0,
+          "recordedGap": 0.0,
+          "forecastGap": 0.0
+        }
+      ]
+    }
+  },
+  {
+    "plan": {
+      "version": 1,
+      "taxYear": 2026,
+      "through": "2026-09-22",
+      "reviewedSourceExportedAt": "2026-09-22T00:00:00Z",
+      "filingStatus": "single",
+      "priorYearMethod": "Full-year return",
+      "priorYearAgi": 160000.0,
+      "priorYearTax": 10000.0,
+      "projectedFederalTax": 6999.99,
+      "remainingWithholding": 0,
+      "coverageReviewed": true,
+      "regularInstallmentsReviewed": true,
+      "payments": [
+        {
+          "id": "w1",
+          "jurisdiction": "Federal",
+          "kind": "Withholding",
+          "date": "2026-09-01",
+          "amount": 6000.0,
+          "status": "Paid"
+        },
+        {
+          "id": "e1",
+          "jurisdiction": "Federal",
+          "kind": "Estimated",
+          "date": "2026-04-15",
+          "amount": 1000.0,
+          "status": "Paid"
+        },
+        {
+          "id": "late",
+          "jurisdiction": "Federal",
+          "kind": "Estimated",
+          "date": "2026-09-20",
+          "amount": 1000.0,
+          "status": "Paid"
+        },
+        {
+          "id": "next",
+          "jurisdiction": "Federal",
+          "kind": "Estimated",
+          "date": "2027-01-15",
+          "amount": 500.0,
+          "status": "Planned"
+        },
+        {
+          "id": "state",
+          "jurisdiction": "State",
+          "kind": "Estimated",
+          "date": "2026-04-15",
+          "amount": 900.0,
+          "status": "Paid"
+        }
+      ]
+    },
+    "expected": {
+      "taxYear": 2026,
+      "through": "2026-09-22",
+      "projectedFederalTax": 6999.99,
+      "sheetProjectedFederalTax": 6999.99,
+      "currentYearTarget": 6299.99,
+      "priorYearTarget": 11000.0,
+      "priorYearMultiplier": 110,
+      "annualTarget": 0.0,
+      "basis": "Projected balance after withholding below $1,000",
+      "recordedWithholding": 6000.0,
+      "projectedWithholding": 6000.0,
+      "paidEstimatesAndCredits": 2000.0,
+      "plannedEstimates": 500.0,
+      "balanceAfterRecordedPayments": -1000.01,
+      "balanceAfterPlannedPayments": -1500.01,
+      "remainingSafeHarbor": 0.0,
+      "catchUpRecorded": 0.0,
+      "catchUpForecast": 0.0,
+      "nextDueDate": "2027-01-15",
+      "nextAdditionalPayment": 0.0,
+      "quarters": [
+        {
+          "quarter": 1,
+          "dueDate": "2026-04-15",
+          "pastDue": true,
+          "recordedCumulativeTarget": 0.0,
+          "cumulativeTarget": 0.0,
+          "recordedCoverage": 2500.0,
+          "forecastCoverage": 2500.0,
+          "recordedGap": 0.0,
+          "forecastGap": 0.0
+        },
+        {
+          "quarter": 2,
+          "dueDate": "2026-06-15",
+          "pastDue": true,
+          "recordedCumulativeTarget": 0.0,
+          "cumulativeTarget": 0.0,
+          "recordedCoverage": 4000.0,
+          "forecastCoverage": 4000.0,
+          "recordedGap": 0.0,
+          "forecastGap": 0.0
+        },
+        {
+          "quarter": 3,
+          "dueDate": "2026-09-15",
+          "pastDue": true,
+          "recordedCumulativeTarget": 0.0,
+          "cumulativeTarget": 0.0,
+          "recordedCoverage": 5500.0,
+          "forecastCoverage": 5500.0,
+          "recordedGap": 0.0,
+          "forecastGap": 0.0
+        },
+        {
+          "quarter": 4,
+          "dueDate": "2027-01-15",
+          "pastDue": false,
+          "recordedCumulativeTarget": 0.0,
+          "cumulativeTarget": 0.0,
+          "recordedCoverage": 8000.0,
+          "forecastCoverage": 8500.0,
+          "recordedGap": 0.0,
+          "forecastGap": 0.0
+        }
+      ]
+    }
+  },
+  {
+    "plan": {
+      "version": 1,
+      "taxYear": 2026,
+      "through": "2026-09-22",
+      "reviewedSourceExportedAt": "2026-09-22T00:00:00Z",
+      "filingStatus": "single",
+      "priorYearMethod": "Full-year return",
+      "priorYearAgi": 160000.0,
+      "priorYearTax": 10000.0,
+      "projectedFederalTax": 7000,
+      "remainingWithholding": 0,
+      "coverageReviewed": true,
+      "regularInstallmentsReviewed": true,
+      "payments": [
+        {
+          "id": "w1",
+          "jurisdiction": "Federal",
+          "kind": "Withholding",
+          "date": "2026-09-01",
+          "amount": 6000.0,
+          "status": "Paid"
+        },
+        {
+          "id": "e1",
+          "jurisdiction": "Federal",
+          "kind": "Estimated",
+          "date": "2026-04-15",
+          "amount": 1000.0,
+          "status": "Paid"
+        },
+        {
+          "id": "late",
+          "jurisdiction": "Federal",
+          "kind": "Estimated",
+          "date": "2026-09-20",
+          "amount": 1000.0,
+          "status": "Paid"
+        },
+        {
+          "id": "next",
+          "jurisdiction": "Federal",
+          "kind": "Estimated",
+          "date": "2027-01-15",
+          "amount": 500.0,
+          "status": "Planned"
+        },
+        {
+          "id": "state",
+          "jurisdiction": "State",
+          "kind": "Estimated",
+          "date": "2026-04-15",
+          "amount": 900.0,
+          "status": "Paid"
+        }
+      ]
+    },
+    "expected": {
+      "taxYear": 2026,
+      "through": "2026-09-22",
+      "projectedFederalTax": 7000.0,
+      "sheetProjectedFederalTax": 7000,
+      "currentYearTarget": 6300.0,
+      "priorYearTarget": 11000.0,
+      "priorYearMultiplier": 110,
+      "annualTarget": 6300.0,
+      "basis": "Projected current-year 90%",
+      "recordedWithholding": 6000.0,
+      "projectedWithholding": 6000.0,
+      "paidEstimatesAndCredits": 2000.0,
+      "plannedEstimates": 500.0,
+      "balanceAfterRecordedPayments": -1000.0,
+      "balanceAfterPlannedPayments": -1500.0,
+      "remainingSafeHarbor": 0.0,
+      "catchUpRecorded": 0.0,
+      "catchUpForecast": 0.0,
+      "nextDueDate": "2027-01-15",
+      "nextAdditionalPayment": 0.0,
+      "quarters": [
+        {
+          "quarter": 1,
+          "dueDate": "2026-04-15",
+          "pastDue": true,
+          "recordedCumulativeTarget": 1575.0,
+          "cumulativeTarget": 1575.0,
+          "recordedCoverage": 2500.0,
+          "forecastCoverage": 2500.0,
+          "recordedGap": 0.0,
+          "forecastGap": 0.0
+        },
+        {
+          "quarter": 2,
+          "dueDate": "2026-06-15",
+          "pastDue": true,
+          "recordedCumulativeTarget": 3150.0,
+          "cumulativeTarget": 3150.0,
+          "recordedCoverage": 4000.0,
+          "forecastCoverage": 4000.0,
+          "recordedGap": 0.0,
+          "forecastGap": 0.0
+        },
+        {
+          "quarter": 3,
+          "dueDate": "2026-09-15",
+          "pastDue": true,
+          "recordedCumulativeTarget": 4725.0,
+          "cumulativeTarget": 4725.0,
+          "recordedCoverage": 5500.0,
+          "forecastCoverage": 5500.0,
+          "recordedGap": 0.0,
+          "forecastGap": 0.0
+        },
+        {
+          "quarter": 4,
+          "dueDate": "2027-01-15",
+          "pastDue": false,
+          "recordedCumulativeTarget": 6300.0,
+          "cumulativeTarget": 6300.0,
+          "recordedCoverage": 8000.0,
+          "forecastCoverage": 8500.0,
+          "recordedGap": 0.0,
+          "forecastGap": 0.0
+        }
+      ]
+    }
+  },
+  {
+    "plan": {
+      "version": 1,
+      "taxYear": 2026,
+      "through": "2026-09-22",
+      "reviewedSourceExportedAt": "2026-09-22T00:00:00Z",
+      "filingStatus": "single",
+      "priorYearMethod": "Full-year return",
+      "priorYearAgi": 160000.0,
+      "priorYearTax": 10000.0,
+      "projectedFederalTax": 1000,
+      "remainingWithholding": 2000.0,
+      "coverageReviewed": true,
+      "regularInstallmentsReviewed": true,
+      "payments": [
+        {
+          "id": "w1",
+          "jurisdiction": "Federal",
+          "kind": "Withholding",
+          "date": "2026-09-01",
+          "amount": 6000.0,
+          "status": "Paid"
+        },
+        {
+          "id": "e1",
+          "jurisdiction": "Federal",
+          "kind": "Estimated",
+          "date": "2026-04-15",
+          "amount": 1000.0,
+          "status": "Paid"
+        },
+        {
+          "id": "late",
+          "jurisdiction": "Federal",
+          "kind": "Estimated",
+          "date": "2026-09-20",
+          "amount": 1000.0,
+          "status": "Paid"
+        },
+        {
+          "id": "next",
+          "jurisdiction": "Federal",
+          "kind": "Estimated",
+          "date": "2027-01-15",
+          "amount": 500.0,
+          "status": "Planned"
+        },
+        {
+          "id": "state",
+          "jurisdiction": "State",
+          "kind": "Estimated",
+          "date": "2026-04-15",
+          "amount": 900.0,
+          "status": "Paid"
+        }
+      ]
+    },
+    "expected": {
+      "taxYear": 2026,
+      "through": "2026-09-22",
+      "projectedFederalTax": 1000.0,
+      "sheetProjectedFederalTax": 1000,
+      "currentYearTarget": 900.0,
+      "priorYearTarget": 11000.0,
+      "priorYearMultiplier": 110,
+      "annualTarget": 0.0,
+      "basis": "Projected balance after withholding below $1,000",
+      "recordedWithholding": 6000.0,
+      "projectedWithholding": 8000.0,
+      "paidEstimatesAndCredits": 2000.0,
+      "plannedEstimates": 500.0,
+      "balanceAfterRecordedPayments": -7000.0,
+      "balanceAfterPlannedPayments": -9500.0,
+      "remainingSafeHarbor": 0.0,
+      "catchUpRecorded": 0.0,
+      "catchUpForecast": 0.0,
+      "nextDueDate": "2027-01-15",
+      "nextAdditionalPayment": 0.0,
+      "quarters": [
+        {
+          "quarter": 1,
+          "dueDate": "2026-04-15",
+          "pastDue": true,
+          "recordedCumulativeTarget": 0.0,
+          "cumulativeTarget": 0.0,
+          "recordedCoverage": 2500.0,
+          "forecastCoverage": 3000.0,
+          "recordedGap": 0.0,
+          "forecastGap": 0.0
+        },
+        {
+          "quarter": 2,
+          "dueDate": "2026-06-15",
+          "pastDue": true,
+          "recordedCumulativeTarget": 0.0,
+          "cumulativeTarget": 0.0,
+          "recordedCoverage": 4000.0,
+          "forecastCoverage": 5000.0,
+          "recordedGap": 0.0,
+          "forecastGap": 0.0
+        },
+        {
+          "quarter": 3,
+          "dueDate": "2026-09-15",
+          "pastDue": true,
+          "recordedCumulativeTarget": 0.0,
+          "cumulativeTarget": 0.0,
+          "recordedCoverage": 5500.0,
+          "forecastCoverage": 7000.0,
+          "recordedGap": 0.0,
+          "forecastGap": 0.0
+        },
+        {
+          "quarter": 4,
+          "dueDate": "2027-01-15",
+          "pastDue": false,
+          "recordedCumulativeTarget": 0.0,
+          "cumulativeTarget": 0.0,
+          "recordedCoverage": 8000.0,
+          "forecastCoverage": 10500.0,
+          "recordedGap": 0.0,
+          "forecastGap": 0.0
+        }
+      ]
+    }
+  },
+  {
+    "plan": {
+      "version": 1,
+      "taxYear": 2026,
+      "through": "2026-09-22",
+      "reviewedSourceExportedAt": "2026-09-22T00:00:00Z",
+      "filingStatus": "single",
+      "priorYearMethod": "Full-year return",
+      "priorYearAgi": 0,
+      "priorYearTax": 10000.01,
+      "projectedFederalTax": 20000.0,
+      "remainingWithholding": 2000.0,
+      "coverageReviewed": true,
+      "regularInstallmentsReviewed": true,
+      "payments": [
+        {
+          "id": "w1",
+          "jurisdiction": "Federal",
+          "kind": "Withholding",
+          "date": "2026-09-01",
+          "amount": 6000.0,
+          "status": "Paid"
+        },
+        {
+          "id": "e1",
+          "jurisdiction": "Federal",
+          "kind": "Estimated",
+          "date": "2026-04-15",
+          "amount": 1000.0,
+          "status": "Paid"
+        },
+        {
+          "id": "late",
+          "jurisdiction": "Federal",
+          "kind": "Estimated",
+          "date": "2026-09-20",
+          "amount": 1000.0,
+          "status": "Paid"
+        },
+        {
+          "id": "next",
+          "jurisdiction": "Federal",
+          "kind": "Estimated",
+          "date": "2027-01-15",
+          "amount": 500.0,
+          "status": "Planned"
+        },
+        {
+          "id": "state",
+          "jurisdiction": "State",
+          "kind": "Estimated",
+          "date": "2026-04-15",
+          "amount": 900.0,
+          "status": "Paid"
+        }
+      ]
+    },
+    "expected": {
+      "taxYear": 2026,
+      "through": "2026-09-22",
+      "projectedFederalTax": 20000.0,
+      "sheetProjectedFederalTax": 20000.0,
+      "currentYearTarget": 18000.0,
+      "priorYearTarget": 10000.01,
+      "priorYearMultiplier": 100,
+      "annualTarget": 10000.01,
+      "basis": "Prior-year 100%",
+      "recordedWithholding": 6000.0,
+      "projectedWithholding": 8000.0,
+      "paidEstimatesAndCredits": 2000.0,
+      "plannedEstimates": 500.0,
+      "balanceAfterRecordedPayments": 12000.0,
+      "balanceAfterPlannedPayments": 9500.0,
+      "remainingSafeHarbor": 0.0,
+      "catchUpRecorded": 1000.01,
+      "catchUpForecast": 0.0,
+      "nextDueDate": "2027-01-15",
+      "nextAdditionalPayment": 0.0,
+      "quarters": [
+        {
+          "quarter": 1,
+          "dueDate": "2026-04-15",
+          "pastDue": true,
+          "recordedCumulativeTarget": 2500.0,
+          "cumulativeTarget": 2500.0,
+          "recordedCoverage": 2500.0,
+          "forecastCoverage": 3000.0,
+          "recordedGap": 0.0,
+          "forecastGap": 0.0
+        },
+        {
+          "quarter": 2,
+          "dueDate": "2026-06-15",
+          "pastDue": true,
+          "recordedCumulativeTarget": 5000.01,
+          "cumulativeTarget": 5000.01,
+          "recordedCoverage": 4000.0,
+          "forecastCoverage": 5000.0,
+          "recordedGap": 1000.01,
+          "forecastGap": 0.01
+        },
+        {
+          "quarter": 3,
+          "dueDate": "2026-09-15",
+          "pastDue": true,
+          "recordedCumulativeTarget": 7500.01,
+          "cumulativeTarget": 7500.01,
+          "recordedCoverage": 5500.0,
+          "forecastCoverage": 7000.0,
+          "recordedGap": 2000.01,
+          "forecastGap": 500.01
+        },
+        {
+          "quarter": 4,
+          "dueDate": "2027-01-15",
+          "pastDue": false,
+          "recordedCumulativeTarget": 10000.01,
+          "cumulativeTarget": 10000.01,
+          "recordedCoverage": 8000.0,
+          "forecastCoverage": 10500.0,
+          "recordedGap": 2000.01,
+          "forecastGap": 0.0
+        }
+      ]
+    }
+  }
+]

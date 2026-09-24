@@ -1,6 +1,6 @@
-// v3: state gained `conditionalAssetSales` for threshold-triggered outside
-// asset sales. Older backups restore cleanly — missing arrays normalize to [].
-export const SETUP_BACKUP_SCHEMA_VERSION = 3;
+// v4 adds optional portfolio-import provenance. Older backups remain readable;
+// missing dynamic arrays normalize to [] and missing provenance stays absent.
+export const SETUP_BACKUP_SCHEMA_VERSION = 4;
 export const SETUP_BACKUP_TYPE = "portfolio-success-lab-full-setup";
 export const SETUP_BACKUP_PRIVACY_NOTICE = "Setup backups can include household ages, account balances, tax assumptions, healthcare inputs, heirs/goals, and decision preferences. Keep them local unless you intentionally share them with a CPA or trusted reviewer.";
 
@@ -64,6 +64,7 @@ export function normalizeSetupState(state) {
   };
   if (state.redesign != null) normalized.redesign = copyPlainObject(state.redesign);
   if (state.decisionProfile != null) normalized.decisionProfile = copyPlainObject(state.decisionProfile);
+  if (state.portfolioImport && typeof state.portfolioImport === 'object' && !Array.isArray(state.portfolioImport)) normalized.portfolioImport = copyPlainObject(state.portfolioImport);
   return normalized;
 }
 

@@ -7,7 +7,7 @@
     <meta name="description" content="Tax-aware retirement decumulation forecasting with Monte Carlo simulation, historical backtesting, and Sankey cash flow visualization.">
     <link rel="icon" href="./favicon.svg?v=20260505-favicon" type="image/svg+xml">
     <meta name="theme-color" content="#07111f">
-    <link rel="stylesheet" href="./src/styles.css?v=20260530-ws-mobile-fit">
+    <link rel="stylesheet" href="./src/styles.css?v=20260915-asset-row-pin">
     <link rel="stylesheet" href="./src/redesign.css?v=20260613-streaming-kpi-refresh-b">
     <script src="https://accounts.google.com/gsi/client" async defer></script>
   </head>
@@ -334,12 +334,20 @@
                 <div class="button-row" style="display:flex;flex-wrap:wrap;gap:.5rem;margin-bottom:.5rem;">
                   <button id="addAsset" class="ghost-button" type="button">+ Add account</button>
                   <button id="refreshPrices" class="ghost-button" type="button" title="Fetch current prices for rows with a Symbol / ID. Rows that cannot update are highlighted with the reason.">↻ Refresh prices</button>
-                  <label class="file-control" style="margin:0;">
+                  <label class="file-control monarch-file-control">
                     <span>Import CSV</span>
                     <input id="csvFile" type="file" accept="text/csv,.csv">
                   </label>
                   <a class="button-link" href="./sample-portfolio-import.csv" download>Sample CSV</a>
+                  <label class="file-control" style="margin:0;">
+                    <span>Import Monarch export</span>
+                    <input id="monarchFile" type="file" accept="application/json,.json">
+                  </label>
                 </div>
+                <p id="monarchProvenance" class="assumption-note" hidden></p>
+                <label id="monarchYtdControl" class="check-row" hidden><input id="monarchYtdEnabled" type="checkbox"><span>Use imported YTD history and remaining-year budgets for the first year</span></label>
+                <p id="monarchYtdSummary" class="assumption-note" hidden></p>
+                <section id="monarchPreview" class="monarch-preview" aria-label="Monarch import preview" hidden></section>
                 <p class="assumption-note" style="margin-bottom:1rem;">Symbol / ID accepts a ticker (live quote or previous close), a Treasury TIPS CUSIP (inflation-adjusted principal at par; units = face ÷ $100), or an I-bond purchase month like 2021-11 (official redemption value computed locally; units = face value in dollars). Prices update only when you click refresh — never on their own — and rows that could not update are highlighted with the reason on hover.</p>
                 <div class="control-grid" style="border-top: 1px solid var(--border); padding-top: 1rem; margin-bottom: 1rem;">
                   <label><span>Your remaining Roth contribution basis</span><input id="rothBasis" type="number" min="0" step="1000" value="60000"></label>
@@ -1383,6 +1391,7 @@
               </div>
             </div>
             <div class="ledger-wrap-dash">
+              <div id="quarterlyTaxPlan" hidden></div>
               <div id="yearTable" class="table-wrap"></div>
             </div>
           </section>
@@ -1471,7 +1480,7 @@
       <select id="viewMode"><option value="real" selected>Today's $</option><option value="nominal">Future $</option></select>
     </div>
 
-    <script type="module" src="./src/app.mjs?v=20260613-streaming-kpi-refresh-b"></script>
+    <script type="module" src="./src/app.mjs?v=20260613-streaming-kpi-refresh-b-20260915-asset-row-pin"></script>
     <script type="module" src="./src/redesign.mjs?v=20260613-streaming-kpi-refresh-b"></script>
   </body>
 </html>

@@ -3,7 +3,8 @@
 
 import { DEFAULT_TAX_PROFILE, computeSelfEmploymentTax, computeTaxableSocialSecurityBenefits, federalAgiFromNetting, netCapitalGainsAndLosses } from "../tax.mjs?v=20260613-rescue-precision";
 import { round } from "../utils.mjs";
-import { emptyEarnedIncome } from "./cashFlows.mjs";
+import { emptyEarnedIncome, mergeEarnedIncome } from "./cashFlows.mjs";
+import { ytdEarnedIncome, ytdInvestmentTotals } from '../yearToDate.mjs';
 import { hsaCapitalTotals } from '../stateInvestmentIncome.mjs';
 
 export function normalizeLossCarryforward(value) {
@@ -96,6 +97,20 @@ export function incomeForYear({
   scenario,
   lossCarryforward = { shortTerm: 0, longTerm: 0 }
 }) {
+  const ytd=scenario?.activeYearToDate;
+  if(ytd) {
+    const h=ytd.household, investment=ytdInvestmentTotals(ytd), pastEarned=ytdEarnedIncome(h);
+    ordinaryIncome+=investment.ordinaryDividends-investment.qualifiedDividends+h.taxableInterest+h.otherOrdinaryIncome+pastEarned.ordinaryIncome;
+    ordinaryInvestmentIncome+=investment.ordinaryDividends-investment.qualifiedDividends+h.taxableInterest;
+    earnedIncome=mergeEarnedIncome(earnedIncome,pastEarned);
+    qualifiedDividends+=investment.qualifiedDividends;
+    strategyShortTermGains+=investment.shortTermGains;
+    strategyLongTermGains+=investment.longTermGains+investment.capitalGainDistributions;
+    strategyShortTermLosses+=investment.shortTermLosses;
+    strategyLongTermLosses+=investment.longTermLosses;
+    strategyCapitalLosses+=investment.shortTermLosses+investment.longTermLosses;
+    socialSecurityBenefits+=h.socialSecurityBenefits;
+  }
   const incomeBeforeSocialSecurity = combineIncome({
     ordinaryIncome,
     retirementOrdinaryIncome,

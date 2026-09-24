@@ -50,6 +50,12 @@ export function medicalCostForYear({
   irmaaMagi,
   magiHistory
 }) {
+  if(scenario.activeYearToDate) {
+    const h=scenario.activeYearToDate.household;
+    return {total:h.remainingMedical,additionalCash:h.remainingMedical,includedInSpending:0,
+      medicare:emptyMedicareCost(),qualifiedHsaExpenses:h.remainingQualifiedHsaExpenses,ltcCost:0,
+      source:'Reviewed remaining-year healthcare budget'};
+  }
   const medIndex = medicalInflationIndex !== null && medicalInflationIndex !== undefined ? medicalInflationIndex : inflationIndex;
   const baseMedical = medicalCostForScenario(scenario, yearAcaConfig, medIndex, aca);
   const medicare = computeMedicareCostForYear({

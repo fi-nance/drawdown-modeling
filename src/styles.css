@@ -982,6 +982,56 @@ tbody tr:hover .pinned-col {
   background: color-mix(in srgb, var(--bg-elevated) 90%, var(--teal) 10%) !important;
 }
 
+/* The tracked asset stays directly below the sticky header while the asset
+   table scrolls vertically. Each cell is sticky so horizontal scrolling and
+   the existing pinned columns continue to compose correctly. */
+.pinned-asset-row > td {
+  position: sticky;
+  top: var(--pinned-asset-row-top, 0);
+  z-index: 3;
+  background: color-mix(in srgb, var(--bg-elevated) 88%, var(--teal) 12%);
+  box-shadow: inset 0 -1px 0 var(--border-focus);
+}
+
+.pinned-asset-row > td.pinned-col {
+  z-index: 3 !important;
+  background: color-mix(in srgb, var(--bg-elevated) 88%, var(--teal) 12%) !important;
+}
+
+.asset-row-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.asset-row-pin {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.5;
+}
+
+.asset-row-pin:hover,
+.asset-row-pin:focus-visible,
+.asset-row-pin.is-pinned {
+  border-color: var(--border-focus);
+  background: var(--teal-glow);
+  color: var(--teal);
+  opacity: 1;
+  box-shadow: none;
+  transform: none;
+}
+
 /* ─── Pin Toggle Button ──────────────────────────────────────────── */
 
 .pin-toggle {
@@ -1263,3 +1313,22 @@ th.is-sortable:hover .sort-indicator {
 .kpi:nth-child(3) { animation-delay: 0.1s; }
 .kpi:nth-child(4) { animation-delay: 0.15s; }
 .kpi:nth-child(5) { animation-delay: 0.2s; }
+/* Explicit local portfolio import: review before replacing holdings. */
+.monarch-file-control { margin: 0; }
+.monarch-preview { margin: 1rem 0; padding: 1rem; border: 1px solid var(--border); border-radius: 12px; }
+.monarch-preview[hidden] { display: none; }
+.monarch-preview h4 { margin-top: 0; font-size: 1.2rem; }
+.monarch-preview p { line-height: 1.5; }
+.monarch-preview details { margin: .9rem 0; }
+.monarch-table-scroll { overflow: auto; max-height: 24rem; margin: .8rem 0; }
+.monarch-table-scroll table { width: 100%; border-collapse: collapse; font-size: .85rem; }
+.monarch-table-scroll th, .monarch-table-scroll td { padding: .65rem; text-align: left; border-bottom: 1px solid var(--border); vertical-align: top; }
+.monarch-table-scroll td { overflow-wrap: anywhere; min-width: 6rem; }
+.monarch-table-scroll caption { text-align: left; font-weight: 600; margin-bottom: .5rem; }
+.quarterly-tax-plan { margin: 1rem 0; padding: 1rem; border: 1px solid var(--line, #ccd8de); border-radius: 12px; max-width: 100%; }
+.quarterly-tax-plan h4 { margin-top: 0; }
+.quarterly-tax-plan table { width: 100%; font-variant-numeric: tabular-nums; }
+.quarterly-tax-plan th, .quarterly-tax-plan td { padding: .6rem; text-align: right; white-space: nowrap; }
+.quarterly-tax-plan th:first-child, .quarterly-tax-plan td:first-child { text-align: left; }
+.quarterly-tax-plan p { overflow-wrap: anywhere; margin: .75rem 0; line-height: 1.5; }
+.quarterly-tax-plan .assumption-note { color: var(--text-secondary, #9aa7b7); font-size: .85rem; letter-spacing: normal; line-height: 1.5; }

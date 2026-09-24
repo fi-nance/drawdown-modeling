@@ -1,4 +1,5 @@
 import { slugify } from "./utils.mjs";
+import { termOnDate } from './lotDates.mjs';
 
 const VALID_ACCOUNT_TYPES = new Set(["taxable", "traditional", "roth", "hsa"]);
 export const VALID_ASSET_CLASSES = new Set(["stock", "bond", "cash", "realEstate", "tips", "crypto"]);
@@ -126,6 +127,7 @@ export function parsePortfolioJson(text) {
     throw new Error(`Invalid JSON: ${error.message}`);
   }
 
+  if (parsed?.type === 'monarch-drawdown-portfolio') throw new Error('Use Import Monarch export to validate and preview this file.');
   const assets = Array.isArray(parsed) ? parsed : parsed.assets;
   if (!Array.isArray(assets)) {
     throw new Error("Portfolio JSON must be an array or an object with an assets array.");
@@ -298,11 +300,12 @@ export function normalizeImportedAsset(asset, index = 0) {
     assetClass,
     units: numberOrNull(asset.units),
     price: numberOrNull(asset.price),
-    costBasisPerUnit: hasTotalBasis ? totalBasis / units : firstFiniteNumber(asset.costBasisPerUnit, asset.price),
+    costBasisPerUnit: hasTotalBasis ? totalBasis / units : asset.costBasisPerUnit === null && ['roth','traditional'].includes(accountType) ? null : firstFiniteNumber(asset.costBasisPerUnit, asset.price),
     dividendYield: firstFiniteNumber(asset.dividendYield, 0),
     ...(stateExemptInterestShare !== null ? {stateExemptInterestShare} : {}),
     qualifiedDividendShare: firstFiniteNumber(asset.qualifiedDividendShare, defaultQualifiedDividendShare(assetClass)),
-    holdingPeriod: canonicalHoldingPeriod(asset.holdingPeriod ?? "long"),
+    holdingPeriod: asset.acquiredDate ? termOnDate(asset.acquiredDate, asset.valuationDate) : ['roth','traditional'].includes(accountType) && asset.holdingPeriod === 'unknown' ? 'unknown' : canonicalHoldingPeriod(asset.holdingPeriod ?? "long"),
+    ...(asset.acquiredDate ? { acquiredDate:asset.acquiredDate, valuationDate:asset.valuationDate } : {}),
     beneficiaryType: canonicalBeneficiaryType(asset.beneficiaryType ?? "default"),
     ...(String(asset.beneficiaryId ?? "").trim() ? { beneficiaryId: String(asset.beneficiaryId).trim() } : {}),
     ...(beneficiaryAge !== null ? { beneficiaryAge } : {}),

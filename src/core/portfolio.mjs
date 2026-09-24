@@ -2,6 +2,7 @@ import { copyRothLedger } from "./rothLedger.mjs";
 import { copyIraLedger } from "./iraBasis.mjs";
 import { EPSILON, round, sumBy } from "./utils.mjs";
 import { stateExemptInterestShare } from './stateInvestmentIncome.mjs';
+import { isoDay, shiftDayYear, termOnDate } from './lotDates.mjs';
 
 const MIN_PRICE_FACTOR_AFTER_INCOME_SPLIT = 1e-8;
 
@@ -46,7 +47,7 @@ export function applyReturns(assets = [], returnsByAssetClass = {}) {
   }
 }
 
-export function applyTotalReturnsWithIncome(assets = [], returnsByAssetClass = {}) {
+export function applyTotalReturnsWithIncome(assets = [], returnsByAssetClass = {}, { incomeFraction = 1 } = {}) {
   const result = emptyDividendResult();
 
   for (const asset of assets) {
@@ -63,7 +64,7 @@ export function applyTotalReturnsWithIncome(assets = [], returnsByAssetClass = {
       continue;
     }
 
-    const incomeReturn = incomeReturnForTotalReturn(asset, totalReturn);
+    const incomeReturn = incomeReturnForTotalReturn(asset.assetClass === 'cash' ? asset : {...asset,dividendYield:(asset.dividendYield??0)*incomeFraction}, totalReturn);
     const priceReturn = totalReturn - incomeReturn;
     asset.price = round(Math.max(0, startingPrice * (1 + priceReturn)), 8);
 
@@ -284,19 +285,22 @@ export function harvestTaxGains(assets = [], maxGain = Infinity, { calendarYear 
   };
 }
 
-// Promote "short" lots that were created by a prior-year TLH/TGH back to
-// "long" once at least one full simulation year has elapsed since the
-// reset. Lots without `holdingPeriodResetCalendarYear` are user-classified
-// (or pre-existing) and left untouched — the simulator does not have
-// acquisition-date info for those.
-export function ageHoldingPeriods(assets = [], calendarYear) {
+// Dated imports age at annual anniversaries of their opening valuation date.
+// Harvest resets take precedence. Undated user-classified lots retain their term.
+export function ageHoldingPeriods(assets = [], calendarYear, { yearIndex, asOfDate } = {}) {
   if (!Number.isFinite(calendarYear)) return;
   for (const asset of assets) {
-    if (asset.holdingPeriod !== "short") continue;
     const resetYear = asset.holdingPeriodResetCalendarYear;
-    if (Number.isFinite(resetYear) && resetYear < calendarYear) {
-      asset.holdingPeriod = "long";
-      delete asset.holdingPeriodResetCalendarYear;
+    if (Number.isFinite(resetYear)) {
+      if (resetYear < calendarYear) {
+        asset.holdingPeriod = "long";
+        delete asset.holdingPeriodResetCalendarYear;
+        delete asset.acquiredDate; // A harvest reset supersedes the imported acquisition date.
+      }
+    } else if (asset.acquiredDate && asset.valuationDate) {
+      const elapsed = Number.isInteger(yearIndex) ? yearIndex : calendarYear-isoDay(asset.valuationDate).getUTCFullYear();
+      if (elapsed < 0) throw new Error('Simulation date precedes imported portfolio valuation.');
+      asset.holdingPeriod = termOnDate(asset.acquiredDate, asOfDate ?? shiftDayYear(asset.valuationDate,elapsed));
     }
   }
 }

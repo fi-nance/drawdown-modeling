@@ -1,5 +1,6 @@
 import { marketValue } from '../portfolio.mjs';
 import { round } from '../utils.mjs';
+import { remainingYearFraction } from '../yearToDate.mjs';
 
 export function annualAdvisoryFees(portfolio, scenario) {
   const config = scenario.fees ?? {};
@@ -11,7 +12,8 @@ export function annualAdvisoryFees(portfolio, scenario) {
 export function applyFundExpenses(portfolio, scenario) {
   const config = scenario.fees ?? {};
   if (config.returnsNetOfFundExpenses !== false) return 0;
-  const rate = Math.max(0, Math.min(0.1, Number(config.fundExpenseRate) || 0));
+  const rate = Math.max(0, Math.min(0.1, Number(config.fundExpenseRate) || 0))
+    * (scenario.activeYearToDate?remainingYearFraction(scenario.activeYearToDate):1);
   let expenses = 0;
   for (const asset of portfolio) {
     // Individually held TIPS ladder securities have no mutual-fund NAV fee.

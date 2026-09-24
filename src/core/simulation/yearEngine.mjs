@@ -1,4 +1,7 @@
 import { conversionIncomeDetails } from "./withdrawalExecution.mjs";
+import { calculateQuarterlyTax, federalEstimatedTaxLiability } from '../quarterlyTax.mjs';
+import { yearToDateForScenario, remainingYearFraction, partialYearScenario, periodReturn, ytdEarnedIncome,
+  ytdInvestmentTotals, ytdCapitalEvents, remainingTaxCash } from '../yearToDate.mjs';
 import { hsaCapitalTotals, hsaCapitalEvents } from '../stateInvestmentIncome.mjs';
 import { socialSecurityEarningsForYear } from "./socialSecurityEarnings.mjs";
 import { annualAdvisoryFees, applyFundExpenses } from "./fees.mjs";
@@ -92,6 +95,16 @@ function simulateYearOnce({
   conditionalAssetSaleState = null,
   maximumHarvestGain = Infinity
 }) {
+  const ytd=yearToDateForScenario(scenario,yearIndex);
+  const periodFraction=ytd?remainingYearFraction(ytd):1;
+  const calendarImport=scenario.portfolioImport?.yearToDate && scenario.portfolioImport.yearToDateEnabled!==false;
+  scenario=partialYearScenario(scenario,ytd);
+  if(ytd) {
+    passedBaseSpend=null;
+    spendingGuardrail=null;
+    returnByAssetClass=Object.fromEntries(Object.entries(returnByAssetClass).map(([key,value])=>[key,periodReturn(value,periodFraction)]));
+    annualInflationRate=periodReturn(annualInflationRate??0,periodFraction);
+  }
   // Accept either a number (legacy: treated as long-term) or
   // { shortTerm, longTerm } object so callers can preserve §1212(b) character.
   lossCarryforward = normalizeLossCarryforward(lossCarryforward);
@@ -157,7 +170,8 @@ function simulateYearOnce({
   // Promote any prior-year-harvested "short" lots back to "long" once a
   // full simulation year has elapsed since the reset, before we compute
   // beginning-of-year snapshots and run any sales/harvests.
-  ageHoldingPeriods(portfolio, calendarYear);
+  ageHoldingPeriods(portfolio, calendarYear, { yearIndex,
+    ...(calendarImport?{asOfDate:ytd?new Date(Date.parse(ytd.through+'T00:00:00Z')+86400000).toISOString().slice(0,10):`${calendarYear}-01-01`}:{}) });
   const beginningPortfolioValue = portfolioValue(portfolio);
   const beginningTraditionalByOwner = traditionalAccountValueByOwner(portfolio);
   // Owner age clock for per-asset penalty/HSA-age rules. In survivor years
@@ -165,8 +179,8 @@ function simulateYearOnce({
   // the surviving holder, so both owners resolve to the surviving age.
   const ownerAges = { primary: age, spouse: Number.isFinite(spouseAge) ? spouseAge : age };
   const beginningAssets = assetSnapshot(portfolio);
-  const advisoryFees = annualAdvisoryFees(portfolio, scenario);
-  const dividends = applyTotalReturnsWithIncome(portfolio, returnByAssetClass);
+  const advisoryFees = annualAdvisoryFees(portfolio, scenario)*periodFraction;
+  const dividends = applyTotalReturnsWithIncome(portfolio, returnByAssetClass, {incomeFraction:periodFraction});
   // Deterministic repricing for TIPS ladder rungs (skipped by the sampled growth
   // pass above): rungs are PAR coupon bonds tracking the inflation-adjusted
   // principal. The taxable inflation adjustment is ordinary phantom income this
@@ -193,7 +207,7 @@ function simulateYearOnce({
     oneOffCashFlows.expenses = round(oneOffCashFlows.expenses + advisoryFees, 6);
     oneOffCashFlows.expenseDetails.push({ name: 'Annual advisory/account fees', amount: advisoryFees });
   }
-  const recurringEarnedIncome = earnedIncomeForYear(scenario, inflationIndex, { primaryDeceased, spouseDeceased, yearIndex });
+  const recurringEarnedIncome = ytd?ytdEarnedIncome(ytd.household,true):earnedIncomeForYear(scenario, inflationIndex, { primaryDeceased, spouseDeceased, yearIndex });
   const earnedIncome = mergeEarnedIncome(recurringEarnedIncome, oneOffCashFlows.earnedIncome);
   // Recurring income streams (pension/annuity/rent/other): owner-age gated,
   // optional COLA, survivor share, ordinary or tax-free character. The
@@ -201,6 +215,11 @@ function simulateYearOnce({
   // eligible amounts also count as retirement ordinary income so state
   // pension/IRA exclusions apply.
   const streamIncome = incomeStreamsForYear({ scenario, yearIndex, inflationIndex });
+  if(ytd) {
+    for(const key of ['cash','ordinaryIncome','retirementOrdinaryIncome','ordinaryInvestmentIncome','taxFreeIncome']) streamIncome[key]*=periodFraction;
+    streamIncome.retirementIncomeDetails=streamIncome.retirementIncomeDetails.map(d=>({...d,amount:d.amount*periodFraction}));
+    streamIncome.details=streamIncome.details.map(d=>({...d,amount:d.amount*periodFraction}));
+  }
   // Taxable-rung coupon cash joins the year's available income cash so it offsets
   // withdrawals (free for spending or rebalancing); sheltered coupons stayed in
   // their account above and are NOT household cash.
@@ -224,8 +243,8 @@ function simulateYearOnce({
     capitalLossCarryforward: stateLossCarryforward,
     hsaPersonalContribution: hsaContribution.amount,
     hsaEmployerContribution: Object.values(hsaContribution.employerLimitContributions ?? hsaContribution.employerByOwner ?? {}).reduce((sum, value) => sum + value, 0),
-    hsaInvestmentIncome: dividends.hsaInvestmentIncome ?? 0,
-    stateExemptInterest: (dividends.stateExemptInterest ?? 0) + tipsLadderPhantomIncome + tipsLadderCouponCash};
+    hsaInvestmentIncome: (dividends.hsaInvestmentIncome ?? 0) + ytdInvestmentTotals(ytd,'HSA').ordinaryDividends + ytdInvestmentTotals(ytd,'HSA').exemptInterest,
+    stateExemptInterest: (dividends.stateExemptInterest ?? 0) + tipsLadderPhantomIncome + tipsLadderCouponCash + (ytd?.household.stateExemptInterest??0)};
   let strategyCapitalLosses = 0;
   const capitalEvents = [{owner:'primary',accountType:'taxable',gain:conditionalAssetSales.taxableLongTermGain,taxType:'long'}];
   let strategyShortTermLosses = 0;
@@ -341,6 +360,11 @@ function simulateYearOnce({
     ...assetLocation.sales, ...allocationStrategy.sales,
     ...(tipsLadderBuild?.sales ?? []), ...(tipsLadderMaintenance?.sales ?? [])
   ]);
+  if(ytd && yearTaxProfile.state) {
+    const hsa=ytdInvestmentTotals(ytd,'HSA');
+    yearTaxProfile.state.hsaCapitalGains.shortTerm+=hsa.shortTermGains-hsa.shortTermLosses;
+    yearTaxProfile.state.hsaCapitalGains.longTerm+=hsa.longTermGains+hsa.capitalGainDistributions-hsa.longTermLosses;
+  }
 
   // Per-owner RMDs: spouse-owned traditional accounts use the spouse's age,
   // factor, and SECURE 2.0 start age; each bucket withdraws only from that
@@ -353,6 +377,13 @@ function simulateYearOnce({
     traditionalByOwner: beginningTraditionalByOwner,
     survivorOwner
   });
+  if(ytd) {
+    for(const owner of ['primary','spouse']) {
+      const amount=ytd.household[owner==='primary'?'remainingRmdPrimary':'remainingRmdSpouse'];
+      rmd.byOwner[owner]={...(rmd.byOwner[owner]??{}),amount,factor:null,startAge:null};
+    }
+    rmd.amount=ytd.household.remainingRmdPrimary+ytd.household.remainingRmdSpouse;
+  }
   let rmdWithdrawal = emptyWithdrawal(rothBasisRemaining, annualPenaltyExceptionAmount);
   // TIPS ladder rungs maturing this year are distributed BEFORE the forced
   // RMD sales, through the same withdrawal machinery (ordinary income, MAGI,
@@ -447,7 +478,9 @@ function simulateYearOnce({
     if (components) nextSocialSecurityCredits.spousal = result.spousalCreditedMonths;
     return result.payable;
   };
-  if (customSocialSecurityBenefits !== null) {
+  if(ytd) {
+    socialSecurityBenefits=ytd.household.remainingSocialSecurityBenefits;
+  } else if (customSocialSecurityBenefits !== null) {
     const owner = primaryDeceased ? 'spouse' : 'primary';
     const ownPayable = applyEarnings(owner, age, survivorSocialSecurity.ownBenefit);
     const ownTest = socialSecurityEarningsTest[owner];
@@ -601,7 +634,7 @@ function simulateYearOnce({
           capitalLossCarryforward: lossCarryforward,
           profile: yearTaxProfile
         });
-        provisionalTaxes = taxes.totalTax + Math.max(0, passOneBase.penaltyTax ?? 0);
+        provisionalTaxes = remainingTaxCash(taxes,scenario) + Math.max(0, passOneBase.penaltyTax ?? 0);
       }
       {
         const offsetCap = yearTaxProfile?.capitalLossOrdinaryIncomeOffset ?? 3000;
@@ -756,7 +789,7 @@ function simulateYearOnce({
     });
 
     const nextMedical = chosenPlan.medicalTotal;
-    const nextTax = chosenPlan.taxes.totalTax;
+    const nextTax = remainingTaxCash(chosenPlan.taxes,scenario);
     const totalCost = nextMedical + nextTax;
     if (totalCost > highestCostTotal) {
       highestCostTotal = totalCost;
@@ -794,7 +827,7 @@ function simulateYearOnce({
     finalRothBasisOptimization = highestCostPlan.rothBasisOptimization;
     medicalEstimate = highestCostPlan.medicalTotal;
     qualifiedHsaExpenses = highestCostPlan.qualifiedHsaExpenses;
-    taxEstimate = highestCostPlan.taxes.totalTax;
+    taxEstimate = remainingTaxCash(highestCostPlan.taxes,scenario);
   }
 
   if (scenario.taxGainHarvesting?.enabled) {
@@ -960,7 +993,7 @@ function simulateYearOnce({
 
   const totalCashRequired = plannedSpending
     + medicalEstimate
-    + (scenario.targetSpendIncludesTaxes ? 0 : finalTaxes.totalTax)
+    + (scenario.targetSpendIncludesTaxes ? 0 : remainingTaxCash(finalTaxes,scenario))
     + hsaContribution.amount;
   const { income: finalIncome, taxableSocialSecurity: reconciledTaxableSocialSecurity } = incomeForYear({
     ordinaryIncome,
@@ -1063,7 +1096,7 @@ function simulateYearOnce({
       type: "income"
     });
   }
-  const taxRefundCash = scenario.targetSpendIncludesTaxes ? 0 : Math.max(0, -finalTaxes.totalTax);
+  const taxRefundCash = scenario.targetSpendIncludesTaxes ? 0 : Math.max(0, -remainingTaxCash(finalTaxes,scenario));
   if (taxRefundCash > 0) {
     flows.push({
       from: "Tax refund",
@@ -1072,8 +1105,8 @@ function simulateYearOnce({
       type: "income"
     });
   }
-  if (finalTaxes.totalTax > 0) {
-    const incomeTax = Math.max(0, finalTaxes.totalTax - (finalTaxes.penaltyTax ?? 0));
+  if (remainingTaxCash(finalTaxes,scenario) > 0) {
+    const incomeTax = Math.max(0, remainingTaxCash(finalTaxes,scenario) - (finalTaxes.penaltyTax ?? 0));
     if (incomeTax > 0) flows.push({ from: "Spending reserve", to: "Tax payment", amount: incomeTax, type: "tax" });
     if ((finalTaxes.penaltyTax ?? 0) > 0) {
       flows.push({
@@ -1162,6 +1195,14 @@ function simulateYearOnce({
 
   return {
     year: calendarYear,
+    ...(ytd?.quarterlyTax?{quarterlyTax:yearTaxProfile.filingStatus===ytd.quarterlyTax.filingStatus
+      ?calculateQuarterlyTax(ytd.quarterlyTax,federalEstimatedTaxLiability(finalTaxes))
+      :{unavailable:'The first-year filing status changed. Review prior-year eligibility and re-export quarterly inputs.'}}:{}),
+    ...(ytd?{yearToDate:{through:ytd.through,remainingYearFraction:periodFraction,household:ytd.household,accounts:ytd.accounts,
+      fullYearTaxLiability:finalTaxes.totalTax,remainingTaxCash:remainingTaxCash(finalTaxes,scenario),
+      taxPaid:ytd.household.federalTaxPaid+ytd.household.stateTaxPaid+ytd.household.payrollTaxPaid,
+      unspentTaxCredit:Math.max(0,ytd.household.federalTaxPaid+ytd.household.stateTaxPaid+ytd.household.payrollTaxPaid-finalTaxes.totalTax+remainingTaxCash(finalTaxes,scenario)),
+      note:'Tax liability includes YTD; cash flows cover only the remaining period. Overpayments/refunds are not available cash.'}}:{}),
     iraBasis: iraYearSummary(portfolio),
     rothConversionTaxableAmount,
     rothConversionNontaxableAmount: round(rothConversionAmount - rothConversionTaxableAmount, 6),
@@ -1269,7 +1310,7 @@ function simulateYearOnce({
     } : null,
     irmaaMagi: finalIrmaaMagi,
     magi: finalMagi,
-    realizedLongTermGains: round(strategyLongTermGains + finalWithdrawal.longTermCapitalGains, 6),
+    realizedLongTermGains: round(strategyLongTermGains + finalWithdrawal.longTermCapitalGains + ytdInvestmentTotals(ytd).longTermGains + ytdInvestmentTotals(ytd).capitalGainDistributions, 6),
     taxGainHarvested: round(Math.max(
       0,
       strategyLongTermGains
@@ -1279,15 +1320,15 @@ function simulateYearOnce({
         - (tipsLadderMaintenance?.longTermCapitalGains ?? 0)
         - conditionalAssetSales.taxableLongTermGain
     ), 6),
-    realizedShortTermGains: round(strategyShortTermGains + finalWithdrawal.shortTermCapitalGains, 6),
-    realizedCapitalLosses: round(strategyCapitalLosses + finalWithdrawal.capitalLosses, 6),
-    capitalEvents: [...capitalEvents, ...lossHarvest.flows, ...assetLocation.sales, ...allocationStrategy.sales,
+    realizedShortTermGains: round(strategyShortTermGains + finalWithdrawal.shortTermCapitalGains + ytdInvestmentTotals(ytd).shortTermGains, 6),
+    realizedCapitalLosses: round(strategyCapitalLosses + finalWithdrawal.capitalLosses + ytdInvestmentTotals(ytd).shortTermLosses + ytdInvestmentTotals(ytd).longTermLosses, 6),
+    capitalEvents: [...ytdCapitalEvents(ytd), ...capitalEvents, ...lossHarvest.flows, ...assetLocation.sales, ...allocationStrategy.sales,
       ...(tipsLadderBuild?.sales ?? []), ...(tipsLadderMaintenance?.sales ?? []), ...finalWithdrawal.sales]
       .filter(event => event.accountType === 'taxable' && Number.isFinite(event.gain) && event.gain !== 0)
       .map(({owner,gain,taxType})=>({owner,gain,taxType})),
     lossCarryforward: finalTaxes.lossCarryforward,
-    stateHsaCapitalEvents: hsaCapitalEvents([...assetLocation.sales, ...allocationStrategy.sales,
-      ...(tipsLadderBuild?.sales ?? []), ...(tipsLadderMaintenance?.sales ?? []), ...finalWithdrawal.sales]),
+    stateHsaCapitalEvents: [...ytdCapitalEvents(ytd,'HSA'),...hsaCapitalEvents([...assetLocation.sales, ...allocationStrategy.sales,
+      ...(tipsLadderBuild?.sales ?? []), ...(tipsLadderMaintenance?.sales ?? []), ...finalWithdrawal.sales])],
     stateLossCarryforward: finalTaxes.stateTaxBreakdown?.capitalLossCarryforward ?? null,
     lossCarryforwardDetail: {
       shortTerm: finalTaxes.lossCarryforwardShort ?? 0,
@@ -1415,7 +1456,7 @@ function reconcileCashRequirement({
   for (let iteration = 0; iteration < 10; iteration += 1) {
     const totalCashRequired = plannedSpending
       + currentMedicalEstimate
-      + (scenario.targetSpendIncludesTaxes ? 0 : currentTaxes.totalTax)
+      + (scenario.targetSpendIncludesTaxes ? 0 : remainingTaxCash(currentTaxes,scenario))
       + hsaContributionAmount;
     const cashAvailable = dividends.cash + incomeCashAvailable + socialSecurityBenefits + currentWithdrawal.cashRaised;
     const gap = totalCashRequired - cashAvailable;
@@ -1498,7 +1539,7 @@ function reconcileCashRequirement({
   for (let iteration = 0; iteration < 20; iteration += 1) {
     const totalCashRequired = plannedSpending
       + currentMedicalEstimate
-      + (scenario.targetSpendIncludesTaxes ? 0 : currentTaxes.totalTax)
+      + (scenario.targetSpendIncludesTaxes ? 0 : remainingTaxCash(currentTaxes,scenario))
       + hsaContributionAmount;
     const cashAvailable = dividends.cash + incomeCashAvailable + socialSecurityBenefits + currentWithdrawal.cashRaised;
     const gap = totalCashRequired - cashAvailable;

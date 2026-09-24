@@ -2,6 +2,7 @@
 // Single responsibility: plan. No behavior changes — pure code movement.
 
 import { ensureRothLedger, rothContributionBalance, rolloverRothLedger } from "../rothLedger.mjs";
+import { yearToDateForScenario, remainingYearFraction, periodReturn } from '../yearToDate.mjs';
 import { ensureIraLedger, prepareRetirementAccounts, rolloverIraLedger } from '../iraBasis.mjs';
 import { openingLossLedger, totalLossLedger, advanceLossLedger } from '../capitalLossLedger.mjs';
 import { validateAcaCostSharing } from '../acaCostSharing.mjs';
@@ -39,6 +40,8 @@ export function simulatePlan({
   gainHarvestingPolicy = null
 }) {
   const mergedScenario = ensureReturnAssumptionsForAssets(mergeScenario(scenario), assets);
+  const ytd=yearToDateForScenario(mergedScenario);
+  const firstYearFraction=ytd?remainingYearFraction(ytd):1;
   validateAcaCostSharing(mergedScenario.aca);
   validateHsaCoverage(mergedScenario);
   assets = prepareRetirementAccounts(assets);
@@ -100,8 +103,8 @@ export function simulatePlan({
       : primaryDeceased;
 
     if (yearIndex > 0) {
-      inflationIndex *= 1 + annualInflation(mergedScenario, inflationSequence, yearIndex - 1);
-      medicalInflationIndex *= 1 + annualMedicalInflation(mergedScenario, medInflationSeq, yearIndex - 1, inflationSequence);
+      inflationIndex *= 1 + periodReturn(annualInflation(mergedScenario, inflationSequence, yearIndex - 1),yearIndex===1?firstYearFraction:1);
+      medicalInflationIndex *= 1 + periodReturn(annualMedicalInflation(mergedScenario, medInflationSeq, yearIndex - 1, inflationSequence),yearIndex===1?firstYearFraction:1);
     }
 
     if (bothDeceased) {
@@ -266,7 +269,7 @@ export function simulatePlan({
     spendingGuardrailMarketState = advanceSpendingGuardrailMarketState({
       scenario: mergedScenario,
       marketState: spendingGuardrailMarketState,
-      returnByAssetClass
+      returnByAssetClass: yearIndex===0&&ytd?Object.fromEntries(Object.entries(returnByAssetClass).map(([k,v])=>[k,periodReturn(v,firstYearFraction)])):returnByAssetClass
     });
 
     lossCarryforward = result.lossCarryforwardDetail ?? normalizeLossCarryforward(result.lossCarryforward);
