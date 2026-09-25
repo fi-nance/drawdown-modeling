@@ -51,11 +51,19 @@ export function attachMonarchImport({ readAssets, apply, isBusy, reportError }) 
     const file=input.files?.[0];clear();
     if(!file) return;
     const request=sequence;
+    let raw;
     try {
       if(file.size>12*1024*1024) throw new Error('Monarch export exceeds the 12 MiB limit.');
-      const raw=await file.text();
-      if(request===sequence) stage(raw);
-    } catch(error){reportError(error);}
+      raw=await file.text();
+    } catch(error){
+      // A superseded or canceled read must not overwrite the current status.
+      if(request===sequence) reportError(error);
+      return;
+    }
+    if(request!==sequence) return;
+    // stage() clears the prior preview and advances sequence. Keep its parse
+    // errors separate from the asynchronous read's supersession check.
+    try { stage(raw); } catch(error){reportError(error);}
   });
   return {stage,clear};
 }

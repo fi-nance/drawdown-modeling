@@ -1041,6 +1041,9 @@ function findSequenceReserve({ assets, scenario, taxProfile, runs, seed, sequenc
 // lengths (a longer floor for sequence/inflation failures, shorter to free
 // growth assets). Mechanical lever — no lifestyle cost.
 function findTipsLadderRescue({ assets, scenario, taxProfile, runs, seed, sequences, profile, base, tracker }) {
+  // A ladder requires a full-year opening balance. Do not let an automatic
+  // rescue probe abort an otherwise valid remaining-year simulation.
+  if (scenario.portfolioImport?.yearToDate && scenario.portfolioImport.yearToDateEnabled !== false) return null;
   const searchRuns = solverSearchRuns(runs);
   const ladderConfig = plainObject(scenario?.tipsLadder) ? scenario.tipsLadder : {};
   const baseEnabled = ladderConfig.enabled === true;

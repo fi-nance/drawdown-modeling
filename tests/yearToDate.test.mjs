@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
-import { simulatePlan } from '../src/core/simulation.mjs';
+import { DEFAULT_SCENARIO, simulatePlan } from '../src/core/simulation.mjs';
+import { runDecisionBatch } from '../src/core/decisionEngine.mjs';
 import { YTD_HOUSEHOLD_FIELDS, validateYearToDate, remainingYearFraction, remainingTaxCash, periodReturn } from '../src/core/yearToDate.mjs';
 import { parseMonarchPortfolio } from '../src/core/monarchImport.mjs';
 import { createSetupBackup, parseSetupBackup } from '../src/core/setupBackup.mjs';
@@ -23,6 +24,19 @@ function account(taxBucket='Taxable',values={}) {
     shortTermGains:0,shortTermLosses:0,longTermGains:0,longTermLosses:0,estimatedQualifiedDividends:0,estimatedSales:0,...values};
 }
 const cash={id:'fictional-cash',name:'Example cash',accountType:'taxable',assetClass:'cash',units:100000,price:1,costBasisPerUnit:1};
+test('YTD decision runs finish without unsupported ladder probes; annual mode retains ladder recommendations',()=>{
+  for(const enabled of [true,false]) {
+    const portfolioImport=source();portfolioImport.yearToDateEnabled=enabled;
+    const decision=runDecisionBatch({assets:[cash],taxProfile:flat,runs:2,seed:42,
+      scenario:{...DEFAULT_SCENARIO,startYear:2026,currentAge:50,spouseAge:null,planYears:2,targetSpend:1000,
+        portfolioImport,aca:{enabled:false},medicare:{enabled:false},targetSpendIncludesMedical:true,
+        socialSecurityAnnualBenefit:0,withdrawalStrategyMode:'heuristic',
+        taxLossHarvesting:{enabled:false},taxGainHarvesting:{enabled:false},rothConversion:{enabled:false}}});
+    assert.ok(decision.verdict);
+    const options=[...decision.rescueOptions,...decision.testedRescueOptions];
+    assert.equal(options.some(option=>option.kind==='tipsLadder'),!enabled);
+  }
+});
 function run(s=source(),overrides={},assets=[cash],taxProfile=flat) {
   return simulatePlan({assets,taxProfile,scenario:{startYear:2026,currentAge:50,spouseAge:null,planYears:2,targetSpend:0,
     portfolioImport:s,aca:{enabled:false},medicare:{enabled:false},targetSpendIncludesMedical:true,
