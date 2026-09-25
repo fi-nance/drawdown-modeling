@@ -1,2 +1,5 @@
 .gstack/
 .claude/
+node_modules/
+playwright-report/
+test-results/

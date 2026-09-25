@@ -53,7 +53,7 @@ Version 2 exports optionally include reviewed **year-to-date investment tax hist
 
 Past receipts and sale proceeds never create new portfolio cash. Full-year tax/MAGI and capital-loss carryovers include YTD once; IRA/Roth internal trading stays outside federal taxable income and HSA activity remains separate for state treatment. The first year uses explicit remaining wages (separate taxable/FICA bases), Social Security, living spend, healthcare and RMDs. Returns compound over remaining days; dividends, streams and fees are prorated. Scheduled one-offs and tax strategies are future activity only. Later years resume annual controls; carryovers begin with January 1 balances. The yearly table distinguishes full-year liability, taxes paid and remaining tax cash. Federal/state/employee-payroll overpayments are not cross-applied or reinvested as refund cash.
 
-The bridge requires complete reviewed coverage and explicit zero amounts, and rejects incomplete classification or sale basis. Estimated dividend qualification stays provisional. Remaining-year mode currently excludes past retirement/HSA withdrawals or contributions, completed conversions, tax-exempt interest, railroad wages, special-rate gains and TIPS ladders. First-year healthcare uses an explicit remaining budget, without ACA credit reconciliation; annual healthcare modeling resumes in year two. The optional reviewed quarterly inputs below add federal regular-installment planning; penalty amounts remain outside the model. [Dividend treatment](https://www.irs.gov/taxtopics/tc404), [tax payments](https://www.irs.gov/publications/p505).
+The bridge requires complete reviewed coverage and explicit zero amounts, and rejects incomplete classification or sale basis. Estimated dividend qualification stays provisional. Remaining-year mode currently excludes past retirement/HSA withdrawals or contributions, completed conversions, tax-exempt interest, railroad wages, special-rate gains and TIPS ladders. Automatic recommendations skip TIPS ladders while YTD mode is enabled. First-year healthcare uses an explicit remaining budget, without ACA credit reconciliation; annual healthcare modeling resumes in year two. The optional reviewed quarterly inputs below add federal regular-installment planning; penalty amounts remain outside the model. [Dividend treatment](https://www.irs.gov/taxtopics/tc404), [tax payments](https://www.irs.gov/publications/p505).
 
 The browser reads the selected file locally, including in Privacy mode. Remember setup governs browser persistence. Export files and setup/audit backups contain financial data; keep them private. No credentials are included. The upstream Google sync and this import do not run in the background or create snapshots automatically.
 
@@ -69,6 +69,21 @@ Then open:
 ```text
 http://localhost:4173/
 ```
+
+### Automated browser / DOM tests
+
+Install the development dependencies and Chromium once:
+
+```bash
+npm ci
+npx playwright install chromium
+```
+
+`npm test` runs the core Node suite. `npm run test:dom` runs the actual app in headless Chromium at desktop and mobile sizes; `npm run test:all` runs both suites. The browser runner starts and stops its own local server on port 4187. On Linux CI, install Chromium's system dependencies with `npx playwright install --with-deps chromium`.
+
+The DOM suite covers Monarch review/cancel/apply, generic JSON routing, edits during review, busy-state guards, oversized/unreadable/expired files, out-of-order reads, escaped imported text, YTD mode and setup persistence, quarterly results after rerunning, and asset-row pinning across sorting, years, reload, depletion and resize. It uses fictional data, disposable browser contexts, a fixed date, and blocks external browser requests. Production assets and provider credentials are not needed. Playwright is a development dependency and is not loaded by the app.
+
+GitHub Actions runs both suites on pushes and pull requests. Failures save a screenshot and a Playwright trace under the ignored `test-results/` directory, uploaded as a CI artifact for seven days. To inspect one, run `npx playwright show-trace <path-to-trace.zip>`. To debug interactively, run `npm run test:dom -- --project=desktop --headed`.
 
 ## Onboarding
 
